@@ -16,6 +16,10 @@ class AppConfig:
     smtp_username: str | None
     smtp_password: str | None
     smtp_from: str | None
+    llm_provider: str
+    llm_base_url: str
+    llm_model: str | None
+    llm_api_key: str | None
 
 
 def load_config() -> AppConfig:
@@ -37,4 +41,8 @@ def load_config() -> AppConfig:
         smtp_username=os.environ.get("SMTP_USERNAME"),
         smtp_password=os.environ.get("SMTP_PASSWORD"),
         smtp_from=os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USERNAME"),
+        llm_provider=os.environ.get("LAPTOP_AGENT_LLM_PROVIDER", "heuristic").lower(),
+        llm_base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        llm_model=os.environ.get("OPENAI_MODEL"),
+        llm_api_key=os.environ.get("OPENAI_API_KEY"),
     )

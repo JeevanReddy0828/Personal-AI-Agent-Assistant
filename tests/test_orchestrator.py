@@ -9,6 +9,7 @@ from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig
 from laptop_agent.memory import MemoryStore
+from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
@@ -31,6 +32,10 @@ class OrchestratorTests(unittest.TestCase):
             smtp_username=None,
             smtp_password=None,
             smtp_from=None,
+            llm_provider="heuristic",
+            llm_base_url="https://api.openai.com/v1",
+            llm_model=None,
+            llm_api_key=None,
         )
         desktop = DesktopTool(gate)
         web = WebTool(gate, config.downloads_dir)
@@ -44,7 +49,8 @@ class OrchestratorTests(unittest.TestCase):
                 email=EmailTool(gate, config),
                 music=MusicTool(gate, desktop, web),
                 audit=AuditLogger(config.audit_log_path),
-            )
+            ),
+            Planner(HeuristicPlannerProvider()),
         )
 
     def test_remember_and_memory(self) -> None:
@@ -76,6 +82,33 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("audit"))
             self.assertTrue(result.ok)
             self.assertIn("events", result.data)
+
+    def test_natural_language_remember_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("please remember my name is Ada"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            memory = asyncio.run(orchestrator.handle("memory"))
+            self.assertEqual(memory.data["memory"]["profile"]["name"], "Ada")
+
+    def test_direct_remember_understands_natural_profile_field(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("remember my name is Ada"))
+            self.assertTrue(result.ok)
+            memory = asyncio.run(orchestrator.handle("memory"))
+            self.assertEqual(memory.data["memory"]["profile"]["name"], "Ada")
+
+    def test_natural_language_file_search_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "note.md").write_text("hello agent\n", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"find agent in {root}"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            self.assertEqual(result.data["matches"][0]["line"], 1)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig, load_config
 from laptop_agent.memory import MemoryStore
+from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
@@ -38,4 +39,10 @@ def build_orchestrator(
         music=MusicTool(approval_gate, desktop, web),
         audit=audit,
     )
-    return AgentOrchestrator(context)
+    return AgentOrchestrator(context, _build_planner(config))
+
+
+def _build_planner(config: AppConfig) -> Planner:
+    if config.llm_provider in {"openai", "openai-compatible"} and config.llm_api_key and config.llm_model:
+        return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_model, config.llm_base_url))
+    return Planner(HeuristicPlannerProvider())

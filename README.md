@@ -22,6 +22,8 @@ approval gate.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
+- Natural-language planner with offline heuristic routing.
+- Optional OpenAI-compatible planner provider.
 
 ## Quick start
 
@@ -48,13 +50,17 @@ Try commands like:
 ```text
 help
 remember name = Your Name
+remember my name is Your Name
 audit
 scan files .
+find resume in .
 search files resume .
 open url https://example.com
+open website example.com
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
+apply to the job at https://example.com/jobs/123
 ```
 
 ## Optional capabilities
@@ -68,6 +74,24 @@ playwright install chromium
 
 Voice buttons require optional packages. `Speak` uses `pyttsx3`; `Listen` uses
 `SpeechRecognition` and may require a microphone backend such as PyAudio.
+
+## LLM planner
+
+By default the agent uses an offline heuristic planner. It recognizes common
+natural-language requests and converts them into internal safe commands.
+
+To use an OpenAI-compatible chat-completions planner, set:
+
+```powershell
+$env:LAPTOP_AGENT_LLM_PROVIDER="openai"
+$env:OPENAI_API_KEY="your-key"
+$env:OPENAI_MODEL="your-model"
+$env:OPENAI_BASE_URL="https://api.openai.com/v1"
+```
+
+If any required value is missing, the app falls back to the offline heuristic
+planner. The planner can propose draft/preparation commands, but final risky
+actions still go through the approval gate.
 
 ## Security model
 
@@ -97,6 +121,7 @@ src/laptop_agent/
   gui.py           Tkinter desktop interface.
   config.py        Runtime paths and settings.
   memory.py        Local JSON profile/preferences store.
+  planner/         Natural-language route planners.
   safety.py        Approval gate and risk levels.
   voice.py         Optional speech-to-text and text-to-speech adapters.
 tests/             Dependency-free unit tests.

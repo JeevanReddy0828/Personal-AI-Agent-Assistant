@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 
 from laptop_agent.audit import AuditLogger
 from laptop_agent.memory import MemoryStore
+from laptop_agent.planner import Planner
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
@@ -27,8 +29,9 @@ class AgentContext:
 
 
 class AgentOrchestrator:
-    def __init__(self, context: AgentContext) -> None:
+    def __init__(self, context: AgentContext, planner: Planner | None = None) -> None:
         self.context = context
+        self.planner = planner
 
     async def handle(self, text: str) -> ToolResult:
         command = text.strip()
@@ -100,6 +103,30 @@ class AgentOrchestrator:
         if lowered.startswith("multi "):
             return await self._run_many(command[len("multi ") :])
 
+        if self.planner is not None:
+            planned = self.planner.plan(command, self.help_text(), self.context.memory.get_profile())
+            if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
+                result = await self.handle(planned.command)
+                result.data.setdefault("planner", {})
+                result.data["planner"].update(
+                    {
+                        "source_text": command,
+                        "planned_command": planned.command,
+                        "confidence": planned.confidence,
+                        "explanation": planned.explanation,
+                    }
+                )
+                return result
+            if planned.is_chat and planned.response:
+                return ToolResult.success(
+                    planned.response,
+                    planner={
+                        "source_text": command,
+                        "confidence": planned.confidence,
+                        "explanation": planned.explanation,
+                    },
+                )
+
         return self._conversation_fallback(command)
 
     @staticmethod
@@ -129,6 +156,12 @@ class AgentOrchestrator:
 
     def _remember(self, expression: str) -> ToolResult:
         if "=" not in expression:
+            natural = re.match(r"(?:that\s+)?(?:my\s+)?([\w -]{1,40})\s+is\s+(.+)$", expression.strip(), re.IGNORECASE)
+            if natural:
+                key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
+                value = natural.group(2).strip()
+                self.context.memory.set_profile_value(key, value)
+                return ToolResult.success(f"Remembered profile value: {key}")
             self.context.memory.add_note(expression.strip())
             return ToolResult.success("Saved note.")
         key, value = expression.split("=", 1)
