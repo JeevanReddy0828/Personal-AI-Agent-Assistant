@@ -24,6 +24,7 @@ approval gate.
 - Unified `extract text` and `summarize file` that auto-OCR images and transcribe media first.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Parallel task dashboard that records `multi` subtask status and results.
+- Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -89,6 +90,12 @@ extract text voicememo.m4a
 summarize file poster.png
 summarize the recording standup.mp3
 read screen
+index file report.pdf
+index file lecture.mp4
+recall billing invoices
+what do I know about kubernetes
+knowledge list
+knowledge forget 1
 multi scan files . ;; summarize file notes.md
 tasks
 open url https://example.com
@@ -267,7 +274,10 @@ Transcription runs fully offline through a local Whisper model. `summarize file`
 and `extract text` reuse the same readers, so they stay read-only even for
 images and media. `read screen` first captures a screenshot, which is itself an
 approval-gated action because screen contents can be private; it then OCRs the
-captured image locally. `convert file`
+captured image locally. The knowledge base (`index file`, `recall`,
+`knowledge list/forget`) stores and searches extracted text in a local JSON
+file under `.agent_data/` and never leaves the machine; it is read/write on
+your own data only, like the profile memory, so it is not approval-gated. `convert file`
 and `organize folder ... apply` change the
 filesystem, so each requires explicit approval and shows a preview first.
 `organize folder` without `apply` only previews the planned moves and never
@@ -292,6 +302,7 @@ src/laptop_agent/
   config.py        Runtime paths and settings.
   memory.py        Local JSON profile/preferences store.
   planner/         Natural-language route planners.
+  knowledge.py     Persistent searchable index over extracted text.
   safety.py        Approval gate and risk levels.
   tasks.py         In-memory dashboard of parallel task runs.
   voice.py         Optional speech-to-text and text-to-speech adapters.
@@ -302,6 +313,6 @@ tests/             Dependency-free unit tests.
 
 1. Add a local/remote LLM planner behind the orchestrator.
 2. Add attachment support for email drafts/sends.
-3. Persist the task dashboard and surface it in the desktop GUI.
+3. Auto-index files into the knowledge base when they are summarized or read.
 4. Add retry/failure recovery for parallel subtasks.
-5. Add a searchable long-term memory/knowledge base over extracted text.
+5. Rank knowledge-base recall with TF-IDF weighting across documents.

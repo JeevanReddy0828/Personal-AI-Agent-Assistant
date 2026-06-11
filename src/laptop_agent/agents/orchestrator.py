@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from laptop_agent.audit import AuditLogger
+from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import Planner
 from laptop_agent.tasks import TaskRecord, TaskTracker
@@ -32,6 +33,7 @@ class AgentContext:
     transcribe: TranscribeTool
     audit: AuditLogger
     tasks: TaskTracker
+    knowledge: KnowledgeBase
 
 
 class AgentOrchestrator:
@@ -68,6 +70,26 @@ class AgentOrchestrator:
 
         if lowered.startswith("extract text "):
             return self._extract_text_any(command[len("extract text ") :].strip())
+
+        if lowered.startswith("index file "):
+            return self._index_file(command[len("index file ") :].strip())
+
+        if lowered in {"knowledge list", "knowledge"}:
+            documents = self.context.knowledge.list_documents()
+            return ToolResult.success(f"{len(documents)} document(s) indexed.", documents=documents)
+
+        if lowered.startswith("knowledge forget "):
+            return self._knowledge_forget(command[len("knowledge forget ") :].strip())
+
+        if lowered in {"knowledge clear", "forget knowledge"}:
+            removed = self.context.knowledge.clear()
+            return ToolResult.success(f"Cleared {removed} indexed document(s).", removed=removed)
+
+        if lowered.startswith("knowledge search "):
+            return self._knowledge_search(command[len("knowledge search ") :].strip())
+
+        if lowered.startswith("recall "):
+            return self._knowledge_search(command[len("recall ") :].strip())
 
         if lowered.startswith("file info "):
             return self.context.files.file_info(command[len("file info ") :].strip())
@@ -276,6 +298,10 @@ class AgentOrchestrator:
                 "  ocr image <path>",
                 "  transcribe <audio-or-video-path>",
                 "  read screen",
+                "  index file <path>",
+                "  recall <query>",
+                "  knowledge list",
+                "  knowledge forget <id>",
                 "  search files <query> <path>",
                 "  open url <url>",
                 "  download <url>",
@@ -317,6 +343,45 @@ class AgentOrchestrator:
         if suffix in MEDIA_EXTENSIONS:
             return self.context.transcribe.transcribe_media(target)
         return self.context.files.extract_document_text(target)
+
+    def _index_file(self, path: str) -> ToolResult:
+        target = path.strip().strip("'\"")
+        if not target:
+            return ToolResult.failure("Use: index file <path>")
+        extracted = self._extract_text_any(target)
+        if not extracted.ok:
+            return extracted
+        text = str(extracted.data.get("text", ""))
+        outcome = self.context.knowledge.add(target, text)
+        if not outcome.get("ok"):
+            return ToolResult.failure(f"Nothing to index from {target}: {outcome.get('reason')}.")
+        return ToolResult.success(
+            f"Indexed {target} into the knowledge base (#{outcome['id']}).",
+            document=outcome,
+        )
+
+    def _knowledge_search(self, query: str) -> ToolResult:
+        cleaned = query.strip().strip("'\"")
+        if not cleaned:
+            return ToolResult.failure("Use: recall <query>")
+        results = self.context.knowledge.search(cleaned)
+        return ToolResult.success(
+            f"Found {len(results)} relevant document(s) for '{cleaned}'.",
+            query=cleaned,
+            results=results,
+        )
+
+    def _knowledge_forget(self, raw: str) -> ToolResult:
+        try:
+            doc_id = int(raw.strip())
+        except ValueError:
+            return ToolResult.failure("Use: knowledge forget <id> (a number from 'knowledge list').")
+        removed = self.context.knowledge.forget(doc_id)
+        return ToolResult.success(
+            f"Removed document #{doc_id}." if removed else f"No indexed document #{doc_id}.",
+            removed=removed,
+            id=doc_id,
+        )
 
     def _summarize_any(self, path: str) -> ToolResult:
         target = path.strip().strip("'\"")

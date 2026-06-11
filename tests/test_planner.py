@@ -117,6 +117,21 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "tasks")
 
+    def test_routes_index_file(self) -> None:
+        decision = self.plan("index the file contract.pdf")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "index file contract.pdf")
+
+    def test_routes_recall(self) -> None:
+        decision = self.plan("what do I know about kubernetes")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "recall kubernetes")
+
+    def test_routes_search_notes(self) -> None:
+        decision = self.plan("search my notes for invoices")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "recall invoices")
+
     def test_read_file_still_routes_to_read(self) -> None:
         decision = self.plan("read file report.txt")
         self.assertTrue(decision.is_command)

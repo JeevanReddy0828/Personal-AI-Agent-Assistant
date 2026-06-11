@@ -5,6 +5,7 @@ from collections.abc import Callable
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig, load_config
+from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
@@ -42,6 +43,7 @@ def build_orchestrator(
         transcribe=TranscribeTool(),
         audit=audit,
         tasks=TaskTracker(),
+        knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
     )
     return AgentOrchestrator(context, _build_planner(config))
 

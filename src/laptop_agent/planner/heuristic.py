@@ -55,6 +55,10 @@ class HeuristicPlannerProvider:
         if organize:
             return organize
 
+        knowledge = self._knowledge(raw)
+        if knowledge:
+            return knowledge
+
         transcribe = self._transcribe(raw)
         if transcribe:
             return transcribe
@@ -155,6 +159,25 @@ class HeuristicPlannerProvider:
         root = match.group(1).strip().strip("'\"")
         suffix = " apply" if match.group(2) else ""
         return self._command(f"organize folder {root}{suffix}", "User wants files organized by type.", 0.78)
+
+    def _knowledge(self, text: str) -> PlanDecision | None:
+        index_match = re.search(
+            r"\b(?:index|add to knowledge|learn from)\s+(?:the\s+)?(?:file\s+|document\s+)?(.+\.[a-z0-9]{1,5})$",
+            text,
+            re.IGNORECASE,
+        )
+        if index_match:
+            path = index_match.group(1).strip().strip("'\"")
+            return self._command(f"index file {path}", "User wants a file indexed into the knowledge base.", 0.8)
+        recall_match = re.search(
+            r"\b(?:recall|what do (?:i|we) know about|search (?:my )?(?:knowledge|notes|documents) (?:for|about))\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if recall_match:
+            query = recall_match.group(1).strip().strip("'\"?")
+            return self._command(f"recall {query}", "User wants to search the indexed knowledge base.", 0.8)
+        return None
 
     def _transcribe(self, text: str) -> PlanDecision | None:
         match = re.search(

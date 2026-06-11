@@ -8,6 +8,7 @@ from pathlib import Path
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig
+from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate
@@ -69,6 +70,7 @@ class OrchestratorTests(unittest.TestCase):
                 ),
                 audit=AuditLogger(config.audit_log_path),
                 tasks=TaskTracker(),
+                knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
             ),
             Planner(HeuristicPlannerProvider()),
         )
@@ -204,6 +206,43 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(dash.ok)
             self.assertEqual(dash.data["dashboard"]["run"], 1)
             self.assertEqual(dash.data["dashboard"]["task_count"], 3)
+
+    def test_index_and_recall_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "report.txt"
+            doc.write_text("The migration plan covers database sharding and rollback safety.", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            indexed = asyncio.run(orchestrator.handle(f"index file {doc}"))
+            self.assertTrue(indexed.ok)
+            recalled = asyncio.run(orchestrator.handle("recall database sharding"))
+            self.assertTrue(recalled.ok)
+            self.assertTrue(recalled.data["results"])
+            self.assertIn("sharding", recalled.data["results"][0]["snippet"].lower())
+
+    def test_index_image_uses_ocr_then_recall(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            image = root / "card.png"
+            image.write_bytes(b"\x89PNG")
+            orchestrator = self.build(root / "data")
+            asyncio.run(orchestrator.handle(f"index file {image}"))
+            recalled = asyncio.run(orchestrator.handle("recall card"))
+            self.assertTrue(recalled.ok)
+            self.assertTrue(recalled.data["results"])
+
+    def test_knowledge_list_and_forget(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "a.txt"
+            doc.write_text("indexable content here", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            asyncio.run(orchestrator.handle(f"index file {doc}"))
+            listed = asyncio.run(orchestrator.handle("knowledge list"))
+            self.assertEqual(len(listed.data["documents"]), 1)
+            doc_id = listed.data["documents"][0]["id"]
+            forgotten = asyncio.run(orchestrator.handle(f"knowledge forget {doc_id}"))
+            self.assertTrue(forgotten.data["removed"])
 
     def test_tasks_without_runs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
