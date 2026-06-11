@@ -37,6 +37,10 @@ class HeuristicPlannerProvider:
         if open_url:
             return open_url
 
+        forms = self._forms(raw)
+        if forms:
+            return forms
+
         music = self._music(raw)
         if music:
             return music
@@ -103,6 +107,12 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"open url {match.group(1)}", "User wants to open a website.", 0.85)
+
+    def _forms(self, text: str) -> PlanDecision | None:
+        match = re.search(r"\b(?:inspect|scan|check|read)\s+(?:the\s+)?forms?\s+(?:at|on|in)?\s*(https?://\S+|[\w.-]+\.[a-z]{2,}(?:/\S*)?)", text, re.IGNORECASE)
+        if not match:
+            return None
+        return self._command(f"inspect forms {match.group(1)}", "User wants form fields inspected without submitting.", 0.82)
 
     def _music(self, text: str) -> PlanDecision | None:
         lowered = text.lower()

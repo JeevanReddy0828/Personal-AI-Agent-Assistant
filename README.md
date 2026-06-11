@@ -17,6 +17,8 @@ approval gate.
 - File scanning, reading, and text search.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
+- Optional browser form inspection for application pages.
+- Job-application review packages that map stored profile values to detected fields.
 - Desktop hooks for opening apps and media keys on Windows.
 - Email draft generation via `mailto:` and optional SMTP sending.
 - Music playback through local files, folders, URLs, or media keys.
@@ -57,6 +59,8 @@ find resume in .
 search files resume .
 open url https://example.com
 open website example.com
+inspect forms https://example.com/apply
+inspect forms at example.com/apply
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -71,6 +75,10 @@ Install extras as needed:
 pip install -e ".[browser,desktop,docs,voice]"
 playwright install chromium
 ```
+
+`inspect forms <url>` and job-application field extraction require the browser
+extra. Without it, the agent still creates a safe review plan and tells you what
+to install.
 
 Voice buttons require optional packages. `Speak` uses `pyttsx3`; `Listen` uses
 `SpeechRecognition` and may require a microphone backend such as PyAudio.
@@ -104,6 +112,9 @@ High-risk actions require explicit confirmation:
 - Running browser automation that changes external state.
 - Any future shell execution.
 
+Form inspection reads labels, names, placeholders, and required flags. It does
+not type, click submit, or send applications.
+
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
 
@@ -130,7 +141,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add real Playwright form filling with field review before submit.
+2. Add fill-preview generation for inspected forms.
 3. Add Gmail/Outlook OAuth integrations.
 4. Add document OCR and media transcription.
 5. Add stronger desktop screen understanding with OCR.

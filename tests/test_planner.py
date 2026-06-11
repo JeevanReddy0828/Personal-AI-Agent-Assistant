@@ -22,6 +22,11 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "plan apply job https://example.com/jobs/1")
 
+    def test_routes_form_inspection(self) -> None:
+        decision = self.plan("inspect forms at example.com/apply")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "inspect forms example.com/apply")
+
     def test_unknown_request_returns_chat(self) -> None:
         decision = self.plan("invent something vague")
         self.assertTrue(decision.is_chat)

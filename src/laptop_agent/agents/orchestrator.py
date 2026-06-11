@@ -73,6 +73,9 @@ class AgentOrchestrator:
         if lowered.startswith("inspect page "):
             return await self.context.browser.inspect_page(command[len("inspect page ") :].strip())
 
+        if lowered.startswith("inspect forms "):
+            return await self.context.browser.inspect_forms(command[len("inspect forms ") :].strip())
+
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
@@ -143,6 +146,7 @@ class AgentOrchestrator:
                 "  open url <url>",
                 "  download <url>",
                 "  inspect page <url>",
+                "  inspect forms <url>",
                 "  open app <path-or-app>",
                 "  screenshot <output.png>",
                 "  play music <file-folder-or-url>",
