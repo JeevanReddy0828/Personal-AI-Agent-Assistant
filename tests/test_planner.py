@@ -57,6 +57,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email oauth refresh gmail")
 
+    def test_routes_oauth_email_draft(self) -> None:
+        decision = self.plan("draft email using gmail to ada@example.com about hello")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email api draft gmail to ada@example.com subject hello body Draft email about: hello")
+
+    def test_routes_oauth_email_send(self) -> None:
+        decision = self.plan("send email using outlook to ada@example.com about hello")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email api send outlook to ada@example.com subject hello body Draft email about: hello")
+
     def test_routes_gmail_api_search(self) -> None:
         decision = self.plan("find emails about invoice in gmail")
         self.assertTrue(decision.is_command)

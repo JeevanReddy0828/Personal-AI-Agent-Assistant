@@ -5,7 +5,7 @@ from pathlib import Path
 
 from laptop_agent.config import AppConfig
 from laptop_agent.safety import ApprovalGate
-from laptop_agent.tools.email import EmailTool
+from laptop_agent.tools.email import EmailDraft, EmailTool
 
 
 class EmailToolTests(unittest.TestCase):
@@ -106,6 +106,37 @@ class EmailToolTests(unittest.TestCase):
         self.assertEqual(merged["access_token"], "new")
         self.assertEqual(merged["refresh_token"], "refresh")
         self.assertEqual(merged["expires_in"], 3600)
+
+    def test_oauth_draft_without_token_fails_cleanly(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.create_oauth_draft("gmail", EmailDraft("ada@example.com", "Hi", "Hello"))
+        self.assertFalse(result.ok)
+        self.assertIn("OAuth token", result.message)
+
+    def test_oauth_send_without_token_fails_cleanly(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.send_oauth_mail("outlook", EmailDraft("ada@example.com", "Hi", "Hello"))
+        self.assertFalse(result.ok)
+        self.assertIn("OAuth token", result.message)
+
+    def test_gmail_message_payload_is_base64url_raw_message(self) -> None:
+        payload = EmailTool._gmail_message_payload(EmailDraft("ada@example.com", "Hi", "Hello"))
+        self.assertIn("raw", payload)
+        self.assertNotIn("=", str(payload["raw"]))
+
+    def test_gmail_draft_payload_wraps_message(self) -> None:
+        payload = EmailTool._gmail_draft_payload(EmailDraft("ada@example.com", "Hi", "Hello"))
+        self.assertIn("message", payload)
+        self.assertIn("raw", payload["message"])
+
+    def test_outlook_payloads(self) -> None:
+        draft = EmailDraft("ada@example.com", "Hi", "Hello")
+        message = EmailTool._outlook_message_payload(draft)
+        send = EmailTool._outlook_send_payload(draft)
+        self.assertEqual(message["subject"], "Hi")
+        self.assertEqual(message["toRecipients"][0]["emailAddress"]["address"], "ada@example.com")
+        self.assertTrue(send["saveToSentItems"])
+        self.assertIn("message", send)
 
     def test_gmail_api_urls(self) -> None:
         list_url = EmailTool._gmail_list_url("invoice", 99)

@@ -117,6 +117,20 @@ class OrchestratorTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn("OAuth token", result.message)
 
+    def test_email_api_draft_without_token_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("email api draft gmail to ada@example.com subject Hi body Hello"))
+            self.assertFalse(result.ok)
+            self.assertIn("OAuth token", result.message)
+
+    def test_email_api_send_without_token_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("email api send outlook to ada@example.com subject Hi body Hello"))
+            self.assertFalse(result.ok)
+            self.assertIn("OAuth token", result.message)
+
     def test_audit_command_returns_events(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))

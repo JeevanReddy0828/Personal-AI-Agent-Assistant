@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from base64 import urlsafe_b64encode
 from dataclasses import dataclass
 from email import policy
 from email.message import EmailMessage
@@ -150,6 +151,54 @@ class EmailTool:
         if normalized == "gmail":
             return self._search_gmail_api(str(access_token), query, safe_limit)
         return self._search_outlook_api(str(access_token), query, safe_limit)
+
+    def create_oauth_draft(self, provider: str, draft: EmailDraft) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized not in {"gmail", "outlook"}:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Create {normalized} draft to {draft.to}",
+                risk=RiskLevel.HIGH,
+                reason="This creates a draft in your mailbox using a stored OAuth access token.",
+                preview=self._preview(draft),
+            )
+        )
+        token = self._load_oauth_access_token(normalized)
+        if not token.ok:
+            return token
+        access_token = str(token.data["access_token"])
+        if normalized == "gmail":
+            response = self._api_post_json(self._gmail_draft_url(), access_token, self._gmail_draft_payload(draft))
+        else:
+            response = self._api_post_json(self._outlook_draft_url(), access_token, self._outlook_message_payload(draft))
+        if not response.ok:
+            return response
+        return ToolResult.success(f"Created {normalized} email draft.", provider=normalized, response=response.data.get("json", {}))
+
+    def send_oauth_mail(self, provider: str, draft: EmailDraft) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized not in {"gmail", "outlook"}:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Send {normalized} email to {draft.to}",
+                risk=RiskLevel.CRITICAL,
+                reason="This sends an external email using a stored OAuth access token.",
+                preview=self._preview(draft),
+            )
+        )
+        token = self._load_oauth_access_token(normalized)
+        if not token.ok:
+            return token
+        access_token = str(token.data["access_token"])
+        if normalized == "gmail":
+            response = self._api_post_json(self._gmail_send_url(), access_token, self._gmail_message_payload(draft))
+        else:
+            response = self._api_post_json(self._outlook_send_url(), access_token, self._outlook_send_payload(draft))
+        if not response.ok:
+            return response
+        return ToolResult.success(f"Sent {normalized} email.", provider=normalized, response=response.data.get("json", {}))
 
     def oauth_status(self) -> ToolResult:
         providers = {
@@ -407,6 +456,18 @@ class EmailTool:
         messages = [self._outlook_summary(item) for item in payload.data.get("json", {}).get("value", [])]
         return ToolResult.success(f"Found {len(messages)} Outlook message(s).", provider="outlook", query=query, messages=messages)
 
+    def _load_oauth_access_token(self, provider: str) -> ToolResult:
+        try:
+            token_payload = self.token_vault.load(provider)
+        except TokenVaultError as exc:
+            return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
+        if not token_payload:
+            return ToolResult.failure(f"No stored OAuth token for {provider}.", hint=f"Run: email oauth exchange {provider} <authorization-code>")
+        access_token = token_payload.get("access_token")
+        if not access_token:
+            return ToolResult.failure(f"Stored OAuth token for {provider} has no access token.")
+        return ToolResult.success("Loaded OAuth access token.", access_token=access_token)
+
     @staticmethod
     def _api_get_json(url: str, access_token: str, extra_headers: dict[str, str] | None = None) -> ToolResult:
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
@@ -416,6 +477,29 @@ class EmailTool:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return ToolResult.success("API request succeeded.", json=json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            return ToolResult.failure(f"API request failed with HTTP {exc.code}.", detail=detail)
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            return ToolResult.failure(f"API request failed: {exc}")
+
+    @staticmethod
+    def _api_post_json(url: str, access_token: str, payload: dict[str, object]) -> ToolResult:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+                parsed = json.loads(raw) if raw.strip() else {}
+                return ToolResult.success("API request succeeded.", json=parsed, status=getattr(response, "status", None))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
             return ToolResult.failure(f"API request failed with HTTP {exc.code}.", detail=detail)
@@ -442,6 +526,32 @@ class EmailTool:
         return f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?" + urllib.parse.urlencode(params)
 
     @staticmethod
+    def _gmail_draft_url() -> str:
+        return "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
+
+    @staticmethod
+    def _gmail_send_url() -> str:
+        return "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
+    @staticmethod
+    def _gmail_draft_payload(draft: EmailDraft) -> dict[str, object]:
+        return {"message": EmailTool._gmail_message_payload(draft)}
+
+    @staticmethod
+    def _gmail_message_payload(draft: EmailDraft) -> dict[str, object]:
+        raw = EmailTool._raw_rfc2822_message(draft)
+        encoded = urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        return {"raw": encoded}
+
+    @staticmethod
+    def _raw_rfc2822_message(draft: EmailDraft) -> bytes:
+        message = EmailMessage()
+        message["To"] = draft.to
+        message["Subject"] = draft.subject
+        message.set_content(draft.body)
+        return message.as_bytes()
+
+    @staticmethod
     def _outlook_messages_url(query: str, limit: int) -> str:
         params = {
             "$top": str(max(1, min(limit, 25))),
@@ -454,6 +564,26 @@ class EmailTool:
         elif cleaned and cleaned.upper() != "ALL":
             params["$search"] = f'"{cleaned.replace(chr(34), chr(92) + chr(34))}"'
         return "https://graph.microsoft.com/v1.0/me/messages?" + urllib.parse.urlencode(params)
+
+    @staticmethod
+    def _outlook_draft_url() -> str:
+        return "https://graph.microsoft.com/v1.0/me/messages"
+
+    @staticmethod
+    def _outlook_send_url() -> str:
+        return "https://graph.microsoft.com/v1.0/me/sendMail"
+
+    @staticmethod
+    def _outlook_message_payload(draft: EmailDraft) -> dict[str, object]:
+        return {
+            "subject": draft.subject,
+            "body": {"contentType": "Text", "content": draft.body},
+            "toRecipients": [{"emailAddress": {"address": draft.to}}],
+        }
+
+    @staticmethod
+    def _outlook_send_payload(draft: EmailDraft) -> dict[str, object]:
+        return {"message": EmailTool._outlook_message_payload(draft), "saveToSentItems": True}
 
     @staticmethod
     def _gmail_summary(message: dict[str, object]) -> dict[str, str]:

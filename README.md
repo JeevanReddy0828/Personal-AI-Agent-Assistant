@@ -27,6 +27,7 @@ approval gate.
 - OAuth authorization URL helpers for Gmail and Outlook app setup.
 - OAuth authorization-code exchange with local encrypted token storage on Windows.
 - OAuth-backed Gmail/Outlook read/search commands using stored access tokens.
+- OAuth-backed Gmail/Outlook draft creation and send commands with final approval.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
@@ -82,6 +83,8 @@ email oauth forget gmail
 email tokens status
 email api search gmail invoice
 email api unread outlook
+email api draft gmail to person@example.com subject Hello body Draft only
+email api send outlook to person@example.com subject Hello body Send after approval
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -164,6 +167,8 @@ email api search gmail invoice
 email api unread gmail
 email api search outlook recruiter
 email api unread outlook
+email api draft gmail to person@example.com subject Hello body Draft only
+email api send outlook to person@example.com subject Hello body Send after approval
 ```
 
 These commands read message metadata/snippets only and require approval. Token
@@ -173,6 +178,10 @@ refresh is explicit and approval-gated:
 email oauth refresh gmail
 email oauth refresh outlook
 ```
+
+OAuth draft/send commands also require stored tokens. Draft creation writes a
+draft into the mailbox. Send commands require final approval and then send the
+message through Gmail or Outlook.
 
 ## LLM planner
 
@@ -197,6 +206,7 @@ actions still go through the approval gate.
 High-risk actions require explicit confirmation:
 
 - Sending email.
+- Creating mailbox drafts through OAuth APIs.
 - Reading inbox metadata or snippets.
 - Exchanging or deleting mailbox OAuth tokens.
 - Submitting forms or applications.
@@ -242,7 +252,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add API-backed Gmail/Outlook draft/send with final approval.
+2. Add attachment support for email drafts/sends.
 3. Add document OCR and media transcription.
 4. Add stronger desktop screen understanding with OCR.
 5. Add a task dashboard for parallel agent progress.

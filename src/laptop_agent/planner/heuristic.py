@@ -169,6 +169,25 @@ class HeuristicPlannerProvider:
         return self._command(f"plan apply job {match.group(1)}", "User wants a job application workflow prepared.", 0.8)
 
     def _email(self, text: str) -> PlanDecision | None:
+        api_provider = self._email_api_provider(text.lower())
+        api_match = re.search(
+            r"\b(?:draft|write|prepare|send)\s+(?:an\s+)?email\s+(?:in|with|using|through)\s+(gmail|google|outlook|microsoft)\s+to\s+(\S+@\S+)\s+(?:about|subject)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if api_match:
+            action_word = re.search(r"\b(send)\b", text, re.IGNORECASE)
+            provider = self._email_api_provider(api_match.group(1).lower()) or api_provider or "gmail"
+            to = api_match.group(2).strip()
+            subject = api_match.group(3).strip()
+            body = f"Draft email about: {subject}"
+            verb = "send" if action_word else "draft"
+            return self._command(
+                f"email api {verb} {provider} to {to} subject {subject} body {body}",
+                "User wants an OAuth-backed email draft/send workflow.",
+                0.65 if verb == "draft" else 0.6,
+            )
+
         match = re.search(
             r"\b(?:draft|write|prepare)\s+(?:an\s+)?email\s+to\s+(\S+@\S+)\s+(?:about|subject)\s+(.+)$",
             text,
@@ -212,7 +231,7 @@ class HeuristicPlannerProvider:
 
     @staticmethod
     def _email_api_provider(lowered: str) -> str | None:
-        if "gmail" in lowered or "google mail" in lowered:
+        if "gmail" in lowered or "google" in lowered:
             return "gmail"
         if "outlook" in lowered or "microsoft mail" in lowered:
             return "outlook"

@@ -115,6 +115,24 @@ class AgentOrchestrator:
         if lowered.startswith("email api unread "):
             return self.context.email.search_oauth_mail(command[len("email api unread ") :].strip(), "UNSEEN")
 
+        if lowered.startswith("email api draft "):
+            parts = command[len("email api draft ") :].strip().split(maxsplit=1)
+            if len(parts) != 2:
+                return ToolResult.failure("Use: email api draft gmail|outlook to <addr> subject <subject> body <body>")
+            draft_result = self._parse_email(parts[1])
+            if not draft_result.ok:
+                return draft_result
+            return self.context.email.create_oauth_draft(parts[0], draft_result.data["draft"])
+
+        if lowered.startswith("email api send "):
+            parts = command[len("email api send ") :].strip().split(maxsplit=1)
+            if len(parts) != 2:
+                return ToolResult.failure("Use: email api send gmail|outlook to <addr> subject <subject> body <body>")
+            draft_result = self._parse_email(parts[1])
+            if not draft_result.ok:
+                return draft_result
+            return self.context.email.send_oauth_mail(parts[0], draft_result.data["draft"])
+
         if lowered in {"email oauth", "email oauth status"}:
             return self.context.email.oauth_status()
 
@@ -205,6 +223,8 @@ class AgentOrchestrator:
                 "  email unread",
                 "  email api search gmail|outlook <query>",
                 "  email api unread gmail|outlook",
+                "  email api draft gmail|outlook to <addr> subject <subject> body <body>",
+                "  email api send gmail|outlook to <addr> subject <subject> body <body>",
                 "  email oauth status",
                 "  email oauth url gmail|outlook",
                 "  email oauth exchange gmail|outlook <authorization-code>",
