@@ -25,7 +25,7 @@ def build_orchestrator(
 
     audit = AuditLogger(config.audit_log_path)
     approval_gate = ApprovalGate(approval_callback, audit)
-    files = FileTool()
+    files = FileTool(approval_gate)
     web = WebTool(approval_gate, config.downloads_dir)
     desktop = DesktopTool(approval_gate)
 

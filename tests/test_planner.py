@@ -77,6 +77,26 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email api unread outlook")
 
+    def test_routes_summarize_file(self) -> None:
+        decision = self.plan("summarize the file notes.md")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "summarize file notes.md")
+
+    def test_routes_organize_folder(self) -> None:
+        decision = self.plan("organize the folder C:/Users/me/Downloads")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "organize folder C:/Users/me/Downloads")
+
+    def test_routes_organize_folder_apply(self) -> None:
+        decision = self.plan("tidy the folder C:/Users/me/Downloads and apply")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "organize folder C:/Users/me/Downloads apply")
+
+    def test_read_file_still_routes_to_read(self) -> None:
+        decision = self.plan("read file report.txt")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "read file report.txt")
+
     def test_unknown_request_returns_chat(self) -> None:
         decision = self.plan("invent something vague")
         self.assertTrue(decision.is_chat)

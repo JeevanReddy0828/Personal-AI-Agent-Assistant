@@ -41,6 +41,14 @@ class HeuristicPlannerProvider:
         if file_scan:
             return file_scan
 
+        summarize_file = self._summarize_file(raw)
+        if summarize_file:
+            return summarize_file
+
+        organize = self._organize(raw)
+        if organize:
+            return organize
+
         read_file = self._read_file(raw)
         if read_file:
             return read_file
@@ -111,8 +119,31 @@ class HeuristicPlannerProvider:
         root = match.group(1).strip().strip("'\"") or "."
         return self._command(f"scan files {root}", "User wants to scan a folder.", 0.85)
 
+    def _summarize_file(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:summarize|summarise|tldr|give me a summary of)\s+(?:the\s+)?(?:file\s+)?(.+\.(?:txt|md|markdown|tex|csv|tsv|pdf|docx))$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"")
+        return self._command(f"summarize file {path}", "User wants an extractive document summary.", 0.82)
+
+    def _organize(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:organize|organise|tidy|clean up|sort)\s+(?:the\s+)?(?:folder|directory|files?\s+in)\s+(.+?)(\s+(?:and\s+)?(?:apply|for real|do it))?$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        root = match.group(1).strip().strip("'\"")
+        suffix = " apply" if match.group(2) else ""
+        return self._command(f"organize folder {root}{suffix}", "User wants files organized by type.", 0.78)
+
     def _read_file(self, text: str) -> PlanDecision | None:
-        match = re.search(r"\b(?:read|summarize|open text from)\s+(?:file\s+)?(.+\.(?:txt|md|markdown|tex|csv|json|yaml|yml|pdf|docx))$", text, re.IGNORECASE)
+        match = re.search(r"\b(?:read|open text from)\s+(?:file\s+)?(.+\.(?:txt|md|markdown|tex|csv|json|yaml|yml|pdf|docx))$", text, re.IGNORECASE)
         if not match:
             return None
         path = match.group(1).strip().strip("'\"")

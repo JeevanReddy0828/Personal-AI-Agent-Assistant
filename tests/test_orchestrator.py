@@ -55,7 +55,7 @@ class OrchestratorTests(unittest.TestCase):
         return AgentOrchestrator(
             AgentContext(
                 memory=MemoryStore(config.memory_path),
-                files=FileTool(),
+                files=FileTool(gate),
                 web=web,
                 browser=BrowserAutomationTool(gate),
                 desktop=desktop,
@@ -82,6 +82,51 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle(f"search files agent {root}"))
             self.assertTrue(result.ok)
             self.assertEqual(result.data["matches"][0]["line"], 1)
+
+    def test_summarize_file_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "doc.txt"
+            doc.write_text(
+                "The agent reads files. The agent summarizes files offline. "
+                "Offline summaries protect privacy for the user.",
+                encoding="utf-8",
+            )
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"summarize file {doc}"))
+            self.assertTrue(result.ok)
+            self.assertTrue(result.data["summary"])
+
+    def test_convert_file_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            src = root / "in.md"
+            dst = root / "out.txt"
+            src.write_text("hello", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"convert file {src} to {dst}"))
+            self.assertTrue(result.ok)
+            self.assertTrue(dst.exists())
+
+    def test_organize_folder_preview_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "a.pdf").write_text("x", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"organize folder {root}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(len(result.data["planned"]), 1)
+            self.assertTrue((root / "a.pdf").exists())
+
+    def test_natural_language_summarize_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "doc.txt"
+            doc.write_text("Sentence one here. Sentence two here. Sentence three here.", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"summarize the file {doc}"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
 
     def test_email_parse_failure(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

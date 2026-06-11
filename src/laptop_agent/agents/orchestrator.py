@@ -57,6 +57,35 @@ class AgentOrchestrator:
         if lowered.startswith("read file "):
             return self.context.files.read_text(command[len("read file ") :].strip())
 
+        if lowered.startswith("summarize file "):
+            return self.context.files.summarize(command[len("summarize file ") :].strip())
+
+        if lowered.startswith("file info "):
+            return self.context.files.file_info(command[len("file info ") :].strip())
+
+        if lowered.startswith("extract tables "):
+            return self.context.files.extract_tables(command[len("extract tables ") :].strip())
+
+        if lowered.startswith("convert file "):
+            rest = command[len("convert file ") :].strip()
+            match = re.search(r"\s+to\s+", rest, re.IGNORECASE)
+            if not match:
+                return ToolResult.failure("Use: convert file <source> to <destination>")
+            source = rest[: match.start()].strip().strip("'\"")
+            destination = rest[match.end() :].strip().strip("'\"")
+            if not source or not destination:
+                return ToolResult.failure("Use: convert file <source> to <destination>")
+            return self.context.files.convert(source, destination)
+
+        if lowered.startswith("organize folder "):
+            rest = command[len("organize folder ") :].strip()
+            apply = False
+            if re.search(r"\s+apply$", rest, re.IGNORECASE):
+                apply = True
+                rest = re.sub(r"\s+apply$", "", rest, flags=re.IGNORECASE).strip()
+            target = rest.strip("'\"") or "."
+            return self.context.files.organize(target, apply=apply)
+
         if lowered.startswith("search files "):
             rest = command[len("search files ") :].strip()
             parts = rest.split(maxsplit=1)
@@ -208,6 +237,11 @@ class AgentOrchestrator:
                 "  audit",
                 "  scan files <path>",
                 "  read file <path>",
+                "  summarize file <path>",
+                "  file info <path>",
+                "  extract tables <path>",
+                "  convert file <source> to <destination>",
+                "  organize folder <path> [apply]",
                 "  search files <query> <path>",
                 "  open url <url>",
                 "  download <url>",

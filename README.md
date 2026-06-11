@@ -15,6 +15,10 @@ approval gate.
 - Safety approval gate for risky actions.
 - Durable JSONL audit log for approval decisions.
 - File scanning, reading, and text search.
+- Offline document summarization (extractive, no LLM required) for text, Markdown, and (with extras) PDF/DOCX.
+- File metadata/word-count inspection and CSV/TSV/Markdown table extraction.
+- Approval-gated document conversion to `.txt`/`.md`.
+- Folder organization that previews moves by file type and applies them only after approval.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -64,6 +68,13 @@ audit
 scan files .
 find resume in .
 search files resume .
+summarize file notes.md
+summarize the file report.pdf
+file info report.pdf
+extract tables data.csv
+convert file notes.md to notes.txt
+organize folder C:\Users\you\Downloads
+organize folder C:\Users\you\Downloads apply
 open url https://example.com
 open website example.com
 inspect forms https://example.com/apply
@@ -210,6 +221,8 @@ High-risk actions require explicit confirmation:
 - Reading inbox metadata or snippets.
 - Exchanging or deleting mailbox OAuth tokens.
 - Submitting forms or applications.
+- Writing converted files to disk.
+- Moving files when organizing a folder.
 - Downloading files.
 - Launching apps or opening external URLs.
 - Running browser automation that changes external state.
@@ -225,6 +238,13 @@ page.
 It fills only mapped text-like fields in a headed browser, skips uploads,
 checkboxes, radios, selects, and password fields, waits briefly for review, then
 closes the browser. It never clicks submit.
+
+Document summarization, `file info`, and `extract tables` are read-only and run
+fully offline. `convert file` and `organize folder ... apply` change the
+filesystem, so each requires explicit approval and shows a preview first.
+`organize folder` without `apply` only previews the planned moves and never
+touches your files; the apply step skips any move whose destination already
+exists rather than overwriting it.
 
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
