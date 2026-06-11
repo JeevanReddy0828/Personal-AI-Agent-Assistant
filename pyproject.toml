@@ -1,0 +1,24 @@
+[project]
+name = "laptop-agent"
+version = "0.1.0"
+description = "Local-first voice-capable personal laptop agent scaffold."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+voice = ["pyttsx3>=2.90", "SpeechRecognition>=3.10.0"]
+browser = ["playwright>=1.45.0"]
+desktop = ["pyautogui>=0.9.54", "pillow>=10.0.0"]
+docs = ["pypdf>=4.0.0", "python-docx>=1.1.0"]
+dev = []
+
+[project.scripts]
+laptop-agent = "laptop_agent.cli:main"
+laptop-agent-gui = "laptop_agent.gui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
