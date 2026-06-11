@@ -20,6 +20,7 @@ approval gate.
 - Optional browser form inspection for application pages.
 - Job-application review packages that map stored profile values to detected fields.
 - Fill-preview packages that show what would be typed into which selector.
+- Approved browser fill action for safe mapped text fields, with no submit action.
 - Desktop hooks for opening apps and media keys on Windows.
 - Email draft generation via `mailto:` and optional SMTP sending.
 - Music playback through local files, folders, URLs, or media keys.
@@ -64,6 +65,8 @@ inspect forms https://example.com/apply
 inspect forms at example.com/apply
 preview form fill https://example.com/apply
 preview form fill for example.com/apply
+fill form https://example.com/apply
+fill the form at example.com/apply
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -79,9 +82,9 @@ pip install -e ".[browser,desktop,docs,voice]"
 playwright install chromium
 ```
 
-`inspect forms <url>`, `preview form fill <url>`, and job-application field
-extraction require the browser extra. Without it, the agent still creates a safe
-review plan and tells you what to install.
+`inspect forms <url>`, `preview form fill <url>`, `fill form <url>`, and
+job-application field extraction require the browser extra. Without it, the
+agent still creates a safe review plan and tells you what to install.
 
 Voice buttons require optional packages. `Speak` uses `pyttsx3`; `Listen` uses
 `SpeechRecognition` and may require a microphone backend such as PyAudio.
@@ -121,6 +124,11 @@ not type, click submit, or send applications.
 Fill previews create selector/value review data only. They do not modify the
 page.
 
+`fill form <url>` requires approval before inspection and again before typing.
+It fills only mapped text-like fields in a headed browser, skips uploads,
+checkboxes, radios, selects, and password fields, waits briefly for review, then
+closes the browser. It never clicks submit.
+
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
 
@@ -147,8 +155,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add an explicit browser fill action that requires approval and never submits.
-3. Add Gmail/Outlook OAuth integrations.
-4. Add document OCR and media transcription.
-5. Add stronger desktop screen understanding with OCR.
-6. Add a task dashboard for parallel agent progress.
+2. Add Gmail/Outlook OAuth integrations.
+3. Add document OCR and media transcription.
+4. Add stronger desktop screen understanding with OCR.
+5. Add a task dashboard for parallel agent progress.

@@ -82,6 +82,12 @@ class AgentOrchestrator:
                 self.context.memory.get_profile(),
             )
 
+        if lowered.startswith("fill form "):
+            return await self.context.browser.fill_form(
+                command[len("fill form ") :].strip(),
+                self.context.memory.get_profile(),
+            )
+
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
@@ -154,6 +160,7 @@ class AgentOrchestrator:
                 "  inspect page <url>",
                 "  inspect forms <url>",
                 "  preview form fill <url>",
+                "  fill form <url>",
                 "  open app <path-or-app>",
                 "  screenshot <output.png>",
                 "  play music <file-folder-or-url>",

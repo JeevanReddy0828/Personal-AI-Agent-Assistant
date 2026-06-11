@@ -133,6 +133,88 @@ class BrowserAutomationTool:
             ],
         )
 
+    async def fill_form(self, url: str, profile: dict[str, object], review_seconds: int = 20) -> ToolResult:
+        if not profile:
+            return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
+        normalized = self._normalize_url(url)
+        try:
+            from playwright.async_api import async_playwright  # type: ignore
+        except ImportError:
+            return ToolResult.failure("Form filling requires: pip install playwright && playwright install chromium")
+
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Inspect and fill mapped form fields: {normalized}",
+                risk=RiskLevel.HIGH,
+                reason="This will type mapped profile values into a browser page. It will not click submit.",
+                preview="\n".join(f"{key}: {value}" for key, value in profile.items()),
+            )
+        )
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=False)
+            page = await browser.new_page()
+            await page.goto(normalized, wait_until="domcontentloaded")
+            title = await page.title()
+            fields = await self._extract_form_fields_from_page(page)
+            visible_fields = [field for field in fields if self._is_user_field(field)]
+            field_mappings = self.map_profile_to_fields(visible_fields, profile)
+            fill_preview = self.build_fill_preview(visible_fields, field_mappings)
+            fill_actions = self.build_fill_actions(fill_preview)
+            warnings = self._fill_preview_warnings(fill_preview)
+
+            if not fill_actions:
+                await browser.close()
+                return ToolResult.failure(
+                    "No safe mapped text fields were ready to fill.",
+                    url=normalized,
+                    title=title,
+                    fields=visible_fields,
+                    field_mappings=field_mappings,
+                    fill_preview=fill_preview,
+                    warnings=warnings,
+                )
+
+            self.approval_gate.require(
+                ApprovalRequest(
+                    action=f"Fill {len(fill_actions)} mapped field(s): {normalized}",
+                    risk=RiskLevel.CRITICAL,
+                    reason="This types personal data into a live browser page. It still will not submit the form.",
+                    preview=self._fill_actions_preview(fill_actions, warnings),
+                )
+            )
+
+            filled: list[dict[str, object]] = []
+            skipped: list[dict[str, object]] = []
+            for action in fill_actions:
+                selector = str(action["selector"])
+                try:
+                    locator = page.locator(selector).first
+                    await locator.fill(str(action["value"]))
+                    filled.append(action)
+                except Exception as exc:  # pragma: no cover - depends on live browser/page state.
+                    skipped.append({**action, "error": str(exc)})
+
+            if review_seconds > 0:
+                await page.wait_for_timeout(review_seconds * 1000)
+            await browser.close()
+
+        return ToolResult.success(
+            "Filled mapped fields and closed the review browser. No submit action was performed.",
+            url=normalized,
+            title=title,
+            filled_count=len(filled),
+            skipped_count=len(skipped),
+            filled=filled,
+            skipped=skipped,
+            warnings=warnings,
+            next_steps=[
+                "Re-open and inspect the page if anything looked wrong",
+                "Do not submit until every field has been reviewed",
+                "Use a future submit workflow only with explicit final approval",
+            ],
+        )
+
     async def prepare_job_application(self, url_or_description: str, profile: dict[str, object]) -> ToolResult:
         if not profile:
             return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
@@ -190,28 +272,31 @@ class BrowserAutomationTool:
             page = await browser.new_page()
             await page.goto(normalized, wait_until="domcontentloaded")
             title = await page.title()
-            fields = await page.locator("input, textarea, select").evaluate_all(
-                """
-                elements => elements.map((element, index) => {
-                  const labelFor = element.id ? document.querySelector(`label[for="${CSS.escape(element.id)}"]`) : null;
-                  const wrappingLabel = element.closest("label");
-                  const ariaLabel = element.getAttribute("aria-label") || "";
-                  return {
-                    index,
-                    tag: element.tagName.toLowerCase(),
-                    field_type: (element.getAttribute("type") || element.tagName).toLowerCase(),
-                    name: element.getAttribute("name") || "",
-                    field_id: element.id || "",
-                    label: (labelFor?.innerText || wrappingLabel?.innerText || ariaLabel || "").trim(),
-                    placeholder: element.getAttribute("placeholder") || "",
-                    required: element.required || element.getAttribute("aria-required") === "true",
-                  };
-                })
-                """
-            )
+            fields = await self._extract_form_fields_from_page(page)
             await browser.close()
         visible_fields = [field for field in fields if self._is_user_field(field)]
         return ToolResult.success(f"Inspected {len(visible_fields)} form fields.", url=normalized, title=title, fields=visible_fields)
+
+    async def _extract_form_fields_from_page(self, page) -> list[dict[str, object]]:
+        return await page.locator("input, textarea, select").evaluate_all(
+            """
+            elements => elements.map((element, index) => {
+              const labelFor = element.id ? document.querySelector(`label[for="${CSS.escape(element.id)}"]`) : null;
+              const wrappingLabel = element.closest("label");
+              const ariaLabel = element.getAttribute("aria-label") || "";
+              return {
+                index,
+                tag: element.tagName.toLowerCase(),
+                field_type: (element.getAttribute("type") || element.tagName).toLowerCase(),
+                name: element.getAttribute("name") || "",
+                field_id: element.id || "",
+                label: (labelFor?.innerText || wrappingLabel?.innerText || ariaLabel || "").trim(),
+                placeholder: element.getAttribute("placeholder") || "",
+                required: element.required || element.getAttribute("aria-required") === "true",
+              };
+            })
+            """
+        )
 
     @staticmethod
     def map_profile_to_fields(fields: list[dict[str, object]], profile: dict[str, object]) -> list[dict[str, object]]:
@@ -261,6 +346,28 @@ class BrowserAutomationTool:
         return preview
 
     @staticmethod
+    def build_fill_actions(fill_preview: list[dict[str, object]]) -> list[dict[str, object]]:
+        safe_types = {"text", "email", "tel", "url", "number", "search", "textarea"}
+        actions: list[dict[str, object]] = []
+        for item in fill_preview:
+            field_type = str(item.get("field_type") or "").lower()
+            if field_type not in safe_types:
+                continue
+            if not item.get("would_fill"):
+                continue
+            actions.append(
+                {
+                    "field_index": item.get("field_index"),
+                    "selector": item.get("selector"),
+                    "field_label": item.get("field_label"),
+                    "field_type": field_type,
+                    "matched_profile_key": item.get("matched_profile_key"),
+                    "value": item.get("value_preview"),
+                }
+            )
+        return actions
+
+    @staticmethod
     def _profile_candidates(text: str) -> list[str]:
         normalized = BrowserAutomationTool._normalize_key(text)
         candidates = [normalized]
@@ -305,6 +412,20 @@ class BrowserAutomationTool:
         if unmappable:
             warnings.append(f"{len(unmappable)} field(s) need manual review because no stable selector was found.")
         return warnings
+
+    @staticmethod
+    def _fill_actions_preview(fill_actions: list[dict[str, object]], warnings: list[str]) -> str:
+        lines = [
+            f"{item.get('field_label') or item.get('selector')}: {item.get('value')}"
+            for item in fill_actions[:20]
+        ]
+        if len(fill_actions) > 20:
+            lines.append(f"...and {len(fill_actions) - 20} more field(s)")
+        if warnings:
+            lines.extend(["", "Warnings:", *warnings])
+        lines.append("")
+        lines.append("No submit button will be clicked.")
+        return "\n".join(lines)
 
     @staticmethod
     def _selector_for_field(field: dict[str, object]) -> str | None:

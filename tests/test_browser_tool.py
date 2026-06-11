@@ -110,6 +110,42 @@ class BrowserToolTests(unittest.TestCase):
         self.assertFalse(preview[2]["would_fill"])
         self.assertEqual(preview[2]["status"], "needs_review")
 
+    def test_builds_fill_actions_for_safe_text_fields_only(self) -> None:
+        fill_preview = [
+            {
+                "field_index": 0,
+                "selector": "#full-name",
+                "field_label": "Full name",
+                "field_type": "text",
+                "matched_profile_key": "name",
+                "value_preview": "Ada Lovelace",
+                "would_fill": True,
+            },
+            {
+                "field_index": 1,
+                "selector": "#resume",
+                "field_label": "Resume",
+                "field_type": "file",
+                "matched_profile_key": "resume",
+                "value_preview": "resume.pdf",
+                "would_fill": True,
+            },
+            {
+                "field_index": 2,
+                "selector": "#agree",
+                "field_label": "Agree",
+                "field_type": "checkbox",
+                "matched_profile_key": "agree",
+                "value_preview": "yes",
+                "would_fill": True,
+            },
+        ]
+
+        actions = BrowserAutomationTool.build_fill_actions(fill_preview)
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["selector"], "#full-name")
+
 
 if __name__ == "__main__":
     unittest.main()
