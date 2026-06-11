@@ -21,6 +21,18 @@ class HeuristicPlannerProvider:
         if remember:
             return remember
 
+        email = self._email(raw)
+        if email:
+            return email
+
+        email_search = self._email_search(raw)
+        if email_search:
+            return email_search
+
+        email_oauth = self._email_oauth(raw)
+        if email_oauth:
+            return email_oauth
+
         file_search = self._file_search(raw)
         if file_search:
             return file_search
@@ -56,18 +68,6 @@ class HeuristicPlannerProvider:
         job = self._job_application(raw)
         if job:
             return job
-
-        email = self._email(raw)
-        if email:
-            return email
-
-        email_search = self._email_search(raw)
-        if email_search:
-            return email_search
-
-        email_oauth = self._email_oauth(raw)
-        if email_oauth:
-            return email_oauth
 
         if any(phrase in lowered for phrase in ("hello", "hi ", "hey ", "how are you")):
             return PlanDecision(
@@ -183,12 +183,19 @@ class HeuristicPlannerProvider:
 
     def _email_search(self, text: str) -> PlanDecision | None:
         lowered = text.lower()
+        api_provider = self._email_api_provider(lowered)
         if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
+            if api_provider:
+                return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
         match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
         if not match:
             return None
         query = match.group(1).strip().strip("'\"") or "ALL"
+        for provider_name in ("gmail", "google", "outlook", "microsoft"):
+            query = re.sub(rf"\b(?:in|on|from)\s+{provider_name}\b", "", query, flags=re.IGNORECASE).strip()
+        if api_provider:
+            return self._command(f"email api search {api_provider} {query}", "User wants OAuth-backed mailbox search.", 0.76)
         return self._command(f"email search {query}", "User wants to search inbox messages.", 0.75)
 
     def _email_oauth(self, text: str) -> PlanDecision | None:
@@ -198,4 +205,12 @@ class HeuristicPlannerProvider:
         match = re.search(r"\b(?:forget|remove|delete)\s+(?:the\s+)?(?:email\s+)?(?:oauth\s+)?token\s+(?:for\s+)?(gmail|google|outlook|microsoft)", text, re.IGNORECASE)
         if match:
             return self._command(f"email oauth forget {match.group(1)}", "User wants to remove a stored email OAuth token.", 0.75)
+        return None
+
+    @staticmethod
+    def _email_api_provider(lowered: str) -> str | None:
+        if "gmail" in lowered or "google mail" in lowered:
+            return "gmail"
+        if "outlook" in lowered or "microsoft mail" in lowered:
+            return "outlook"
         return None

@@ -106,6 +106,15 @@ class AgentOrchestrator:
         if lowered.startswith("email unread"):
             return self.context.email.search_inbox("UNSEEN")
 
+        if lowered.startswith("email api search "):
+            parts = command[len("email api search ") :].strip().split(maxsplit=1)
+            if len(parts) != 2:
+                return ToolResult.failure("Use: email api search gmail|outlook <query>")
+            return self.context.email.search_oauth_mail(parts[0], parts[1])
+
+        if lowered.startswith("email api unread "):
+            return self.context.email.search_oauth_mail(command[len("email api unread ") :].strip(), "UNSEEN")
+
         if lowered in {"email oauth", "email oauth status"}:
             return self.context.email.oauth_status()
 
@@ -191,6 +200,8 @@ class AgentOrchestrator:
                 "  media playpause|next|previous|stop",
                 "  email search <query>",
                 "  email unread",
+                "  email api search gmail|outlook <query>",
+                "  email api unread gmail|outlook",
                 "  email oauth status",
                 "  email oauth url gmail|outlook",
                 "  email oauth exchange gmail|outlook <authorization-code>",

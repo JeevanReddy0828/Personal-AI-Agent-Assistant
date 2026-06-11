@@ -26,6 +26,7 @@ approval gate.
 - IMAP inbox search with explicit approval.
 - OAuth authorization URL helpers for Gmail and Outlook app setup.
 - OAuth authorization-code exchange with local encrypted token storage on Windows.
+- OAuth-backed Gmail/Outlook read/search commands using stored access tokens.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
@@ -78,6 +79,8 @@ email oauth url outlook
 email oauth exchange gmail <authorization-code>
 email oauth forget gmail
 email tokens status
+email api search gmail invoice
+email api unread outlook
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -149,8 +152,20 @@ email oauth forget gmail
 
 The OAuth exchange stores token responses in `.agent_data/email_tokens.json`
 encrypted with Windows DPAPI. On non-Windows systems the vault reports that
-encrypted storage is unavailable and refuses to store tokens. API-backed
-Gmail/Outlook mail access is a planned future step.
+encrypted storage is unavailable and refuses to store tokens.
+
+After storing a token, read-only provider API commands are available:
+
+```text
+email api search gmail invoice
+email api unread gmail
+email api search outlook recruiter
+email api unread outlook
+```
+
+These commands read message metadata/snippets only and require approval. Token
+refresh is not automated yet; if an access token expires, run the OAuth exchange
+flow again.
 
 ## LLM planner
 
@@ -220,7 +235,8 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add API-backed Gmail/Outlook read/send using stored OAuth tokens.
-3. Add document OCR and media transcription.
-4. Add stronger desktop screen understanding with OCR.
-5. Add a task dashboard for parallel agent progress.
+2. Add OAuth token refresh.
+3. Add API-backed Gmail/Outlook draft/send with final approval.
+4. Add document OCR and media transcription.
+5. Add stronger desktop screen understanding with OCR.
+6. Add a task dashboard for parallel agent progress.

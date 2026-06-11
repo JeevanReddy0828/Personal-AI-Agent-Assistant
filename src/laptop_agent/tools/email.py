@@ -124,6 +124,33 @@ class EmailTool:
                     break
         return ToolResult.success(f"Found {len(messages)} email message(s).", query=query, messages=messages)
 
+    def search_oauth_mail(self, provider: str, query: str = "ALL", limit: int = 10) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized not in {"gmail", "outlook"}:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        safe_limit = max(1, min(limit, 25))
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Read {normalized} mail through OAuth API",
+                risk=RiskLevel.HIGH,
+                reason="This reads mailbox metadata and snippets using a stored OAuth access token.",
+                preview=f"Query: {query}\nLimit: {safe_limit}",
+            )
+        )
+        try:
+            token_payload = self.token_vault.load(normalized)
+        except TokenVaultError as exc:
+            return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
+        if not token_payload:
+            return ToolResult.failure(f"No stored OAuth token for {normalized}.", hint=f"Run: email oauth exchange {normalized} <authorization-code>")
+        access_token = token_payload.get("access_token")
+        if not access_token:
+            return ToolResult.failure(f"Stored OAuth token for {normalized} has no access token.")
+
+        if normalized == "gmail":
+            return self._search_gmail_api(str(access_token), query, safe_limit)
+        return self._search_outlook_api(str(access_token), query, safe_limit)
+
     def oauth_status(self) -> ToolResult:
         providers = {
             "gmail": {
@@ -298,6 +325,109 @@ class EmailTool:
             "date": str(message.get("date", "")),
             "subject": str(message.get("subject", "")),
             "snippet": " ".join(body.split())[:500],
+        }
+
+    def _search_gmail_api(self, access_token: str, query: str, limit: int) -> ToolResult:
+        list_url = self._gmail_list_url(query, limit)
+        list_payload = self._api_get_json(list_url, access_token)
+        if not list_payload.ok:
+            return list_payload
+        messages = list_payload.data.get("json", {}).get("messages", [])
+        summaries = []
+        for item in messages[:limit]:
+            message_id = item.get("id")
+            if not message_id:
+                continue
+            detail = self._api_get_json(self._gmail_get_url(str(message_id)), access_token)
+            if detail.ok:
+                summaries.append(self._gmail_summary(detail.data.get("json", {})))
+        return ToolResult.success(f"Found {len(summaries)} Gmail message(s).", provider="gmail", query=query, messages=summaries)
+
+    def _search_outlook_api(self, access_token: str, query: str, limit: int) -> ToolResult:
+        payload = self._api_get_json(self._outlook_messages_url(query, limit), access_token, {"Prefer": 'outlook.body-content-type="text"'})
+        if not payload.ok:
+            return payload
+        messages = [self._outlook_summary(item) for item in payload.data.get("json", {}).get("value", [])]
+        return ToolResult.success(f"Found {len(messages)} Outlook message(s).", provider="outlook", query=query, messages=messages)
+
+    @staticmethod
+    def _api_get_json(url: str, access_token: str, extra_headers: dict[str, str] | None = None) -> ToolResult:
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+        if extra_headers:
+            headers.update(extra_headers)
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return ToolResult.success("API request succeeded.", json=json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            return ToolResult.failure(f"API request failed with HTTP {exc.code}.", detail=detail)
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            return ToolResult.failure(f"API request failed: {exc}")
+
+    @staticmethod
+    def _gmail_list_url(query: str, limit: int) -> str:
+        params = {"maxResults": str(max(1, min(limit, 25)))}
+        cleaned = query.strip()
+        if cleaned and cleaned.upper() != "ALL":
+            params["q"] = "is:unread" if cleaned.upper() == "UNSEEN" else cleaned
+        return "https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode(params)
+
+    @staticmethod
+    def _gmail_get_url(message_id: str) -> str:
+        params = [
+            ("format", "metadata"),
+            ("metadataHeaders", "From"),
+            ("metadataHeaders", "To"),
+            ("metadataHeaders", "Subject"),
+            ("metadataHeaders", "Date"),
+        ]
+        return f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?" + urllib.parse.urlencode(params)
+
+    @staticmethod
+    def _outlook_messages_url(query: str, limit: int) -> str:
+        params = {
+            "$top": str(max(1, min(limit, 25))),
+            "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead",
+            "$orderby": "receivedDateTime desc",
+        }
+        cleaned = query.strip()
+        if cleaned.upper() == "UNSEEN":
+            params["$filter"] = "isRead eq false"
+        elif cleaned and cleaned.upper() != "ALL":
+            params["$search"] = f'"{cleaned.replace(chr(34), chr(92) + chr(34))}"'
+        return "https://graph.microsoft.com/v1.0/me/messages?" + urllib.parse.urlencode(params)
+
+    @staticmethod
+    def _gmail_summary(message: dict[str, object]) -> dict[str, str]:
+        payload = message.get("payload", {})
+        raw_headers = payload.get("headers", []) if isinstance(payload, dict) else []
+        headers = {
+            str(item.get("name", "")).lower(): str(item.get("value", ""))
+            for item in raw_headers
+            if isinstance(item, dict)
+        }
+        return {
+            "id": str(message.get("id", "")),
+            "thread_id": str(message.get("threadId", "")),
+            "from": headers.get("from", ""),
+            "to": headers.get("to", ""),
+            "date": headers.get("date", ""),
+            "subject": headers.get("subject", ""),
+            "snippet": str(message.get("snippet", ""))[:500],
+        }
+
+    @staticmethod
+    def _outlook_summary(message: dict[str, object]) -> dict[str, str]:
+        sender = message.get("from") or {}
+        email_address = sender.get("emailAddress", {}) if isinstance(sender, dict) else {}
+        return {
+            "id": str(message.get("id", "")),
+            "from": str(email_address.get("address", "")) if isinstance(email_address, dict) else "",
+            "date": str(message.get("receivedDateTime", "")),
+            "subject": str(message.get("subject", "")),
+            "snippet": str(message.get("bodyPreview", ""))[:500],
+            "is_read": str(message.get("isRead", "")),
         }
 
     @staticmethod

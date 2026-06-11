@@ -71,11 +71,61 @@ class EmailToolTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertIn("available", result.data["vault"])
 
+    def test_oauth_mail_search_without_token_fails_cleanly(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.search_oauth_mail("gmail", "invoice")
+        self.assertFalse(result.ok)
+        self.assertIn("OAuth token", result.message)
+
     def test_exchange_oauth_code_requires_code(self) -> None:
         tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
         result = tool.exchange_oauth_code("gmail", "")
         self.assertFalse(result.ok)
         self.assertIn("required", result.message)
+
+    def test_gmail_api_urls(self) -> None:
+        list_url = EmailTool._gmail_list_url("invoice", 99)
+        get_url = EmailTool._gmail_get_url("abc/123")
+        self.assertIn("maxResults=25", list_url)
+        self.assertIn("q=invoice", list_url)
+        self.assertIn("abc/123", get_url)
+        self.assertIn("metadataHeaders=Subject", get_url)
+
+    def test_outlook_api_urls(self) -> None:
+        unread_url = EmailTool._outlook_messages_url("UNSEEN", 5)
+        search_url = EmailTool._outlook_messages_url("invoice", 5)
+        self.assertIn("%24filter=isRead+eq+false", unread_url)
+        self.assertIn("%24search=", search_url)
+
+    def test_gmail_summary(self) -> None:
+        summary = EmailTool._gmail_summary(
+            {
+                "id": "m1",
+                "threadId": "t1",
+                "snippet": "hello",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "a@example.com"},
+                        {"name": "Subject", "value": "Hi"},
+                    ]
+                },
+            }
+        )
+        self.assertEqual(summary["from"], "a@example.com")
+        self.assertEqual(summary["subject"], "Hi")
+
+    def test_outlook_summary(self) -> None:
+        summary = EmailTool._outlook_summary(
+            {
+                "id": "m1",
+                "from": {"emailAddress": {"address": "a@example.com"}},
+                "subject": "Hi",
+                "bodyPreview": "hello",
+                "isRead": False,
+            }
+        )
+        self.assertEqual(summary["from"], "a@example.com")
+        self.assertEqual(summary["is_read"], "False")
 
 
 if __name__ == "__main__":

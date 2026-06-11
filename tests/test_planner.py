@@ -52,6 +52,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email tokens status")
 
+    def test_routes_gmail_api_search(self) -> None:
+        decision = self.plan("find emails about invoice in gmail")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email api search gmail invoice")
+
+    def test_routes_outlook_unread(self) -> None:
+        decision = self.plan("show unread emails in outlook")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email api unread outlook")
+
     def test_unknown_request_returns_chat(self) -> None:
         decision = self.plan("invent something vague")
         self.assertTrue(decision.is_chat)
