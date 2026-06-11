@@ -25,6 +25,7 @@ approval gate.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Parallel task dashboard that records `multi` subtask status and results.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
+- Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -96,6 +97,9 @@ recall billing invoices
 what do I know about kubernetes
 knowledge list
 knowledge forget 1
+web search python asyncio tutorial
+search the web for best mechanical keyboards
+google walrus operator
 multi scan files . ;; summarize file notes.md
 tasks
 open url https://example.com
@@ -254,6 +258,7 @@ High-risk actions require explicit confirmation:
 - Moving files when organizing a folder.
 - Downloading files.
 - Launching apps or opening external URLs.
+- Searching the web (the query is sent to an external search engine).
 - Running browser automation that changes external state.
 - Any future shell execution.
 
@@ -294,7 +299,7 @@ Audit events are written to `.agent_data/audit.jsonl` by default.
 ```text
 src/laptop_agent/
   agents/          Task router and specialist agent orchestration.
-  tools/           File, web, browser, desktop, email, music, and transcribe tools.
+  tools/           File, web, web-search, browser, desktop, email, music, and transcribe tools.
   app.py           Shared app factory used by CLI and GUI.
   audit.py         JSONL audit logger.
   cli.py           Interactive command-line interface.

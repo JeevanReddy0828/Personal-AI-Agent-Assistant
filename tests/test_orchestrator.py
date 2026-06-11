@@ -20,6 +20,7 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.websearch import WebSearchTool
 
 
 class OrchestratorTests(unittest.TestCase):
@@ -60,6 +61,13 @@ class OrchestratorTests(unittest.TestCase):
                 memory=MemoryStore(config.memory_path),
                 files=FileTool(gate),
                 web=web,
+                websearch=WebSearchTool(
+                    gate,
+                    search_backend=lambda query, limit: [
+                        {"title": f"Result for {query}", "url": "https://example.com/1", "snippet": "snippet one"},
+                        {"title": "Second", "url": "https://example.com/2", "snippet": "snippet two"},
+                    ][:limit],
+                ),
                 browser=BrowserAutomationTool(gate),
                 desktop=desktop,
                 email=EmailTool(gate, config),
@@ -243,6 +251,22 @@ class OrchestratorTests(unittest.TestCase):
             doc_id = listed.data["documents"][0]["id"]
             forgotten = asyncio.run(orchestrator.handle(f"knowledge forget {doc_id}"))
             self.assertTrue(forgotten.data["removed"])
+
+    def test_web_search_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("web search python asyncio"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["results"][0]["url"], "https://example.com/1")
+            self.assertEqual(result.data["query"], "python asyncio")
+
+    def test_natural_language_web_search_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("search the web for tide times"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            self.assertEqual(result.data["query"], "tide times")
 
     def test_tasks_without_runs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

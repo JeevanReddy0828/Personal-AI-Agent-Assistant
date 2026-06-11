@@ -71,6 +71,10 @@ class HeuristicPlannerProvider:
         if read_file:
             return read_file
 
+        web_search = self._web_search(raw)
+        if web_search:
+            return web_search
+
         open_url = self._open_url(raw)
         if open_url:
             return open_url
@@ -207,6 +211,20 @@ class HeuristicPlannerProvider:
             return None
         path = match.group(1).strip().strip("'\"")
         return self._command(f"read file {path}", "User wants to read a supported document.", 0.8)
+
+    def _web_search(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:search the web for|search online for|google|look up|web search(?: for)?|search the internet for)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        query = match.group(1).strip().strip("'\"?")
+        query = re.sub(r"\b(?:online|on the web|on the internet)\s*$", "", query, flags=re.IGNORECASE).strip()
+        if not query:
+            return None
+        return self._command(f"web search {query}", "User wants to search the web.", 0.8)
 
     def _open_url(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:open|go to|browse|visit)\s+(?:url|website|site)?\s*(https?://\S+|[\w.-]+\.[a-z]{2,}(?:/\S*)?)", text, re.IGNORECASE)

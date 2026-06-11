@@ -132,6 +132,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "recall invoices")
 
+    def test_routes_web_search(self) -> None:
+        decision = self.plan("search the web for best mechanical keyboards")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "web search best mechanical keyboards")
+
+    def test_routes_google_query(self) -> None:
+        decision = self.plan("google python walrus operator")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "web search python walrus operator")
+
     def test_read_file_still_routes_to_read(self) -> None:
         decision = self.plan("read file report.txt")
         self.assertTrue(decision.is_command)

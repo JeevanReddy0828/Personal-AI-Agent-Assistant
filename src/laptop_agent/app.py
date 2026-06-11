@@ -17,6 +17,7 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.websearch import WebSearchTool
 
 
 def build_orchestrator(
@@ -36,6 +37,7 @@ def build_orchestrator(
         memory=MemoryStore(config.memory_path),
         files=files,
         web=web,
+        websearch=WebSearchTool(approval_gate),
         browser=BrowserAutomationTool(approval_gate),
         desktop=desktop,
         email=EmailTool(approval_gate, config),

@@ -19,6 +19,7 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.websearch import WebSearchTool
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class AgentContext:
     memory: MemoryStore
     files: FileTool
     web: WebTool
+    websearch: WebSearchTool
     browser: BrowserAutomationTool
     desktop: DesktopTool
     email: EmailTool
@@ -144,6 +146,12 @@ class AgentOrchestrator:
             if len(parts) < 2:
                 return ToolResult.failure("Use: search files <query> <root>")
             return self.context.files.search_text(parts[0], parts[1])
+
+        if lowered.startswith("web search "):
+            return self.context.websearch.search(command[len("web search ") :].strip())
+
+        if lowered.startswith("search web "):
+            return self.context.websearch.search(command[len("search web ") :].strip())
 
         if lowered.startswith("open url "):
             return self.context.web.open_url(command[len("open url ") :].strip())
@@ -303,6 +311,7 @@ class AgentOrchestrator:
                 "  knowledge list",
                 "  knowledge forget <id>",
                 "  search files <query> <path>",
+                "  web search <query>",
                 "  open url <url>",
                 "  download <url>",
                 "  inspect page <url>",
