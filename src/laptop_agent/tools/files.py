@@ -112,23 +112,43 @@ class FileTool:
                         return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
         return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
 
-    def summarize(self, path: str, sentences: int = 5) -> ToolResult:
+    def extract_document_text(self, path: str) -> ToolResult:
         target = Path(path).expanduser().resolve()
         text, error, meta = self._load_text(target)
         if error is not None:
             return error
+        return ToolResult.success(
+            f"Extracted text from {target.name}.",
+            path=str(target),
+            text=text,
+            char_count=len(text),
+            **{key: value for key, value in meta.items() if key != "kind"},
+        )
+
+    def summarize(self, path: str, sentences: int = 5) -> ToolResult:
+        target = Path(path).expanduser().resolve()
+        text, error, _meta = self._load_text(target)
+        if error is not None:
+            return error
+        return self.summarize_text(text, source=str(target), sentences=sentences)
+
+    def summarize_text(self, text: str, source: str | None = None, sentences: int = 5) -> ToolResult:
         sentence_list = self._split_sentences(text)
         if not sentence_list:
-            return ToolResult.failure(f"No readable prose to summarize in: {target}")
+            return ToolResult.failure(
+                f"No readable prose to summarize{f' in: {source}' if source else '.'}",
+                source=source,
+            )
 
         wanted = max(1, min(sentences, 15))
         selected = self._rank_sentences(sentence_list, wanted)
         summary = " ".join(sentence_list[index] for index in selected)
         words = self._content_words(text)
         keywords = [word for word, _ in Counter(words).most_common(8)]
+        label = source or "text"
         return ToolResult.success(
-            f"Summarized {target} into {len(selected)} sentence(s).",
-            path=str(target),
+            f"Summarized {label} into {len(selected)} sentence(s).",
+            path=source,
             summary=summary,
             sentence_count=len(sentence_list),
             summary_sentences=len(selected),

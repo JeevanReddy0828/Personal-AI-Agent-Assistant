@@ -3,15 +3,21 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
 
+# A screenshot backend captures the current screen and writes it to the given path.
+ScreenshotBackend = Callable[[Path], None]
+
+
 class DesktopTool:
-    def __init__(self, approval_gate: ApprovalGate) -> None:
+    def __init__(self, approval_gate: ApprovalGate, screenshot_backend: ScreenshotBackend | None = None) -> None:
         self.approval_gate = approval_gate
+        self._screenshot_backend = screenshot_backend
 
     def open_app_or_file(self, target: str) -> ToolResult:
         self.approval_gate.require(
@@ -30,10 +36,16 @@ class DesktopTool:
         return ToolResult.success(f"Opened: {target}")
 
     def screenshot(self, output_path: str) -> ToolResult:
-        try:
-            import pyautogui  # type: ignore
-        except ImportError:
-            return ToolResult.failure("Screenshot support requires: pip install pyautogui pillow")
+        backend = self._screenshot_backend
+        if backend is None:
+            try:
+                import pyautogui  # type: ignore
+            except ImportError:
+                return ToolResult.failure("Screenshot support requires: pip install pyautogui pillow")
+
+            def backend(path: Path) -> None:
+                pyautogui.screenshot().save(str(path))
+
         target = Path(output_path).expanduser().resolve()
         self.approval_gate.require(
             ApprovalRequest(
@@ -42,7 +54,6 @@ class DesktopTool:
                 reason="Screenshots can contain private information.",
             )
         )
-        image = pyautogui.screenshot()
         target.parent.mkdir(parents=True, exist_ok=True)
-        image.save(target)
+        backend(target)
         return ToolResult.success(f"Saved screenshot: {target}", path=str(target))

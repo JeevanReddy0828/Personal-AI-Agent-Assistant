@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import re
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 from laptop_agent.audit import AuditLogger
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import Planner
+from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
-from laptop_agent.tools.transcribe import TranscribeTool
+from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
 
 
@@ -28,6 +31,7 @@ class AgentContext:
     music: MusicTool
     transcribe: TranscribeTool
     audit: AuditLogger
+    tasks: TaskTracker
 
 
 class AgentOrchestrator:
@@ -60,7 +64,10 @@ class AgentOrchestrator:
             return self.context.files.read_text(command[len("read file ") :].strip())
 
         if lowered.startswith("summarize file "):
-            return self.context.files.summarize(command[len("summarize file ") :].strip())
+            return self._summarize_any(command[len("summarize file ") :].strip())
+
+        if lowered.startswith("extract text "):
+            return self._extract_text_any(command[len("extract text ") :].strip())
 
         if lowered.startswith("file info "):
             return self.context.files.file_info(command[len("file info ") :].strip())
@@ -76,6 +83,18 @@ class AgentOrchestrator:
 
         if lowered.startswith("transcribe "):
             return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
+
+        if lowered in {"read screen", "screen text", "what is on my screen", "what's on my screen"}:
+            return self._read_screen()
+
+        if lowered in {"tasks", "task dashboard", "show tasks"}:
+            dashboard = self.context.tasks.latest()
+            if dashboard is None:
+                return ToolResult.success("No parallel task runs yet. Use 'multi <cmd> ;; <cmd>'.", dashboard=None)
+            return ToolResult.success(
+                f"Latest run: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.",
+                dashboard=dashboard,
+            )
 
         if lowered.startswith("convert file "):
             rest = command[len("convert file ") :].strip()
@@ -248,13 +267,15 @@ class AgentOrchestrator:
                 "  audit",
                 "  scan files <path>",
                 "  read file <path>",
-                "  summarize file <path>",
+                "  summarize file <path>  (text, PDF, DOCX, images, audio, video)",
+                "  extract text <path>",
                 "  file info <path>",
                 "  extract tables <path>",
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
                 "  ocr image <path>",
                 "  transcribe <audio-or-video-path>",
+                "  read screen",
                 "  search files <query> <path>",
                 "  open url <url>",
                 "  download <url>",
@@ -282,7 +303,52 @@ class AgentOrchestrator:
                 "  send email to <addr> subject <subject> body <body>",
                 "  plan apply job <job-url-or-description>",
                 "  multi <command 1> ;; <command 2>",
+                "  tasks",
             ]
+        )
+
+    def _extract_text_any(self, path: str) -> ToolResult:
+        target = path.strip().strip("'\"")
+        if not target:
+            return ToolResult.failure("Use: extract text <path>")
+        suffix = Path(target).suffix.lower()
+        if suffix in IMAGE_EXTENSIONS:
+            return self.context.transcribe.ocr_image(target)
+        if suffix in MEDIA_EXTENSIONS:
+            return self.context.transcribe.transcribe_media(target)
+        return self.context.files.extract_document_text(target)
+
+    def _summarize_any(self, path: str) -> ToolResult:
+        target = path.strip().strip("'\"")
+        suffix = Path(target).suffix.lower()
+        if suffix not in IMAGE_EXTENSIONS and suffix not in MEDIA_EXTENSIONS:
+            return self.context.files.summarize(target)
+        extracted = self._extract_text_any(target)
+        if not extracted.ok:
+            return extracted
+        result = self.context.files.summarize_text(str(extracted.data.get("text", "")), source=target)
+        if result.ok:
+            result.data["extracted_from"] = "ocr" if suffix in IMAGE_EXTENSIONS else "transcription"
+        return result
+
+    def _read_screen(self) -> ToolResult:
+        handle = tempfile.NamedTemporaryFile(prefix="laptop_agent_screen_", suffix=".png", delete=False)
+        handle.close()
+        shot = self.context.desktop.screenshot(handle.name)
+        if not shot.ok:
+            return shot
+        ocr = self.context.transcribe.ocr_image(str(shot.data["path"]))
+        if not ocr.ok:
+            return ToolResult.failure(
+                ocr.message,
+                screenshot=shot.data.get("path"),
+                hint="Screenshot captured, but text extraction needs the OCR extra.",
+            )
+        return ToolResult.success(
+            f"Read {ocr.data.get('char_count', 0)} character(s) of text from the screen.",
+            screenshot=shot.data.get("path"),
+            text=ocr.data.get("text", ""),
+            char_count=ocr.data.get("char_count", 0),
         )
 
     def _remember(self, expression: str) -> ToolResult:
@@ -330,12 +396,23 @@ class AgentOrchestrator:
             return ToolResult.failure("Use: multi <command 1> ;; <command 2>")
         results = await asyncio.gather(*(self.handle(command) for command in commands), return_exceptions=True)
         payload = []
-        for command, result in zip(commands, results):
+        records = []
+        for index, (command, result) in enumerate(zip(commands, results)):
             if isinstance(result, Exception):
                 payload.append({"command": command, "ok": False, "message": str(result), "data": {}})
+                records.append(TaskRecord(index=index, command=command, status="failed", message=str(result)))
             else:
                 payload.append({"command": command, "ok": result.ok, "message": result.message, "data": result.data})
-        return ToolResult.success(f"Ran {len(payload)} subtasks.", results=payload)
+                records.append(
+                    TaskRecord(
+                        index=index,
+                        command=command,
+                        status="ok" if result.ok else "failed",
+                        message=result.message,
+                    )
+                )
+        dashboard = self.context.tasks.record_run(records)
+        return ToolResult.success(f"Ran {len(payload)} subtasks.", results=payload, dashboard=dashboard)
 
     @staticmethod
     def _conversation_fallback(text: str) -> ToolResult:

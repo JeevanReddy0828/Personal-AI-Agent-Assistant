@@ -11,6 +11,7 @@ from laptop_agent.config import AppConfig
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate
+from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
@@ -51,7 +52,7 @@ class OrchestratorTests(unittest.TestCase):
             llm_model=None,
             llm_api_key=None,
         )
-        desktop = DesktopTool(gate)
+        desktop = DesktopTool(gate, screenshot_backend=lambda path: path.write_bytes(b"\x89PNG\r\n"))
         web = WebTool(gate, config.downloads_dir)
         return AgentOrchestrator(
             AgentContext(
@@ -67,6 +68,7 @@ class OrchestratorTests(unittest.TestCase):
                     asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
                 ),
                 audit=AuditLogger(config.audit_log_path),
+                tasks=TaskTracker(),
             ),
             Planner(HeuristicPlannerProvider()),
         )
@@ -152,6 +154,63 @@ class OrchestratorTests(unittest.TestCase):
             orchestrator = self.build(root / "data")
             result = asyncio.run(orchestrator.handle(f"transcribe {doc}"))
             self.assertFalse(result.ok)
+
+    def test_summarize_image_uses_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            image = root / "poster.png"
+            image.write_bytes(b"\x89PNG")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"summarize file {image}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["extracted_from"], "ocr")
+            self.assertTrue(result.data["summary"])
+
+    def test_extract_text_unified_for_image(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            image = root / "card.jpg"
+            image.write_bytes(b"\xff\xd8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"extract text {image}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["text"], "ocr-text::card.jpg")
+
+    def test_extract_text_unified_for_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "doc.txt"
+            doc.write_text("plain content", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"extract text {doc}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["text"], "plain content")
+
+    def test_read_screen_captures_and_ocrs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("read screen"))
+            self.assertTrue(result.ok)
+            self.assertIn("ocr-text::", result.data["text"])
+            self.assertTrue(result.data["screenshot"])
+
+    def test_multi_records_task_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("multi help ;; memory ;; bogus-unknown-xyz"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["dashboard"]["task_count"], 3)
+            dash = asyncio.run(orchestrator.handle("tasks"))
+            self.assertTrue(dash.ok)
+            self.assertEqual(dash.data["dashboard"]["run"], 1)
+            self.assertEqual(dash.data["dashboard"]["task_count"], 3)
+
+    def test_tasks_without_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("tasks"))
+            self.assertTrue(result.ok)
+            self.assertIsNone(result.data["dashboard"])
 
     def test_natural_language_summarize_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -102,6 +102,21 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "ocr image receipt.jpg")
 
+    def test_routes_summarize_media_file(self) -> None:
+        decision = self.plan("summarize the recording standup.mp3")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "summarize file standup.mp3")
+
+    def test_routes_read_screen(self) -> None:
+        decision = self.plan("what's on my screen")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "read screen")
+
+    def test_routes_task_dashboard(self) -> None:
+        decision = self.plan("show tasks")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "tasks")
+
     def test_read_file_still_routes_to_read(self) -> None:
         decision = self.plan("read file report.txt")
         self.assertTrue(decision.is_command)

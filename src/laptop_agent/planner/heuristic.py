@@ -17,6 +17,12 @@ class HeuristicPlannerProvider:
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
 
+        if any(phrase in lowered for phrase in ("read my screen", "read the screen", "what is on my screen", "what's on my screen", "screen text")):
+            return self._command("read screen", "User wants on-screen text captured and read.", 0.85)
+
+        if lowered in {"tasks", "show tasks", "task dashboard", "show task dashboard", "show me the tasks"}:
+            return self._command("tasks", "User wants the parallel task dashboard.", 0.85)
+
         remember = self._remember(raw)
         if remember:
             return remember
@@ -129,14 +135,14 @@ class HeuristicPlannerProvider:
 
     def _summarize_file(self, text: str) -> PlanDecision | None:
         match = re.search(
-            r"\b(?:summarize|summarise|tldr|give me a summary of)\s+(?:the\s+)?(?:file\s+)?(.+\.(?:txt|md|markdown|tex|csv|tsv|pdf|docx))$",
+            r"\b(?:summarize|summarise|tldr|give me a summary of)\s+(?:the\s+)?(?:file\s+|audio\s+|video\s+|image\s+|recording\s+)?(.+\.(?:txt|md|markdown|tex|csv|tsv|pdf|docx|png|jpg|jpeg|gif|bmp|tiff|tif|webp|mp3|wav|m4a|flac|aac|ogg|opus|wma|mp4|mkv|mov|avi|webm|m4v))$",
             text,
             re.IGNORECASE,
         )
         if not match:
             return None
         path = match.group(1).strip().strip("'\"")
-        return self._command(f"summarize file {path}", "User wants an extractive document summary.", 0.82)
+        return self._command(f"summarize file {path}", "User wants an extractive summary of a document or media file.", 0.82)
 
     def _organize(self, text: str) -> PlanDecision | None:
         match = re.search(

@@ -8,6 +8,7 @@ from laptop_agent.config import AppConfig, load_config
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
+from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
@@ -40,6 +41,7 @@ def build_orchestrator(
         music=MusicTool(approval_gate, desktop, web),
         transcribe=TranscribeTool(),
         audit=audit,
+        tasks=TaskTracker(),
     )
     return AgentOrchestrator(context, _build_planner(config))
 

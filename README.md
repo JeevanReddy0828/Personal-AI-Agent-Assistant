@@ -21,6 +21,9 @@ approval gate.
 - Folder organization that previews moves by file type and applies them only after approval.
 - Optional image OCR (text extraction from screenshots/photos) via Tesseract.
 - Optional offline audio/video transcription via local Whisper.
+- Unified `extract text` and `summarize file` that auto-OCR images and transcribe media first.
+- `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
+- Parallel task dashboard that records `multi` subtask status and results.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -81,6 +84,13 @@ ocr image receipt.png
 extract text from screenshot shot.png
 transcribe meeting.mp3
 transcribe the audio lecture.mp4
+extract text contract.pdf
+extract text voicememo.m4a
+summarize file poster.png
+summarize the recording standup.mp3
+read screen
+multi scan files . ;; summarize file notes.md
+tasks
 open url https://example.com
 open website example.com
 inspect forms https://example.com/apply
@@ -253,7 +263,11 @@ closes the browser. It never clicks submit.
 
 Document summarization, `file info`, `extract tables`, `ocr image`, and
 `transcribe` are read-only: they only read local files and never change them.
-Transcription runs fully offline through a local Whisper model. `convert file`
+Transcription runs fully offline through a local Whisper model. `summarize file`
+and `extract text` reuse the same readers, so they stay read-only even for
+images and media. `read screen` first captures a screenshot, which is itself an
+approval-gated action because screen contents can be private; it then OCRs the
+captured image locally. `convert file`
 and `organize folder ... apply` change the
 filesystem, so each requires explicit approval and shows a preview first.
 `organize folder` without `apply` only previews the planned moves and never
@@ -279,6 +293,7 @@ src/laptop_agent/
   memory.py        Local JSON profile/preferences store.
   planner/         Natural-language route planners.
   safety.py        Approval gate and risk levels.
+  tasks.py         In-memory dashboard of parallel task runs.
   voice.py         Optional speech-to-text and text-to-speech adapters.
 tests/             Dependency-free unit tests.
 ```
@@ -287,6 +302,6 @@ tests/             Dependency-free unit tests.
 
 1. Add a local/remote LLM planner behind the orchestrator.
 2. Add attachment support for email drafts/sends.
-3. Let summarize/search ingest OCR and transcription output automatically.
-4. Add stronger desktop screen understanding with OCR.
-5. Add a task dashboard for parallel agent progress.
+3. Persist the task dashboard and surface it in the desktop GUI.
+4. Add retry/failure recovery for parallel subtasks.
+5. Add a searchable long-term memory/knowledge base over extracted text.
