@@ -17,7 +17,8 @@ dev = []
 
 [project.scripts]
 laptop-agent = "laptop_agent.cli:main"
-laptop-agent-gui = "laptop_agent.gui:main"
+laptop-agent-gui = "laptop_agent.dashboard:main"
+laptop-agent-dashboard = "laptop_agent.dashboard:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
