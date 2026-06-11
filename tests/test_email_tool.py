@@ -83,6 +83,30 @@ class EmailToolTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("required", result.message)
 
+    def test_refresh_oauth_token_without_stored_token_fails_cleanly(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.refresh_oauth_token("gmail")
+        self.assertFalse(result.ok)
+        self.assertIn("OAuth token", result.message)
+
+    def test_refresh_request_urls(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        gmail_url, gmail_payload = tool._refresh_request("gmail", "refresh-token")
+        outlook_url, outlook_payload = tool._refresh_request("outlook", "refresh-token")
+        self.assertEqual(gmail_url, "https://oauth2.googleapis.com/token")
+        self.assertEqual(gmail_payload["grant_type"], "refresh_token")
+        self.assertIn("login.microsoftonline.com/common", outlook_url)
+        self.assertEqual(outlook_payload["refresh_token"], "refresh-token")
+
+    def test_merge_refreshed_token_preserves_refresh_token(self) -> None:
+        merged = EmailTool._merge_refreshed_token(
+            {"access_token": "old", "refresh_token": "refresh", "scope": "Mail.Read"},
+            {"access_token": "new", "expires_in": 3600},
+        )
+        self.assertEqual(merged["access_token"], "new")
+        self.assertEqual(merged["refresh_token"], "refresh")
+        self.assertEqual(merged["expires_in"], 3600)
+
     def test_gmail_api_urls(self) -> None:
         list_url = EmailTool._gmail_list_url("invoice", 99)
         get_url = EmailTool._gmail_get_url("abc/123")

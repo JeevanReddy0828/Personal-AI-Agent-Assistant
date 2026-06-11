@@ -77,6 +77,7 @@ email oauth status
 email oauth url gmail
 email oauth url outlook
 email oauth exchange gmail <authorization-code>
+email oauth refresh gmail
 email oauth forget gmail
 email tokens status
 email api search gmail invoice
@@ -146,6 +147,8 @@ email oauth url gmail
 email oauth url outlook
 email oauth exchange gmail <authorization-code>
 email oauth exchange outlook <authorization-code>
+email oauth refresh gmail
+email oauth refresh outlook
 email tokens status
 email oauth forget gmail
 ```
@@ -164,8 +167,12 @@ email api unread outlook
 ```
 
 These commands read message metadata/snippets only and require approval. Token
-refresh is not automated yet; if an access token expires, run the OAuth exchange
-flow again.
+refresh is explicit and approval-gated:
+
+```text
+email oauth refresh gmail
+email oauth refresh outlook
+```
 
 ## LLM planner
 
@@ -235,8 +242,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add OAuth token refresh.
-3. Add API-backed Gmail/Outlook draft/send with final approval.
-4. Add document OCR and media transcription.
-5. Add stronger desktop screen understanding with OCR.
-6. Add a task dashboard for parallel agent progress.
+2. Add API-backed Gmail/Outlook draft/send with final approval.
+3. Add document OCR and media transcription.
+4. Add stronger desktop screen understanding with OCR.
+5. Add a task dashboard for parallel agent progress.

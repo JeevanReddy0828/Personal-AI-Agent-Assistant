@@ -52,6 +52,11 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email tokens status")
 
+    def test_routes_email_token_refresh(self) -> None:
+        decision = self.plan("refresh email oauth token for gmail")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email oauth refresh gmail")
+
     def test_routes_gmail_api_search(self) -> None:
         decision = self.plan("find emails about invoice in gmail")
         self.assertTrue(decision.is_command)

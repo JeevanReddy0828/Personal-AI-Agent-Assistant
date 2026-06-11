@@ -202,6 +202,9 @@ class HeuristicPlannerProvider:
         lowered = text.lower()
         if "email" in lowered and "token" in lowered and any(word in lowered for word in ("status", "stored", "vault")):
             return self._command("email tokens status", "User wants stored email token status.", 0.76)
+        match = re.search(r"\b(?:refresh|renew)\s+(?:the\s+)?(?:email\s+)?(?:oauth\s+)?token\s+(?:for\s+)?(gmail|google|outlook|microsoft)", text, re.IGNORECASE)
+        if match:
+            return self._command(f"email oauth refresh {match.group(1)}", "User wants to refresh a stored email OAuth token.", 0.76)
         match = re.search(r"\b(?:forget|remove|delete)\s+(?:the\s+)?(?:email\s+)?(?:oauth\s+)?token\s+(?:for\s+)?(gmail|google|outlook|microsoft)", text, re.IGNORECASE)
         if match:
             return self._command(f"email oauth forget {match.group(1)}", "User wants to remove a stored email OAuth token.", 0.75)

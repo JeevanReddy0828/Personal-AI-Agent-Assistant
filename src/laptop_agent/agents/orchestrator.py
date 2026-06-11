@@ -127,6 +127,9 @@ class AgentOrchestrator:
                 return ToolResult.failure("Use: email oauth exchange gmail|outlook <authorization-code>")
             return self.context.email.exchange_oauth_code(parts[0], parts[1])
 
+        if lowered.startswith("email oauth refresh "):
+            return self.context.email.refresh_oauth_token(command[len("email oauth refresh ") :].strip())
+
         if lowered.startswith("email oauth forget "):
             return self.context.email.forget_oauth_token(command[len("email oauth forget ") :].strip())
 
@@ -205,6 +208,7 @@ class AgentOrchestrator:
                 "  email oauth status",
                 "  email oauth url gmail|outlook",
                 "  email oauth exchange gmail|outlook <authorization-code>",
+                "  email oauth refresh gmail|outlook",
                 "  email oauth forget gmail|outlook",
                 "  email tokens status",
                 "  email to <addr> subject <subject> body <body>",

@@ -110,6 +110,13 @@ class OrchestratorTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn("OAuth token", result.message)
 
+    def test_email_oauth_refresh_without_token_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("email oauth refresh gmail"))
+            self.assertFalse(result.ok)
+            self.assertIn("OAuth token", result.message)
+
     def test_audit_command_returns_events(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))

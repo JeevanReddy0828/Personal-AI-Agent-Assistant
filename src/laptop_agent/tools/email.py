@@ -287,6 +287,63 @@ class EmailTool:
             },
         )
 
+    def refresh_oauth_token(self, provider: str) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized not in {"gmail", "outlook"}:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        missing = self._missing_refresh_config(normalized)
+        if missing:
+            return ToolResult.failure("OAuth token refresh is not configured.", missing=missing)
+        try:
+            existing = self.token_vault.load(normalized)
+        except TokenVaultError as exc:
+            return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
+        if not existing:
+            return ToolResult.failure(f"No stored OAuth token for {normalized}.", hint=f"Run: email oauth exchange {normalized} <authorization-code>")
+        refresh_token = existing.get("refresh_token")
+        if not refresh_token:
+            return ToolResult.failure(f"Stored OAuth token for {normalized} does not include a refresh token.")
+
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Refresh OAuth token for {normalized}",
+                risk=RiskLevel.CRITICAL,
+                reason="This uses a stored refresh token to request a new mailbox access token and updates the encrypted token vault.",
+                preview=f"Provider: {normalized}\nStored token: present",
+            )
+        )
+
+        token_url, payload = self._refresh_request(normalized, str(refresh_token))
+        request = urllib.request.Request(
+            token_url,
+            data=urllib.parse.urlencode(payload).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                refreshed = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            return ToolResult.failure(f"OAuth token refresh failed: {exc}")
+        if not isinstance(refreshed, dict) or "access_token" not in refreshed:
+            return ToolResult.failure("OAuth refresh response did not contain an access token.")
+
+        merged = self._merge_refreshed_token(existing, refreshed)
+        try:
+            info = self.token_vault.store(normalized, merged)
+        except TokenVaultError as exc:
+            return ToolResult.failure(f"Could not store refreshed token securely: {exc}")
+        return ToolResult.success(
+            f"Refreshed {normalized} OAuth token securely.",
+            token={
+                "provider": info.provider,
+                "token_type": info.token_type,
+                "scope": info.scope,
+                "expires_in": info.expires_in,
+                "has_refresh_token": info.has_refresh_token,
+            },
+        )
+
     def forget_oauth_token(self, provider: str) -> ToolResult:
         normalized = self._normalize_provider(provider)
         if normalized not in {"gmail", "outlook"}:
@@ -429,6 +486,55 @@ class EmailTool:
             "snippet": str(message.get("bodyPreview", ""))[:500],
             "is_read": str(message.get("isRead", "")),
         }
+
+    def _missing_refresh_config(self, provider: str) -> list[str]:
+        if provider == "gmail":
+            return [
+                name
+                for name, value in {
+                    "GOOGLE_CLIENT_ID": self.config.google_client_id,
+                    "GOOGLE_CLIENT_SECRET": self.config.google_client_secret,
+                }.items()
+                if not value
+            ]
+        return [
+            name
+            for name, value in {
+                "MICROSOFT_CLIENT_ID": self.config.microsoft_client_id,
+                "MICROSOFT_CLIENT_SECRET": self.config.microsoft_client_secret,
+            }.items()
+            if not value
+        ]
+
+    def _refresh_request(self, provider: str, refresh_token: str) -> tuple[str, dict[str, str | None]]:
+        if provider == "gmail":
+            return (
+                "https://oauth2.googleapis.com/token",
+                {
+                    "client_id": self.config.google_client_id,
+                    "client_secret": self.config.google_client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+            )
+        tenant = self.config.microsoft_tenant or "common"
+        return (
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            {
+                "client_id": self.config.microsoft_client_id,
+                "client_secret": self.config.microsoft_client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+        )
+
+    @staticmethod
+    def _merge_refreshed_token(existing: dict[str, object], refreshed: dict[str, object]) -> dict[str, object]:
+        merged = dict(existing)
+        merged.update(refreshed)
+        if "refresh_token" not in refreshed and "refresh_token" in existing:
+            merged["refresh_token"] = existing["refresh_token"]
+        return merged
 
     @staticmethod
     def _plain_text_body(message: EmailMessage) -> str:
