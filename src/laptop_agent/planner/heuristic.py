@@ -49,6 +49,14 @@ class HeuristicPlannerProvider:
         if organize:
             return organize
 
+        transcribe = self._transcribe(raw)
+        if transcribe:
+            return transcribe
+
+        ocr = self._ocr(raw)
+        if ocr:
+            return ocr
+
         read_file = self._read_file(raw)
         if read_file:
             return read_file
@@ -141,6 +149,28 @@ class HeuristicPlannerProvider:
         root = match.group(1).strip().strip("'\"")
         suffix = " apply" if match.group(2) else ""
         return self._command(f"organize folder {root}{suffix}", "User wants files organized by type.", 0.78)
+
+    def _transcribe(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:transcribe|transcription of|get a transcript of)\s+(?:the\s+)?(?:audio\s+|video\s+|media\s+)?(?:file\s+)?(.+\.(?:mp3|wav|m4a|flac|aac|ogg|opus|wma|mp4|mkv|mov|avi|webm|m4v))$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"")
+        return self._command(f"transcribe {path}", "User wants audio/video transcribed to text.", 0.82)
+
+    def _ocr(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:ocr|read text from|extract text from|get text from)\s+(?:the\s+)?(?:image\s+|picture\s+|screenshot\s+)?(?:file\s+)?(.+\.(?:png|jpg|jpeg|gif|bmp|tiff|tif|webp))$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"")
+        return self._command(f"ocr image {path}", "User wants text extracted from an image.", 0.82)
 
     def _read_file(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:read|open text from)\s+(?:file\s+)?(.+\.(?:txt|md|markdown|tex|csv|json|yaml|yml|pdf|docx))$", text, re.IGNORECASE)

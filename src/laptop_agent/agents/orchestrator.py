@@ -13,6 +13,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 
 
@@ -25,6 +26,7 @@ class AgentContext:
     desktop: DesktopTool
     email: EmailTool
     music: MusicTool
+    transcribe: TranscribeTool
     audit: AuditLogger
 
 
@@ -65,6 +67,15 @@ class AgentOrchestrator:
 
         if lowered.startswith("extract tables "):
             return self.context.files.extract_tables(command[len("extract tables ") :].strip())
+
+        if lowered.startswith("ocr image "):
+            return self.context.transcribe.ocr_image(command[len("ocr image ") :].strip())
+
+        if lowered.startswith("ocr "):
+            return self.context.transcribe.ocr_image(command[len("ocr ") :].strip())
+
+        if lowered.startswith("transcribe "):
+            return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
 
         if lowered.startswith("convert file "):
             rest = command[len("convert file ") :].strip()
@@ -242,6 +253,8 @@ class AgentOrchestrator:
                 "  extract tables <path>",
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
+                "  ocr image <path>",
+                "  transcribe <audio-or-video-path>",
                 "  search files <query> <path>",
                 "  open url <url>",
                 "  download <url>",

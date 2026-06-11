@@ -16,6 +16,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 
 
@@ -61,6 +62,10 @@ class OrchestratorTests(unittest.TestCase):
                 desktop=desktop,
                 email=EmailTool(gate, config),
                 music=MusicTool(gate, desktop, web),
+                transcribe=TranscribeTool(
+                    ocr_backend=lambda path: f"ocr-text::{path.name}",
+                    asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
+                ),
                 audit=AuditLogger(config.audit_log_path),
             ),
             Planner(HeuristicPlannerProvider()),
@@ -117,6 +122,36 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertEqual(len(result.data["planned"]), 1)
             self.assertTrue((root / "a.pdf").exists())
+
+    def test_ocr_image_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            image = root / "scan.png"
+            image.write_bytes(b"\x89PNG\r\n")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"ocr image {image}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["text"], "ocr-text::scan.png")
+
+    def test_transcribe_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            clip = root / "memo.mp3"
+            clip.write_bytes(b"ID3")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"transcribe {clip}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["text"], "transcript::memo.mp3")
+            self.assertEqual(result.data["kind"], "audio")
+
+    def test_transcribe_rejects_non_media(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "notes.txt"
+            doc.write_text("hello", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"transcribe {doc}"))
+            self.assertFalse(result.ok)
 
     def test_natural_language_summarize_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

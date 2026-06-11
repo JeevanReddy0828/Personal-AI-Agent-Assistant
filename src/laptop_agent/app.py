@@ -13,6 +13,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 
 
@@ -37,6 +38,7 @@ def build_orchestrator(
         desktop=desktop,
         email=EmailTool(approval_gate, config),
         music=MusicTool(approval_gate, desktop, web),
+        transcribe=TranscribeTool(),
         audit=audit,
     )
     return AgentOrchestrator(context, _build_planner(config))

@@ -19,6 +19,8 @@ approval gate.
 - File metadata/word-count inspection and CSV/TSV/Markdown table extraction.
 - Approval-gated document conversion to `.txt`/`.md`.
 - Folder organization that previews moves by file type and applies them only after approval.
+- Optional image OCR (text extraction from screenshots/photos) via Tesseract.
+- Optional offline audio/video transcription via local Whisper.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -75,6 +77,10 @@ extract tables data.csv
 convert file notes.md to notes.txt
 organize folder C:\Users\you\Downloads
 organize folder C:\Users\you\Downloads apply
+ocr image receipt.png
+extract text from screenshot shot.png
+transcribe meeting.mp3
+transcribe the audio lecture.mp4
 open url https://example.com
 open website example.com
 inspect forms https://example.com/apply
@@ -107,7 +113,7 @@ apply to the job at https://example.com/jobs/123
 Install extras as needed:
 
 ```powershell
-pip install -e ".[browser,desktop,docs,voice]"
+pip install -e ".[browser,desktop,docs,voice,ocr,transcribe]"
 playwright install chromium
 ```
 
@@ -117,6 +123,12 @@ agent still creates a safe review plan and tells you what to install.
 
 Voice buttons require optional packages. `Speak` uses `pyttsx3`; `Listen` uses
 `SpeechRecognition` and may require a microphone backend such as PyAudio.
+
+`ocr image <path>` requires the `ocr` extra plus the Tesseract OCR binary on
+PATH. `transcribe <path>` requires the `transcribe` extra (local Whisper) plus
+`ffmpeg` on PATH; set `LAPTOP_AGENT_WHISPER_MODEL` to pick a model size (default
+`base`). Without these extras, each command returns a clear install hint instead
+of failing hard.
 
 ## Email setup
 
@@ -239,8 +251,10 @@ It fills only mapped text-like fields in a headed browser, skips uploads,
 checkboxes, radios, selects, and password fields, waits briefly for review, then
 closes the browser. It never clicks submit.
 
-Document summarization, `file info`, and `extract tables` are read-only and run
-fully offline. `convert file` and `organize folder ... apply` change the
+Document summarization, `file info`, `extract tables`, `ocr image`, and
+`transcribe` are read-only: they only read local files and never change them.
+Transcription runs fully offline through a local Whisper model. `convert file`
+and `organize folder ... apply` change the
 filesystem, so each requires explicit approval and shows a preview first.
 `organize folder` without `apply` only previews the planned moves and never
 touches your files; the apply step skips any move whose destination already
@@ -256,7 +270,7 @@ Audit events are written to `.agent_data/audit.jsonl` by default.
 ```text
 src/laptop_agent/
   agents/          Task router and specialist agent orchestration.
-  tools/           File, web, browser, desktop, email, and music tools.
+  tools/           File, web, browser, desktop, email, music, and transcribe tools.
   app.py           Shared app factory used by CLI and GUI.
   audit.py         JSONL audit logger.
   cli.py           Interactive command-line interface.
@@ -273,6 +287,6 @@ tests/             Dependency-free unit tests.
 
 1. Add a local/remote LLM planner behind the orchestrator.
 2. Add attachment support for email drafts/sends.
-3. Add document OCR and media transcription.
+3. Let summarize/search ingest OCR and transcription output automatically.
 4. Add stronger desktop screen understanding with OCR.
 5. Add a task dashboard for parallel agent progress.
