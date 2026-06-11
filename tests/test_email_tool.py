@@ -14,6 +14,7 @@ class EmailToolTests(unittest.TestCase):
             data_dir=Path("."),
             memory_path=Path("memory.json"),
             audit_log_path=Path("audit.jsonl"),
+            token_vault_path=Path("email_tokens.json"),
             downloads_dir=Path("downloads"),
             smtp_host=None,
             smtp_port=587,
@@ -26,8 +27,10 @@ class EmailToolTests(unittest.TestCase):
             imap_password=None,
             imap_mailbox="INBOX",
             google_client_id="google-client",
+            google_client_secret="google-secret",
             google_redirect_uri="http://localhost:8765/oauth/callback",
             microsoft_client_id="microsoft-client",
+            microsoft_client_secret="microsoft-secret",
             microsoft_tenant="common",
             microsoft_redirect_uri="http://localhost:8765/oauth/callback",
             llm_provider="heuristic",
@@ -61,6 +64,18 @@ class EmailToolTests(unittest.TestCase):
         self.assertEqual(EmailTool._imap_criteria("ALL"), ["ALL"])
         self.assertEqual(EmailTool._imap_criteria("unseen"), ["UNSEEN"])
         self.assertEqual(EmailTool._imap_criteria("invoice"), ["TEXT", '"invoice"'])
+
+    def test_token_status(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.token_status()
+        self.assertTrue(result.ok)
+        self.assertIn("available", result.data["vault"])
+
+    def test_exchange_oauth_code_requires_code(self) -> None:
+        tool = EmailTool(ApprovalGate(lambda request: True), self.build_config())
+        result = tool.exchange_oauth_code("gmail", "")
+        self.assertFalse(result.ok)
+        self.assertIn("required", result.message)
 
 
 if __name__ == "__main__":

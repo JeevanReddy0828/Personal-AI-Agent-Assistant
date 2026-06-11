@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import imaplib
+import json
 import smtplib
+import urllib.error
 import urllib.parse
+import urllib.request
 import webbrowser
 from dataclasses import dataclass
 from email import policy
@@ -11,6 +14,7 @@ from email.parser import BytesParser
 
 from laptop_agent.config import AppConfig
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.token_vault import TokenVault, TokenVaultError
 from laptop_agent.tools.base import ToolResult
 
 
@@ -25,6 +29,7 @@ class EmailTool:
     def __init__(self, approval_gate: ApprovalGate, config: AppConfig) -> None:
         self.approval_gate = approval_gate
         self.config = config
+        self.token_vault = TokenVault(config.token_vault_path)
 
     def open_draft(self, draft: EmailDraft) -> ToolResult:
         self.approval_gate.require(
@@ -135,6 +140,9 @@ class EmailTool:
         }
         return ToolResult.success("Email OAuth provider status.", providers=providers)
 
+    def token_status(self) -> ToolResult:
+        return ToolResult.success("Email token vault status.", vault=self.token_vault.status())
+
     def oauth_authorization_url(self, provider: str) -> ToolResult:
         normalized = provider.lower().strip()
         if normalized in {"gmail", "google"}:
@@ -168,6 +176,103 @@ class EmailTool:
             return ToolResult.success("Created Outlook OAuth authorization URL.", provider="outlook", url=url)
 
         return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+
+    def exchange_oauth_code(self, provider: str, code: str) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized == "gmail":
+            missing = [
+                name
+                for name, value in {
+                    "GOOGLE_CLIENT_ID": self.config.google_client_id,
+                    "GOOGLE_CLIENT_SECRET": self.config.google_client_secret,
+                }.items()
+                if not value
+            ]
+            token_url = "https://oauth2.googleapis.com/token"
+            payload = {
+                "client_id": self.config.google_client_id,
+                "client_secret": self.config.google_client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": self.config.google_redirect_uri,
+            }
+        elif normalized == "outlook":
+            missing = [
+                name
+                for name, value in {
+                    "MICROSOFT_CLIENT_ID": self.config.microsoft_client_id,
+                    "MICROSOFT_CLIENT_SECRET": self.config.microsoft_client_secret,
+                }.items()
+                if not value
+            ]
+            tenant = self.config.microsoft_tenant or "common"
+            token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+            payload = {
+                "client_id": self.config.microsoft_client_id,
+                "client_secret": self.config.microsoft_client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": self.config.microsoft_redirect_uri,
+            }
+        else:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+
+        if missing:
+            return ToolResult.failure("OAuth token exchange is not configured.", missing=missing)
+        if not code.strip():
+            return ToolResult.failure("OAuth authorization code is required.")
+
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Exchange and store OAuth token for {normalized}",
+                risk=RiskLevel.CRITICAL,
+                reason="This exchanges an authorization code for mailbox tokens and stores them in the local encrypted token vault.",
+                preview=f"Provider: {normalized}\nCode: {self._redact(code)}",
+            )
+        )
+
+        request = urllib.request.Request(
+            token_url,
+            data=urllib.parse.urlencode(payload).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                token_payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            return ToolResult.failure(f"OAuth token exchange failed: {exc}")
+        if not isinstance(token_payload, dict) or "access_token" not in token_payload:
+            return ToolResult.failure("OAuth token response did not contain an access token.")
+
+        try:
+            info = self.token_vault.store(normalized, token_payload)
+        except TokenVaultError as exc:
+            return ToolResult.failure(f"Could not store token securely: {exc}")
+        return ToolResult.success(
+            f"Stored {normalized} OAuth token securely.",
+            token={
+                "provider": info.provider,
+                "token_type": info.token_type,
+                "scope": info.scope,
+                "expires_in": info.expires_in,
+                "has_refresh_token": info.has_refresh_token,
+            },
+        )
+
+    def forget_oauth_token(self, provider: str) -> ToolResult:
+        normalized = self._normalize_provider(provider)
+        if normalized not in {"gmail", "outlook"}:
+            return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Forget OAuth token for {normalized}",
+                risk=RiskLevel.HIGH,
+                reason="This removes locally stored mailbox credentials.",
+            )
+        )
+        removed = self.token_vault.forget(normalized)
+        return ToolResult.success("Removed stored OAuth token." if removed else "No stored OAuth token existed.", provider=normalized, removed=removed)
 
     @staticmethod
     def _preview(draft: EmailDraft) -> str:
@@ -219,3 +324,12 @@ class EmailTool:
         if len(value) <= 8:
             return "****"
         return value[:4] + "..." + value[-4:]
+
+    @staticmethod
+    def _normalize_provider(provider: str) -> str:
+        normalized = provider.lower().strip()
+        if normalized in {"gmail", "google"}:
+            return "gmail"
+        if normalized in {"outlook", "microsoft", "office", "office365"}:
+            return "outlook"
+        return normalized

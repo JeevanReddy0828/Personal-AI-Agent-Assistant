@@ -26,6 +26,7 @@ class OrchestratorTests(unittest.TestCase):
             data_dir=tmp,
             memory_path=tmp / "memory.json",
             audit_log_path=tmp / "audit.jsonl",
+            token_vault_path=tmp / "email_tokens.json",
             downloads_dir=tmp / "downloads",
             smtp_host=None,
             smtp_port=587,
@@ -38,8 +39,10 @@ class OrchestratorTests(unittest.TestCase):
             imap_password=None,
             imap_mailbox="INBOX",
             google_client_id=None,
+            google_client_secret=None,
             google_redirect_uri="http://localhost:8765/oauth/callback",
             microsoft_client_id=None,
+            microsoft_client_secret=None,
             microsoft_tenant="common",
             microsoft_redirect_uri="http://localhost:8765/oauth/callback",
             llm_provider="heuristic",
@@ -92,6 +95,13 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("email oauth status"))
             self.assertTrue(result.ok)
             self.assertIn("gmail", result.data["providers"])
+
+    def test_email_token_status(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("email tokens status"))
+            self.assertTrue(result.ok)
+            self.assertIn("vault", result.data)
 
     def test_audit_command_returns_events(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

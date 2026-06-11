@@ -47,6 +47,11 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email search invoice")
 
+    def test_routes_email_token_status(self) -> None:
+        decision = self.plan("show email token status")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email tokens status")
+
     def test_unknown_request_returns_chat(self) -> None:
         decision = self.plan("invent something vague")
         self.assertTrue(decision.is_chat)

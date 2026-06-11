@@ -65,6 +65,10 @@ class HeuristicPlannerProvider:
         if email_search:
             return email_search
 
+        email_oauth = self._email_oauth(raw)
+        if email_oauth:
+            return email_oauth
+
         if any(phrase in lowered for phrase in ("hello", "hi ", "hey ", "how are you")):
             return PlanDecision(
                 action="chat",
@@ -186,3 +190,12 @@ class HeuristicPlannerProvider:
             return None
         query = match.group(1).strip().strip("'\"") or "ALL"
         return self._command(f"email search {query}", "User wants to search inbox messages.", 0.75)
+
+    def _email_oauth(self, text: str) -> PlanDecision | None:
+        lowered = text.lower()
+        if "email" in lowered and "token" in lowered and any(word in lowered for word in ("status", "stored", "vault")):
+            return self._command("email tokens status", "User wants stored email token status.", 0.76)
+        match = re.search(r"\b(?:forget|remove|delete)\s+(?:the\s+)?(?:email\s+)?(?:oauth\s+)?token\s+(?:for\s+)?(gmail|google|outlook|microsoft)", text, re.IGNORECASE)
+        if match:
+            return self._command(f"email oauth forget {match.group(1)}", "User wants to remove a stored email OAuth token.", 0.75)
+        return None

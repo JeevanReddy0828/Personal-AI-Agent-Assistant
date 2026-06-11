@@ -25,6 +25,7 @@ approval gate.
 - Email draft generation via `mailto:` and optional SMTP sending.
 - IMAP inbox search with explicit approval.
 - OAuth authorization URL helpers for Gmail and Outlook app setup.
+- OAuth authorization-code exchange with local encrypted token storage on Windows.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
@@ -74,6 +75,9 @@ email unread
 email oauth status
 email oauth url gmail
 email oauth url outlook
+email oauth exchange gmail <authorization-code>
+email oauth forget gmail
+email tokens status
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -126,7 +130,9 @@ For OAuth app setup helpers:
 
 ```powershell
 $env:GOOGLE_CLIENT_ID="your-google-client-id"
+$env:GOOGLE_CLIENT_SECRET="your-google-client-secret"
 $env:MICROSOFT_CLIENT_ID="your-microsoft-client-id"
+$env:MICROSOFT_CLIENT_SECRET="your-microsoft-client-secret"
 ```
 
 Then run:
@@ -135,11 +141,16 @@ Then run:
 email oauth status
 email oauth url gmail
 email oauth url outlook
+email oauth exchange gmail <authorization-code>
+email oauth exchange outlook <authorization-code>
+email tokens status
+email oauth forget gmail
 ```
 
-The OAuth helpers currently generate authorization URLs only. Token exchange,
-encrypted token storage, and API-backed Gmail/Outlook mail access are planned
-future hardening steps.
+The OAuth exchange stores token responses in `.agent_data/email_tokens.json`
+encrypted with Windows DPAPI. On non-Windows systems the vault reports that
+encrypted storage is unavailable and refuses to store tokens. API-backed
+Gmail/Outlook mail access is a planned future step.
 
 ## LLM planner
 
@@ -165,6 +176,7 @@ High-risk actions require explicit confirmation:
 
 - Sending email.
 - Reading inbox metadata or snippets.
+- Exchanging or deleting mailbox OAuth tokens.
 - Submitting forms or applications.
 - Downloading files.
 - Launching apps or opening external URLs.
@@ -208,7 +220,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add OAuth token exchange and encrypted token storage.
+2. Add API-backed Gmail/Outlook read/send using stored OAuth tokens.
 3. Add document OCR and media transcription.
 4. Add stronger desktop screen understanding with OCR.
 5. Add a task dashboard for parallel agent progress.

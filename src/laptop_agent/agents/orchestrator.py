@@ -112,6 +112,18 @@ class AgentOrchestrator:
         if lowered.startswith("email oauth url "):
             return self.context.email.oauth_authorization_url(command[len("email oauth url ") :].strip())
 
+        if lowered.startswith("email oauth exchange "):
+            parts = command[len("email oauth exchange ") :].strip().split(maxsplit=1)
+            if len(parts) != 2:
+                return ToolResult.failure("Use: email oauth exchange gmail|outlook <authorization-code>")
+            return self.context.email.exchange_oauth_code(parts[0], parts[1])
+
+        if lowered.startswith("email oauth forget "):
+            return self.context.email.forget_oauth_token(command[len("email oauth forget ") :].strip())
+
+        if lowered in {"email tokens", "email token status", "email tokens status"}:
+            return self.context.email.token_status()
+
         if lowered.startswith("email "):
             return self._email(command[len("email ") :])
 
@@ -181,6 +193,9 @@ class AgentOrchestrator:
                 "  email unread",
                 "  email oauth status",
                 "  email oauth url gmail|outlook",
+                "  email oauth exchange gmail|outlook <authorization-code>",
+                "  email oauth forget gmail|outlook",
+                "  email tokens status",
                 "  email to <addr> subject <subject> body <body>",
                 "  send email to <addr> subject <subject> body <body>",
                 "  plan apply job <job-url-or-description>",

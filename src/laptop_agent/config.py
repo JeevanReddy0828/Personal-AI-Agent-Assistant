@@ -10,6 +10,7 @@ class AppConfig:
     data_dir: Path
     memory_path: Path
     audit_log_path: Path
+    token_vault_path: Path
     downloads_dir: Path
     smtp_host: str | None
     smtp_port: int
@@ -22,8 +23,10 @@ class AppConfig:
     imap_password: str | None
     imap_mailbox: str
     google_client_id: str | None
+    google_client_secret: str | None
     google_redirect_uri: str
     microsoft_client_id: str | None
+    microsoft_client_secret: str | None
     microsoft_tenant: str
     microsoft_redirect_uri: str
     llm_provider: str
@@ -50,6 +53,7 @@ def load_config() -> AppConfig:
         data_dir=data_dir,
         memory_path=data_dir / "memory.json",
         audit_log_path=data_dir / "audit.jsonl",
+        token_vault_path=data_dir / "email_tokens.json",
         downloads_dir=downloads_dir,
         smtp_host=os.environ.get("SMTP_HOST"),
         smtp_port=smtp_port,
@@ -62,8 +66,10 @@ def load_config() -> AppConfig:
         imap_password=os.environ.get("IMAP_PASSWORD"),
         imap_mailbox=os.environ.get("IMAP_MAILBOX", "INBOX"),
         google_client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+        google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
         google_redirect_uri=os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:8765/oauth/callback"),
         microsoft_client_id=os.environ.get("MICROSOFT_CLIENT_ID"),
+        microsoft_client_secret=os.environ.get("MICROSOFT_CLIENT_SECRET"),
         microsoft_tenant=os.environ.get("MICROSOFT_TENANT", "common"),
         microsoft_redirect_uri=os.environ.get("MICROSOFT_REDIRECT_URI", "http://localhost:8765/oauth/callback"),
         llm_provider=os.environ.get("LAPTOP_AGENT_LLM_PROVIDER", "heuristic").lower(),
