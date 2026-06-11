@@ -41,6 +41,10 @@ class HeuristicPlannerProvider:
         if forms:
             return forms
 
+        fill_preview = self._fill_preview(raw)
+        if fill_preview:
+            return fill_preview
+
         music = self._music(raw)
         if music:
             return music
@@ -113,6 +117,16 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"inspect forms {match.group(1)}", "User wants form fields inspected without submitting.", 0.82)
+
+    def _fill_preview(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:preview|prepare|review)\s+(?:a\s+)?(?:form\s+)?fill(?:ing)?\s+(?:for|at|on)?\s*(https?://\S+|[\w.-]+\.[a-z]{2,}(?:/\S*)?)",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return self._command(f"preview form fill {match.group(1)}", "User wants a no-submit fill preview.", 0.82)
 
     def _music(self, text: str) -> PlanDecision | None:
         lowered = text.lower()

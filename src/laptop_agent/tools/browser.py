@@ -94,6 +94,45 @@ class BrowserAutomationTool:
             fields=visible_fields,
         )
 
+    async def preview_form_fill(self, url: str, profile: dict[str, object]) -> ToolResult:
+        if not profile:
+            return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
+        normalized = self._normalize_url(url)
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Create form fill preview: {normalized}",
+                risk=RiskLevel.HIGH,
+                reason="This prepares personal data for a web form review. It does not type, click, or submit.",
+                preview="\n".join(f"{key}: {value}" for key, value in profile.items()),
+            )
+        )
+        inspection = await self._inspect_forms_without_extra_approval(normalized)
+        if not inspection.ok:
+            return ToolResult.failure(
+                "Could not inspect forms for fill preview.",
+                inspection=inspection.message,
+                url=normalized,
+            )
+        fields = inspection.data.get("fields", [])
+        field_mappings = self.map_profile_to_fields(fields, profile)
+        fill_preview = self.build_fill_preview(fields, field_mappings)
+        warnings = self._fill_preview_warnings(fill_preview)
+        return ToolResult.success(
+            "Prepared form fill preview. No fields were changed and nothing was submitted.",
+            url=normalized,
+            title=inspection.data.get("title"),
+            fields=fields,
+            field_mappings=field_mappings,
+            fill_preview=fill_preview,
+            warnings=warnings,
+            next_steps=[
+                "Review every mapped value",
+                "Add missing required profile details",
+                "Use a future explicit fill command only after approval",
+                "Use a future explicit submit command only after final approval",
+            ],
+        )
+
     async def prepare_job_application(self, url_or_description: str, profile: dict[str, object]) -> ToolResult:
         if not profile:
             return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
@@ -108,6 +147,8 @@ class BrowserAutomationTool:
         )
         fields: list[dict[str, object]] = []
         field_mappings: list[dict[str, object]] = []
+        fill_preview: list[dict[str, object]] = []
+        warnings: list[str] = []
         inspection_message = "No URL detected; created a workflow plan only."
         if url:
             inspection = await self._inspect_forms_without_extra_approval(url)
@@ -115,6 +156,8 @@ class BrowserAutomationTool:
             if inspection.ok:
                 fields = inspection.data.get("fields", [])
                 field_mappings = self.map_profile_to_fields(fields, profile)
+                fill_preview = self.build_fill_preview(fields, field_mappings)
+                warnings = self._fill_preview_warnings(fill_preview)
 
         return ToolResult.success(
             "Prepared job application review package. Submission is intentionally not automated.",
@@ -124,11 +167,13 @@ class BrowserAutomationTool:
             form_inspection=inspection_message,
             fields=fields,
             field_mappings=field_mappings,
+            fill_preview=fill_preview,
+            warnings=warnings,
             next_steps=[
                 "Review extracted fields",
                 "Confirm mapped profile values",
                 "Add any missing required details",
-                "Open the application page manually or through a future fill-preview workflow",
+                "Review fill-preview selectors before any future typing action",
                 "Require final approval before any future submit action",
             ],
         )
@@ -193,6 +238,29 @@ class BrowserAutomationTool:
         return mappings
 
     @staticmethod
+    def build_fill_preview(fields: list[dict[str, object]], mappings: list[dict[str, object]]) -> list[dict[str, object]]:
+        fields_by_index = {field.get("index"): field for field in fields}
+        preview: list[dict[str, object]] = []
+        for mapping in mappings:
+            field = fields_by_index.get(mapping.get("field_index"), {})
+            selector = BrowserAutomationTool._selector_for_field(field)
+            value_preview = mapping.get("value_preview")
+            preview.append(
+                {
+                    "field_index": mapping.get("field_index"),
+                    "selector": selector,
+                    "field_label": mapping.get("field_label"),
+                    "field_type": field.get("field_type"),
+                    "required": bool(mapping.get("required")),
+                    "matched_profile_key": mapping.get("matched_profile_key"),
+                    "value_preview": value_preview,
+                    "would_fill": bool(selector and value_preview),
+                    "status": "ready" if selector and value_preview else "needs_review",
+                }
+            )
+        return preview
+
+    @staticmethod
     def _profile_candidates(text: str) -> list[str]:
         normalized = BrowserAutomationTool._normalize_key(text)
         candidates = [normalized]
@@ -224,6 +292,35 @@ class BrowserAutomationTool:
         return field_type not in {"hidden", "submit", "button", "reset", "image"}
 
     @staticmethod
+    def _fill_preview_warnings(fill_preview: list[dict[str, object]]) -> list[str]:
+        warnings: list[str] = []
+        missing_required = [
+            str(item.get("field_label") or item.get("selector") or item.get("field_index"))
+            for item in fill_preview
+            if item.get("required") and not item.get("would_fill")
+        ]
+        if missing_required:
+            warnings.append("Missing required values for: " + ", ".join(missing_required))
+        unmappable = [item for item in fill_preview if not item.get("selector")]
+        if unmappable:
+            warnings.append(f"{len(unmappable)} field(s) need manual review because no stable selector was found.")
+        return warnings
+
+    @staticmethod
+    def _selector_for_field(field: dict[str, object]) -> str | None:
+        field_id = str(field.get("field_id") or "").strip()
+        name = str(field.get("name") or "").strip()
+        tag = str(field.get("tag") or "input").strip().lower()
+        placeholder = str(field.get("placeholder") or "").strip()
+        if field_id:
+            return f"#{BrowserAutomationTool._css_escape(field_id)}"
+        if name:
+            return f'{tag}[name="{BrowserAutomationTool._css_attr_escape(name)}"]'
+        if placeholder:
+            return f'{tag}[placeholder="{BrowserAutomationTool._css_attr_escape(placeholder)}"]'
+        return None
+
+    @staticmethod
     def _extract_url(text: str) -> str | None:
         match = re.search(r"https?://\S+|[\w.-]+\.[a-z]{2,}(?:/\S*)?", text, re.IGNORECASE)
         return match.group(0) if match else None
@@ -238,3 +335,11 @@ class BrowserAutomationTool:
     @staticmethod
     def _normalize_key(value: object) -> str:
         return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
+
+    @staticmethod
+    def _css_escape(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"').replace("#", "\\#").replace(".", "\\.")
+
+    @staticmethod
+    def _css_attr_escape(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')

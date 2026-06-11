@@ -42,6 +42,74 @@ class BrowserToolTests(unittest.TestCase):
         self.assertEqual(mappings[1]["matched_profile_key"], "email")
         self.assertEqual(mappings[2]["status"], "needs_review")
 
+    def test_builds_fill_preview_with_selectors_and_warnings(self) -> None:
+        fields = [
+            {
+                "index": 0,
+                "tag": "input",
+                "field_type": "text",
+                "name": "",
+                "field_id": "full-name",
+                "label": "Full name",
+                "placeholder": "",
+                "required": True,
+            },
+            {
+                "index": 1,
+                "tag": "input",
+                "field_type": "email",
+                "name": "email",
+                "field_id": "",
+                "label": "Email address",
+                "placeholder": "",
+                "required": True,
+            },
+            {
+                "index": 2,
+                "tag": "textarea",
+                "field_type": "textarea",
+                "name": "",
+                "field_id": "",
+                "label": "Cover letter",
+                "placeholder": "",
+                "required": True,
+            },
+        ]
+        mappings = [
+            {
+                "field_index": 0,
+                "field_label": "Full name",
+                "required": True,
+                "matched_profile_key": "name",
+                "value_preview": "Ada Lovelace",
+                "status": "mapped",
+            },
+            {
+                "field_index": 1,
+                "field_label": "Email address",
+                "required": True,
+                "matched_profile_key": "email",
+                "value_preview": "ada@example.com",
+                "status": "mapped",
+            },
+            {
+                "field_index": 2,
+                "field_label": "Cover letter",
+                "required": True,
+                "matched_profile_key": None,
+                "value_preview": None,
+                "status": "needs_review",
+            },
+        ]
+
+        preview = BrowserAutomationTool.build_fill_preview(fields, mappings)
+
+        self.assertEqual(preview[0]["selector"], "#full-name")
+        self.assertEqual(preview[1]["selector"], 'input[name="email"]')
+        self.assertTrue(preview[0]["would_fill"])
+        self.assertFalse(preview[2]["would_fill"])
+        self.assertEqual(preview[2]["status"], "needs_review")
+
 
 if __name__ == "__main__":
     unittest.main()
