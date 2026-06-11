@@ -61,6 +61,10 @@ class HeuristicPlannerProvider:
         if email:
             return email
 
+        email_search = self._email_search(raw)
+        if email_search:
+            return email_search
+
         if any(phrase in lowered for phrase in ("hello", "hi ", "hey ", "how are you")):
             return PlanDecision(
                 action="chat",
@@ -172,3 +176,13 @@ class HeuristicPlannerProvider:
         subject = match.group(2).strip()
         body = f"Draft email about: {subject}"
         return self._command(f"email to {to} subject {subject} body {body}", "User wants an email draft.", 0.65)
+
+    def _email_search(self, text: str) -> PlanDecision | None:
+        lowered = text.lower()
+        if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
+            return self._command("email unread", "User wants unread inbox messages.", 0.78)
+        match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        query = match.group(1).strip().strip("'\"") or "ALL"
+        return self._command(f"email search {query}", "User wants to search inbox messages.", 0.75)

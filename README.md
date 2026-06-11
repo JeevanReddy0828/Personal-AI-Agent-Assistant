@@ -23,6 +23,8 @@ approval gate.
 - Approved browser fill action for safe mapped text fields, with no submit action.
 - Desktop hooks for opening apps and media keys on Windows.
 - Email draft generation via `mailto:` and optional SMTP sending.
+- IMAP inbox search with explicit approval.
+- OAuth authorization URL helpers for Gmail and Outlook app setup.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
@@ -67,6 +69,11 @@ preview form fill https://example.com/apply
 preview form fill for example.com/apply
 fill form https://example.com/apply
 fill the form at example.com/apply
+email search recruiter
+email unread
+email oauth status
+email oauth url gmail
+email oauth url outlook
 play music C:\Users\you\Music
 email to person@example.com subject Hello body Draft this message only
 plan apply job at Example Corp from https://example.com/jobs/123
@@ -88,6 +95,51 @@ agent still creates a safe review plan and tells you what to install.
 
 Voice buttons require optional packages. `Speak` uses `pyttsx3`; `Listen` uses
 `SpeechRecognition` and may require a microphone backend such as PyAudio.
+
+## Email setup
+
+Drafts work without account credentials by opening your default mail client.
+SMTP sending requires:
+
+```powershell
+$env:SMTP_HOST="smtp.example.com"
+$env:SMTP_USERNAME="you@example.com"
+$env:SMTP_PASSWORD="app-password-or-secret"
+```
+
+Inbox search uses IMAP and requires:
+
+```powershell
+$env:IMAP_HOST="imap.example.com"
+$env:IMAP_USERNAME="you@example.com"
+$env:IMAP_PASSWORD="app-password-or-secret"
+```
+
+Commands:
+
+```text
+email search invoice
+email unread
+```
+
+For OAuth app setup helpers:
+
+```powershell
+$env:GOOGLE_CLIENT_ID="your-google-client-id"
+$env:MICROSOFT_CLIENT_ID="your-microsoft-client-id"
+```
+
+Then run:
+
+```text
+email oauth status
+email oauth url gmail
+email oauth url outlook
+```
+
+The OAuth helpers currently generate authorization URLs only. Token exchange,
+encrypted token storage, and API-backed Gmail/Outlook mail access are planned
+future hardening steps.
 
 ## LLM planner
 
@@ -112,6 +164,7 @@ actions still go through the approval gate.
 High-risk actions require explicit confirmation:
 
 - Sending email.
+- Reading inbox metadata or snippets.
 - Submitting forms or applications.
 - Downloading files.
 - Launching apps or opening external URLs.
@@ -155,7 +208,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Add Gmail/Outlook OAuth integrations.
+2. Add OAuth token exchange and encrypted token storage.
 3. Add document OCR and media transcription.
 4. Add stronger desktop screen understanding with OCR.
 5. Add a task dashboard for parallel agent progress.

@@ -32,6 +32,16 @@ class OrchestratorTests(unittest.TestCase):
             smtp_username=None,
             smtp_password=None,
             smtp_from=None,
+            imap_host=None,
+            imap_port=993,
+            imap_username=None,
+            imap_password=None,
+            imap_mailbox="INBOX",
+            google_client_id=None,
+            google_redirect_uri="http://localhost:8765/oauth/callback",
+            microsoft_client_id=None,
+            microsoft_tenant="common",
+            microsoft_redirect_uri="http://localhost:8765/oauth/callback",
             llm_provider="heuristic",
             llm_base_url="https://api.openai.com/v1",
             llm_model=None,
@@ -75,6 +85,13 @@ class OrchestratorTests(unittest.TestCase):
             orchestrator = self.build(Path(raw))
             result = asyncio.run(orchestrator.handle("email hello"))
             self.assertFalse(result.ok)
+
+    def test_email_oauth_status(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("email oauth status"))
+            self.assertTrue(result.ok)
+            self.assertIn("gmail", result.data["providers"])
 
     def test_audit_command_returns_events(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

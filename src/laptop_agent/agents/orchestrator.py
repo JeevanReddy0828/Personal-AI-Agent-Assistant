@@ -100,6 +100,18 @@ class AgentOrchestrator:
         if lowered.startswith("media "):
             return self.context.music.media_key(command[len("media ") :].strip())
 
+        if lowered.startswith("email search "):
+            return self.context.email.search_inbox(command[len("email search ") :].strip() or "ALL")
+
+        if lowered.startswith("email unread"):
+            return self.context.email.search_inbox("UNSEEN")
+
+        if lowered in {"email oauth", "email oauth status"}:
+            return self.context.email.oauth_status()
+
+        if lowered.startswith("email oauth url "):
+            return self.context.email.oauth_authorization_url(command[len("email oauth url ") :].strip())
+
         if lowered.startswith("email "):
             return self._email(command[len("email ") :])
 
@@ -165,6 +177,10 @@ class AgentOrchestrator:
                 "  screenshot <output.png>",
                 "  play music <file-folder-or-url>",
                 "  media playpause|next|previous|stop",
+                "  email search <query>",
+                "  email unread",
+                "  email oauth status",
+                "  email oauth url gmail|outlook",
                 "  email to <addr> subject <subject> body <body>",
                 "  send email to <addr> subject <subject> body <body>",
                 "  plan apply job <job-url-or-description>",
