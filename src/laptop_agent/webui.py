@@ -53,6 +53,13 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
 _orchestrator = build_orchestrator(approval_callback=_guarded_approval)
 
 
+def _warmup() -> None:
+    provider = getattr(_orchestrator.planner, "provider", None)
+    warmup = getattr(provider, "warmup", None)
+    if warmup:
+        threading.Thread(target=warmup, daemon=True).start()
+
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -469,6 +476,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
+    _warmup()
     print(f"J.A.R.V.I.S chat running at {url}")
     print("Guarded mode: high-risk actions blocked; read/search/research allowed. Ctrl+C to stop.")
     try:
@@ -523,6 +531,7 @@ def run_desktop() -> None:
     port = server.server_address[1]
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    _warmup()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
     if _launch_webview(url):

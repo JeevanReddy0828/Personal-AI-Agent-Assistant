@@ -28,8 +28,19 @@ _SYSTEM_PROMPT = (
     "draft/preview/plan command over a final send/submit one.\n"
     "Act on sensible defaults instead of asking for clarification: 'here', 'this folder', or 'the current "
     "directory' mean '.'; a well-known file named without a path (like 'the readme') is in the current directory "
-    "(e.g. README.md). Only ask a clarifying question when no reasonable default exists."
+    "(e.g. README.md). Only ask a clarifying question when no reasonable default exists. Never claim you are doing "
+    "an action in a chat response — if it needs an action, emit a command."
 )
+
+# Few-shot shown as real message turns; small models follow these far more
+# reliably than examples embedded in the system prompt text.
+_FEWSHOT: list[tuple[str, str]] = [
+    ("what files are here", '{"action":"command","command":"scan files .","response":null}'),
+    ("summarize the readme", '{"action":"command","command":"summarize file README.md","response":null}'),
+    ("look up the weather in tokyo", '{"action":"command","command":"web search tokyo weather","response":null}'),
+    ("research local-first ai", '{"action":"command","command":"research local-first ai","response":null}'),
+    ("how are you?", '{"action":"chat","command":null,"response":"Doing well and ready to help. What do you need?"}'),
+]
 
 
 class OpenAICompatiblePlannerProvider:
@@ -46,26 +57,19 @@ class OpenAICompatiblePlannerProvider:
         self._transport = transport or self._http_transport
 
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
-        payload: dict[str, object] = {
-            "model": self.model,
-            "temperature": 0.3,
-            "max_tokens": 1024,
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "request": text,
-                            "current_directory": os.getcwd(),
-                            "available_commands": available_commands,
-                            "memory_profile": {str(key): str(value) for key, value in memory_profile.items()},
-                        },
-                        sort_keys=True,
-                    ),
-                },
-            ],
-        }
+        facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
+        system = (
+            f"{_SYSTEM_PROMPT}\n\nCurrent directory: {os.getcwd()}\n"
+            f"Known facts about the user: {facts}\n\nAvailable commands:\n{available_commands}"
+        )
+        # All user turns are plain request text so the examples and the real
+        # request share one format — small models route far more reliably that way.
+        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        for example_user, example_json in _FEWSHOT:
+            messages.append({"role": "user", "content": example_user})
+            messages.append({"role": "assistant", "content": example_json})
+        messages.append({"role": "user", "content": text})
+        payload: dict[str, object] = {"model": self.model, "temperature": 0, "max_tokens": 320, "messages": messages}
         # Nemotron and other reasoning models stream chain-of-thought separately;
         # disabling it keeps responses fast and the content clean for parsing.
         if "nvidia" in self.base_url:
@@ -117,6 +121,15 @@ class OpenAICompatiblePlannerProvider:
             return None
         narrated = self._strip_reasoning(content).strip()
         return narrated or None
+
+    def warmup(self) -> None:
+        """Fire a tiny request so the first real message does not pay cold-start cost."""
+        try:
+            self._transport(
+                {"model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
+            )
+        except Exception:
+            pass
 
     def _http_transport(self, payload: dict) -> str:
         request = urllib.request.Request(

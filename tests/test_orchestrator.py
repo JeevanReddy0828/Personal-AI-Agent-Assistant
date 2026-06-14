@@ -306,21 +306,20 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertIsNone(result.data["dashboard"])
 
-    def test_planner_narrates_routed_command(self) -> None:
+    def test_routed_command_is_humanized_locally(self) -> None:
         from laptop_agent.planner.core import PlanDecision
 
-        class NarratingProvider:
+        class RoutingProvider:
             def plan(self, text, available_commands, memory_profile):
-                return PlanDecision(action="command", command="tasks", confidence=0.9, explanation="route")
-
-            def narrate(self, user_text, message, data):
-                return "You have no tasks running right now."
+                return PlanDecision(action="command", command="memory", confidence=0.9, explanation="route")
 
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
-            orchestrator.planner = Planner(NarratingProvider())
-            result = asyncio.run(orchestrator.handle("how are my tasks doing"))
-            self.assertEqual(result.message, "You have no tasks running right now.")
+            asyncio.run(orchestrator.handle("remember my name is Ada"))
+            orchestrator.planner = Planner(RoutingProvider())
+            result = asyncio.run(orchestrator.handle("what do you remember about me"))
+            self.assertIn("Ada", result.message)
+            self.assertIn("Here's what I remember", result.message)
             self.assertIn("planner", result.data)
 
     def test_planner_recursion_is_bounded(self) -> None:

@@ -9,7 +9,7 @@ from pathlib import Path
 from laptop_agent.audit import AuditLogger
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
-from laptop_agent.planner import Planner
+from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -44,6 +44,18 @@ class AgentOrchestrator:
     def __init__(self, context: AgentContext, planner: Planner | None = None) -> None:
         self.context = context
         self.planner = planner
+        # Fast deterministic router tried before any LLM, so common requests
+        # route instantly and reliably with zero network latency.
+        self.router = Planner(HeuristicPlannerProvider())
+
+    def _route(self, command: str, profile: dict[str, object]):
+        help_text = self.help_text()
+        fast = self.router.plan(command, help_text, profile)
+        if fast.is_command or self.planner is None:
+            return fast
+        if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
+            return fast
+        return self.planner.plan(command, help_text, profile)
 
     async def handle(self, text: str, _allow_planner: bool = True) -> ToolResult:
         command = text.strip()
@@ -266,17 +278,15 @@ class AgentOrchestrator:
         if lowered.startswith("multi "):
             return await self._run_many(command[len("multi ") :])
 
-        if self.planner is not None and _allow_planner:
-            planned = self.planner.plan(command, self.help_text(), self.context.memory.get_profile())
+        if _allow_planner:
+            planned = self._route(command, self.context.memory.get_profile())
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
                 # _allow_planner=False stops a planned command from re-triggering
                 # the planner, which would let an LLM loop or double-call itself.
                 result = await self.handle(planned.command, _allow_planner=False)
-                # Speak the tool result back in plain language for natural-language
-                # requests, so the user never has to read raw command output.
-                narrated = self.planner.narrate(command, result.message, result.data)
-                if narrated:
-                    result.message = narrated
+                # Format the tool result into plain language locally — instant, with
+                # no second network round-trip, so natural-language requests stay fast.
+                result.message = self._humanize(result)
                 result.data.setdefault("planner", {})
                 result.data["planner"].update(
                     {
@@ -456,6 +466,46 @@ class AgentOrchestrator:
             text=ocr.data.get("text", ""),
             char_count=ocr.data.get("char_count", 0),
         )
+
+    @staticmethod
+    def _humanize(result: ToolResult) -> str:
+        """Turn a tool result into a friendly sentence locally (no LLM round-trip)."""
+        if not result.ok:
+            return result.message
+        data = result.data
+        if data.get("summary"):
+            return str(data["summary"])
+        if "files" in data and "root" in data:
+            return f"I found {len(data['files'])} file(s) in {data['root']}."
+        if isinstance(data.get("results"), list):
+            results = data["results"]
+            query = str(data.get("query", "")).strip()
+            if not results:
+                return f"I couldn't find anything for '{query}'." if query else result.message
+            first = results[0] if isinstance(results[0], dict) else {}
+            if "url" in first:
+                lines = [f"{i + 1}. {r.get('title', '')} — {r.get('url', '')}" for i, r in enumerate(results[:5])]
+                return "Here are the top results:\n" + "\n".join(lines)
+            if "source" in first:
+                lines = [f"- {r.get('source', '')}: {str(r.get('snippet', '')).strip()[:140]}" for r in results[:5]]
+                return f"I found {len(results)} match(es):\n" + "\n".join(lines)
+        if "text" in data and "char_count" in data:
+            text = str(data.get("text", "")).strip()
+            return ("Here's what I read:\n" + text[:700]) if text else result.message
+        if data.get("dashboard"):
+            board = data["dashboard"]
+            return f"Latest run: {board.get('ok_count', 0)} ok, {board.get('failed_count', 0)} failed across {board.get('task_count', 0)} task(s)."
+        if "documents" in data and isinstance(data["documents"], list):
+            docs = data["documents"]
+            if not docs:
+                return "Your knowledge base is empty. Index a file to get started."
+            return f"You have {len(docs)} document(s) indexed: " + ", ".join(str(d.get("source", "")) for d in docs[:6]) + "."
+        if isinstance(data.get("memory"), dict):
+            profile = data["memory"].get("profile", {})
+            if profile:
+                return "Here's what I remember: " + ", ".join(f"{k} = {v}" for k, v in profile.items()) + "."
+            return "I don't have anything saved about you yet."
+        return result.message
 
     def _remember(self, expression: str) -> ToolResult:
         if "=" not in expression:

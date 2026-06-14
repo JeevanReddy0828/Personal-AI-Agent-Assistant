@@ -17,6 +17,10 @@ class HeuristicPlannerProvider:
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
 
+        casual = self._casual(lowered)
+        if casual:
+            return casual
+
         if any(phrase in lowered for phrase in ("read my screen", "read the screen", "what is on my screen", "what's on my screen", "screen text")):
             return self._command("read screen", "User wants on-screen text captured and read.", 0.85)
 
@@ -117,6 +121,17 @@ class HeuristicPlannerProvider:
             explanation="No high-confidence tool route found.",
             response="I understand the request, but I do not know the right tool route yet. Try 'help', or phrase it as a command like 'scan files .'",
         )
+
+    def _casual(self, lowered: str) -> PlanDecision | None:
+        if re.search(r"\b(file|files|what.*here)\b", lowered) and re.search(r"\b(here|this folder|this directory|current (folder|directory))\b", lowered):
+            return self._command("scan files .", "User wants the files in the current folder.", 0.84)
+        if re.search(r"\b(summari[sz]e|gist|overview|tl;?dr)\b.*\breadme\b", lowered) or re.search(r"\breadme\b.*\b(summari[sz]e|gist|overview)\b", lowered):
+            return self._command("summarize file README.md", "User wants the README summarized.", 0.84)
+        if re.search(r"\bwhat\b.*\b(remember|know)\b.*\b(about )?me\b", lowered) or lowered in {"my profile", "show my profile"}:
+            return self._command("memory", "User wants to see what is remembered about them.", 0.84)
+        if re.search(r"\b(my |the )?task", lowered) and re.search(r"\b(show|list|how|status|recent|going|doing)\b", lowered):
+            return self._command("tasks", "User wants the task dashboard.", 0.8)
+        return None
 
     @staticmethod
     def _command(command: str, explanation: str, confidence: float) -> PlanDecision:
