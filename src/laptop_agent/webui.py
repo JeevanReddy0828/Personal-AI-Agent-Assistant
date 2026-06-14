@@ -1,17 +1,22 @@
-"""Local web command deck for the laptop agent.
+"""Local chat app for the laptop agent.
 
-A stdlib-only HTTP server that serves a HUD-styled "command deck" dashboard and
-wires it to the same AgentOrchestrator the CLI and GUI use. It binds to
-localhost only. High-risk actions (sending email, moving/overwriting files,
-downloads, browser form fills) are blocked here; read and search actions,
-including web search and research, are allowed so the deck is genuinely useful.
+A stdlib-only HTTP server that serves a single ChatGPT-style chat interface and
+wires it to the same AgentOrchestrator the CLI uses. It binds to localhost only.
+High-risk actions (sending email, moving/overwriting files, downloads, browser
+form fills) are blocked here; read/search/research actions are allowed.
 
-Run:  python -m laptop_agent.webui   (then open the printed http://127.0.0.1 URL)
+Features: one unified chat that routes intent through the LLM, file uploads of
+any type (the agent reads/summarizes/OCRs/transcribes/indexes them), and a
+browser-based voice mode (speech-to-text in, text-to-speech out).
+
+Run:  python -m laptop_agent.webui                 (browser tab)
+      python -c "from laptop_agent.webui import run_desktop; run_desktop()"  (app window)
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -28,6 +33,8 @@ from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 
 HOST = "127.0.0.1"
 PORT = 8770
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "laptop_agent_uploads"
+MAX_UPLOAD_BYTES = 35 * 1024 * 1024
 
 
 def _planner_label() -> str:
@@ -40,9 +47,6 @@ def _planner_label() -> str:
 
 
 def _guarded_approval(request: ApprovalRequest) -> bool:
-    # Allow read/search-tier actions (LOW never reaches here; MEDIUM = web
-    # search, research, page inspection). Block anything that changes external
-    # state or writes/overwrites local files.
     return request.risk == RiskLevel.MEDIUM
 
 
@@ -54,289 +58,323 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>J.A.R.V.I.S — Command Deck</title>
+<title>J.A.R.V.I.S</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root{
-    --bg:#07080b; --panel:#0c0e13; --panel2:#0f121a; --line:#1b2230;
-    --amber:#ffb000; --amber-bright:#ffc94d; --amber-soft:#7a5a16;
-    --ice:#5fd0e6; --text:#e9eef4; --muted:#6c778a; --ok:#54e0a0; --danger:#ff5d6c;
+    --bg:#08090d; --bg2:#0c0e14; --panel:#11141c; --line:#1c2230; --line2:#283143;
+    --amber:#ffb000; --amber-b:#ffc94d; --amber-soft:#7a5a16; --ice:#5fd0e6;
+    --text:#e9eef4; --muted:#7c879a; --ok:#54e0a0; --danger:#ff5d6c;
     --display:'Chakra Petch',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
   }
   *{box-sizing:border-box}
-  html,body{height:100%}
-  body{
-    margin:0; background:var(--bg); color:var(--text); font-family:var(--body);
-    overflow:hidden; letter-spacing:.2px;
-  }
-  /* atmosphere layers */
-  .bg{position:fixed; inset:0; z-index:0; pointer-events:none}
-  .bg.grid{
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:46px 46px; opacity:.16; mask-image:radial-gradient(ellipse 80% 70% at 50% 40%,#000 35%,transparent 85%);
-  }
-  .bg.glow{background:radial-gradient(60% 50% at 50% -8%,rgba(255,176,0,.10),transparent 70%),radial-gradient(40% 40% at 92% 100%,rgba(95,208,230,.06),transparent 70%)}
-  .bg.scan{background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px); opacity:.5; mix-blend-mode:overlay}
-  .bg.grain{opacity:.05; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hidden}
+  .bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+  .bg.glow{background:radial-gradient(55% 45% at 50% 0%,rgba(255,176,0,.07),transparent 70%),radial-gradient(40% 40% at 100% 100%,rgba(95,208,230,.05),transparent 70%)}
+  .bg.grid{background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:48px 48px;opacity:.10;mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000,transparent 80%)}
 
-  .deck{position:relative; z-index:1; display:grid; grid-template-columns:264px 1fr 330px; grid-template-rows:auto 1fr;
-    gap:14px; height:100vh; padding:14px}
+  .app{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;max-width:880px;margin:0 auto;padding:0 18px}
 
-  .panel{position:relative; background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--line);
-    border-radius:4px; opacity:0; transform:translateY(10px); animation:reveal .7s cubic-bezier(.2,.8,.2,1) forwards}
-  .panel::before,.panel::after{content:""; position:absolute; width:13px; height:13px; pointer-events:none}
-  .panel::before{top:-1px; left:-1px; border-top:2px solid var(--amber); border-left:2px solid var(--amber)}
-  .panel::after{bottom:-1px; right:-1px; border-bottom:2px solid var(--amber); border-right:2px solid var(--amber)}
-  .d1{animation-delay:.05s}.d2{animation-delay:.16s}.d3{animation-delay:.27s}.d4{animation-delay:.38s}
+  header{display:flex;align-items:center;gap:13px;padding:14px 4px 12px;border-bottom:1px solid var(--line)}
+  .reactor{width:34px;height:34px;flex:none}
+  .brand .n{font-family:var(--display);font-weight:700;letter-spacing:5px;font-size:17px}
+  .brand .n b{color:var(--amber)}
+  .brand .s{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:1px}
+  header .sp{flex:1}
+  .hbtn{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:999px;padding:8px 14px;cursor:pointer;transition:.16s}
+  .hbtn:hover{border-color:var(--amber-soft);color:var(--amber-b)}
+  .hbtn .dot{width:7px;height:7px;border-radius:50%;background:var(--ice);box-shadow:0 0 8px var(--ice)}
+  .pill{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:1px;padding:5px 10px;border:1px solid var(--line);border-radius:999px}
 
-  .phead{display:flex; align-items:center; gap:8px; padding:11px 14px 9px; border-bottom:1px solid var(--line)}
-  .phead .tick{width:6px; height:6px; background:var(--amber); box-shadow:0 0 8px var(--amber)}
-  .phead h2{margin:0; font-family:var(--display); font-weight:600; font-size:11px; letter-spacing:3px; color:var(--muted); text-transform:uppercase}
-  .phead .meta{margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--amber-soft)}
+  .chat{flex:1;overflow-y:auto;padding:22px 4px 8px;scroll-behavior:smooth}
+  .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px;padding-bottom:40px}
+  .empty .orb{width:78px;height:78px}
+  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:22px;margin:0}
+  .empty p{color:var(--muted);font-size:13.5px;margin:0;max-width:440px;line-height:1.6}
+  .suggest{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;width:100%;max-width:520px}
+  .scard{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;cursor:pointer;transition:.16s;font-size:13px;color:var(--text)}
+  .scard:hover{border-color:var(--amber-soft);transform:translateY(-2px)}
+  .scard b{display:block;font-family:var(--display);font-weight:600;font-size:11px;letter-spacing:1.5px;color:var(--amber-b);text-transform:uppercase;margin-bottom:4px}
 
-  /* ---- top rail ---- */
-  .rail{grid-column:1 / -1; display:flex; align-items:center; gap:18px; padding:10px 18px}
-  .ident{display:flex; align-items:center; gap:14px}
-  .reactor{width:46px; height:46px; flex:none}
-  .ident .name{font-family:var(--display); font-weight:700; font-size:22px; letter-spacing:6px; line-height:1}
-  .ident .name b{color:var(--amber)}
-  .ident .sub{font-family:var(--mono); font-size:10px; color:var(--muted); margin-top:3px; letter-spacing:1px}
-  .rail .spacer{flex:1}
-  .telemetry{display:flex; gap:10px; align-items:stretch}
-  .chip{font-family:var(--mono); font-size:10px; letter-spacing:.6px; color:var(--text); border:1px solid var(--line);
-    background:#0a0c11; padding:7px 11px; border-radius:3px; display:flex; flex-direction:column; gap:2px; min-width:78px}
-  .chip span{color:var(--muted); font-size:8.5px; letter-spacing:1.6px; text-transform:uppercase}
-  .chip b{font-weight:500; color:var(--amber-bright)}
-  .chip .dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--ice); box-shadow:0 0 8px var(--ice); margin-right:5px; animation:blink 2.4s infinite}
-
-  /* ---- left capabilities ---- */
-  .cap{overflow:auto}
-  .capgroup{padding:10px 12px 4px}
-  .capgroup>.lbl{font-family:var(--mono); font-size:9px; letter-spacing:2px; color:var(--amber-soft); text-transform:uppercase; margin:6px 4px}
-  .cmd{display:flex; align-items:center; gap:9px; width:100%; text-align:left; cursor:pointer; color:var(--text);
-    background:transparent; border:1px solid transparent; border-radius:3px; padding:9px 10px; font-family:var(--mono);
-    font-size:11.5px; transition:.16s; margin:2px 0}
-  .cmd:hover{background:#11151e; border-color:var(--line); transform:translateX(3px)}
-  .cmd .ic{width:16px; color:var(--amber); font-family:var(--display); font-weight:700; font-size:13px; text-align:center}
-  .cmd:hover .ic{text-shadow:0 0 10px var(--amber)}
-
-  /* ---- center stream ---- */
-  .center{display:flex; flex-direction:column; min-height:0}
-  .stream{flex:1; overflow:auto; padding:16px 18px; scroll-behavior:smooth}
-  .turn{margin-bottom:16px; animation:slidein .35s ease both}
-  .turn .who{font-family:var(--display); font-size:10px; letter-spacing:2.5px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; display:flex; gap:8px; align-items:center}
-  .turn .who::before{content:""; width:14px; height:1px; background:var(--line)}
-  .turn.you .who{color:var(--ice)} .turn.sys .who{color:var(--amber)}
-  .turn .body{font-size:14px; line-height:1.65; white-space:pre-wrap; color:#dde4ec}
-  .turn.you .body{color:#bfe7f0}
-  .turn.err .body{color:var(--danger)}
-  .data{margin-top:6px; font-family:var(--mono); font-size:11px; line-height:1.55; color:#8fa1b6; background:#080a0e;
-    border:1px solid var(--line); border-left:2px solid var(--amber-soft); border-radius:3px; padding:10px 12px;
-    max-height:240px; overflow:auto; white-space:pre-wrap}
-  .det{margin-top:9px}
-  .det>summary{font-family:var(--mono); font-size:9.5px; letter-spacing:1.6px; text-transform:uppercase; color:var(--amber-soft);
-    cursor:pointer; list-style:none; padding:2px 0; user-select:none}
+  .msg{display:flex;gap:12px;margin:18px 0;animation:rise .3s ease both}
+  .msg .av{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:11px}
+  .msg.user .av{background:#13202b;color:var(--ice);border:1px solid #1d3441}
+  .msg.bot .av{background:#1a1405;color:var(--amber);border:1px solid #3a2c0a}
+  .msg .content{flex:1;min-width:0;padding-top:3px}
+  .msg .who{font-family:var(--display);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  .msg .text{font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-wrap:break-word;color:#e4eaf1}
+  .msg.user .text{color:#cfe9f1}
+  .msg.err .text{color:var(--danger)}
+  .att{display:inline-flex;align-items:center;gap:7px;margin:6px 6px 0 0;background:#0b1016;border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .att .ic{color:var(--amber)}
+  .det{margin-top:8px}
+  .det>summary{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--amber-soft);cursor:pointer;list-style:none;user-select:none}
   .det>summary::-webkit-details-marker{display:none}
-  .det>summary::before{content:'\25B8  '; color:var(--amber)}
+  .det>summary::before{content:'\25B8  ';color:var(--amber)}
   .det[open]>summary::before{content:'\25BE  '}
+  .data{margin-top:6px;font-family:var(--mono);font-size:11px;line-height:1.5;color:#8fa1b6;background:#080a0e;border:1px solid var(--line);border-left:2px solid var(--amber-soft);border-radius:6px;padding:10px 12px;max-height:230px;overflow:auto;white-space:pre-wrap}
+  .dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);margin-right:4px;animation:blink 1.2s infinite}
+  .dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
 
-  /* ---- command bar ---- */
-  .bar{border-top:1px solid var(--line); padding:13px 16px; background:#090b10; position:relative; overflow:hidden}
-  .bar.busy::after{content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,176,0,.16),transparent); animation:sweep 1.1s linear infinite}
-  .barrow{display:flex; gap:10px; align-items:center; position:relative; z-index:1}
-  .prompt{font-family:var(--display); font-weight:700; color:var(--amber); font-size:16px; text-shadow:0 0 10px rgba(255,176,0,.5)}
-  #input{flex:1; background:#0c0f15; border:1px solid var(--line); color:var(--text); font-family:var(--mono); font-size:13.5px;
-    padding:13px 14px; border-radius:3px; caret-color:var(--amber); outline:none; transition:.18s}
-  #input:focus{border-color:var(--amber-soft); box-shadow:0 0 0 1px var(--amber-soft),0 0 22px rgba(255,176,0,.12)}
-  #input::placeholder{color:#46505f}
-  .send{font-family:var(--display); font-weight:600; letter-spacing:2px; font-size:12px; color:var(--bg); background:var(--amber);
-    border:none; border-radius:3px; padding:0 20px; height:44px; cursor:pointer; transition:.16s}
-  .send:hover{background:var(--amber-bright); box-shadow:0 0 20px rgba(255,176,0,.4)}
-  .send:disabled{opacity:.4; cursor:default; box-shadow:none}
+  .composer{padding:10px 0 16px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line2);border-radius:9px;padding:7px 10px;font-family:var(--mono);font-size:11px}
+  .chip .ic{color:var(--amber)}.chip .rm{cursor:pointer;color:var(--muted)}.chip .rm:hover{color:var(--danger)}
+  .box{display:flex;align-items:flex-end;gap:8px;background:var(--bg2);border:1px solid var(--line2);border-radius:16px;padding:8px 8px 8px 6px;transition:.18s}
+  .box:focus-within{border-color:var(--amber-soft);box-shadow:0 0 0 1px var(--amber-soft),0 0 26px rgba(255,176,0,.10)}
+  .iconbtn{width:40px;height:40px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:11px;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;transition:.15s}
+  .iconbtn:hover{background:#161a23;color:var(--amber-b)}
+  .iconbtn.live{color:var(--amber)}
+  .iconbtn.live::after{content:'';position:absolute;width:40px;height:40px;border-radius:11px;border:1.5px solid var(--amber);animation:ring 1.1s ease-out infinite}
+  #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14.5px;line-height:1.5;resize:none;max-height:160px;padding:10px 4px}
+  #ta::placeholder{color:#46505f}
+  .sendbtn{width:42px;height:42px;flex:none;border:none;border-radius:12px;background:var(--amber);color:#08090d;cursor:pointer;font-size:17px;transition:.15s}
+  .sendbtn:hover{background:var(--amber-b)} .sendbtn:disabled{opacity:.35;cursor:default}
+  .hint{text-align:center;color:#3f4858;font-family:var(--mono);font-size:9.5px;margin-top:8px;letter-spacing:.5px}
 
-  /* ---- right column ---- */
-  .right{display:grid; grid-template-rows:1fr auto; gap:14px; min-height:0}
-  .log{overflow:auto; padding:10px 12px; display:flex; flex-direction:column}
-  .ev{font-family:var(--mono); font-size:11px; padding:7px 8px; border-bottom:1px dashed #141a26; display:flex; gap:8px; align-items:baseline; animation:slidein .3s ease both}
-  .ev .mk{font-weight:600} .ev.ok .mk{color:var(--ok)} .ev.fail .mk{color:var(--danger)} .ev.info .mk{color:var(--ice)}
-  .ev .lbl{color:#9aa7ba; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .ev .t{color:#3f4858; font-size:9.5px}
-  .stat{padding:12px 14px; display:grid; grid-template-columns:1fr 1fr; gap:9px}
-  .stat .cell .k{font-family:var(--mono); font-size:8.5px; letter-spacing:1.4px; color:var(--muted); text-transform:uppercase}
-  .stat .cell .v{font-family:var(--display); font-size:21px; font-weight:600; color:var(--amber-bright); line-height:1.2}
-  .stat .cell .v.ice{color:var(--ice)}
+  /* voice overlay */
+  .voice{position:absolute;inset:0;z-index:5;background:rgba(8,9,13,.94);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:26px}
+  .voice.on{display:flex}
+  .vorb{width:190px;height:190px;position:relative;display:flex;align-items:center;justify-content:center}
+  .vstate{font-family:var(--display);letter-spacing:4px;text-transform:uppercase;font-size:13px;color:var(--amber-b)}
+  .vtrans{min-height:24px;max-width:560px;text-align:center;color:var(--text);font-size:16px;line-height:1.5;padding:0 20px}
+  .vsub{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .vend{margin-top:6px;font-family:var(--display);letter-spacing:2px;font-size:12px;color:#08090d;background:var(--amber);border:none;border-radius:999px;padding:11px 26px;cursor:pointer}
+  .vend:hover{background:var(--amber-b)}
+  .bars{display:flex;align-items:center;gap:4px;height:34px}
+  .bars i{width:4px;height:8px;background:var(--amber);border-radius:3px;animation:bars 1s ease-in-out infinite}
+  .bars i:nth-child(2){animation-delay:.12s}.bars i:nth-child(3){animation-delay:.24s}.bars i:nth-child(4){animation-delay:.36s}.bars i:nth-child(5){animation-delay:.48s}
+  .voice[data-state="thinking"] .bars{opacity:.25}
+  .drop{position:absolute;inset:0;z-index:6;background:rgba(255,176,0,.06);border:2px dashed var(--amber);border-radius:18px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:2px;color:var(--amber-b);pointer-events:none}
+  .drop.on{display:flex}
 
-  ::-webkit-scrollbar{width:9px;height:9px} ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:#1b2230; border-radius:9px} ::-webkit-scrollbar-thumb:hover{background:#2a3447}
-
-  @keyframes reveal{to{opacity:1;transform:none}}
-  @keyframes slidein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-  @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
-  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  ::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#1b2230;border-radius:9px}::-webkit-scrollbar-thumb:hover{background:#2a3447}
+  @keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+  @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+  @keyframes ring{from{opacity:.7;transform:scale(1)}to{opacity:0;transform:scale(1.5)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes spinrev{to{transform:rotate(-360deg)}}
-  @keyframes corepulse{0%,100%{r:6;opacity:1}50%{r:9;opacity:.7}}
-  .r-ring1{transform-origin:50px 50px; animation:spin 9s linear infinite}
-  .r-ring2{transform-origin:50px 50px; animation:spinrev 6s linear infinite}
+  @keyframes corepulse{0%,100%{r:6;opacity:1}50%{r:10;opacity:.65}}
+  @keyframes bars{0%,100%{height:8px}50%{height:30px}}
+  .r-ring1{transform-origin:50px 50px;animation:spin 9s linear infinite}
+  .r-ring2{transform-origin:50px 50px;animation:spinrev 6s linear infinite}
   .r-core{animation:corepulse 2.6s ease-in-out infinite}
-  .busycore .r-core,.busycore .r-mid{stroke:var(--amber)!important; fill:var(--amber)!important}
-  .busycore .r-ring1,.busycore .r-ring2{stroke:var(--amber)!important}
+  .busy .r-core,.busy .r-mid{stroke:var(--amber)!important;fill:var(--amber)!important}
+  .busy .r-ring1,.busy .r-ring2{stroke:var(--amber)!important}
 </style>
 </head>
 <body>
-<div class="bg grid"></div><div class="bg glow"></div><div class="bg scan"></div><div class="bg grain"></div>
+<div class="bg glow"></div><div class="bg grid"></div>
 
-<div class="deck">
-  <!-- top rail -->
-  <header class="panel d1 rail">
-    <div class="ident">
-      <svg class="reactor" id="reactor" viewBox="0 0 100 100" aria-hidden="true">
-        <circle class="r-ring1" cx="50" cy="50" r="42" fill="none" stroke="#5fd0e6" stroke-width="1.5" stroke-dasharray="6 10" opacity=".8"/>
-        <circle class="r-ring2" cx="50" cy="50" r="34" fill="none" stroke="#5fd0e6" stroke-width="1" stroke-dasharray="3 7" opacity=".6"/>
-        <circle class="r-mid" cx="50" cy="50" r="22" fill="none" stroke="#5fd0e6" stroke-width="2"/>
-        <circle class="r-core" cx="50" cy="50" r="6" fill="#5fd0e6"/>
-      </svg>
-      <div>
-        <div class="name">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div>
-        <div class="sub" id="boot">initializing command deck…</div>
-      </div>
-    </div>
-    <div class="spacer"></div>
-    <div class="telemetry">
-      <div class="chip"><span>status</span><b><i class="dot"></i>online</b></div>
-      <div class="chip"><span>planner</span><b id="t-planner">{{PLANNER}}</b></div>
-      <div class="chip"><span>guard</span><b style="color:var(--amber-bright)">high-risk off</b></div>
-      <div class="chip"><span>uplink</span><b id="t-lat">— ms</b></div>
-      <div class="chip"><span>time</span><b id="t-clock">--:--:--</b></div>
-    </div>
+<div class="app">
+  <header>
+    <svg class="reactor" id="reactor" viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="r-ring1" cx="50" cy="50" r="42" fill="none" stroke="#5fd0e6" stroke-width="2" stroke-dasharray="6 10"/>
+      <circle class="r-ring2" cx="50" cy="50" r="33" fill="none" stroke="#5fd0e6" stroke-width="1.4" stroke-dasharray="3 7" opacity=".7"/>
+      <circle class="r-mid" cx="50" cy="50" r="21" fill="none" stroke="#5fd0e6" stroke-width="2.5"/>
+      <circle class="r-core" cx="50" cy="50" r="6" fill="#5fd0e6"/>
+    </svg>
+    <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">local-first assistant</div></div>
+    <div class="sp"></div>
+    <span class="pill">{{PLANNER}}</span>
+    <span class="pill">guarded</span>
+    <button class="hbtn" id="voiceBtn"><span class="dot"></span> Voice</button>
   </header>
 
-  <!-- left capabilities -->
-  <aside class="panel d2 cap">
-    <div class="phead"><i class="tick"></i><h2>Capabilities</h2></div>
-    <div id="caps"></div>
-  </aside>
+  <div class="chat" id="chat">
+    <div class="empty" id="empty">
+      <svg class="orb" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="r-ring1" cx="50" cy="50" r="42" fill="none" stroke="#ffb000" stroke-width="2" stroke-dasharray="6 10"/>
+        <circle class="r-mid" cx="50" cy="50" r="22" fill="none" stroke="#ffb000" stroke-width="2.5"/>
+        <circle class="r-core" cx="50" cy="50" r="6" fill="#ffb000"/>
+      </svg>
+      <h1>How can I help, Jeevan?</h1>
+      <p>Ask me anything, drop in a file of any type, or tap Voice to talk. I'll read, summarize, search, research, and remember — in plain language.</p>
+      <div class="suggest" id="suggest"></div>
+    </div>
+  </div>
 
-  <!-- center stream -->
-  <main class="panel d3 center">
-    <div class="phead"><i class="tick"></i><h2>Conversation</h2><div class="meta" id="t-count">00 cmds</div></div>
-    <div class="stream" id="stream"></div>
-    <div class="bar" id="bar">
-      <div class="barrow">
-        <span class="prompt">&#10095;</span>
-        <input id="input" type="text" autocomplete="off" spellcheck="false" placeholder="ask me anything, or tell me what to do —  summarize the readme" />
-        <button class="send" id="send">EXECUTE</button>
-      </div>
+  <div class="composer">
+    <div class="chips" id="chips"></div>
+    <div class="box">
+      <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
+      <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
+      <button class="iconbtn" id="micBtn" title="Dictate" style="position:relative">&#127908;</button>
+      <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
     </div>
-  </main>
+    <div class="hint" id="hint">Guarded mode — high-risk actions are blocked here. Press Enter to send, Shift+Enter for a new line.</div>
+  </div>
 
-  <!-- right column -->
-  <section class="right">
-    <div class="panel d4 log-wrap" style="display:flex;flex-direction:column;min-height:0">
-      <div class="phead"><i class="tick"></i><h2>Activity Log</h2></div>
-      <div class="log" id="log"></div>
+  <input type="file" id="file" multiple style="display:none" />
+  <div class="drop" id="drop">Drop files to attach</div>
+
+  <div class="voice" id="voice" data-state="listening">
+    <div class="vorb">
+      <svg viewBox="0 0 100 100" width="190" height="190" aria-hidden="true">
+        <circle class="r-ring1" cx="50" cy="50" r="44" fill="none" stroke="#ffb000" stroke-width="1.5" stroke-dasharray="5 9"/>
+        <circle class="r-ring2" cx="50" cy="50" r="36" fill="none" stroke="#5fd0e6" stroke-width="1.2" stroke-dasharray="3 8" opacity=".7"/>
+        <circle class="r-mid" cx="50" cy="50" r="26" fill="none" stroke="#ffb000" stroke-width="2.5"/>
+        <circle class="r-core" cx="50" cy="50" r="7" fill="#ffb000"/>
+      </svg>
     </div>
-    <div class="panel d4">
-      <div class="phead"><i class="tick"></i><h2>Telemetry</h2></div>
-      <div class="stat">
-        <div class="cell"><div class="k">commands</div><div class="v" id="s-cmds">0</div></div>
-        <div class="cell"><div class="k">ok / fail</div><div class="v ice" id="s-ratio">0 / 0</div></div>
-      </div>
-    </div>
-  </section>
+    <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="vstate" id="vstate">Listening</div>
+    <div class="vtrans" id="vtrans">Say something…</div>
+    <button class="vend" id="vend">End voice</button>
+    <div class="vsub" id="vsub"></div>
+  </div>
 </div>
 
 <script>
-  const CAPS = [
-    ["files", [
-      ["List files here","◷","go","what files are in this folder?"],
-      ["Summarize a document","≣","type","summarize the file "],
-      ["My knowledge base","⌸","go","what's saved in my knowledge base?"],
-    ]],
-    ["intel", [
-      ["Search the web","⌕","type","search the web for "],
-      ["Research a topic","◎","type","research "],
-      ["Recall what I know","↺","type","what do I know about "],
-    ]],
-    ["assistant", [
-      ["My recent tasks","⎙","go","show my recent tasks"],
-      ["What you remember","◈","go","what do you remember about me?"],
-      ["Activity log","⟳","go","show the audit log"],
-      ["What can you do?","?","go","what can you do?"],
-    ]],
+  const chat=document.getElementById('chat'), empty=document.getElementById('empty'),
+        ta=document.getElementById('ta'), sendBtn=document.getElementById('sendBtn'),
+        attachBtn=document.getElementById('attachBtn'), fileIn=document.getElementById('file'),
+        chips=document.getElementById('chips'), micBtn=document.getElementById('micBtn'),
+        reactor=document.getElementById('reactor'), drop=document.getElementById('drop'),
+        voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'),
+        vstate=document.getElementById('vstate'), vtrans=document.getElementById('vtrans'),
+        vend=document.getElementById('vend'), vsub=document.getElementById('vsub');
+  let attachments=[], busy=false;
+
+  const SUG=[
+    ["Get oriented","What can you do?"],
+    ["Summarize","Summarize the README"],
+    ["Research","Research local-first AI agents"],
+    ["Memory","What do you remember about me?"],
   ];
-  const stream=document.getElementById('stream'), input=document.getElementById('input'),
-        send=document.getElementById('send'), log=document.getElementById('log'),
-        bar=document.getElementById('bar'), reactor=document.getElementById('reactor');
-  let cmds=0, oks=0, fails=0;
+  const suggest=document.getElementById('suggest');
+  SUG.forEach(([t,q])=>{const c=document.createElement('div');c.className='scard';c.innerHTML='<b>'+t+'</b>'+q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
-  const caps=document.getElementById('caps');
-  CAPS.forEach(([group,items])=>{
-    const g=document.createElement('div'); g.className='capgroup';
-    g.innerHTML='<div class="lbl">'+group+'</div>';
-    items.forEach(([label,ic,mode,text])=>{
-      const b=document.createElement('button'); b.className='cmd';
-      b.innerHTML='<span class="ic">'+ic+'</span><span>'+label+'</span>';
-      b.onclick=()=>{ if(mode==='go'){ run(text); } else { input.value=text; input.focus(); } };
-      g.appendChild(b);
+  function auto(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px';}
+  ta.addEventListener('input',auto);
+  ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(ta.value);}});
+  sendBtn.onclick=()=>send(ta.value);
+
+  function bubble(role,text){
+    if(empty&&empty.parentNode){empty.remove();}
+    const m=document.createElement('div');m.className='msg '+role;
+    const av=role==='user'?'YOU':'J';
+    m.innerHTML='<div class="av">'+av+'</div><div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="text"></div></div>';
+    m.querySelector('.text').textContent=text;
+    chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
+  }
+  function thinking(){
+    const m=bubble('bot','');m.classList.add('err','tmp');m.classList.remove('err');
+    m.querySelector('.text').innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
+    return m;
+  }
+  function setBusy(b){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);}
+
+  async function uploadFile(file){
+    const data=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file);});
+    const r=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file.name,data})});
+    const d=await r.json();
+    if(d.ok){attachments.push(d);renderChips();}
+    else{bubble('bot','Could not attach '+file.name+': '+(d.message||'upload failed')).classList.add('err');}
+  }
+  function renderChips(){
+    chips.innerHTML='';
+    attachments.forEach((a,i)=>{
+      const c=document.createElement('div');c.className='chip';
+      c.innerHTML='<span class="ic">&#128196;</span>'+a.name+' <span class="rm">&times;</span>';
+      c.querySelector('.rm').onclick=()=>{attachments.splice(i,1);renderChips();};
+      chips.appendChild(c);
     });
-    caps.appendChild(g);
-  });
-
-  function clock(){const d=new Date();document.getElementById('t-clock').textContent=d.toLocaleTimeString('en-GB');}
-  setInterval(clock,1000); clock();
-
-  function turn(who,text,cls){
-    const t=document.createElement('div'); t.className='turn '+(cls||'');
-    const w=document.createElement('div'); w.className='who'; w.textContent=who;
-    const b=document.createElement('div'); b.className='body'; b.textContent=text;
-    t.appendChild(w); t.appendChild(b); stream.appendChild(t); stream.scrollTop=stream.scrollHeight; return t;
   }
-  function event(label,status){
-    const e=document.createElement('div'); e.className='ev '+status;
-    const mk=status==='ok'?'✓':status==='fail'?'✗':'▸';
-    e.innerHTML='<span class="mk">'+mk+'</span><span class="lbl"></span><span class="t">'+new Date().toLocaleTimeString('en-GB')+'</span>';
-    e.querySelector('.lbl').textContent=label; log.insertBefore(e,log.firstChild);
-  }
-  function setBusy(on){send.disabled=on; bar.classList.toggle('busy',on); reactor.classList.toggle('busycore',on); input.disabled=on;}
+  attachBtn.onclick=()=>fileIn.click();
+  fileIn.onchange=()=>{[...fileIn.files].forEach(uploadFile);fileIn.value='';};
 
-  async function run(command){
-    if(!command||!command.trim()) return;
-    turn('operator',command,'you'); input.value=''; setBusy(true);
-    const t0=performance.now();
+  ['dragenter','dragover'].forEach(e=>document.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on');}));
+  ['dragleave','drop'].forEach(e=>document.addEventListener(e,ev=>{ev.preventDefault();if(e==='drop'||ev.clientX===0)drop.classList.remove('on');}));
+  document.addEventListener('drop',ev=>{ev.preventDefault();drop.classList.remove('on');if(ev.dataTransfer&&ev.dataTransfer.files)[...ev.dataTransfer.files].forEach(uploadFile);});
+
+  async function send(text){
+    text=(text||'').trim();
+    if((!text&&!attachments.length)||busy)return;
+    const sent=attachments.slice();
+    const um=bubble('user',text||'(sent attachment)');
+    if(sent.length){const box=document.createElement('div');sent.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+a.name;box.appendChild(s);});um.querySelector('.content').appendChild(box);}
+    ta.value='';auto();attachments=[];renderChips();setBusy(true);
+    const tmp=thinking();
+    let replyText='';
     try{
-      const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command})});
+      const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({command:text,attachments:sent.map(a=>a.path)})});
       const d=await r.json();
-      document.getElementById('t-lat').textContent=Math.round(performance.now()-t0)+' ms';
-      const node=turn('jarvis',d.message||'(no output)',d.ok?'sys':'err');
-      const data=Object.assign({},d.data||{}); delete data.planner;
+      tmp.remove();
+      const node=bubble(d.ok?'bot':'bot',d.message||'(no output)');
+      if(!d.ok)node.classList.add('err');
+      replyText=d.message||'';
+      const data=Object.assign({},d.data||{});delete data.planner;
       if(Object.keys(data).length){
-        const det=document.createElement('details'); det.className='det';
-        const sum=document.createElement('summary'); sum.textContent='details'; det.appendChild(sum);
-        const pre=document.createElement('div'); pre.className='data';
-        pre.textContent=JSON.stringify(data,null,2); det.appendChild(pre);
-        node.appendChild(det);
+        const det=document.createElement('details');det.className='det';
+        const sm=document.createElement('summary');sm.textContent='details';det.appendChild(sm);
+        const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);
+        node.querySelector('.content').appendChild(det);
       }
-      cmds++; d.ok?oks++:fails++; event(command, d.ok?'ok':'fail');
-    }catch(err){ turn('jarvis','uplink error: '+err,'err'); cmds++; fails++; event(command,'fail'); }
-    finally{
-      setBusy(false); input.focus();
-      document.getElementById('s-cmds').textContent=cmds;
-      document.getElementById('s-ratio').textContent=oks+' / '+fails;
-      document.getElementById('t-count').textContent=String(cmds).padStart(2,'0')+' cmds';
-    }
+    }catch(err){tmp.remove();bubble('bot','Connection error: '+err).classList.add('err');}
+    finally{setBusy(false);ta.focus();if(voiceActive&&replyText)speak(replyText);}
+    return replyText;
   }
 
-  send.onclick=()=>run(input.value);
-  input.addEventListener('keydown',e=>{if(e.key==='Enter')run(input.value);});
+  /* ---------- voice ---------- */
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  let rec=null, voiceActive=false, recognizing=false;
+  if(!SR){micBtn.style.display='none';}
 
-  // boot sequence
-  const boot=document.getElementById('boot');
-  const lines=['booting kernel…','mounting tools: files · web · research · knowledge','approval gate: armed','command deck ready'];
-  let bi=0;(function step(){ if(bi<lines.length){ boot.textContent=lines[bi++]; setTimeout(step,520);} else { boot.textContent='all systems nominal — awaiting orders'; } })();
-  setTimeout(()=>{ turn('jarvis',"Command deck online. Talk to me normally — ask a question or tell me what to do, like “summarize the readme” or “research local-first AI.” I'll route it and answer in plain language. Guarded mode is on, so high-risk actions are blocked here.",'sys'); event('command deck online','info'); input.focus(); },900);
+  function vSet(state,label){voice.dataset.state=state;vstate.textContent=label;}
+
+  // dictation (composer mic): fills the text box
+  let dictating=false;
+  micBtn.onclick=()=>{
+    if(!SR)return;
+    if(dictating){rec&&rec.stop();return;}
+    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;
+    dictating=true;micBtn.classList.add('live');
+    let acc=ta.value?ta.value+' ':'';
+    rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=acc+t;auto();};
+    rec.onerror=()=>{};
+    rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};
+    rec.start();
+  };
+
+  // voice conversation: listen -> send -> speak -> listen
+  voiceBtn.onclick=()=>{ if(!SR){alert('Speech recognition is not available in this window.');return;} voiceActive?endVoice():startVoice(); };
+  vend.onclick=endVoice;
+  function startVoice(){voiceActive=true;voice.classList.add('on');vsub.textContent=SR?'':'';listen();}
+  function endVoice(){voiceActive=false;voice.classList.remove('on');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function listen(){
+    if(!voiceActive)return;
+    vSet('listening','Listening');vtrans.textContent='Say something…';
+    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;recognizing=true;
+    let finalT='';
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)finalT=t;};
+    rec.onerror=()=>{};
+    rec.onend=async()=>{recognizing=false;if(!voiceActive)return;
+      const q=(finalT||vtrans.textContent||'').trim();
+      if(!q||q==='Say something…'){listen();return;}
+      vSet('thinking','Thinking');
+      const reply=await send(q);
+      if(!voiceActive)return;
+      if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,220);speak(reply);}else{listen();}
+    };
+    try{rec.start();}catch(e){}
+  }
+  function speak(text){
+    try{
+      speechSynthesis.cancel();
+      const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>]/g,'').slice(0,600));
+      u.rate=1.04;u.pitch=1;
+      u.onend=()=>{if(voiceActive)listen();};
+      u.onerror=()=>{if(voiceActive)listen();};
+      speechSynthesis.speak(u);
+    }catch(e){if(voiceActive)listen();}
+  }
+
+  ta.focus();
 </script>
 </body>
 </html>
@@ -354,6 +392,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json(self, code: int, obj: dict) -> None:
+        self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json")
+
     def do_GET(self) -> None:
         if self.path in {"/", "/index.html"}:
             page = PAGE.replace("{{PLANNER}}", _planner_label())
@@ -361,32 +402,74 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, b"not found", "text/plain")
 
-    def do_POST(self) -> None:
-        if self.path != "/api/command":
-            self._send(404, b"not found", "text/plain")
-            return
+    def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0") or "0")
+        if length > MAX_UPLOAD_BYTES:
+            raise ValueError("payload too large")
+        return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+
+    def do_POST(self) -> None:
+        if self.path == "/api/upload":
+            self._handle_upload()
+        elif self.path == "/api/command":
+            self._handle_command()
+        else:
+            self._send(404, b"not found", "text/plain")
+
+    def _handle_upload(self) -> None:
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-            command = str(payload.get("command", "")).strip()
+            payload = self._read_json()
+            name = Path(str(payload.get("name", "upload.bin"))).name or "upload.bin"
+            data = str(payload.get("data", ""))
+            if data.startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            raw = base64.b64decode(data, validate=False)
         except (ValueError, UnicodeDecodeError):
-            self._send(400, b'{"ok": false, "message": "bad request", "data": {}}', "application/json")
+            self._json(400, {"ok": False, "message": "could not read upload"})
             return
+        if len(raw) > MAX_UPLOAD_BYTES:
+            self._json(413, {"ok": False, "message": "file too large (max 35MB)"})
+            return
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        dest = UPLOAD_DIR / name
+        dest.write_bytes(raw)
+        self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_command(self) -> None:
+        try:
+            payload = self._read_json()
+            command = str(payload.get("command", "")).strip()
+            attachments = payload.get("attachments") or []
+            if not isinstance(attachments, list):
+                attachments = []
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+
+        paths = [str(p) for p in attachments if p]
+        if paths:
+            listing = "; ".join(paths)
+            if not command:
+                command = "Summarize or describe the attached file(s)."
+            command = (
+                f"{command}\n\n[The user attached file(s) saved at: {listing}. "
+                "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
+            )
 
         try:
             result = asyncio.run(_orchestrator.handle(command))
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
         except ApprovalDenied as exc:
-            body = {"ok": False, "message": f"Blocked — high-risk action requires the desktop app: {exc}", "data": {}}
+            body = {"ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}}
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             body = {"ok": False, "message": f"Error: {exc}", "data": {}}
-        self._send(200, json.dumps(body, default=str).encode("utf-8"), "application/json")
+        self._json(200, body)
 
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
-    print(f"J.A.R.V.I.S command deck running at {url}")
+    print(f"J.A.R.V.I.S chat running at {url}")
     print("Guarded mode: high-risk actions blocked; read/search/research allowed. Ctrl+C to stop.")
     try:
         server.serve_forever()
@@ -419,7 +502,7 @@ def _launch_app_window(url: str) -> subprocess.Popen | None:
         f"--user-data-dir={profile}",
         "--no-first-run",
         "--no-default-browser-check",
-        "--window-size=1340,880",
+        "--window-size=1100,820",
     ]
     return subprocess.Popen(args)
 
@@ -429,20 +512,20 @@ def _launch_webview(url: str) -> bool:
         import webview  # type: ignore
     except ImportError:
         return False
-    webview.create_window("J.A.R.V.I.S — Command Deck", url, width=1340, height=880, background_color="#07080b")
+    webview.create_window("J.A.R.V.I.S", url, width=1100, height=820, background_color="#08090d")
     webview.start()
     return True
 
 
 def run_desktop() -> None:
-    """Serve the deck and open it in a dedicated desktop window (no browser chrome)."""
+    """Serve the chat and open it in a dedicated desktop window (no browser chrome)."""
     server = ThreadingHTTPServer((HOST, 0), Handler)
     port = server.server_address[1]
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"J.A.R.V.I.S command deck serving at {url}")
+    print(f"J.A.R.V.I.S chat serving at {url}")
 
-    if _launch_webview(url):  # blocks until the native window closes
+    if _launch_webview(url):
         server.shutdown()
         return
 
@@ -451,10 +534,8 @@ def run_desktop() -> None:
         print("No Chromium-based browser found; opening in the default browser instead.")
         webbrowser.open(url)
     else:
-        print("Command deck opened as a desktop window.")
-    # Keep the server alive regardless of the browser launcher process, which
-    # exits immediately when it hands the window off to an existing instance.
-    print("Deck is running. Press Ctrl+C here to stop it.")
+        print("Chat opened as a desktop window.")
+    print("Running. Press Ctrl+C here to stop.")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

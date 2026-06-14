@@ -25,6 +25,7 @@ approval gate.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Parallel task dashboard that records `multi` subtask status and results.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
+- ChatGPT-style desktop chat app (`run_desktop`) with file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
 - Browser URL opening through the system browser.
