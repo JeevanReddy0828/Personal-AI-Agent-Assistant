@@ -230,23 +230,36 @@ OAuth draft/send commands also require stored tokens. Draft creation writes a
 draft into the mailbox. Send commands require final approval and then send the
 message through Gmail or Outlook.
 
-## LLM planner
+## LLM brain
 
-By default the agent uses an offline heuristic planner. It recognizes common
-natural-language requests and converts them into internal safe commands.
+By default the agent uses an offline heuristic planner that maps common phrasings
+to internal commands. Plug in any OpenAI-compatible chat-completions API to make
+it a real conversational brain: it then answers free-form questions, holds a
+conversation, and routes natural language to the right command.
 
-To use an OpenAI-compatible chat-completions planner, set:
+Put credentials in a local `.env` file (gitignored, loaded automatically), or set
+them as environment variables:
 
-```powershell
-$env:LAPTOP_AGENT_LLM_PROVIDER="openai"
-$env:OPENAI_API_KEY="your-key"
-$env:OPENAI_MODEL="your-model"
-$env:OPENAI_BASE_URL="https://api.openai.com/v1"
+```text
+LAPTOP_AGENT_LLM_PROVIDER=openai
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-If any required value is missing, the app falls back to the offline heuristic
-planner. The planner can propose draft/preparation commands, but final risky
-actions still go through the approval gate.
+Any OpenAI-compatible endpoint works. For example, NVIDIA's hosted models:
+
+```text
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
+```
+
+Reasoning models are handled: chain-of-thought is ignored and JSON is extracted
+even when wrapped in `<think>` blocks or Markdown. If the model replies in prose
+instead, that reply is shown as conversation. If any required value is missing or
+the model is unreachable, the app falls back to the offline heuristic planner.
+The brain can propose draft/preparation commands, but final risky actions still
+go through the approval gate, and a planned command never re-triggers planning.
 
 ## Security model
 

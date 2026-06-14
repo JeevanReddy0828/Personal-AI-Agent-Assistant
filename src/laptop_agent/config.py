@@ -35,7 +35,28 @@ class AppConfig:
     llm_api_key: str | None
 
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Populate os.environ from a local .env file without overriding real env vars."""
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
 def load_config() -> AppConfig:
+    _load_dotenv()
     data_dir = Path(os.environ.get("LAPTOP_AGENT_DATA_DIR", ".agent_data")).resolve()
     downloads_dir = Path(os.environ.get("LAPTOP_AGENT_DOWNLOAD_DIR", data_dir / "downloads")).resolve()
     port_raw = os.environ.get("SMTP_PORT", "587")

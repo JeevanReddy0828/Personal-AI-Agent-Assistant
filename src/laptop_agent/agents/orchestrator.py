@@ -45,7 +45,7 @@ class AgentOrchestrator:
         self.context = context
         self.planner = planner
 
-    async def handle(self, text: str) -> ToolResult:
+    async def handle(self, text: str, _allow_planner: bool = True) -> ToolResult:
         command = text.strip()
         lowered = command.lower()
         if not command:
@@ -266,10 +266,12 @@ class AgentOrchestrator:
         if lowered.startswith("multi "):
             return await self._run_many(command[len("multi ") :])
 
-        if self.planner is not None:
+        if self.planner is not None and _allow_planner:
             planned = self.planner.plan(command, self.help_text(), self.context.memory.get_profile())
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
-                result = await self.handle(planned.command)
+                # _allow_planner=False stops a planned command from re-triggering
+                # the planner, which would let an LLM loop or double-call itself.
+                result = await self.handle(planned.command, _allow_planner=False)
                 result.data.setdefault("planner", {})
                 result.data["planner"].update(
                     {

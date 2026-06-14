@@ -306,6 +306,19 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertIsNone(result.data["dashboard"])
 
+    def test_planner_recursion_is_bounded(self) -> None:
+        from laptop_agent.planner.core import PlanDecision
+
+        class LoopingProvider:
+            def plan(self, text, available_commands, memory_profile):
+                return PlanDecision(action="command", command="totally unknown command", confidence=0.9, explanation="loop")
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.planner = Planner(LoopingProvider())
+            result = asyncio.run(orchestrator.handle("do something vague"))
+            self.assertTrue(result.ok)
+
     def test_natural_language_summarize_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

@@ -1,6 +1,6 @@
 [project]
 name = "laptop-agent"
-version = "0.16.0"
+version = "0.17.0"
 description = "Local-first voice-capable personal laptop agent scaffold."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ dev = []
 laptop-agent = "laptop_agent.cli:main"
 laptop-agent-gui = "laptop_agent.dashboard:main"
 laptop-agent-dashboard = "laptop_agent.dashboard:main"
+laptop-agent-deck = "laptop_agent.webui:run_desktop"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

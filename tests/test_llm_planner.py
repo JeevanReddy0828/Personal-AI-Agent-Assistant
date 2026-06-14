@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import unittest
+
+from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
+
+
+def provider(content: str) -> OpenAICompatiblePlannerProvider:
+    return OpenAICompatiblePlannerProvider("key", "model", transport=lambda payload: content)
+
+
+class LlmPlannerParsingTests(unittest.TestCase):
+    def test_plain_json_command(self) -> None:
+        decision = provider('{"action":"command","command":"scan files .","confidence":0.9}').plan("look at files", "help", {})
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "scan files .")
+
+    def test_chat_response(self) -> None:
+        decision = provider('{"action":"chat","response":"Hello! How can I help?","confidence":0.8}').plan("hi", "help", {})
+        self.assertTrue(decision.is_chat)
+        self.assertEqual(decision.response, "Hello! How can I help?")
+
+    def test_strips_think_block_and_fences(self) -> None:
+        content = '<think>The user greeted me.</think>\n```json\n{"action":"chat","response":"Hi there"}\n```'
+        decision = provider(content).plan("hi", "help", {})
+        self.assertTrue(decision.is_chat)
+        self.assertEqual(decision.response, "Hi there")
+
+    def test_non_json_prose_becomes_chat(self) -> None:
+        decision = provider("Sure, I can help you with that!").plan("hi", "help", {})
+        self.assertTrue(decision.is_chat)
+        self.assertEqual(decision.response, "Sure, I can help you with that!")
+
+    def test_json_embedded_in_text(self) -> None:
+        decision = provider('Here you go: {"action":"command","command":"tasks"} hope that helps').plan("show tasks", "help", {})
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "tasks")
+
+    def test_transport_error_returns_chat(self) -> None:
+        def boom(payload: dict) -> str:
+            raise TimeoutError("slow")
+
+        decision = OpenAICompatiblePlannerProvider("k", "m", transport=boom).plan("hi", "help", {})
+        self.assertTrue(decision.is_chat)
+        self.assertIn("could not reach", decision.response.lower())
+
+    def test_nvidia_payload_disables_thinking(self) -> None:
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return '{"action":"chat","response":"ok"}'
+
+        OpenAICompatiblePlannerProvider(
+            "k", "m", base_url="https://integrate.api.nvidia.com/v1", transport=capture
+        ).plan("hi", "help", {})
+        self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": False})
+
+
+if __name__ == "__main__":
+    unittest.main()
