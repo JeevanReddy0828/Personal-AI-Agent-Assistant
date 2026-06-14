@@ -358,14 +358,25 @@ class FileTool:
         return [word for word in words if len(word) > 2 and word not in STOPWORDS]
 
     @classmethod
-    def _rank_sentences(cls, sentences: list[str], wanted: int) -> list[int]:
+    def _rank_sentences(cls, sentences: list[str], wanted: int, min_words: int = 4) -> list[int]:
         if len(sentences) <= wanted:
             return list(range(len(sentences)))
         frequencies = Counter(cls._content_words(" ".join(sentences)))
+
+        def words_of(sentence: str) -> list[str]:
+            return [word for word in re.findall(r"[A-Za-z']+", sentence.lower()) if len(word) > 2 and word not in STOPWORDS]
+
+        # Prefer substantial sentences so fragments (common in scraped web text)
+        # like "loop." cannot dominate purely by repeating a frequent word.
+        candidates = [index for index, sentence in enumerate(sentences) if len(words_of(sentence)) >= min_words]
+        pool = candidates if len(candidates) >= wanted else list(range(len(sentences)))
+
         scored: list[tuple[float, int]] = []
-        for index, sentence in enumerate(sentences):
-            words = [word for word in re.findall(r"[A-Za-z']+", sentence.lower()) if len(word) > 2 and word not in STOPWORDS]
-            score = sum(frequencies[word] for word in words) / len(words) if words else 0.0
+        for index in pool:
+            words = words_of(sentences[index])
+            # Dampen by sqrt(length) to reward informative sentences without
+            # always picking the longest one.
+            score = sum(frequencies[word] for word in words) / (len(words) ** 0.5) if words else 0.0
             scored.append((score, index))
         top = sorted(scored, key=lambda item: (-item[0], item[1]))[:wanted]
         return sorted(index for _, index in top)

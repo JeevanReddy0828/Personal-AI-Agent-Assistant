@@ -17,6 +17,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -32,6 +33,7 @@ class AgentContext:
     desktop: DesktopTool
     email: EmailTool
     music: MusicTool
+    research: ResearchTool
     transcribe: TranscribeTool
     audit: AuditLogger
     tasks: TaskTracker
@@ -146,6 +148,9 @@ class AgentOrchestrator:
             if len(parts) < 2:
                 return ToolResult.failure("Use: search files <query> <root>")
             return self.context.files.search_text(parts[0], parts[1])
+
+        if lowered.startswith("research "):
+            return self._research(command[len("research ") :].strip())
 
         if lowered.startswith("web search "):
             return self.context.websearch.search(command[len("web search ") :].strip())
@@ -312,6 +317,7 @@ class AgentOrchestrator:
                 "  knowledge forget <id>",
                 "  search files <query> <path>",
                 "  web search <query>",
+                "  research <topic>",
                 "  open url <url>",
                 "  download <url>",
                 "  inspect page <url>",
@@ -367,6 +373,25 @@ class AgentOrchestrator:
         return ToolResult.success(
             f"Indexed {target} into the knowledge base (#{outcome['id']}).",
             document=outcome,
+        )
+
+    def _research(self, topic: str) -> ToolResult:
+        cleaned = topic.strip().strip("'\"")
+        if not cleaned:
+            return ToolResult.failure("Use: research <topic>")
+        gathered = self.context.research.gather(cleaned)
+        if not gathered.ok:
+            return gathered
+        text = str(gathered.data.get("text", ""))
+        summary_result = self.context.files.summarize_text(text, source=f"research: {cleaned}", sentences=6)
+        summary = str(summary_result.data.get("summary", "")) if summary_result.ok else ""
+        indexed = self.context.knowledge.add(f"research: {cleaned}", text)
+        return ToolResult.success(
+            f"Researched '{cleaned}' across {len(gathered.data.get('sources', []))} source(s) and indexed the findings.",
+            topic=cleaned,
+            summary=summary,
+            sources=gathered.data.get("sources", []),
+            indexed=indexed,
         )
 
     def _knowledge_search(self, query: str) -> ToolResult:

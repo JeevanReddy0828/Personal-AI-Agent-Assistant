@@ -132,6 +132,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "recall invoices")
 
+    def test_routes_research(self) -> None:
+        decision = self.plan("research the history of jazz")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "research the history of jazz")
+
+    def test_routes_look_into_as_research(self) -> None:
+        decision = self.plan("look into rust async runtimes")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "research rust async runtimes")
+
     def test_routes_web_search(self) -> None:
         decision = self.plan("search the web for best mechanical keyboards")
         self.assertTrue(decision.is_command)

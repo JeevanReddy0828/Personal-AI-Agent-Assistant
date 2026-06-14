@@ -18,6 +18,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -72,6 +73,17 @@ class OrchestratorTests(unittest.TestCase):
                 desktop=desktop,
                 email=EmailTool(gate, config),
                 music=MusicTool(gate, desktop, web),
+                research=ResearchTool(
+                    gate,
+                    search_backend=lambda query, limit: [
+                        {"title": f"{query} overview", "url": "https://example.com/a", "snippet": "intro"},
+                        {"title": f"{query} details", "url": "https://example.com/b", "snippet": "more"},
+                    ][:limit],
+                    fetch_backend=lambda url: (
+                        f"Detailed page body for {url}. It explains the subject thoroughly. "
+                        "The topic matters because it improves understanding. Many readers find it useful."
+                    ),
+                ),
                 transcribe=TranscribeTool(
                     ocr_backend=lambda path: f"ocr-text::{path.name}",
                     asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
@@ -251,6 +263,25 @@ class OrchestratorTests(unittest.TestCase):
             doc_id = listed.data["documents"][0]["id"]
             forgotten = asyncio.run(orchestrator.handle(f"knowledge forget {doc_id}"))
             self.assertTrue(forgotten.data["removed"])
+
+    def test_research_command_summarizes_and_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("research distributed systems"))
+            self.assertTrue(result.ok)
+            self.assertTrue(result.data["summary"])
+            self.assertEqual(len(result.data["sources"]), 2)
+            self.assertTrue(result.data["indexed"]["ok"])
+            recalled = asyncio.run(orchestrator.handle("recall distributed"))
+            self.assertTrue(recalled.data["results"])
+
+    def test_natural_language_research_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("look into quantum computing"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            self.assertEqual(result.data["topic"], "quantum computing")
 
     def test_web_search_command(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

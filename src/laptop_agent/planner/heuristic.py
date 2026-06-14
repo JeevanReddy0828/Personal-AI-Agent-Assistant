@@ -71,6 +71,10 @@ class HeuristicPlannerProvider:
         if read_file:
             return read_file
 
+        research = self._research(raw)
+        if research:
+            return research
+
         web_search = self._web_search(raw)
         if web_search:
             return web_search
@@ -211,6 +215,19 @@ class HeuristicPlannerProvider:
             return None
         path = match.group(1).strip().strip("'\"")
         return self._command(f"read file {path}", "User wants to read a supported document.", 0.8)
+
+    def _research(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:research|do research on|look into|investigate|read up on)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        topic = match.group(1).strip().strip("'\"?")
+        if not topic:
+            return None
+        return self._command(f"research {topic}", "User wants an autonomous web research workflow.", 0.8)
 
     def _web_search(self, text: str) -> PlanDecision | None:
         match = re.search(
