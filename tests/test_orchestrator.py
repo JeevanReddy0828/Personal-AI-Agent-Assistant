@@ -18,6 +18,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
@@ -53,7 +54,9 @@ class OrchestratorTests(unittest.TestCase):
             llm_provider="heuristic",
             llm_base_url="https://api.openai.com/v1",
             llm_model=None,
+            llm_smart_model=None,
             llm_api_key=None,
+            obsidian_vault=str(tmp / "vault"),
         )
         desktop = DesktopTool(gate, screenshot_backend=lambda path: path.write_bytes(b"\x89PNG\r\n"))
         web = WebTool(gate, config.downloads_dir)
@@ -91,6 +94,7 @@ class OrchestratorTests(unittest.TestCase):
                 audit=AuditLogger(config.audit_log_path),
                 tasks=TaskTracker(),
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
+                obsidian=ObsidianVault(config.obsidian_vault),
             ),
             Planner(HeuristicPlannerProvider()),
         )

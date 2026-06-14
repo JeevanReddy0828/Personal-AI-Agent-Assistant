@@ -15,6 +15,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
@@ -48,11 +49,24 @@ def build_orchestrator(
         audit=audit,
         tasks=TaskTracker(),
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
+        obsidian=ObsidianVault(config.obsidian_vault),
     )
-    return AgentOrchestrator(context, _build_planner(config))
+    return AgentOrchestrator(context, _build_planner(config), _build_smart_planner(config))
+
+
+def _has_llm(config: AppConfig) -> bool:
+    return config.llm_provider in {"openai", "openai-compatible"} and bool(config.llm_api_key) and bool(config.llm_model)
 
 
 def _build_planner(config: AppConfig) -> Planner:
-    if config.llm_provider in {"openai", "openai-compatible"} and config.llm_api_key and config.llm_model:
+    if _has_llm(config):
         return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_model, config.llm_base_url))
     return Planner(HeuristicPlannerProvider())
+
+
+def _build_smart_planner(config: AppConfig) -> Planner | None:
+    # The smart model handles complex questions; falls back to the fast model.
+    if not _has_llm(config):
+        return None
+    smart_model = config.llm_smart_model or config.llm_model
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url))

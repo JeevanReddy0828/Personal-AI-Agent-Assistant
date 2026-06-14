@@ -17,6 +17,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
+from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
@@ -38,15 +39,31 @@ class AgentContext:
     audit: AuditLogger
     tasks: TaskTracker
     knowledge: KnowledgeBase
+    obsidian: ObsidianVault
 
 
 class AgentOrchestrator:
-    def __init__(self, context: AgentContext, planner: Planner | None = None) -> None:
+    def __init__(self, context: AgentContext, planner: Planner | None = None, smart_planner: Planner | None = None) -> None:
         self.context = context
         self.planner = planner
+        # Optional higher-capability model used only for complex questions.
+        self.smart_planner = smart_planner
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
+
+    @staticmethod
+    def _is_complex(text: str) -> bool:
+        words = text.split()
+        if len(words) > 40:
+            return True
+        triggers = (
+            "explain", "why", "analy", "compare", "design", "architect", "reason", "prove", "derive",
+            "debug", "refactor", "optimi", "trade-off", "tradeoff", "step by step", "in depth", "write code",
+            "implement", "algorithm", "strategy", "pros and cons", "evaluate", "critique",
+        )
+        lowered = text.lower()
+        return any(trigger in lowered for trigger in triggers)
 
     def _route(self, command: str, profile: dict[str, object]):
         help_text = self.help_text()
@@ -106,6 +123,33 @@ class AgentOrchestrator:
 
         if lowered.startswith("recall "):
             return self._knowledge_search(command[len("recall ") :].strip())
+
+        if lowered in {"notes", "vault", "notes status", "vault status", "obsidian", "obsidian status"}:
+            return self.context.obsidian.status()
+
+        if lowered in {"notes list", "list notes"}:
+            return self.context.obsidian.list_notes()
+
+        if lowered.startswith("notes search "):
+            return self.context.obsidian.search(command[len("notes search ") :].strip())
+
+        if lowered.startswith("note search "):
+            return self.context.obsidian.search(command[len("note search ") :].strip())
+
+        if lowered.startswith("read note "):
+            return self.context.obsidian.read_note(command[len("read note ") :].strip())
+
+        if lowered.startswith("save note "):
+            rest = command[len("save note ") :].strip()
+            match = re.search(r"\s*[:|]\s*", rest)
+            if match:
+                title, body = rest[: match.start()].strip(), rest[match.end() :].strip()
+            else:
+                title, body = rest, rest
+            return self.context.obsidian.save_note(title, body)
+
+        if lowered.startswith("remember note "):
+            return self.context.obsidian.append_memory(command[len("remember note ") :].strip())
 
         if lowered.startswith("file info "):
             return self.context.files.file_info(command[len("file info ") :].strip())
@@ -298,12 +342,23 @@ class AgentOrchestrator:
                 )
                 return result
             if planned.is_chat and planned.response:
+                response = planned.response
+                model_used = "fast"
+                # Escalate complex questions to the higher-capability model.
+                if self.smart_planner is not None and self._is_complex(command):
+                    smart = getattr(self.smart_planner.provider, "answer", None)
+                    if smart is not None:
+                        better = smart(command, self.context.memory.get_profile())
+                        if better:
+                            response = better
+                            model_used = "smart"
                 return ToolResult.success(
-                    planned.response,
+                    response,
                     planner={
                         "source_text": command,
                         "confidence": planned.confidence,
                         "explanation": planned.explanation,
+                        "model": model_used,
                     },
                 )
 
@@ -332,6 +387,9 @@ class AgentOrchestrator:
                 "  recall <query>",
                 "  knowledge list",
                 "  knowledge forget <id>",
+                "  notes status | notes list | notes search <query>",
+                "  read note <name> | save note <title> : <body>",
+                "  remember note <text>",
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  research <topic>",
@@ -514,8 +572,10 @@ class AgentOrchestrator:
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
                 self.context.memory.set_profile_value(key, value)
+                self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
                 return ToolResult.success(f"Remembered profile value: {key}")
             self.context.memory.add_note(expression.strip())
+            self._mirror_to_vault(expression.strip())
             return ToolResult.success("Saved note.")
         key, value = expression.split("=", 1)
         key = key.strip()
@@ -523,7 +583,15 @@ class AgentOrchestrator:
         if not key or not value:
             return ToolResult.failure("Use: remember <key> = <value>")
         self.context.memory.set_profile_value(key, value)
+        self._mirror_to_vault(f"{key}: {value}")
         return ToolResult.success(f"Remembered profile value: {key}")
+
+    def _mirror_to_vault(self, text: str) -> None:
+        if self.context.obsidian.available():
+            try:
+                self.context.obsidian.append_memory(text)
+            except OSError:
+                pass
 
     def _email(self, expression: str) -> ToolResult:
         draft_result = self._parse_email(expression)

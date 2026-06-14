@@ -32,7 +32,9 @@ class AppConfig:
     llm_provider: str
     llm_base_url: str
     llm_model: str | None
+    llm_smart_model: str | None
     llm_api_key: str | None
+    obsidian_vault: str | None
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -96,5 +98,7 @@ def load_config() -> AppConfig:
         llm_provider=os.environ.get("LAPTOP_AGENT_LLM_PROVIDER", "heuristic").lower(),
         llm_base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         llm_model=os.environ.get("OPENAI_MODEL"),
+        llm_smart_model=os.environ.get("OPENAI_SMART_MODEL"),
         llm_api_key=os.environ.get("OPENAI_API_KEY"),
+        obsidian_vault=os.environ.get("OBSIDIAN_VAULT"),
     )

@@ -1,6 +1,6 @@
 [project]
 name = "laptop-agent"
-version = "0.20.0"
+version = "0.21.0"
 description = "Local-first voice-capable personal laptop agent scaffold."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,7 @@ desktop = ["pyautogui>=0.9.54", "pillow>=10.0.0"]
 docs = ["pypdf>=4.0.0", "python-docx>=1.1.0"]
 ocr = ["pytesseract>=0.3.10", "pillow>=10.0.0"]
 transcribe = ["openai-whisper>=20231117"]
+metrics = ["psutil>=5.9.0"]
 dev = []
 
 [project.scripts]

@@ -122,6 +122,32 @@ class OpenAICompatiblePlannerProvider:
         narrated = self._strip_reasoning(content).strip()
         return narrated or None
 
+    def answer(self, text: str, memory_profile: dict[str, object], model: str | None = None) -> str | None:
+        """Plain conversational reply (no routing JSON). Used for complex questions."""
+        facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
+        payload: dict[str, object] = {
+            "model": model or self.model,
+            "temperature": 0.6,
+            "max_tokens": 900,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are J.A.R.V.I.S, a sharp, concise local-first assistant. Answer the user directly and "
+                        f"helpfully in Markdown. Known facts about the user: {facts}."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        }
+        if "nvidia" in self.base_url:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        try:
+            content = self._transport(payload)
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+            return None
+        return self._strip_reasoning(content).strip() or None
+
     def warmup(self) -> None:
         """Fire a tiny request so the first real message does not pay cold-start cost."""
         try:

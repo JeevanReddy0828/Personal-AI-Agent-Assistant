@@ -25,7 +25,10 @@ approval gate.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Parallel task dashboard that records `multi` subtask status and results.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
-- ChatGPT-style desktop chat app (`run_desktop`) with file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
+- ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
+- Live system metrics in the app (CPU, RAM, and GPU when available).
+- Two-tier model routing: simple turns use a fast model, complex questions escalate to a stronger one.
+- Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
 - Browser URL opening through the system browser.
@@ -270,6 +273,33 @@ instead, that reply is shown as conversation. If any required value is missing o
 the model is unreachable, the app falls back to the offline heuristic planner.
 The brain can propose draft/preparation commands, but final risky actions still
 go through the approval gate, and a planned command never re-triggers planning.
+
+## Obsidian memory
+
+Point the agent at an Obsidian vault folder to use it as durable, human-readable
+memory. Set `OBSIDIAN_VAULT` (in `.env` or the environment) to the vault path:
+
+```text
+OBSIDIAN_VAULT=F:\obsidian\My Vault
+```
+
+Then commands like `notes status`, `notes list`, `notes search <query>`,
+`read note <name>`, `save note <title> : <body>`, and `remember note <text>`
+read and write Markdown in the vault. Anything you ask the agent to `remember`
+is also mirrored into `Agent Memory/Memory log.md`, so it persists across
+restarts and is visible/editable inside Obsidian.
+
+## Two-tier models
+
+Set a fast model for everyday turns and an optional stronger model for complex
+questions (the agent escalates automatically based on the request):
+
+```text
+OPENAI_MODEL=meta/llama-3.1-8b-instruct
+OPENAI_SMART_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1
+```
+
+If `OPENAI_SMART_MODEL` is unset, the fast model handles everything.
 
 ## Security model
 
