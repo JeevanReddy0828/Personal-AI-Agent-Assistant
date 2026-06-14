@@ -32,3 +32,9 @@ class Planner:
 
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
         return self.provider.plan(text, available_commands, memory_profile)
+
+    def narrate(self, user_text: str, result_message: str, result_data: dict[str, object]) -> str | None:
+        narrate = getattr(self.provider, "narrate", None)
+        if narrate is None:
+            return None
+        return narrate(user_text, result_message, result_data)

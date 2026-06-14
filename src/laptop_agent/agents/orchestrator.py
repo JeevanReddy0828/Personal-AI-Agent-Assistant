@@ -272,6 +272,11 @@ class AgentOrchestrator:
                 # _allow_planner=False stops a planned command from re-triggering
                 # the planner, which would let an LLM loop or double-call itself.
                 result = await self.handle(planned.command, _allow_planner=False)
+                # Speak the tool result back in plain language for natural-language
+                # requests, so the user never has to read raw command output.
+                narrated = self.planner.narrate(command, result.message, result.data)
+                if narrated:
+                    result.message = narrated
                 result.data.setdefault("planner", {})
                 result.data["planner"].update(
                     {

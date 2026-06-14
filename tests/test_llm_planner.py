@@ -44,6 +44,18 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertTrue(decision.is_chat)
         self.assertIn("could not reach", decision.response.lower())
 
+    def test_narrate_returns_plain_text(self) -> None:
+        prov = OpenAICompatiblePlannerProvider("k", "m", transport=lambda p: "You have 3 files here.")
+        out = prov.narrate("what files are here", "Scanned 3 files.", {"files": [1, 2, 3]})
+        self.assertEqual(out, "You have 3 files here.")
+
+    def test_narrate_failure_returns_none(self) -> None:
+        def boom(payload: dict) -> str:
+            raise TimeoutError("slow")
+
+        prov = OpenAICompatiblePlannerProvider("k", "m", transport=boom)
+        self.assertIsNone(prov.narrate("x", "msg", {}))
+
     def test_nvidia_payload_disables_thinking(self) -> None:
         captured: dict = {}
 

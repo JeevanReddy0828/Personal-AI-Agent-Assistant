@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -24,7 +25,10 @@ _SYSTEM_PROMPT = (
     "Use action=command ONLY when the user clearly wants an action the command list covers, and copy the command "
     "syntax exactly. For greetings, questions, opinions, or anything conversational, use action=chat and put your "
     "helpful reply in response. Never invent commands or shell commands. For risky external actions, prefer a "
-    "draft/preview/plan command over a final send/submit one."
+    "draft/preview/plan command over a final send/submit one.\n"
+    "Act on sensible defaults instead of asking for clarification: 'here', 'this folder', or 'the current "
+    "directory' mean '.'; a well-known file named without a path (like 'the readme') is in the current directory "
+    "(e.g. README.md). Only ask a clarifying question when no reasonable default exists."
 )
 
 
@@ -53,6 +57,7 @@ class OpenAICompatiblePlannerProvider:
                     "content": json.dumps(
                         {
                             "request": text,
+                            "current_directory": os.getcwd(),
                             "available_commands": available_commands,
                             "memory_profile": {str(key): str(value) for key, value in memory_profile.items()},
                         },
@@ -76,6 +81,42 @@ class OpenAICompatiblePlannerProvider:
                 response="I could not reach my language model just now. Try again, or use 'help' for direct commands.",
             )
         return self._interpret(content)
+
+    def narrate(self, user_text: str, result_message: str, result_data: dict) -> str | None:
+        """Turn a raw tool result into a short, plain-language answer for the user."""
+        try:
+            trimmed = json.dumps(result_data, default=str)[:1800]
+        except (TypeError, ValueError):
+            trimmed = ""
+        payload: dict[str, object] = {
+            "model": self.model,
+            "temperature": 0.4,
+            "max_tokens": 400,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are J.A.R.V.I.S. The user made a request and one of your tools just ran. "
+                        "Using the tool result below, reply to the user in one to three short sentences of plain, "
+                        "friendly language. Summarize lists or data instead of dumping them. Do not mention command "
+                        "names, tools, JSON, or raw file paths unless essential. If the result is an error, explain it "
+                        "simply and suggest a next step."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"request": user_text, "result_message": result_message, "result_data": trimmed}),
+                },
+            ],
+        }
+        if "nvidia" in self.base_url:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        try:
+            content = self._transport(payload)
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+            return None
+        narrated = self._strip_reasoning(content).strip()
+        return narrated or None
 
     def _http_transport(self, payload: dict) -> str:
         request = urllib.request.Request(

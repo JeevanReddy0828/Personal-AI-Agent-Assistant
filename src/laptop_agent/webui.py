@@ -132,9 +132,15 @@ PAGE = r"""<!doctype html>
   .turn .body{font-size:14px; line-height:1.65; white-space:pre-wrap; color:#dde4ec}
   .turn.you .body{color:#bfe7f0}
   .turn.err .body{color:var(--danger)}
-  .data{margin-top:9px; font-family:var(--mono); font-size:11px; line-height:1.55; color:#8fa1b6; background:#080a0e;
+  .data{margin-top:6px; font-family:var(--mono); font-size:11px; line-height:1.55; color:#8fa1b6; background:#080a0e;
     border:1px solid var(--line); border-left:2px solid var(--amber-soft); border-radius:3px; padding:10px 12px;
-    max-height:280px; overflow:auto; white-space:pre-wrap}
+    max-height:240px; overflow:auto; white-space:pre-wrap}
+  .det{margin-top:9px}
+  .det>summary{font-family:var(--mono); font-size:9.5px; letter-spacing:1.6px; text-transform:uppercase; color:var(--amber-soft);
+    cursor:pointer; list-style:none; padding:2px 0; user-select:none}
+  .det>summary::-webkit-details-marker{display:none}
+  .det>summary::before{content:'\25B8  '; color:var(--amber)}
+  .det[open]>summary::before{content:'\25BE  '}
 
   /* ---- command bar ---- */
   .bar{border-top:1px solid var(--line); padding:13px 16px; background:#090b10; position:relative; overflow:hidden}
@@ -220,7 +226,7 @@ PAGE = r"""<!doctype html>
     <div class="bar" id="bar">
       <div class="barrow">
         <span class="prompt">&#10095;</span>
-        <input id="input" type="text" autocomplete="off" spellcheck="false" placeholder="issue a command —  research quantum computing" />
+        <input id="input" type="text" autocomplete="off" spellcheck="false" placeholder="ask me anything, or tell me what to do —  summarize the readme" />
         <button class="send" id="send">EXECUTE</button>
       </div>
     </div>
@@ -244,9 +250,22 @@ PAGE = r"""<!doctype html>
 
 <script>
   const CAPS = [
-    ["files", [["scan files .","◷","scan"],["summarize file README.md","≣","summarize file README.md"],["knowledge list","⌸","knowledge list"]]],
-    ["intel", [["web search rust vs go","⌕","web search rust vs go performance"],["research the agent","◎","research local first ai agents"],["recall agents","↺","recall agents"]]],
-    ["system",[["tasks","⎙","tasks"],["memory","◈","memory"],["audit","⟳","audit"],["help","?","help"]]],
+    ["files", [
+      ["List files here","◷","go","what files are in this folder?"],
+      ["Summarize a document","≣","type","summarize the file "],
+      ["My knowledge base","⌸","go","what's saved in my knowledge base?"],
+    ]],
+    ["intel", [
+      ["Search the web","⌕","type","search the web for "],
+      ["Research a topic","◎","type","research "],
+      ["Recall what I know","↺","type","what do I know about "],
+    ]],
+    ["assistant", [
+      ["My recent tasks","⎙","go","show my recent tasks"],
+      ["What you remember","◈","go","what do you remember about me?"],
+      ["Activity log","⟳","go","show the audit log"],
+      ["What can you do?","?","go","what can you do?"],
+    ]],
   ];
   const stream=document.getElementById('stream'), input=document.getElementById('input'),
         send=document.getElementById('send'), log=document.getElementById('log'),
@@ -257,10 +276,11 @@ PAGE = r"""<!doctype html>
   CAPS.forEach(([group,items])=>{
     const g=document.createElement('div'); g.className='capgroup';
     g.innerHTML='<div class="lbl">'+group+'</div>';
-    items.forEach(([label,ic,cmd])=>{
+    items.forEach(([label,ic,mode,text])=>{
       const b=document.createElement('button'); b.className='cmd';
       b.innerHTML='<span class="ic">'+ic+'</span><span>'+label+'</span>';
-      b.onclick=()=>run(cmd); g.appendChild(b);
+      b.onclick=()=>{ if(mode==='go'){ run(text); } else { input.value=text; input.focus(); } };
+      g.appendChild(b);
     });
     caps.appendChild(g);
   });
@@ -291,9 +311,13 @@ PAGE = r"""<!doctype html>
       const d=await r.json();
       document.getElementById('t-lat').textContent=Math.round(performance.now()-t0)+' ms';
       const node=turn('jarvis',d.message||'(no output)',d.ok?'sys':'err');
-      if(d.data && Object.keys(d.data).length){
+      const data=Object.assign({},d.data||{}); delete data.planner;
+      if(Object.keys(data).length){
+        const det=document.createElement('details'); det.className='det';
+        const sum=document.createElement('summary'); sum.textContent='details'; det.appendChild(sum);
         const pre=document.createElement('div'); pre.className='data';
-        pre.textContent=JSON.stringify(d.data,null,2); node.appendChild(pre);
+        pre.textContent=JSON.stringify(data,null,2); det.appendChild(pre);
+        node.appendChild(det);
       }
       cmds++; d.ok?oks++:fails++; event(command, d.ok?'ok':'fail');
     }catch(err){ turn('jarvis','uplink error: '+err,'err'); cmds++; fails++; event(command,'fail'); }
@@ -312,9 +336,7 @@ PAGE = r"""<!doctype html>
   const boot=document.getElementById('boot');
   const lines=['booting kernel…','mounting tools: files · web · research · knowledge','approval gate: armed','command deck ready'];
   let bi=0;(function step(){ if(bi<lines.length){ boot.textContent=lines[bi++]; setTimeout(step,520);} else { boot.textContent='all systems nominal — awaiting orders'; } })();
-  setTimeout(()=>{ turn('jarvis','Command deck online. Pick a capability on the left or issue a command below. Guarded mode is active — high-risk actions are blocked here.','sys'); event('command deck online','info'); input.focus(); },900);
-
-  fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:'tasks'})}).catch(()=>{});
+  setTimeout(()=>{ turn('jarvis',"Command deck online. Talk to me normally — ask a question or tell me what to do, like “summarize the readme” or “research local-first AI.” I'll route it and answer in plain language. Guarded mode is on, so high-risk actions are blocked here.",'sys'); event('command deck online','info'); input.focus(); },900);
 </script>
 </body>
 </html>

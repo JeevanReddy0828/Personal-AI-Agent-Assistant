@@ -254,6 +254,11 @@ OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
 OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 ```
 
+When the brain routes a natural-language request to a tool, it then narrates the
+tool result back in plain language, so you never have to read raw command output
+or know command syntax. It is given the current directory and acts on sensible
+defaults ("the readme" means README.md here) instead of asking for paths.
+
 Reasoning models are handled: chain-of-thought is ignored and JSON is extracted
 even when wrapped in `<think>` blocks or Markdown. If the model replies in prose
 instead, that reply is shown as conversation. If any required value is missing or

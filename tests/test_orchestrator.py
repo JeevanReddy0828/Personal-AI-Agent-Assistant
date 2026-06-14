@@ -306,6 +306,23 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertIsNone(result.data["dashboard"])
 
+    def test_planner_narrates_routed_command(self) -> None:
+        from laptop_agent.planner.core import PlanDecision
+
+        class NarratingProvider:
+            def plan(self, text, available_commands, memory_profile):
+                return PlanDecision(action="command", command="tasks", confidence=0.9, explanation="route")
+
+            def narrate(self, user_text, message, data):
+                return "You have no tasks running right now."
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.planner = Planner(NarratingProvider())
+            result = asyncio.run(orchestrator.handle("how are my tasks doing"))
+            self.assertEqual(result.message, "You have no tasks running right now.")
+            self.assertIn("planner", result.data)
+
     def test_planner_recursion_is_bounded(self) -> None:
         from laptop_agent.planner.core import PlanDecision
 
