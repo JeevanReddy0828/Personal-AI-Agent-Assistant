@@ -51,7 +51,9 @@ def build_orchestrator(
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
         obsidian=ObsidianVault(config.obsidian_vault),
     )
-    return AgentOrchestrator(context, _build_planner(config), _build_smart_planner(config))
+    return AgentOrchestrator(
+        context, _build_planner(config), _build_smart_planner(config), _build_vision_planner(config)
+    )
 
 
 def _has_llm(config: AppConfig) -> bool:
@@ -70,3 +72,10 @@ def _build_smart_planner(config: AppConfig) -> Planner | None:
         return None
     smart_model = config.llm_smart_model or config.llm_model
     return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url))
+
+
+def _build_vision_planner(config: AppConfig) -> Planner | None:
+    # The vision model reads images/screens. Requires an explicit vision model.
+    if not _has_llm(config) or not config.llm_vision_model:
+        return None
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url))

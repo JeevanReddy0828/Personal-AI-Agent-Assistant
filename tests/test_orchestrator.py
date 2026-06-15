@@ -55,6 +55,7 @@ class OrchestratorTests(unittest.TestCase):
             llm_base_url="https://api.openai.com/v1",
             llm_model=None,
             llm_smart_model=None,
+            llm_vision_model=None,
             llm_api_key=None,
             obsidian_vault=str(tmp / "vault"),
         )
@@ -211,6 +212,38 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle(f"extract text {doc}"))
             self.assertTrue(result.ok)
             self.assertEqual(result.data["text"], "plain content")
+
+    def test_read_screen_uses_vision_when_available(self) -> None:
+        from laptop_agent.planner.core import Planner as _Planner
+
+        class FakeVision:
+            def describe_image(self, path, prompt, model=None):
+                return "I see a code editor with a Python file open."
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.vision_planner = _Planner(FakeVision())
+            result = asyncio.run(orchestrator.handle("look at my screen and tell me"))
+            self.assertTrue(result.ok)
+            self.assertIn("code editor", result.message)
+            self.assertTrue(result.data.get("vision"))
+
+    def test_describe_image_uses_vision(self) -> None:
+        from laptop_agent.planner.core import Planner as _Planner
+
+        class FakeVision:
+            def describe_image(self, path, prompt, model=None):
+                return "A photo of a receipt."
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            img = root / "pic.png"
+            img.write_bytes(b"\x89PNG")
+            orchestrator = self.build(root / "d")
+            orchestrator.vision_planner = _Planner(FakeVision())
+            result = asyncio.run(orchestrator.handle(f"describe image {img}"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.message, "A photo of a receipt.")
 
     def test_read_screen_captures_and_ocrs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -27,6 +27,7 @@ approval gate.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
+- Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
 - Two-tier model routing: simple turns use a fast model, complex questions escalate to a stronger one.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
@@ -297,9 +298,12 @@ questions (the agent escalates automatically based on the request):
 ```text
 OPENAI_MODEL=meta/llama-3.1-8b-instruct
 OPENAI_SMART_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1
+OPENAI_VISION_MODEL=meta/llama-3.2-11b-vision-instruct
 ```
 
-If `OPENAI_SMART_MODEL` is unset, the fast model handles everything.
+If `OPENAI_SMART_MODEL` is unset, the fast model handles everything. With
+`OPENAI_VISION_MODEL` set, `look at my screen` and `describe image <path>` use
+the vision model; otherwise they fall back to OCR (needs the Tesseract binary).
 
 ## Security model
 

@@ -43,11 +43,19 @@ class AgentContext:
 
 
 class AgentOrchestrator:
-    def __init__(self, context: AgentContext, planner: Planner | None = None, smart_planner: Planner | None = None) -> None:
+    def __init__(
+        self,
+        context: AgentContext,
+        planner: Planner | None = None,
+        smart_planner: Planner | None = None,
+        vision_planner: Planner | None = None,
+    ) -> None:
         self.context = context
         self.planner = planner
         # Optional higher-capability model used only for complex questions.
         self.smart_planner = smart_planner
+        # Optional vision model used to look at images and the screen.
+        self.vision_planner = vision_planner
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
@@ -166,8 +174,20 @@ class AgentOrchestrator:
         if lowered.startswith("transcribe "):
             return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
 
-        if lowered in {"read screen", "screen text", "what is on my screen", "what's on my screen"}:
+        if lowered in {"read screen", "screen text", "what is on my screen", "what's on my screen", "look at my screen"}:
             return self._read_screen()
+
+        if lowered.startswith("read screen "):
+            return self._read_screen(command[len("read screen ") :].strip())
+
+        if lowered.startswith("look at screen "):
+            return self._read_screen(command[len("look at screen ") :].strip())
+
+        if lowered.startswith("describe image "):
+            return self._describe_image(command[len("describe image ") :].strip())
+
+        if lowered.startswith("look at image "):
+            return self._describe_image(command[len("look at image ") :].strip())
 
         if lowered in {"tasks", "task dashboard", "show tasks"}:
             dashboard = self.context.tasks.latest()
@@ -382,7 +402,8 @@ class AgentOrchestrator:
                 "  organize folder <path> [apply]",
                 "  ocr image <path>",
                 "  transcribe <audio-or-video-path>",
-                "  read screen",
+                "  read screen [question]   (vision: looks at your screen)",
+                "  describe image <path>    (vision)",
                 "  index file <path>",
                 "  recall <query>",
                 "  knowledge list",
@@ -505,25 +526,58 @@ class AgentOrchestrator:
             result.data["extracted_from"] = "ocr" if suffix in IMAGE_EXTENSIONS else "transcription"
         return result
 
-    def _read_screen(self) -> ToolResult:
+    def _read_screen(self, question: str = "") -> ToolResult:
         handle = tempfile.NamedTemporaryFile(prefix="laptop_agent_screen_", suffix=".png", delete=False)
         handle.close()
         shot = self.context.desktop.screenshot(handle.name)
         if not shot.ok:
             return shot
-        ocr = self.context.transcribe.ocr_image(str(shot.data["path"]))
+        path = str(shot.data["path"])
+        prompt = question.strip() or "Describe what is currently on this screen. Be concise and specific about what the user is looking at."
+        described = self._describe_with_vision(path, prompt)
+        if described is not None:
+            return ToolResult.success(described, screenshot=path, vision=True)
+        # No vision model available — fall back to OCR text.
+        ocr = self.context.transcribe.ocr_image(path)
         if not ocr.ok:
             return ToolResult.failure(
-                ocr.message,
-                screenshot=shot.data.get("path"),
-                hint="Screenshot captured, but text extraction needs the OCR extra.",
+                "I captured the screen but can't read it: no vision model is configured and OCR is unavailable. "
+                + ocr.message,
+                screenshot=path,
             )
         return ToolResult.success(
             f"Read {ocr.data.get('char_count', 0)} character(s) of text from the screen.",
-            screenshot=shot.data.get("path"),
+            screenshot=path,
             text=ocr.data.get("text", ""),
             char_count=ocr.data.get("char_count", 0),
         )
+
+    def _describe_image(self, path: str, question: str = "") -> ToolResult:
+        target = path.strip().strip("'\"")
+        if not target or not Path(target).is_file():
+            return ToolResult.failure(f"Image not found: {target}")
+        prompt = question.strip() or "Describe this image in detail. What is shown?"
+        described = self._describe_with_vision(target, prompt)
+        if described is not None:
+            return ToolResult.success(described, path=target, vision=True)
+        ocr = self.context.transcribe.ocr_image(target)
+        if ocr.ok:
+            return ToolResult.success(
+                f"Read {ocr.data.get('char_count', 0)} character(s) of text from the image.",
+                path=target, text=ocr.data.get("text", ""), char_count=ocr.data.get("char_count", 0),
+            )
+        return ToolResult.failure(
+            "I couldn't read that image: no vision model is configured and OCR is unavailable. " + ocr.message,
+            path=target,
+        )
+
+    def _describe_with_vision(self, path: str, prompt: str) -> str | None:
+        if self.vision_planner is None:
+            return None
+        describe = getattr(self.vision_planner.provider, "describe_image", None)
+        if describe is None:
+            return None
+        return describe(path, prompt)
 
     @staticmethod
     def _humanize(result: ToolResult) -> str:

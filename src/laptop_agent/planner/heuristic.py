@@ -131,6 +131,8 @@ class HeuristicPlannerProvider:
             return self._command("memory", "User wants to see what is remembered about them.", 0.84)
         if re.search(r"\b(my |the )?task", lowered) and re.search(r"\b(show|list|how|status|recent|going|doing)\b", lowered):
             return self._command("tasks", "User wants the task dashboard.", 0.8)
+        if re.search(r"\b(look at|read|see|check|what.?s on|view|describe)\b.*\bscreen\b", lowered) or "my screen" in lowered:
+            return self._command("read screen", "User wants the agent to look at the screen.", 0.82)
         return None
 
     @staticmethod

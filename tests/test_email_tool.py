@@ -37,6 +37,7 @@ class EmailToolTests(unittest.TestCase):
             llm_base_url="https://api.openai.com/v1",
             llm_model=None,
             llm_smart_model=None,
+            llm_vision_model=None,
             llm_api_key=None,
             obsidian_vault=None,
         )

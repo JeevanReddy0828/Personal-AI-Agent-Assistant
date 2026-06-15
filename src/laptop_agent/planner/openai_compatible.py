@@ -148,6 +148,34 @@ class OpenAICompatiblePlannerProvider:
             return None
         return self._strip_reasoning(content).strip() or None
 
+    def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
+        """Send an image to a vision model and return a plain-language description."""
+        import base64
+
+        try:
+            with open(image_path, "rb") as handle:
+                encoded = base64.b64encode(handle.read()).decode("ascii")
+        except OSError:
+            return None
+        payload: dict[str, object] = {
+            "model": model or self.model,
+            "max_tokens": 700,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
+                    ],
+                }
+            ],
+        }
+        try:
+            content = self._transport(payload)
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+            return None
+        return self._strip_reasoning(content).strip() or None
+
     def warmup(self) -> None:
         """Fire a tiny request so the first real message does not pay cold-start cost."""
         try:
