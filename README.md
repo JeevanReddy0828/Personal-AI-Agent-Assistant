@@ -335,7 +335,6 @@ High-risk actions require explicit confirmation:
 
 - Sending email.
 - Creating mailbox drafts through OAuth APIs.
-- Reading inbox metadata or snippets.
 - Exchanging or deleting mailbox OAuth tokens.
 - Submitting forms or applications.
 - Writing converted files to disk.
@@ -343,6 +342,7 @@ High-risk actions require explicit confirmation:
 - Downloading files.
 - Launching apps or opening external URLs.
 - Searching the web (the query is sent to an external search engine).
+- Reading your inbox (read-only; medium risk, allowed in the guarded web app).
 - Researching a topic (one approval covers the search plus fetching several pages).
 - Running browser automation that changes external state.
 - Any future shell execution.

@@ -132,8 +132,8 @@ class EmailTool:
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Search inbox: {criteria}",
-                risk=RiskLevel.HIGH,
-                reason="Inbox search reads private email metadata and message snippets.",
+                risk=RiskLevel.MEDIUM,
+                reason="Inbox search reads your own email metadata and snippets (read-only, nothing is sent).",
                 preview=f"Mailbox: {self.config.imap_mailbox}\nLimit: {safe_limit}",
             )
         )
