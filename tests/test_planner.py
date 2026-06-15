@@ -127,6 +127,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "recall kubernetes")
 
+    def test_routes_knowledge_stats(self) -> None:
+        decision = self.plan("show knowledge stats")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "knowledge stats")
+
+    def test_routes_knowledge_export(self) -> None:
+        decision = self.plan("export knowledge to reports/knowledge.md")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "knowledge export reports/knowledge.md")
+
     def test_routes_search_notes(self) -> None:
         decision = self.plan("search my notes for invoices")
         self.assertTrue(decision.is_command)

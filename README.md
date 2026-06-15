@@ -30,6 +30,7 @@ approval gate.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
 - Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
 - Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity.
+- Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
@@ -109,6 +110,8 @@ index file lecture.mp4
 recall billing invoices
 what do I know about kubernetes
 knowledge list
+knowledge stats
+knowledge export reports/knowledge.md
 knowledge forget 1
 agents
 agent files

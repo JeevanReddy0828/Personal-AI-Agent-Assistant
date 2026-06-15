@@ -115,6 +115,7 @@ class AgentOrchestrator:
         text: str,
         _allow_planner: bool = True,
         history: list[dict[str, str]] | None = None,
+        on_token=None,
     ) -> ToolResult:
         command = text.strip()
         lowered = command.lower()
@@ -158,6 +159,16 @@ class AgentOrchestrator:
         if lowered in {"knowledge list", "knowledge"}:
             documents = self.context.knowledge.list_documents()
             return ToolResult.success(f"{len(documents)} document(s) indexed.", documents=documents)
+
+        if lowered in {"knowledge stats", "knowledge status"}:
+            stats = self.context.knowledge.stats()
+            return ToolResult.success(
+                f"Knowledge base: {stats['document_count']} document(s), {stats['total_char_count']} indexed character(s).",
+                stats=stats,
+            )
+
+        if lowered.startswith("knowledge export "):
+            return self._knowledge_export(command[len("knowledge export ") :].strip())
 
         if lowered.startswith("knowledge forget "):
             return self._knowledge_forget(command[len("knowledge forget ") :].strip())
@@ -417,16 +428,28 @@ class AgentOrchestrator:
                 return result
             if planned.is_chat and planned.response:
                 response = planned.response
-                model_used = "fast"
                 # Escalate by task complexity: fast -> smart -> ultra.
                 tier_planner, tier_label = self._pick_chat_model(self._complexity(command))
-                if tier_planner is not None:
-                    answer = getattr(tier_planner.provider, "answer", None)
+                answer_planner = tier_planner or self.planner
+                model_used = tier_label if tier_planner is not None else "fast"
+                provider = answer_planner.provider if answer_planner else None
+                profile = self.context.memory.get_profile()
+                streamer = getattr(provider, "stream_answer", None) if provider else None
+                if on_token is not None and streamer is not None:
+                    # Stream the reply token-by-token so it appears live.
+                    chunks: list[str] = []
+                    for token in streamer(command, profile, None, history_turns):
+                        chunks.append(token)
+                        on_token(token)
+                    streamed = "".join(chunks).strip()
+                    if streamed:
+                        response = streamed
+                elif tier_planner is not None:
+                    answer = getattr(provider, "answer", None)
                     if answer is not None:
-                        better = answer(command, self.context.memory.get_profile(), None, history_turns)
+                        better = answer(command, profile, None, history_turns)
                         if better:
                             response = better
-                            model_used = tier_label
                 return ToolResult.success(
                     response,
                     planner={
@@ -463,6 +486,8 @@ class AgentOrchestrator:
                 "  index file <path>",
                 "  recall <query>",
                 "  knowledge list",
+                "  knowledge stats",
+                "  knowledge export <path>",
                 "  knowledge forget <id>",
                 "  notes status | notes list | notes search <query>",
                 "  read note <name> | save note <title> : <body>",
@@ -615,6 +640,20 @@ class AgentOrchestrator:
             f"Removed document #{doc_id}." if removed else f"No indexed document #{doc_id}.",
             removed=removed,
             id=doc_id,
+        )
+
+    def _knowledge_export(self, raw: str) -> ToolResult:
+        destination = raw.strip().strip("'\"")
+        if not destination:
+            return ToolResult.failure("Use: knowledge export <path>")
+        markdown = self.context.knowledge.export_markdown()
+        saved = self.context.files.write_text(destination, markdown, description="knowledge export")
+        if not saved.ok:
+            return saved
+        return ToolResult.success(
+            f"Exported knowledge base to {saved.data['destination']}.",
+            export=saved.data,
+            stats=self.context.knowledge.stats(),
         )
 
     def _summarize_any(self, path: str) -> ToolResult:

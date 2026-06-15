@@ -95,6 +95,48 @@ class KnowledgeBase:
             for doc in store["documents"]
         ]
 
+    def stats(self) -> dict[str, object]:
+        documents = self.list_documents()
+        total_chars = sum(int(doc.get("char_count") or 0) for doc in documents)
+        sources_by_kind: dict[str, int] = {}
+        for doc in documents:
+            source = str(doc.get("source") or "")
+            kind = "research" if source.startswith("research") else Path(source).suffix.lower() or "note"
+            sources_by_kind[kind] = sources_by_kind.get(kind, 0) + 1
+        return {
+            "document_count": len(documents),
+            "total_char_count": total_chars,
+            "average_char_count": round(total_chars / len(documents)) if documents else 0,
+            "sources_by_kind": dict(sorted(sources_by_kind.items())),
+        }
+
+    def export_markdown(self, title: str = "Knowledge Base Export") -> str:
+        documents = self.list_documents()
+        stats = self.stats()
+        lines = [
+            f"# {title}",
+            "",
+            "## Summary",
+            f"- Documents: {stats['document_count']}",
+            f"- Total characters indexed: {stats['total_char_count']}",
+            f"- Average document size: {stats['average_char_count']} characters",
+            "",
+            "## Documents",
+        ]
+        if not documents:
+            lines.append("- No documents are indexed yet.")
+        for doc in documents:
+            lines.extend(
+                [
+                    f"### #{doc.get('id')} - {doc.get('source')}",
+                    "",
+                    f"- Characters: {doc.get('char_count')}",
+                    f"- Preview: {doc.get('preview') or ''}",
+                    "",
+                ]
+            )
+        return "\n".join(lines).rstrip() + "\n"
+
     def forget(self, doc_id: int) -> bool:
         store = self._load()
         remaining = [doc for doc in store["documents"] if doc.get("id") != doc_id]

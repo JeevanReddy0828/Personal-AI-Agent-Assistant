@@ -71,6 +71,21 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertFalse(outcome["ok"])
             self.assertEqual(kb.list_documents(), [])
 
+    def test_stats_and_export_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("notes.md", "alpha beta gamma")
+            kb.add("research: asyncio", "asyncio event loops and tasks")
+            stats = kb.stats()
+            self.assertEqual(stats["document_count"], 2)
+            self.assertGreater(stats["total_char_count"], 0)
+            self.assertEqual(stats["sources_by_kind"][".md"], 1)
+            self.assertEqual(stats["sources_by_kind"]["research"], 1)
+            exported = kb.export_markdown()
+            self.assertIn("# Knowledge Base Export", exported)
+            self.assertIn("notes.md", exported)
+            self.assertIn("research: asyncio", exported)
+
 
 if __name__ == "__main__":
     unittest.main()

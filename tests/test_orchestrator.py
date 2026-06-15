@@ -340,6 +340,35 @@ class OrchestratorTests(unittest.TestCase):
             forgotten = asyncio.run(orchestrator.handle(f"knowledge forget {doc_id}"))
             self.assertTrue(forgotten.data["removed"])
 
+    def test_knowledge_stats_and_export(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "a.txt"
+            export_path = root / "knowledge.md"
+            doc.write_text("indexable content about local memory", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            asyncio.run(orchestrator.handle(f"index file {doc}"))
+            stats = asyncio.run(orchestrator.handle("knowledge stats"))
+            self.assertTrue(stats.ok)
+            self.assertEqual(stats.data["stats"]["document_count"], 1)
+            exported = asyncio.run(orchestrator.handle(f"knowledge export {export_path}"))
+            self.assertTrue(exported.ok)
+            self.assertTrue(export_path.exists())
+            self.assertIn("a.txt", export_path.read_text(encoding="utf-8"))
+
+    def test_natural_language_knowledge_export_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "a.txt"
+            export_path = root / "knowledge.md"
+            doc.write_text("indexable content about local memory", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            asyncio.run(orchestrator.handle(f"index file {doc}"))
+            result = asyncio.run(orchestrator.handle(f"export knowledge to {export_path}"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            self.assertTrue(export_path.exists())
+
     def test_research_command_summarizes_and_indexes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))

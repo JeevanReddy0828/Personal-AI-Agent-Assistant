@@ -170,6 +170,59 @@ class OpenAICompatiblePlannerProvider:
             return None
         return self._strip_reasoning(content).strip() or None
 
+    def stream_answer(
+        self,
+        text: str,
+        memory_profile: dict[str, object],
+        model: str | None = None,
+        history: list[dict[str, str]] | None = None,
+    ):
+        """Yield the conversational reply token-by-token so the UI shows it live."""
+        facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
+        payload: dict[str, object] = {
+            "model": model or self.model,
+            "temperature": 0.6,
+            "max_tokens": 900,
+            "stream": True,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{_PERSONA} Answer directly and helpfully in Markdown. "
+                        f"Known facts about the user: {facts}.\n{self._history_block(history)}"
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        }
+        if "nvidia" in self.base_url:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=self.timeout)
+        except (urllib.error.URLError, TimeoutError):
+            return
+        with response:
+            for raw in response:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[5:].strip()
+                if chunk == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                    delta = obj["choices"][0]["delta"].get("content")
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                    continue
+                if delta:
+                    yield delta
+
     def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
         """Send an image to a vision model and return a plain-language description."""
         import base64

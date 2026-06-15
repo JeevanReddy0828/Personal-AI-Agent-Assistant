@@ -190,6 +190,25 @@ class HeuristicPlannerProvider:
         return self._command(f"organize folder {root}{suffix}", "User wants files organized by type.", 0.78)
 
     def _knowledge(self, text: str) -> PlanDecision | None:
+        if re.search(r"\b(?:knowledge|indexed documents?)\b", text, re.IGNORECASE) and re.search(
+            r"\b(?:stats|status|summary|inventory)\b",
+            text,
+            re.IGNORECASE,
+        ):
+            return self._command("knowledge stats", "User wants a knowledge-base inventory.", 0.82)
+        export_match = re.search(
+            r"\b(?:export|save|write)\s+(?:the\s+)?(?:knowledge|knowledge base|indexed documents?)\s+(?:to|as)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if export_match:
+            destination = export_match.group(1).strip().strip("'\"?")
+            if destination:
+                return self._command(
+                    f"knowledge export {destination}",
+                    "User wants the knowledge-base inventory written to a file.",
+                    0.82,
+                )
         index_match = re.search(
             r"\b(?:index|add to knowledge|learn from)\s+(?:the\s+)?(?:file\s+|document\s+)?(.+\.[a-z0-9]{1,5})$",
             text,

@@ -489,19 +489,33 @@ PAGE = r"""<!doctype html>
     if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
     const predicted=estimateTier(text); activeTier=predicted;
     ta.value='';auto();attachments=[];renderChips();setBusy(true,predicted);
-    const tmp=thinking(predicted); let reply='';
+    const node=renderMsg('bot',''); const md=node.querySelector('.md');
+    md.innerHTML='<span class="dots"><span></span><span></span><span></span></span>'+(predicted==='ultra'?' <span style="color:#ff5d6c;font-size:11px">on the 550B model — this can take a moment</span>':predicted==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'');
+    let reply='', streamed='';
     try{
-      const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
-      const d=await r.json(); tmp.remove();
-      const node=renderMsg('bot',d.message||'(no output)'); if(!d.ok)node.classList.add('err');
-      reply=d.message||'';
-      activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;  // colour by the model that actually answered
+      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
+      const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
+      while(true){
+        const {done:fin,value}=await reader.read(); if(fin)break;
+        buf+=dec.decode(value,{stream:true}); let i;
+        while((i=buf.indexOf('\n\n'))>=0){
+          const line=buf.slice(0,i); buf=buf.slice(i+2);
+          if(!line.startsWith('data:'))continue;
+          let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
+          if(ev.type==='token'){streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          else if(ev.type==='done'){done=ev;}
+        }
+      }
+      const d=done||{ok:true,message:streamed,data:{}};
+      reply=d.message||streamed||'(no output)';
+      if(!d.ok)node.classList.add('err');
+      md.innerHTML=mdToHtml(reply);
+      activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
       const ss=curSession();if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
-      loadAgents();
-    }catch(err){tmp.remove();renderMsg('bot','Connection error: '+err).classList.add('err');}
+    }catch(err){md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     finally{setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
     return reply;
   }
@@ -652,8 +666,61 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_upload()
         elif self.path == "/api/command":
             self._handle_command()
+        elif self.path == "/api/stream":
+            self._handle_stream()
         else:
             self._send(404, b"not found", "text/plain")
+
+    def _command_with_attachments(self, payload: dict) -> tuple[str, list]:
+        command = str(payload.get("command", "")).strip()
+        attachments = payload.get("attachments") or []
+        if not isinstance(attachments, list):
+            attachments = []
+        paths = [str(p) for p in attachments if p]
+        if paths:
+            listing = "; ".join(paths)
+            if not command:
+                command = "Summarize or describe the attached file(s)."
+            command = (
+                f"{command}\n\n[The user attached file(s) saved at: {listing}. "
+                "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
+            )
+        history = payload.get("history") or []
+        return command, history if isinstance(history, list) else []
+
+    def _handle_stream(self) -> None:
+        try:
+            payload = self._read_json()
+            command, history = self._command_with_attachments(payload)
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def emit(obj: dict) -> None:
+            try:
+                self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
+        agent_id = _orchestrator.control_room.start(command)
+        try:
+            result = asyncio.run(
+                _orchestrator.handle(command, history=history, on_token=lambda t: emit({"type": "token", "text": t}))
+            )
+            _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
+            emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
+        except ApprovalDenied as exc:
+            _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
+            emit({"type": "done", "ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}})
+        except Exception as exc:  # pragma: no cover - defensive for the preview server.
+            _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
+            emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
 
     def _handle_upload(self) -> None:
         try:
