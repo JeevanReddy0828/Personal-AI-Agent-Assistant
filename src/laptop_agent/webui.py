@@ -551,18 +551,26 @@ PAGE = r"""<!doctype html>
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
   function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
-  let recognizing=false;
+  let recognizing=false, speaking=false, lastSpoken='';
+  // reject recognized speech that is really the agent hearing its own voice
+  function isEcho(q){
+    const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+    const a=norm(q), b=norm(lastSpoken); if(!a||!b)return false;
+    if(b.includes(a)||a.includes(b))return true;
+    const bw=new Set(b.split(' ')), aw=a.split(' ');
+    return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
+  }
   function listen(){
-    if(!voiceActive||recognizing)return;
+    if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
     rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;recognizing=true;
     let fin='',heard=false;
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};
     rec.onerror=()=>{};
     rec.onend=async()=>{
-      recognizing=false; if(!voiceActive)return;
+      recognizing=false; if(!voiceActive||speaking)return;
       const q=(fin||(heard?vtrans.textContent:'')||'').trim();
-      if(q.length<2){listen();return;}                 // ignore noise / empty
+      if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
       const reply=await send(q);
       if(!voiceActive)return;
@@ -571,17 +579,18 @@ PAGE = r"""<!doctype html>
     try{rec.start();}catch(e){recognizing=false;}
   }
   function speak(text){try{
-    try{rec&&rec.stop();}catch(e){}                     // never listen while we talk (avoids echo)
+    speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
     speechSynthesis.cancel();if(!ttsVoice)pickVoice();
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    lastSpoken=clean;                                   // remember it so we can reject the echo
     const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                       // static, readable subtitles
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{if(voiceActive){setTimeout(()=>{if(voiceActive)listen();},350);}else setCore('idle');};   // small echo-guard delay
-    u.onerror=()=>{if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},350);else setCore('idle');};
+    u.onend=()=>{speaking=false;if(voiceActive){setTimeout(()=>{if(voiceActive)listen();},600);}else setCore('idle');};   // echo-guard delay
+    u.onerror=()=>{speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');};
     speechSynthesis.speak(u);
-  }catch(e){if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},350);else setCore('idle');}}
+  }catch(e){speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');}}
 
   renderSessions(); ta.focus();
 </script>
