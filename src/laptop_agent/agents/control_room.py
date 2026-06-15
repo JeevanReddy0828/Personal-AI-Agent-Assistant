@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from threading import RLock
 from time import time
+
+_HISTORY_LIMIT = 12
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,9 @@ class AgentState:
     current_task: str | None = None
     last_message: str = "Ready."
     last_updated: float = 0.0
+    completed: int = 0
+    failed: int = 0
+    history: list[dict[str, object]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self.definition)
@@ -31,6 +36,9 @@ class AgentState:
                 "current_task": self.current_task,
                 "last_message": self.last_message,
                 "last_updated": self.last_updated,
+                "completed": self.completed,
+                "failed": self.failed,
+                "history": list(self.history),
             }
         )
         return data
@@ -143,10 +151,18 @@ class AgentControlRoom:
             state = self._states.get(agent_id)
             if state is None or not state.definition.available:
                 return
+            task = state.current_task
             state.status = "idle"
             state.current_task = None
             state.last_message = message if ok else f"Failed: {message}"
             state.last_updated = time()
+            if ok:
+                state.completed += 1
+            else:
+                state.failed += 1
+            if task:
+                state.history.insert(0, {"task": task, "ok": ok, "message": message[:160], "at": state.last_updated})
+                del state.history[_HISTORY_LIMIT:]
 
     def agent_for(self, command: str) -> str:
         lowered = command.strip().lower()

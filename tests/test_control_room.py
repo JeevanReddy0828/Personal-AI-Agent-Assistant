@@ -30,6 +30,26 @@ class AgentControlRoomTests(unittest.TestCase):
         room = AgentControlRoom.standard(obsidian_available=True)
         self.assertEqual(room.agent_for("tell me a joke"), "planner")
 
+    def test_history_and_counters_accumulate(self) -> None:
+        room = AgentControlRoom.standard(obsidian_available=True)
+        a = room.start("scan files .")
+        room.finish(a, "Scanned 3 files.", ok=True)
+        b = room.start("summarize file missing.txt")
+        room.finish(b, "File does not exist.", ok=False)
+        detail = room.detail("files")
+        self.assertEqual(detail["completed"], 1)
+        self.assertEqual(detail["failed"], 1)
+        self.assertEqual(len(detail["history"]), 2)
+        self.assertEqual(detail["history"][0]["task"], "summarize file missing.txt")
+        self.assertFalse(detail["history"][0]["ok"])
+
+    def test_history_is_capped(self) -> None:
+        room = AgentControlRoom.standard(obsidian_available=True)
+        for i in range(20):
+            a = room.start(f"recall item {i}")
+            room.finish(a, "ok", ok=True)
+        self.assertLessEqual(len(room.detail("knowledge")["history"]), 12)
+
 
 if __name__ == "__main__":
     unittest.main()

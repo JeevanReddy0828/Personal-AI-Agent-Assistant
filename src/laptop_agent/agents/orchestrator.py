@@ -397,7 +397,11 @@ class AgentOrchestrator:
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
                 # _allow_planner=False stops a planned command from re-triggering
                 # the planner, which would let an LLM loop or double-call itself.
+                # Light up the specialist the planner delegated to, so the control
+                # room reflects the resolved tool, not just the Planner.
+                resolved_agent = self.control_room.start(planned.command)
                 result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
+                self.control_room.finish(resolved_agent, result.message, ok=result.ok)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
                 result.message = self._humanize(result)
@@ -855,7 +859,17 @@ class AgentOrchestrator:
                 f"No agent named '{agent_id}'.",
                 available=[agent["id"] for agent in self.control_room.snapshot()["agents"]],
             )
-        return ToolResult.success(f"Agent {detail['name']}: {detail['status']}.", agent=detail)
+        lines = [
+            f"**{detail['name']}** — {detail['role']}",
+            f"Status: {detail['status']} · completed {detail.get('completed', 0)} · failed {detail.get('failed', 0)}",
+        ]
+        history = detail.get("history", [])
+        if history:
+            lines.append("\nRecent activity:")
+            lines.extend(f"- {'✓' if item.get('ok') else '✗'} {item.get('task', '')}" for item in history[:6])
+        else:
+            lines.append("\nNo activity yet.")
+        return ToolResult.success("\n".join(lines), agent=detail)
 
     @staticmethod
     def _conversation_fallback(text: str) -> ToolResult:
