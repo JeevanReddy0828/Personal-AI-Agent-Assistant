@@ -57,10 +57,12 @@ class OpenAICompatiblePlannerProvider:
         model: str,
         base_url: str = "https://api.openai.com/v1",
         transport: Transport | None = None,
+        timeout: int = 45,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
         self._transport = transport or self._http_transport
 
     def plan(
@@ -212,7 +214,7 @@ class OpenAICompatiblePlannerProvider:
             headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=45) as response:
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
         return str(data["choices"][0]["message"]["content"] or "")
 

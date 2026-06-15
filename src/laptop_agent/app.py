@@ -52,7 +52,11 @@ def build_orchestrator(
         obsidian=ObsidianVault(config.obsidian_vault),
     )
     return AgentOrchestrator(
-        context, _build_planner(config), _build_smart_planner(config), _build_vision_planner(config)
+        context,
+        _build_planner(config),
+        _build_smart_planner(config),
+        _build_vision_planner(config),
+        _build_ultra_planner(config),
     )
 
 
@@ -67,11 +71,21 @@ def _build_planner(config: AppConfig) -> Planner:
 
 
 def _build_smart_planner(config: AppConfig) -> Planner | None:
-    # The smart model handles complex questions; falls back to the fast model.
+    # The smart model handles moderately complex questions.
     if not _has_llm(config):
         return None
     smart_model = config.llm_smart_model or config.llm_model
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url))
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url, timeout=90))
+
+
+def _build_ultra_planner(config: AppConfig) -> Planner | None:
+    # The ultra model handles the hardest questions; large models are slow, so
+    # it gets a long timeout. Requires an explicit ultra model.
+    if not _has_llm(config) or not config.llm_ultra_model:
+        return None
+    return Planner(
+        OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=180)
+    )
 
 
 def _build_vision_planner(config: AppConfig) -> Planner | None:

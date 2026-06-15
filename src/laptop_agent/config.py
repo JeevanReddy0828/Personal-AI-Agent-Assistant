@@ -33,6 +33,7 @@ class AppConfig:
     llm_base_url: str
     llm_model: str | None
     llm_smart_model: str | None
+    llm_ultra_model: str | None
     llm_vision_model: str | None
     llm_api_key: str | None
     obsidian_vault: str | None
@@ -100,6 +101,7 @@ def load_config() -> AppConfig:
         llm_base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         llm_model=os.environ.get("OPENAI_MODEL"),
         llm_smart_model=os.environ.get("OPENAI_SMART_MODEL"),
+        llm_ultra_model=os.environ.get("OPENAI_ULTRA_MODEL"),
         llm_vision_model=os.environ.get("OPENAI_VISION_MODEL"),
         llm_api_key=os.environ.get("OPENAI_API_KEY"),
         obsidian_vault=os.environ.get("OBSIDIAN_VAULT"),

@@ -57,6 +57,14 @@ def _smart_label() -> str:
     return "—"
 
 
+def _ultra_label() -> str:
+    planner = getattr(_orchestrator, "ultra_planner", None)
+    provider = getattr(planner, "provider", None) if planner else None
+    if provider and "OpenAI" in type(provider).__name__:
+        return _model_label(provider)
+    return "—"
+
+
 def _vision_label() -> str:
     planner = getattr(_orchestrator, "vision_planner", None)
     provider = getattr(planner, "provider", None) if planner else None
@@ -427,10 +435,10 @@ PAGE = r"""<!doctype html>
   }
 
   /* connections dropdown */
-  const PLANNER='{{PLANNER}}', SMART='{{SMART}}', VISION='{{VISION}}';
-  const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
+  const PLANNER='{{PLANNER}}', SMART='{{SMART}}', ULTRA='{{ULTRA}}', VISION='{{VISION}}';
+  const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],ultra:[ULTRA!=='—'?'ok':'off',ULTRA],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
   function renderConn(){
-    const rows=[['LLM (fast)',conn.fast],['LLM (smart)',conn.smart],['Vision',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
+    const rows=[['LLM · simple',conn.fast],['LLM · complex',conn.smart],['LLM · very complex',conn.ultra],['Vision',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
     document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v">'+v+'</span></div>').join('');
   }
   renderConn();
@@ -492,6 +500,7 @@ class Handler(BaseHTTPRequestHandler):
             page = (
                 PAGE.replace("{{PLANNER}}", _planner_label())
                 .replace("{{SMART}}", _smart_label())
+                .replace("{{ULTRA}}", _ultra_label())
                 .replace("{{VISION}}", _vision_label())
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")

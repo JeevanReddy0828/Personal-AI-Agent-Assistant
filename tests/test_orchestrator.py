@@ -55,6 +55,7 @@ class OrchestratorTests(unittest.TestCase):
             llm_base_url="https://api.openai.com/v1",
             llm_model=None,
             llm_smart_model=None,
+            llm_ultra_model=None,
             llm_vision_model=None,
             llm_api_key=None,
             obsidian_vault=str(tmp / "vault"),
@@ -463,6 +464,31 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertIn("planner", result.data)
             self.assertEqual(result.data["matches"][0]["line"], 1)
+
+    def test_three_tier_model_selection(self) -> None:
+        class ChatPlanner:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.8, explanation="chat", response="fast-reply")
+
+        class Tier:
+            def __init__(self, label):
+                self.label = label
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                return f"{self.label}-reply"
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.planner = Planner(ChatPlanner())
+            orchestrator.smart_planner = Planner(Tier("smart"))
+            orchestrator.ultra_planner = Planner(Tier("ultra"))
+            simple = asyncio.run(orchestrator.handle("hey there"))
+            mid = asyncio.run(orchestrator.handle("explain how this works"))
+            hard = asyncio.run(orchestrator.handle("give me a comprehensive in-depth analysis from scratch"))
+            self.assertEqual(simple.message, "fast-reply")
+            self.assertEqual(mid.message, "smart-reply")
+            self.assertEqual(hard.message, "ultra-reply")
+            self.assertEqual(hard.data["planner"]["model"], "ultra")
 
     def test_smart_answer_receives_history(self) -> None:
         class ChatPlanner:

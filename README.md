@@ -28,7 +28,7 @@ approval gate.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
 - Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
-- Two-tier model routing: simple turns use a fast model, complex questions escalate to a stronger one.
+- Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
@@ -290,20 +290,22 @@ read and write Markdown in the vault. Anything you ask the agent to `remember`
 is also mirrored into `Agent Memory/Memory log.md`, so it persists across
 restarts and is visible/editable inside Obsidian.
 
-## Two-tier models
+## Tiered models
 
-Set a fast model for everyday turns and an optional stronger model for complex
-questions (the agent escalates automatically based on the request):
+The agent picks a model by how hard the task is — simple turns stay instant and
+only the hardest questions pay for the biggest model:
 
 ```text
-OPENAI_MODEL=meta/llama-3.1-8b-instruct
-OPENAI_SMART_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1
-OPENAI_VISION_MODEL=meta/llama-3.2-11b-vision-instruct
+OPENAI_MODEL=meta/llama-3.1-8b-instruct                  # simple turns + routing
+OPENAI_SMART_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 # complex questions
+OPENAI_ULTRA_MODEL=nvidia/nemotron-3-ultra-550b-a55b      # very complex / deep
+OPENAI_VISION_MODEL=meta/llama-3.2-11b-vision-instruct    # images + screen
 ```
 
-If `OPENAI_SMART_MODEL` is unset, the fast model handles everything. With
-`OPENAI_VISION_MODEL` set, `look at my screen` and `describe image <path>` use
-the vision model; otherwise they fall back to OCR (needs the Tesseract binary).
+Each tier is optional and falls back to the next one down. Bigger models get a
+longer request timeout (the 550B can take ~45-60s). With `OPENAI_VISION_MODEL`
+set, `look at my screen` and `describe image <path>` use the vision model;
+otherwise they fall back to OCR (needs the Tesseract binary).
 
 ## Security model
 

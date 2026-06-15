@@ -49,11 +49,14 @@ class AgentOrchestrator:
         planner: Planner | None = None,
         smart_planner: Planner | None = None,
         vision_planner: Planner | None = None,
+        ultra_planner: Planner | None = None,
     ) -> None:
         self.context = context
         self.planner = planner
-        # Optional higher-capability model used only for complex questions.
+        # Optional higher-capability model for moderately complex questions.
         self.smart_planner = smart_planner
+        # Optional top-tier model for the hardest questions (slow, large).
+        self.ultra_planner = ultra_planner
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
         # Fast deterministic router tried before any LLM, so common requests
@@ -61,17 +64,35 @@ class AgentOrchestrator:
         self.router = Planner(HeuristicPlannerProvider())
 
     @staticmethod
-    def _is_complex(text: str) -> bool:
-        words = text.split()
-        if len(words) > 40:
-            return True
-        triggers = (
-            "explain", "why", "analy", "compare", "design", "architect", "reason", "prove", "derive",
-            "debug", "refactor", "optimi", "trade-off", "tradeoff", "step by step", "in depth", "write code",
-            "implement", "algorithm", "strategy", "pros and cons", "evaluate", "critique",
-        )
+    def _complexity(text: str) -> int:
+        """0 = simple (fast model), 1 = complex (smart), 2 = very complex (ultra)."""
         lowered = text.lower()
-        return any(trigger in lowered for trigger in triggers)
+        words = len(text.split())
+        deep = (
+            "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
+            "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
+            "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
+        )
+        if words > 70 or any(trigger in lowered for trigger in deep):
+            return 2
+        mid = (
+            "explain", "why", "analy", "compare", "design", "reason", "debug", "refactor", "optimi",
+            "trade-off", "tradeoff", "write code", "implement", "algorithm", "strategy", "pros and cons",
+            "evaluate", "critique", "plan ",
+        )
+        if words > 35 or any(trigger in lowered for trigger in mid):
+            return 1
+        return 0
+
+    def _pick_chat_model(self, level: int):
+        """Return (planner, label) for the given complexity, falling back down the tiers."""
+        if level >= 2 and self.ultra_planner is not None:
+            return self.ultra_planner, "ultra"
+        if level >= 1 and self.smart_planner is not None:
+            return self.smart_planner, "smart"
+        if level >= 2 and self.smart_planner is not None:
+            return self.smart_planner, "smart"
+        return None, "fast"
 
     def _route(
         self,
@@ -375,14 +396,15 @@ class AgentOrchestrator:
             if planned.is_chat and planned.response:
                 response = planned.response
                 model_used = "fast"
-                # Escalate complex questions to the higher-capability model.
-                if self.smart_planner is not None and self._is_complex(command):
-                    smart = getattr(self.smart_planner.provider, "answer", None)
-                    if smart is not None:
-                        better = smart(command, self.context.memory.get_profile(), None, history_turns)
+                # Escalate by task complexity: fast -> smart -> ultra.
+                tier_planner, tier_label = self._pick_chat_model(self._complexity(command))
+                if tier_planner is not None:
+                    answer = getattr(tier_planner.provider, "answer", None)
+                    if answer is not None:
+                        better = answer(command, self.context.memory.get_profile(), None, history_turns)
                         if better:
                             response = better
-                            model_used = "smart"
+                            model_used = tier_label
                 return ToolResult.success(
                     response,
                     planner={
