@@ -21,6 +21,16 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertEqual(results[0]["source"], "notes.md")
             self.assertIn("invoice", results[0]["snippet"].lower())
 
+    def test_ranking_prefers_query_coverage_over_repetition(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("python-notes.md", "python " * 20)
+            kb.add("invoice-runbook.md", "python invoice reconciliation gateway")
+            results = kb.search("python invoice")
+            self.assertEqual(results[0]["source"], "invoice-runbook.md")
+            self.assertEqual(results[0]["matched_terms"], 2)
+            self.assertGreater(results[0]["score"], 0)
+
     def test_search_no_match_returns_empty(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             kb = self._kb(Path(raw))

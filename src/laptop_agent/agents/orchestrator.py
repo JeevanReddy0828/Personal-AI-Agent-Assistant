@@ -6,6 +6,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
@@ -59,6 +60,7 @@ class AgentOrchestrator:
         self.ultra_planner = ultra_planner
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
+        self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
@@ -131,6 +133,12 @@ class AgentOrchestrator:
 
         if lowered in {"audit", "show audit"}:
             return ToolResult.success("Recent audit events.", events=self.context.audit.tail())
+
+        if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
+            return self._agent_control_room()
+
+        if lowered.startswith("agent "):
+            return self._agent_detail(command[len("agent ") :].strip())
 
         if lowered.startswith("scan files "):
             return self.context.files.scan(command[len("scan files ") :].strip() or ".")
@@ -225,8 +233,9 @@ class AgentOrchestrator:
             dashboard = self.context.tasks.latest()
             if dashboard is None:
                 return ToolResult.success("No parallel task runs yet. Use 'multi <cmd> ;; <cmd>'.", dashboard=None)
+            retry_hint = " Use 'multi retry failed' to rerun failed subtasks." if dashboard.get("retry_available") else ""
             return ToolResult.success(
-                f"Latest run: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.",
+                f"Latest run: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.{retry_hint}",
                 dashboard=dashboard,
             )
 
@@ -256,6 +265,12 @@ class AgentOrchestrator:
             if len(parts) < 2:
                 return ToolResult.failure("Use: search files <query> <root>")
             return self.context.files.search_text(parts[0], parts[1])
+
+        if lowered.startswith("save research report "):
+            return self._save_research_report(command[len("save research report ") :].strip())
+
+        if lowered.startswith("research report "):
+            return self._research_report(command[len("research report ") :].strip())
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
@@ -371,6 +386,9 @@ class AgentOrchestrator:
                 self.context.memory.get_profile(),
             )
 
+        if lowered in {"multi retry failed", "retry failed tasks", "retry failed subtasks"}:
+            return await self._retry_failed_tasks()
+
         if lowered.startswith("multi "):
             return await self._run_many(command[len("multi ") :])
 
@@ -425,6 +443,7 @@ class AgentOrchestrator:
                 "  remember <key> = <value>",
                 "  memory",
                 "  audit",
+                "  agents | agent <id>",
                 "  scan files <path>",
                 "  read file <path>",
                 "  summarize file <path>  (text, PDF, DOCX, images, audio, video)",
@@ -447,6 +466,8 @@ class AgentOrchestrator:
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  research <topic>",
+                "  research report <topic>",
+                "  save research report <topic> to <path|obsidian>",
                 "  open url <url>",
                 "  download <url>",
                 "  inspect page <url>",
@@ -473,6 +494,7 @@ class AgentOrchestrator:
                 "  send email to <addr> subject <subject> body <body>",
                 "  plan apply job <job-url-or-description>",
                 "  multi <command 1> ;; <command 2>",
+                "  multi retry failed",
                 "  tasks",
             ]
         )
@@ -523,6 +545,51 @@ class AgentOrchestrator:
             indexed=indexed,
         )
 
+    def _research_report(self, topic: str) -> ToolResult:
+        cleaned = topic.strip().strip("'\"")
+        if not cleaned:
+            return ToolResult.failure("Use: research report <topic>")
+        report = self.context.research.report(cleaned)
+        if not report.ok:
+            return report
+        text = str(report.data.get("report", ""))
+        indexed = self.context.knowledge.add(f"research report: {cleaned}", text)
+        report.data["indexed"] = indexed
+        return report
+
+    def _save_research_report(self, expression: str) -> ToolResult:
+        match = re.search(r"\s+to\s+", expression, re.IGNORECASE)
+        if not match:
+            return ToolResult.failure("Use: save research report <topic> to <path|obsidian>")
+        topic = expression[: match.start()].strip().strip("'\"")
+        destination = expression[match.end() :].strip().strip("'\"")
+        if not topic or not destination:
+            return ToolResult.failure("Use: save research report <topic> to <path|obsidian>")
+
+        report = self._research_report(topic)
+        if not report.ok:
+            return report
+        markdown = str(report.data.get("report", ""))
+        if destination.lower() in {"obsidian", "vault", "notes"}:
+            title = f"Research Report - {topic}"
+            saved = self.context.obsidian.save_note(title, markdown, folder="Research Reports")
+            if not saved.ok:
+                return saved
+            report.data["saved"] = saved.data
+            return ToolResult.success(
+                f"Saved research report for '{topic}' to Obsidian.",
+                **report.data,
+            )
+
+        saved = self.context.files.write_text(destination, markdown, description="research report")
+        if not saved.ok:
+            return saved
+        report.data["saved"] = saved.data
+        return ToolResult.success(
+            f"Saved research report for '{topic}' to {saved.data['destination']}.",
+            **report.data,
+        )
+
     def _knowledge_search(self, query: str) -> ToolResult:
         cleaned = query.strip().strip("'\"")
         if not cleaned:
@@ -549,15 +616,32 @@ class AgentOrchestrator:
     def _summarize_any(self, path: str) -> ToolResult:
         target = path.strip().strip("'\"")
         suffix = Path(target).suffix.lower()
-        if suffix not in IMAGE_EXTENSIONS and suffix not in MEDIA_EXTENSIONS:
-            return self.context.files.summarize(target)
         extracted = self._extract_text_any(target)
         if not extracted.ok:
+            # Documents have a direct summarizer; fall back to it if extraction failed.
+            if suffix not in IMAGE_EXTENSIONS and suffix not in MEDIA_EXTENSIONS:
+                return self.context.files.summarize(target)
             return extracted
-        result = self.context.files.summarize_text(str(extracted.data.get("text", "")), source=target)
+        text = str(extracted.data.get("text", ""))
+        result = self.context.files.summarize_text(text, source=target)
         if result.ok:
-            result.data["extracted_from"] = "ocr" if suffix in IMAGE_EXTENSIONS else "transcription"
+            if suffix in IMAGE_EXTENSIONS:
+                result.data["extracted_from"] = "ocr"
+            elif suffix in MEDIA_EXTENSIONS:
+                result.data["extracted_from"] = "transcription"
+            # Auto-index what we summarized, so it is recallable later.
+            result.data["indexed"] = self._auto_index(target, text)
         return result
+
+    def _auto_index(self, source: str, text: str) -> bool:
+        """Best-effort: add summarized/read text to the knowledge base for later recall."""
+        if not text or len(text.strip()) < 200:
+            return False
+        try:
+            outcome = self.context.knowledge.add(source, text)
+        except OSError:
+            return False
+        return bool(outcome.get("ok"))
 
     def _read_screen(self, question: str = "") -> ToolResult:
         handle = tempfile.NamedTemporaryFile(prefix="laptop_agent_screen_", suffix=".png", delete=False)
@@ -705,11 +789,11 @@ class AgentOrchestrator:
             return ToolResult.failure("Email address, subject, and body are required.")
         return ToolResult.success("Parsed email draft.", draft=EmailDraft(to=to, subject=subject, body=body))
 
-    async def _run_many(self, expression: str) -> ToolResult:
+    async def _run_many(self, expression: str, retry_of: int | None = None) -> ToolResult:
         commands = [item.strip() for item in expression.split(";;") if item.strip()]
         if not commands:
             return ToolResult.failure("Use: multi <command 1> ;; <command 2>")
-        results = await asyncio.gather(*(self.handle(command) for command in commands), return_exceptions=True)
+        results = await asyncio.gather(*(self._run_tracked_subtask(command) for command in commands), return_exceptions=True)
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
@@ -726,8 +810,52 @@ class AgentOrchestrator:
                         message=result.message,
                     )
                 )
-        dashboard = self.context.tasks.record_run(records)
-        return ToolResult.success(f"Ran {len(payload)} subtasks.", results=payload, dashboard=dashboard)
+        dashboard = self.context.tasks.record_run(records, retry_of=retry_of)
+        verb = "Retried" if retry_of is not None else "Ran"
+        return ToolResult.success(f"{verb} {len(payload)} subtasks.", results=payload, dashboard=dashboard)
+
+    async def _run_tracked_subtask(self, command: str) -> ToolResult:
+        agent_id = self.control_room.start(command)
+        try:
+            result = await self.handle(command)
+        except Exception as exc:
+            self.control_room.finish(agent_id, str(exc), ok=False)
+            raise
+        self.control_room.finish(agent_id, result.message, ok=result.ok)
+        return result
+
+    async def _retry_failed_tasks(self) -> ToolResult:
+        plan = self.context.tasks.retry_plan()
+        commands = [str(command) for command in plan.get("commands", []) if str(command).strip()]
+        if not plan.get("run"):
+            return ToolResult.failure("No task run to retry. Use 'multi <cmd> ;; <cmd>' first.")
+        if not commands:
+            return ToolResult.success("No failed subtasks to retry.", retry=plan)
+        return await self._run_many(" ;; ".join(commands), retry_of=int(plan["run"]))
+
+    def _agent_control_room(self) -> ToolResult:
+        snapshot = self.control_room.snapshot()
+        summary = snapshot["summary"]
+        return ToolResult.success(
+            (
+                "Agent control room: "
+                f"{summary['working']} working, {summary['idle']} idle, "
+                f"{summary['unavailable']} unavailable."
+            ),
+            control_room=snapshot,
+        )
+
+    def _agent_detail(self, raw: str) -> ToolResult:
+        agent_id = raw.strip().lower()
+        if not agent_id:
+            return ToolResult.failure("Use: agent <id>")
+        detail = self.control_room.detail(agent_id)
+        if detail is None:
+            return ToolResult.failure(
+                f"No agent named '{agent_id}'.",
+                available=[agent["id"] for agent in self.control_room.snapshot()["agents"]],
+            )
+        return ToolResult.success(f"Agent {detail['name']}: {detail['status']}.", agent=detail)
 
     @staticmethod
     def _conversation_fallback(text: str) -> ToolResult:

@@ -68,6 +68,38 @@ class ResearchToolTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(fetched, [])
 
+    def test_report_builds_markdown_brief(self) -> None:
+        pages = {
+            "https://example.com/a": (
+                "Widgets reduce assembly time for factory teams. "
+                "Widget programs require supplier review and safety checks. "
+                "Teams should track costs, defects, and training needs."
+            ),
+            "https://example.com/b": (
+                "Modern widgets support predictive maintenance. "
+                "Pilots work best when teams compare baseline throughput against widget throughput."
+            ),
+        }
+        tool = ResearchTool(
+            approve(),
+            search_backend=lambda q, n: RESULTS,
+            fetch_backend=lambda url: pages[url],
+        )
+        result = tool.report("widgets")
+        self.assertTrue(result.ok)
+        report = result.data["report"]
+        self.assertIn("# Research Report: widgets", report)
+        self.assertIn("## Key Findings", report)
+        self.assertIn("## Caveats", report)
+        self.assertIn("[Alpha](https://example.com/a)", report)
+        self.assertGreater(result.data["word_count"], 20)
+
+    def test_report_passes_through_gather_failure(self) -> None:
+        tool = ResearchTool(approve(), search_backend=lambda q, n: [], fetch_backend=lambda url: "")
+        result = tool.report("widgets")
+        self.assertFalse(result.ok)
+        self.assertNotIn("report", result.data)
+
 
 class TextExtractorTests(unittest.TestCase):
     def test_skips_script_and_style(self) -> None:

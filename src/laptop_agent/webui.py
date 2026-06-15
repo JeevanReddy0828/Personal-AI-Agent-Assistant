@@ -203,15 +203,31 @@ PAGE = r"""<!doctype html>
   .vstat .d{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)} .vstat .d.off{background:var(--danger);box-shadow:0 0 8px var(--danger)}
   .note{font-family:var(--mono);font-size:11px;color:var(--muted);padding:6px 8px;border-bottom:1px dashed #141a26;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .note::before{content:'\25C8  ';color:var(--amber-soft)}
+  .agentSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 6px 10px}
+  .agentStat{background:#090c12;border:1px solid var(--line);border-radius:8px;padding:7px 6px;text-align:center}
+  .agentStat b{display:block;color:var(--text);font-family:var(--display);font-size:15px}
+  .agentStat span{font-family:var(--mono);font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+  .agentcard{display:block;width:calc(100% - 12px);margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;text-align:left;color:var(--text);cursor:pointer}
+  .agentcard:hover{border-color:var(--amber-soft);background:#151923}
+  .agentcard .top{display:flex;align-items:center;gap:7px}
+  .agentcard .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);flex:none}
+  .agentcard.working .dot{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:blink 1s infinite}
+  .agentcard.unavailable .dot{background:#3a4150;box-shadow:none}
+  .agentcard b{font-family:var(--display);font-size:11px;letter-spacing:1px}
+  .agentcard .status{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase}
+  .agentcard .role{font-size:11px;color:var(--muted);line-height:1.35;margin-top:5px}
+  .agentcard .task{font-family:var(--mono);font-size:10px;color:var(--amber-b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
 
-  .voice{position:absolute;inset:0;z-index:5;background:rgba(8,9,13,.95);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+  /* leave the hero core visible above the overlay so its colour shows in voice mode */
+  .voice{position:absolute;inset:150px 0 0 0;z-index:5;background:rgba(8,9,13,.92);backdrop-filter:blur(7px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:var(--ice)}
   .voice.on{display:flex}
   .bars{display:flex;align-items:center;gap:4px;height:30px}
-  .bars i{width:4px;height:8px;background:var(--amber);border-radius:3px;animation:bars 1s ease-in-out infinite}
+  .bars i{width:4px;height:8px;background:currentColor;border-radius:3px;animation:bars 1s ease-in-out infinite}
   .bars i:nth-child(2){animation-delay:.12s}.bars i:nth-child(3){animation-delay:.24s}.bars i:nth-child(4){animation-delay:.36s}.bars i:nth-child(5){animation-delay:.48s}
   .voice[data-state="thinking"] .bars{opacity:.25}
-  .vstate{font-family:var(--display);letter-spacing:4px;text-transform:uppercase;font-size:13px;color:var(--amber-b)}
-  .vtrans{max-width:520px;text-align:center;color:var(--text);font-size:16px;line-height:1.5;padding:0 20px}
+  .vstate{font-family:var(--display);letter-spacing:4px;text-transform:uppercase;font-size:13px;color:currentColor}
+  .vcap{font-family:var(--mono);font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted)}
+  .vtrans{max-width:560px;min-height:52px;text-align:center;color:var(--text);font-size:18px;line-height:1.5;padding:0 20px}
   .vend{font-family:var(--display);letter-spacing:2px;font-size:12px;color:#08090d;background:var(--amber);border:none;border-radius:999px;padding:11px 26px;cursor:pointer}
   .drop{position:absolute;inset:10px;z-index:6;background:rgba(255,176,0,.06);border:2px dashed var(--amber);border-radius:16px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:2px;color:var(--amber-b);pointer-events:none}
   .drop.on{display:flex}
@@ -281,6 +297,7 @@ PAGE = r"""<!doctype html>
     <div class="voice" id="voice" data-state="listening">
       <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="vstate" id="vstate">Listening</div>
+      <div class="vcap">subtitles</div>
       <div class="vtrans" id="vtrans">Say something…</div>
       <button class="vend" id="vend">End voice</button>
     </div>
@@ -297,6 +314,11 @@ PAGE = r"""<!doctype html>
       <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
       <div id="notes"></div>
     </details>
+    <details class="conn" open>
+      <summary>Agent control room</summary>
+      <div id="agentSummary"></div>
+      <div id="agentList"></div>
+    </details>
   </aside>
 </div>
 
@@ -307,18 +329,43 @@ PAGE = r"""<!doctype html>
         voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
         sessionsEl=document.getElementById('sessions');
-  let attachments=[], busy=false;
+  let attachments=[], busy=false, voiceActive=false;
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
   const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
-  let coreState='idle', stateLabels={idle:'J.A.R.V.I.S · <b>online</b>',thinking:'<b>analyzing</b>',speaking:'<b>speaking</b>',listening:'<b>listening</b>'};
-  function setCore(s){coreState=s;corestate.className='corestate '+(s==='thinking'?'think':s==='speaking'?'speak':s==='listening'?'listen':'');corestate.innerHTML='<span class="blip"></span>'+stateLabels[s];}
+  let coreState='idle', activeTier='fast';
+  const TIER_COLORS={fast:'#54e0a0',smart:'#a98bff',ultra:'#ff5d6c'};   // green / violet / red
+  const VOICE_COLOR='#5fd0e6';                                          // cyan in voice mode
+  const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model · 550B'};
+  function coreColor(){
+    if(coreState==='listening')return VOICE_COLOR;
+    if(coreState==='thinking'||coreState==='speaking')return TIER_COLORS[activeTier]||'#ffb000';
+    return voiceActive?VOICE_COLOR:'#5fd0e6';
+  }
+  // mirror of the server's complexity classifier, to colour the wait by predicted tier
+  function estimateTier(text){
+    const s=(text||'').toLowerCase(), w=(text||'').split(/\s+/).length;
+    if(w>70||/in.?depth|step.?by.?step|comprehensive|thorough|rigorous|deep dive|detailed analysis|prove|derive|full implementation|design a system|architecture|from scratch|think hard|deeply|big model|ultra/.test(s))return 'ultra';
+    if(w>35||/explain|why|analy|compare|design|reason|debug|refactor|optimi|trade.?off|write code|implement|algorithm|strategy|pros and cons|evaluate|critique/.test(s))return 'smart';
+    return 'fast';
+  }
+  function setCore(s,tier){
+    coreState=s; if(tier)activeTier=tier;
+    const col=coreColor();
+    let label;
+    if(s==='thinking')label= activeTier==='ultra' ? 'reasoning · <b>'+TIER_NAME.ultra+'</b> · this can take a moment' : 'analyzing · <b>'+TIER_NAME[activeTier]+'</b>';
+    else if(s==='speaking')label='speaking · <b>'+TIER_NAME[activeTier]+'</b>';
+    else if(s==='listening')label='<b>listening…</b>';
+    else label='J.A.R.V.I.S · <b>online</b>';
+    corestate.className='corestate';corestate.style.color=col;corestate.innerHTML='<span class="blip"></span>'+label;
+    voice.style.color=col;  // overlay bars + state text follow the same colour
+  }
   function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;coreCanvas.width=r.width*dpr;coreCanvas.height=r.height*dpr;cctx.setTransform(dpr,0,0,dpr,0,0);}
   window.addEventListener('resize',fitCanvas);
   function drawCore(t){
     const r=coreCanvas.getBoundingClientRect(),w=r.width,h=r.height; if(!w)return;
     cctx.clearRect(0,0,w,h); const cx=w/2,cy=h/2,R=Math.min(w,h)/2-8;
-    const col=coreState==='thinking'?'#ffb000':coreState==='speaking'?'#ffc94d':'#5fd0e6';
+    const col=coreColor();
     const spd=coreState==='thinking'?2.4:coreState==='speaking'?1.6:0.6;
     const pulse=(Math.sin(t*(coreState==='thinking'?6:3))+1)/2;
     const glow=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.15);
@@ -389,8 +436,8 @@ PAGE = r"""<!doctype html>
     if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+a;box.appendChild(s);});m.querySelector('.content').appendChild(box);}
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
-  function thinking(){clearEmpty();const m=document.createElement('div');m.className='msg bot';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span></div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'));}
+  function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?' <span style="color:#ff5d6c;font-size:11px">thinking on the 550B model — this can take ~45-60s</span>':tier==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
+  function setBusy(b,tier){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);}
 
   /* composer */
   function auto(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,150)+'px';}
@@ -418,19 +465,22 @@ PAGE = r"""<!doctype html>
     const history=s?s.msgs.slice(-12).map(m=>({role:m.role==='bot'?'assistant':'user',text:m.text||''})):[];
     renderMsg('user',text||'(sent attachment)',attNames);
     if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
-    ta.value='';auto();attachments=[];renderChips();setBusy(true);
-    const tmp=thinking(); let reply='';
+    const predicted=estimateTier(text); activeTier=predicted;
+    ta.value='';auto();attachments=[];renderChips();setBusy(true,predicted);
+    const tmp=thinking(predicted); let reply='';
     try{
       const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
       const d=await r.json(); tmp.remove();
       const node=renderMsg('bot',d.message||'(no output)'); if(!d.ok)node.classList.add('err');
       reply=d.message||'';
+      activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;  // colour by the model that actually answered
       const data=Object.assign({},d.data||{});delete data.planner;
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
       const ss=curSession();if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
+      loadAgents();
     }catch(err){tmp.remove();renderMsg('bot','Connection error: '+err).classList.add('err');}
-    finally{setBusy(false);ta.focus();if(voiceActive&&reply)speak(reply);}
+    finally{setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
     return reply;
   }
 
@@ -453,8 +503,16 @@ PAGE = r"""<!doctype html>
   async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();const notes=document.getElementById('notes');notes.innerHTML='';(v.notes||[]).slice(0,8).forEach(n=>{const e=document.createElement('div');e.className='note';e.textContent=n.name;notes.appendChild(e);});}catch(e){}}
   loadVault();
 
+  /* agent control room */
+  async function loadAgents(){try{const r=await fetch('/api/agents');const d=await r.json();if(!d.ok)return;const s=d.control_room.summary;
+    document.getElementById('agentSummary').innerHTML='<div class="agentSummary"><div class="agentStat"><b>'+s.working+'</b><span>working</span></div><div class="agentStat"><b>'+s.idle+'</b><span>idle</span></div><div class="agentStat"><b>'+s.available+'</b><span>available</span></div></div>';
+    document.getElementById('agentList').innerHTML=d.control_room.agents.map(a=>'<button class="agentcard '+a.status+'" data-agent="'+esc(a.id)+'"><div class="top"><span class="dot"></span><b>'+esc(a.name)+'</b><span class="status">'+esc(a.status)+'</span></div><div class="role">'+esc(a.role)+'</div><div class="task">'+esc(a.current_task||a.last_message||'Ready.')+'</div></button>').join('');
+    document.querySelectorAll('.agentcard').forEach(btn=>{btn.onclick=()=>send('agent '+btn.dataset.agent);});
+  }catch(e){}}
+  setInterval(loadAgents,2500);loadAgents();
+
   /* voice */
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,voiceActive=false,dictating=false;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
   if(!SR)micBtn.style.display='none';
   // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
   let ttsVoice=null;
@@ -472,7 +530,13 @@ PAGE = r"""<!doctype html>
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
   function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   function listen(){if(!voiceActive)return;setCore('listening');vSet('listening','Listening');vtrans.textContent='Say something…';rec=new SR();rec.lang='en-US';rec.interimResults=true;let fin='';rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};rec.onend=async()=>{if(!voiceActive)return;const q=(fin||vtrans.textContent||'').trim();if(!q||q==='Say something…'){listen();return;}vSet('thinking','Thinking');const reply=await send(q);if(!voiceActive)return;if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,200);speak(reply);}else listen();};try{rec.start();}catch(e){}}
-  function speak(text){try{speechSynthesis.cancel();if(!ttsVoice)pickVoice();const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>\[\]()]/g,'').slice(0,600));if(ttsVoice)u.voice=ttsVoice;u.rate=0.98;u.pitch=1.02;setCore('speaking');u.onend=()=>{if(voiceActive)listen();else setCore('idle');};u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
+  function speak(text){try{speechSynthesis.cancel();if(!ttsVoice)pickVoice();
+    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim().slice(0,800);
+    const u=new SpeechSynthesisUtterance(clean);if(ttsVoice)u.voice=ttsVoice;u.rate=0.98;u.pitch=1.02;setCore('speaking');
+    if(voiceActive){vtrans.textContent=clean.slice(0,140);}                                   // subtitles
+    u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);vtrans.textContent='…'+clean.slice(Math.max(0,end-160),end);}};
+    u.onend=()=>{if(voiceActive){vtrans.textContent=clean.slice(-160);listen();}else setCore('idle');};
+    u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
 
   renderSessions(); ta.focus();
 </script>
@@ -506,6 +570,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/metrics":
             self._json(200, system_metrics())
+        elif self.path == "/api/agents":
+            self._json(200, {"ok": True, "control_room": _json_safe(_orchestrator.control_room.snapshot())})
         elif self.path == "/api/vault":
             status = asyncio.run(_orchestrator.handle("notes status"))
             listing = asyncio.run(_orchestrator.handle("notes list"))
@@ -578,12 +644,18 @@ class Handler(BaseHTTPRequestHandler):
                 "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
             )
 
+        # Light up the matching specialist in the control room while this runs,
+        # so the agents panel reflects single commands, not just multi subtasks.
+        agent_id = _orchestrator.control_room.start(command)
         try:
             result = asyncio.run(_orchestrator.handle(command, history=history))
+            _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
         except ApprovalDenied as exc:
+            _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             body = {"ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}}
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
+            _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             body = {"ok": False, "message": f"Error: {exc}", "data": {}}
         self._json(200, body)
 

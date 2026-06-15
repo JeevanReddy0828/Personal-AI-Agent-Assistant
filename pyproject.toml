@@ -1,6 +1,6 @@
 [project]
 name = "laptop-agent"
-version = "0.25.0"
+version = "0.26.0"
 description = "Local-first voice-capable personal laptop agent scaffold."
 readme = "README.md"
 requires-python = ">=3.11"

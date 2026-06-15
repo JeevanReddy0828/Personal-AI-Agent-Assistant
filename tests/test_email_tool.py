@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from laptop_agent.config import AppConfig
 from laptop_agent.safety import ApprovalGate
@@ -128,6 +131,27 @@ class EmailToolTests(unittest.TestCase):
         self.assertIn("raw", payload)
         self.assertNotIn("=", str(payload["raw"]))
 
+    def test_gmail_message_payload_includes_attachments(self) -> None:
+        with TemporaryDirectory() as raw:
+            attachment = Path(raw) / "notes.txt"
+            attachment.write_text("attached notes", encoding="utf-8")
+            draft = EmailDraft("ada@example.com", "Hi", "Hello", attachments=(str(attachment),))
+            loaded = EmailTool._load_attachments(draft)
+            self.assertTrue(loaded.ok)
+            message = BytesParser(policy=policy.default).parsebytes(
+                EmailTool._raw_rfc2822_message(draft, loaded.data["attachments"])
+            )
+            filenames = [part.get_filename() for part in message.walk() if part.get_filename()]
+            self.assertEqual(filenames, ["notes.txt"])
+            attachment_part = next(part for part in message.walk() if part.get_filename() == "notes.txt")
+            self.assertEqual(attachment_part.get_content(), "attached notes")
+
+    def test_attachment_missing_file_fails_cleanly(self) -> None:
+        draft = EmailDraft("ada@example.com", "Hi", "Hello", attachments=("missing.txt",))
+        result = EmailTool._load_attachments(draft)
+        self.assertFalse(result.ok)
+        self.assertIn("Attachment does not exist", result.message)
+
     def test_gmail_draft_payload_wraps_message(self) -> None:
         payload = EmailTool._gmail_draft_payload(EmailDraft("ada@example.com", "Hi", "Hello"))
         self.assertIn("message", payload)
@@ -141,6 +165,18 @@ class EmailToolTests(unittest.TestCase):
         self.assertEqual(message["toRecipients"][0]["emailAddress"]["address"], "ada@example.com")
         self.assertTrue(send["saveToSentItems"])
         self.assertIn("message", send)
+
+    def test_outlook_payload_includes_attachments(self) -> None:
+        with TemporaryDirectory() as raw:
+            attachment = Path(raw) / "report.txt"
+            attachment.write_text("report body", encoding="utf-8")
+            draft = EmailDraft("ada@example.com", "Hi", "Hello", attachments=(str(attachment),))
+            loaded = EmailTool._load_attachments(draft)
+            self.assertTrue(loaded.ok)
+            message = EmailTool._outlook_message_payload(draft, loaded.data["attachments"])
+            self.assertEqual(message["attachments"][0]["name"], "report.txt")
+            self.assertEqual(message["attachments"][0]["contentType"], "text/plain")
+            self.assertEqual(message["attachments"][0]["contentBytes"], "cmVwb3J0IGJvZHk=")
 
     def test_gmail_api_urls(self) -> None:
         list_url = EmailTool._gmail_list_url("invoice", 99)

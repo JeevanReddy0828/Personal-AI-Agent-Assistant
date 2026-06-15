@@ -23,8 +23,9 @@ approval gate.
 - Optional offline audio/video transcription via local Whisper.
 - Unified `extract text` and `summarize file` that auto-OCR images and transcribe media first.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
-- Parallel task dashboard that records `multi` subtask status and results.
-- Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline.
+- Parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks.
+- Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
+- Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
 - Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
@@ -32,6 +33,11 @@ approval gate.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
+- `research report <topic>`: a multi-section Markdown brief (overview, key findings, caveats, sources), saveable to a file or the Obsidian vault.
+- Multi-agent control room: a live roster of specialist agents with working/idle status, surfaced as a panel in the app.
+- Knowledge recall ranked with TF-IDF; summarized documents auto-index for later recall.
+- Parallel subtasks with retry/failure recovery.
+- Markdown research reports with overview, key findings, caveats, and source links, returned in chat or saved to disk/Obsidian.
 - Browser URL opening through the system browser.
 - Optional Playwright workflow hooks for browser automation.
 - Optional browser form inspection for application pages.
@@ -45,6 +51,7 @@ approval gate.
 - OAuth authorization-code exchange with local encrypted token storage on Windows.
 - OAuth-backed Gmail/Outlook read/search commands using stored access tokens.
 - OAuth-backed Gmail/Outlook draft creation and send commands with final approval.
+- Tool-level email attachment support for SMTP plus Gmail/Outlook OAuth draft/send payloads.
 - Music playback through local files, folders, URLs, or media keys.
 - Multi-agent orchestration skeleton for running independent subtasks.
 - Local JSON memory for profile/preferences.
@@ -103,12 +110,18 @@ recall billing invoices
 what do I know about kubernetes
 knowledge list
 knowledge forget 1
+agents
+agent files
 web search python asyncio tutorial
 search the web for best mechanical keyboards
 google walrus operator
 research the history of jazz
 look into rust async runtimes
+research report local-first AI agents
+save research report local-first AI agents to reports/local-first-ai.md
+save research report local-first AI agents to obsidian
 multi scan files . ;; summarize file notes.md
+multi retry failed
 tasks
 open url https://example.com
 open website example.com
@@ -234,6 +247,15 @@ email oauth refresh outlook
 OAuth draft/send commands also require stored tokens. Draft creation writes a
 draft into the mailbox. Send commands require final approval and then send the
 message through Gmail or Outlook.
+
+Email attachments are supported in the email tool API by passing file paths on
+`EmailDraft.attachments`. SMTP sends attach files as MIME parts; Gmail OAuth
+draft/send payloads include a raw RFC2822 MIME message; Outlook OAuth draft/send
+payloads include Microsoft Graph `fileAttachment` objects. Attachment paths are
+validated before approval, previews list attachment names and sizes, and the
+combined attachment payload is capped at 20 MB. Default `mailto:` drafts cannot
+reliably attach files automatically, so they fail clearly when attachments are
+present.
 
 ## LLM brain
 
@@ -380,7 +402,7 @@ tests/             Dependency-free unit tests.
 ## Next build milestones
 
 1. Add a local/remote LLM planner behind the orchestrator.
-2. Generate a written research report (multi-section) from gathered sources.
-3. Add attachment support for email drafts/sends.
-4. Add retry/failure recovery for parallel subtasks.
-5. Rank knowledge-base recall with TF-IDF weighting across documents.
+2. Add scheduled/recurring research monitors that append updates to Obsidian.
+3. Wire user-facing CLI/browser syntax for email attachments.
+4. Persist task/control-room dashboard history across app restarts.
+5. Add richer knowledge snippets with highlighted matched terms and source context.

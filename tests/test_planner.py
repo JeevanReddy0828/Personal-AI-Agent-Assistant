@@ -142,6 +142,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "research rust async runtimes")
 
+    def test_routes_research_report(self) -> None:
+        decision = self.plan("create a research report on local-first agents")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "research report local-first agents")
+
+    def test_routes_save_research_report(self) -> None:
+        decision = self.plan("save research report on local-first agents to obsidian")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "save research report local-first agents to obsidian")
+
     def test_routes_web_search(self) -> None:
         decision = self.plan("search the web for best mechanical keyboards")
         self.assertTrue(decision.is_command)

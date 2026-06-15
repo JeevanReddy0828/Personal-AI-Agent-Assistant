@@ -257,13 +257,51 @@ class OrchestratorTests(unittest.TestCase):
     def test_multi_records_task_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
-            result = asyncio.run(orchestrator.handle("multi help ;; memory ;; bogus-unknown-xyz"))
+            result = asyncio.run(orchestrator.handle("multi help ;; memory ;; read file missing.txt"))
             self.assertTrue(result.ok)
             self.assertEqual(result.data["dashboard"]["task_count"], 3)
+            self.assertTrue(result.data["dashboard"]["retry_available"])
             dash = asyncio.run(orchestrator.handle("tasks"))
             self.assertTrue(dash.ok)
+            self.assertIn("multi retry failed", dash.message)
             self.assertEqual(dash.data["dashboard"]["run"], 1)
             self.assertEqual(dash.data["dashboard"]["task_count"], 3)
+
+    def test_multi_retry_failed_without_run_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("multi retry failed"))
+            self.assertFalse(result.ok)
+            self.assertIn("No task run", result.message)
+
+    def test_multi_retry_failed_reruns_failed_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            first = asyncio.run(orchestrator.handle("multi help ;; read file missing.txt"))
+            self.assertTrue(first.ok)
+            self.assertEqual(first.data["dashboard"]["failed_commands"], ["read file missing.txt"])
+            retry = asyncio.run(orchestrator.handle("multi retry failed"))
+            self.assertTrue(retry.ok)
+            self.assertEqual(retry.data["dashboard"]["retry_of"], 1)
+            self.assertEqual(retry.data["dashboard"]["task_count"], 1)
+            self.assertEqual(retry.data["results"][0]["command"], "read file missing.txt")
+
+    def test_summarize_auto_indexes_for_recall(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "spec.txt"
+            doc.write_text(
+                "The Helios payment gateway processes transactions through a sharded ledger. "
+                "It guarantees idempotency with request keys and reconciles nightly against the bank feed. "
+                "Latency targets are under fifty milliseconds at the ninety-ninth percentile for authorizations.",
+                encoding="utf-8",
+            )
+            orchestrator = self.build(root / "data")
+            summary = asyncio.run(orchestrator.handle(f"summarize file {doc}"))
+            self.assertTrue(summary.ok)
+            self.assertTrue(summary.data.get("indexed"))
+            recalled = asyncio.run(orchestrator.handle("recall Helios payment gateway"))
+            self.assertTrue(recalled.data["results"])
 
     def test_index_and_recall_document(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -312,6 +350,39 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.data["indexed"]["ok"])
             recalled = asyncio.run(orchestrator.handle("recall distributed"))
             self.assertTrue(recalled.data["results"])
+
+    def test_research_report_command_returns_markdown_and_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("research report distributed systems"))
+            self.assertTrue(result.ok)
+            self.assertIn("# Research Report: distributed systems", result.data["report"])
+            self.assertTrue(result.data["indexed"]["ok"])
+            recalled = asyncio.run(orchestrator.handle("recall research report distributed systems"))
+            self.assertTrue(recalled.data["results"])
+
+    def test_save_research_report_to_file(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            orchestrator = self.build(root / "data")
+            dest = root / "distributed-report.md"
+            result = asyncio.run(orchestrator.handle(f"save research report distributed systems to {dest}"))
+            self.assertTrue(result.ok)
+            self.assertTrue(dest.exists())
+            self.assertIn("# Research Report: distributed systems", dest.read_text(encoding="utf-8"))
+            self.assertEqual(result.data["saved"]["destination"], str(dest.resolve()))
+
+    def test_save_research_report_to_obsidian(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "data" / "vault").mkdir(parents=True)
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle("save research report distributed systems to obsidian"))
+            self.assertTrue(result.ok)
+            self.assertEqual(
+                result.data["saved"]["rel"].replace("\\", "/"),
+                "Research Reports/Research Report - distributed systems.md",
+            )
 
     def test_natural_language_research_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -437,6 +508,22 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("audit"))
             self.assertTrue(result.ok)
             self.assertIn("events", result.data)
+
+    def test_agents_command_returns_control_room(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("agents"))
+            self.assertTrue(result.ok)
+            room = result.data["control_room"]
+            self.assertGreaterEqual(room["summary"]["available"], 1)
+            self.assertTrue(any(agent["id"] == "research" for agent in room["agents"]))
+
+    def test_agent_detail_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("agent files"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["agent"]["id"], "files")
 
     def test_natural_language_remember_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

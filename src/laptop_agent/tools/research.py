@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -77,6 +78,88 @@ class ResearchTool:
             sources=sources,
             text=combined,
         )
+
+    def report(self, topic: str, max_sources: int = 4) -> ToolResult:
+        gathered = self.gather(topic, max_sources=max_sources)
+        if not gathered.ok:
+            return gathered
+
+        cleaned = str(gathered.data["topic"])
+        sources = list(gathered.data.get("sources", []))
+        text = str(gathered.data.get("text", ""))
+        report = self._markdown_report(cleaned, text, sources)
+        return ToolResult.success(
+            f"Created research report for '{cleaned}' from {len(sources)} source(s).",
+            topic=cleaned,
+            sources=sources,
+            report=report,
+            word_count=len(re.findall(r"\S+", report)),
+        )
+
+    @classmethod
+    def _markdown_report(cls, topic: str, text: str, sources: list[dict[str, object]]) -> str:
+        sentences = cls._split_sentences(text)
+        key_sentences = cls._rank_sentences(sentences, topic, limit=6)
+        overview = " ".join(key_sentences[:2]) if key_sentences else "No readable source text was available."
+        findings = key_sentences[2:6] or key_sentences[:4]
+        source_lines = []
+        for index, source in enumerate(sources, start=1):
+            title = str(source.get("title") or f"Source {index}").strip()
+            url = str(source.get("url") or "").strip()
+            snippet = str(source.get("snippet") or "").strip()
+            fetched = int(source.get("fetched_chars") or 0)
+            label = f"[{title}]({url})" if url.startswith("http") else title
+            detail = f" - {snippet}" if snippet else ""
+            source_lines.append(f"{index}. {label}{detail} (fetched {fetched} chars)")
+        if not source_lines:
+            source_lines.append("No sources were available.")
+
+        lines = [
+            f"# Research Report: {topic}",
+            "",
+            "## Overview",
+            overview,
+            "",
+            "## Key Findings",
+        ]
+        lines.extend(f"- {sentence}" for sentence in findings)
+        if not findings:
+            lines.append("- No key findings could be extracted from the gathered text.")
+        lines.extend(
+            [
+                "",
+                "## Caveats",
+                "- This report is generated from the fetched search results only; verify important details against primary sources.",
+                "",
+                "## Sources",
+                *source_lines,
+            ]
+        )
+        return "\n".join(lines).strip() + "\n"
+
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        compact = re.sub(r"\s+", " ", text).strip()
+        if not compact:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+", compact)
+        return [part.strip() for part in parts if len(part.split()) >= 5]
+
+    @staticmethod
+    def _rank_sentences(sentences: list[str], topic: str, limit: int) -> list[str]:
+        if not sentences:
+            return []
+        terms = {term for term in re.findall(r"[a-z0-9]+", topic.lower()) if len(term) > 2}
+        scored = []
+        for index, sentence in enumerate(sentences):
+            lowered = sentence.lower()
+            topic_hits = sum(lowered.count(term) for term in terms)
+            content_words = [word for word in re.findall(r"[a-z0-9]+", lowered) if len(word) > 3]
+            score = topic_hits * 4 + min(len(set(content_words)), 18)
+            scored.append((score, -index, sentence))
+        scored.sort(reverse=True)
+        selected = sorted(scored[: max(1, limit)], key=lambda item: -item[1])
+        return [sentence for _score, _index, sentence in selected]
 
 
 class _TextExtractor(HTMLParser):

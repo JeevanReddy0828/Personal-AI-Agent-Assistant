@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -25,9 +26,9 @@ class KnowledgeBase:
     """Local, dependency-free searchable index over extracted document text.
 
     Documents (the text pulled from files, OCR, or transcription) are stored in
-    a JSON file. Search ranks documents by how often the query's content words
-    appear, and returns a snippet around the best match. No vectors, no network,
-    no external services - everything stays on disk next to the other agent data.
+    a JSON file. Search ranks documents with a small TF-IDF style score and
+    returns a snippet around the best match. No vectors, no network, no external
+    services - everything stays on disk next to the other agent data.
     """
 
     def __init__(self, path: Path, max_text_chars: int = 200_000) -> None:
@@ -58,29 +59,34 @@ class KnowledgeBase:
         if not terms:
             return []
         store = self._load()
-        scored: list[tuple[int, int, dict[str, object]]] = []
-        for doc in store["documents"]:
-            counts = self._term_counts(str(doc.get("text", "")))
-            score = sum(counts.get(term, 0) for term in terms)
+        documents = store["documents"]
+        doc_frequencies = self._document_frequencies(documents, terms)
+        document_count = len(documents)
+        scored: list[tuple[int, float, int, dict[str, object]]] = []
+        for doc in documents:
+            text = str(doc.get("text", ""))
+            counts = self._term_counts(text)
+            score = self._tfidf_score(counts, terms, doc_frequencies, document_count)
             if score <= 0:
                 continue
             matched = sum(1 for term in terms if counts.get(term, 0) > 0)
             scored.append(
                 (
-                    score,
                     matched,
+                    score,
+                    sum(counts.get(term, 0) for term in terms),
                     {
                         "id": doc.get("id"),
                         "source": doc.get("source"),
-                        "score": score,
+                        "score": round(score, 4),
                         "matched_terms": matched,
                         "snippet": self._snippet(str(doc.get("text", "")), terms),
                         "char_count": doc.get("char_count"),
                     },
                 )
             )
-        scored.sort(key=lambda item: (-item[0], -item[1], item[2]["id"] or 0))
-        return [item[2] for item in scored[: max(1, min(limit, 25))]]
+        scored.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]["id"] or 0))
+        return [item[3] for item in scored[: max(1, min(limit, 25))]]
 
     def list_documents(self) -> list[dict[str, object]]:
         store = self._load()
@@ -111,6 +117,33 @@ class KnowledgeBase:
         for token in _tokenize(text):
             counts[token] = counts.get(token, 0) + 1
         return counts
+
+    @staticmethod
+    def _document_frequencies(documents: list[dict[str, object]], terms: set[str]) -> dict[str, int]:
+        frequencies = {term: 0 for term in terms}
+        for doc in documents:
+            present = set(_tokenize(str(doc.get("text", ""))))
+            for term in terms:
+                if term in present:
+                    frequencies[term] += 1
+        return frequencies
+
+    @staticmethod
+    def _tfidf_score(
+        counts: dict[str, int],
+        terms: set[str],
+        document_frequencies: dict[str, int],
+        document_count: int,
+    ) -> float:
+        score = 0.0
+        for term in terms:
+            count = counts.get(term, 0)
+            if count <= 0:
+                continue
+            tf = 1.0 + math.log(count)
+            idf = math.log((1 + document_count) / (1 + document_frequencies.get(term, 0))) + 1.0
+            score += tf * idf
+        return score
 
     @staticmethod
     def _snippet(text: str, terms: set[str], window: int = 160) -> str:

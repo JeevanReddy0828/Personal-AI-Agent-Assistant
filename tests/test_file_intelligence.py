@@ -119,6 +119,20 @@ class ConvertTests(unittest.TestCase):
             result = auto_approve_tool().convert(str(src), str(dst))
             self.assertFalse(result.ok)
 
+    def test_write_text_with_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            dst = Path(raw) / "report.md"
+            result = auto_approve_tool().write_text(str(dst), "# Report\n", description="research report")
+            self.assertTrue(result.ok)
+            self.assertEqual(dst.read_text(encoding="utf-8"), "# Report\n")
+
+    def test_denied_write_text_does_not_write(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            dst = Path(raw) / "report.md"
+            with self.assertRaises(Exception):
+                deny_tool().write_text(str(dst), "# Report\n", description="research report")
+            self.assertFalse(dst.exists())
+
 
 class OrganizeTests(unittest.TestCase):
     def _seed(self, root: Path) -> None:

@@ -2,21 +2,25 @@ from __future__ import annotations
 
 import imaplib
 import json
+import mimetypes
 import smtplib
 import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from base64 import urlsafe_b64encode
+from base64 import b64encode, urlsafe_b64encode
 from dataclasses import dataclass
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
+from pathlib import Path
 
 from laptop_agent.config import AppConfig
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.token_vault import TokenVault, TokenVaultError
 from laptop_agent.tools.base import ToolResult
+
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,16 @@ class EmailDraft:
     to: str
     subject: str
     body: str
+    attachments: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LoadedAttachment:
+    path: str
+    name: str
+    content_type: str
+    size_bytes: int
+    data: bytes
 
 
 class EmailTool:
@@ -33,12 +47,20 @@ class EmailTool:
         self.token_vault = TokenVault(config.token_vault_path)
 
     def open_draft(self, draft: EmailDraft) -> ToolResult:
+        attachments = self._load_attachments(draft)
+        if not attachments.ok:
+            return attachments
+        if attachments.data["attachments"]:
+            return ToolResult.failure(
+                "Default mail-client drafts do not support adding attachments automatically.",
+                attachments=self._attachment_summaries(attachments.data["attachments"]),
+            )
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Open email draft to {draft.to}",
                 risk=RiskLevel.HIGH,
                 reason="Email drafts may expose private information to an email client.",
-                preview=self._preview(draft),
+                preview=self._preview(draft, attachments.data["attachments"]),
             )
         )
         url = "mailto:" + urllib.parse.quote(draft.to)
@@ -59,27 +81,31 @@ class EmailTool:
         ]
         if missing:
             return ToolResult.failure("SMTP is not configured.", missing=missing)
+        attachments = self._load_attachments(draft)
+        if not attachments.ok:
+            return attachments
 
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Send email to {draft.to}",
                 risk=RiskLevel.CRITICAL,
                 reason="This sends an external message from your account.",
-                preview=self._preview(draft),
+                preview=self._preview(draft, attachments.data["attachments"]),
             )
         )
 
-        message = EmailMessage()
+        message = self._message_with_attachments(draft, attachments.data["attachments"])
         message["From"] = self.config.smtp_from
-        message["To"] = draft.to
-        message["Subject"] = draft.subject
-        message.set_content(draft.body)
 
         with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port) as server:
             server.starttls()
             server.login(self.config.smtp_username, self.config.smtp_password)
             server.send_message(message)
-        return ToolResult.success("Email sent.", to=draft.to)
+        return ToolResult.success(
+            "Email sent.",
+            to=draft.to,
+            attachments=self._attachment_summaries(attachments.data["attachments"]),
+        )
 
     def search_inbox(self, query: str = "ALL", limit: int = 10) -> ToolResult:
         missing = [
@@ -156,12 +182,15 @@ class EmailTool:
         normalized = self._normalize_provider(provider)
         if normalized not in {"gmail", "outlook"}:
             return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        attachments = self._load_attachments(draft)
+        if not attachments.ok:
+            return attachments
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Create {normalized} draft to {draft.to}",
                 risk=RiskLevel.HIGH,
                 reason="This creates a draft in your mailbox using a stored OAuth access token.",
-                preview=self._preview(draft),
+                preview=self._preview(draft, attachments.data["attachments"]),
             )
         )
         token = self._load_oauth_access_token(normalized)
@@ -169,23 +198,39 @@ class EmailTool:
             return token
         access_token = str(token.data["access_token"])
         if normalized == "gmail":
-            response = self._api_post_json(self._gmail_draft_url(), access_token, self._gmail_draft_payload(draft))
+            response = self._api_post_json(
+                self._gmail_draft_url(),
+                access_token,
+                self._gmail_draft_payload(draft, attachments.data["attachments"]),
+            )
         else:
-            response = self._api_post_json(self._outlook_draft_url(), access_token, self._outlook_message_payload(draft))
+            response = self._api_post_json(
+                self._outlook_draft_url(),
+                access_token,
+                self._outlook_message_payload(draft, attachments.data["attachments"]),
+            )
         if not response.ok:
             return response
-        return ToolResult.success(f"Created {normalized} email draft.", provider=normalized, response=response.data.get("json", {}))
+        return ToolResult.success(
+            f"Created {normalized} email draft.",
+            provider=normalized,
+            response=response.data.get("json", {}),
+            attachments=self._attachment_summaries(attachments.data["attachments"]),
+        )
 
     def send_oauth_mail(self, provider: str, draft: EmailDraft) -> ToolResult:
         normalized = self._normalize_provider(provider)
         if normalized not in {"gmail", "outlook"}:
             return ToolResult.failure("Unknown email OAuth provider.", supported=["gmail", "outlook"])
+        attachments = self._load_attachments(draft)
+        if not attachments.ok:
+            return attachments
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Send {normalized} email to {draft.to}",
                 risk=RiskLevel.CRITICAL,
                 reason="This sends an external email using a stored OAuth access token.",
-                preview=self._preview(draft),
+                preview=self._preview(draft, attachments.data["attachments"]),
             )
         )
         token = self._load_oauth_access_token(normalized)
@@ -193,12 +238,25 @@ class EmailTool:
             return token
         access_token = str(token.data["access_token"])
         if normalized == "gmail":
-            response = self._api_post_json(self._gmail_send_url(), access_token, self._gmail_message_payload(draft))
+            response = self._api_post_json(
+                self._gmail_send_url(),
+                access_token,
+                self._gmail_message_payload(draft, attachments.data["attachments"]),
+            )
         else:
-            response = self._api_post_json(self._outlook_send_url(), access_token, self._outlook_send_payload(draft))
+            response = self._api_post_json(
+                self._outlook_send_url(),
+                access_token,
+                self._outlook_send_payload(draft, attachments.data["attachments"]),
+            )
         if not response.ok:
             return response
-        return ToolResult.success(f"Sent {normalized} email.", provider=normalized, response=response.data.get("json", {}))
+        return ToolResult.success(
+            f"Sent {normalized} email.",
+            provider=normalized,
+            response=response.data.get("json", {}),
+            attachments=self._attachment_summaries(attachments.data["attachments"]),
+        )
 
     def oauth_status(self) -> ToolResult:
         providers = {
@@ -408,8 +466,64 @@ class EmailTool:
         return ToolResult.success("Removed stored OAuth token." if removed else "No stored OAuth token existed.", provider=normalized, removed=removed)
 
     @staticmethod
-    def _preview(draft: EmailDraft) -> str:
-        return f"To: {draft.to}\nSubject: {draft.subject}\n\n{draft.body}"
+    def _preview(draft: EmailDraft, attachments: list[LoadedAttachment] | None = None) -> str:
+        preview = f"To: {draft.to}\nSubject: {draft.subject}\n\n{draft.body}"
+        summaries = EmailTool._attachment_summaries(attachments or [])
+        if summaries:
+            names = "\n".join(f"- {item['name']} ({item['size_bytes']} bytes)" for item in summaries)
+            preview += f"\n\nAttachments:\n{names}"
+        return preview
+
+    @staticmethod
+    def _load_attachments(draft: EmailDraft) -> ToolResult:
+        loaded: list[LoadedAttachment] = []
+        total = 0
+        for raw_path in getattr(draft, "attachments", ()) or ():
+            target = Path(str(raw_path)).expanduser().resolve()
+            if not target.exists() or not target.is_file():
+                return ToolResult.failure(f"Attachment does not exist: {target}")
+            try:
+                size = target.stat().st_size
+            except OSError as exc:
+                return ToolResult.failure(f"Could not read attachment metadata for {target}: {exc}")
+            total += size
+            if total > MAX_ATTACHMENT_BYTES:
+                return ToolResult.failure(
+                    "Email attachments are too large.",
+                    max_bytes=MAX_ATTACHMENT_BYTES,
+                    total_bytes=total,
+                )
+            content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            try:
+                data = target.read_bytes()
+            except OSError as exc:
+                return ToolResult.failure(f"Could not read attachment {target}: {exc}")
+            loaded.append(
+                LoadedAttachment(
+                    path=str(target),
+                    name=target.name,
+                    content_type=content_type,
+                    size_bytes=size,
+                    data=data,
+                )
+            )
+        return ToolResult.success(
+            "Loaded email attachment(s).",
+            attachments=loaded,
+            total_bytes=total,
+        )
+
+    @staticmethod
+    def _attachment_summaries(attachments: list[LoadedAttachment]) -> list[dict[str, object]]:
+        return [
+            {
+                "path": item.path,
+                "name": item.name,
+                "content_type": item.content_type,
+                "size_bytes": item.size_bytes,
+            }
+            for item in attachments
+        ]
 
     @staticmethod
     def _imap_criteria(query: str) -> list[str]:
@@ -534,22 +648,48 @@ class EmailTool:
         return "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 
     @staticmethod
-    def _gmail_draft_payload(draft: EmailDraft) -> dict[str, object]:
-        return {"message": EmailTool._gmail_message_payload(draft)}
+    def _gmail_draft_payload(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment] | None = None,
+    ) -> dict[str, object]:
+        return {"message": EmailTool._gmail_message_payload(draft, attachments)}
 
     @staticmethod
-    def _gmail_message_payload(draft: EmailDraft) -> dict[str, object]:
-        raw = EmailTool._raw_rfc2822_message(draft)
+    def _gmail_message_payload(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment] | None = None,
+    ) -> dict[str, object]:
+        raw = EmailTool._raw_rfc2822_message(draft, attachments)
         encoded = urlsafe_b64encode(raw).decode("ascii").rstrip("=")
         return {"raw": encoded}
 
     @staticmethod
-    def _raw_rfc2822_message(draft: EmailDraft) -> bytes:
+    def _raw_rfc2822_message(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment] | None = None,
+    ) -> bytes:
+        return EmailTool._message_with_attachments(draft, attachments or []).as_bytes()
+
+    @staticmethod
+    def _message_with_attachments(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment],
+    ) -> EmailMessage:
         message = EmailMessage()
         message["To"] = draft.to
         message["Subject"] = draft.subject
         message.set_content(draft.body)
-        return message.as_bytes()
+        for item in attachments:
+            maintype, _, subtype = item.content_type.partition("/")
+            if not subtype:
+                maintype, subtype = "application", "octet-stream"
+            message.add_attachment(
+                item.data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=item.name,
+            )
+        return message
 
     @staticmethod
     def _outlook_messages_url(query: str, limit: int) -> str:
@@ -574,16 +714,34 @@ class EmailTool:
         return "https://graph.microsoft.com/v1.0/me/sendMail"
 
     @staticmethod
-    def _outlook_message_payload(draft: EmailDraft) -> dict[str, object]:
-        return {
+    def _outlook_message_payload(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment] | None = None,
+    ) -> dict[str, object]:
+        message: dict[str, object] = {
             "subject": draft.subject,
             "body": {"contentType": "Text", "content": draft.body},
             "toRecipients": [{"emailAddress": {"address": draft.to}}],
         }
+        if attachments:
+            message["attachments"] = [EmailTool._outlook_attachment_payload(item) for item in attachments]
+        return message
 
     @staticmethod
-    def _outlook_send_payload(draft: EmailDraft) -> dict[str, object]:
-        return {"message": EmailTool._outlook_message_payload(draft), "saveToSentItems": True}
+    def _outlook_send_payload(
+        draft: EmailDraft,
+        attachments: list[LoadedAttachment] | None = None,
+    ) -> dict[str, object]:
+        return {"message": EmailTool._outlook_message_payload(draft, attachments), "saveToSentItems": True}
+
+    @staticmethod
+    def _outlook_attachment_payload(attachment: LoadedAttachment) -> dict[str, object]:
+        return {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": attachment.name,
+            "contentType": attachment.content_type,
+            "contentBytes": b64encode(attachment.data).decode("ascii"),
+        }
 
     @staticmethod
     def _gmail_summary(message: dict[str, object]) -> dict[str, str]:

@@ -236,6 +236,32 @@ class FileTool:
             char_count=len(text),
         )
 
+    def write_text(self, destination: str, text: str, description: str = "text file") -> ToolResult:
+        dst = Path(destination).expanduser().resolve()
+        if not dst.name:
+            return ToolResult.failure("Destination file path is required.")
+        overwrite = dst.exists()
+        self.approval_gate.require(
+            ApprovalRequest(
+                action=f"Write {description}: {dst}",
+                risk=RiskLevel.HIGH,
+                reason="This writes a file to disk and can overwrite an existing file.",
+                preview=(
+                    f"Destination: {dst}\n"
+                    f"Overwrite existing: {'yes' if overwrite else 'no'}\n"
+                    f"Characters: {len(text)}"
+                ),
+            )
+        )
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(text, encoding="utf-8")
+        return ToolResult.success(
+            f"Wrote {description} to {dst}.",
+            destination=str(dst),
+            overwrote=overwrite,
+            char_count=len(text),
+        )
+
     def organize(self, root: str, apply: bool = False) -> ToolResult:
         base = Path(root).expanduser().resolve()
         if not base.exists() or not base.is_dir():

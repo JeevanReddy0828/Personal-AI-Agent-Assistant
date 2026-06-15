@@ -75,6 +75,10 @@ class HeuristicPlannerProvider:
         if read_file:
             return read_file
 
+        research_report = self._research_report(raw)
+        if research_report:
+            return research_report
+
         research = self._research(raw)
         if research:
             return research
@@ -245,6 +249,34 @@ class HeuristicPlannerProvider:
         if not topic:
             return None
         return self._command(f"research {topic}", "User wants an autonomous web research workflow.", 0.8)
+
+    def _research_report(self, text: str) -> PlanDecision | None:
+        save_match = re.search(
+            r"\b(?:save|write)\s+(?:a\s+)?research report\s+(?:on|about|for)\s+(.+?)\s+to\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if save_match:
+            topic = save_match.group(1).strip().strip("'\"?")
+            destination = save_match.group(2).strip().strip("'\"?")
+            if topic and destination:
+                return self._command(
+                    f"save research report {topic} to {destination}",
+                    "User wants a generated research report saved.",
+                    0.82,
+                )
+
+        match = re.search(
+            r"\b(?:research report|write (?:a\s+)?research report|create (?:a\s+)?research report|generate (?:a\s+)?research report)\s+(?:on|about|for)?\s*(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        topic = match.group(1).strip().strip("'\"?")
+        if not topic:
+            return None
+        return self._command(f"research report {topic}", "User wants a written research report.", 0.82)
 
     def _web_search(self, text: str) -> PlanDecision | None:
         match = re.search(
