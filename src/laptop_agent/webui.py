@@ -57,6 +57,14 @@ def _smart_label() -> str:
     return "—"
 
 
+def _vision_label() -> str:
+    planner = getattr(_orchestrator, "vision_planner", None)
+    provider = getattr(planner, "provider", None) if planner else None
+    if provider and "OpenAI" in type(provider).__name__:
+        return _model_label(provider)
+    return "—"
+
+
 def _guarded_approval(request: ApprovalRequest) -> bool:
     return request.risk == RiskLevel.MEDIUM
 
@@ -103,6 +111,16 @@ PAGE = r"""<!doctype html>
   .vbtn{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:999px;padding:7px 13px;cursor:pointer}
   .vbtn:hover{border-color:var(--amber-soft);color:var(--amber-b)}
   .vbtn .dot{width:7px;height:7px;border-radius:50%;background:var(--ice);box-shadow:0 0 8px var(--ice)}
+  .vbtn.wide{width:100%;justify-content:center;margin:2px 0 12px;padding:11px;font-size:12px;letter-spacing:1px;background:var(--bg2)}
+  .vbtn.wide.on{background:var(--amber);color:#08090d;border-color:var(--amber)} .vbtn.wide.on .dot{background:#08090d;box-shadow:none}
+  details.conn{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+  details.conn>summary{font-family:var(--display);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--amber-b);padding:11px 12px;cursor:pointer;list-style:none;user-select:none}
+  details.conn>summary::-webkit-details-marker{display:none}
+  details.conn>summary::after{content:'\25BE';float:right;color:var(--muted)} details.conn[open]>summary::after{content:'\25B4'}
+  details.conn>div,details.conn>.seclbl,details.conn>.vstat{margin-left:6px;margin-right:6px}
+  .crow{display:flex;align-items:center;gap:8px;padding:7px 8px;font-family:var(--mono);font-size:11px;border-bottom:1px dashed #141a26}
+  .crow .d{width:7px;height:7px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 7px var(--ok)} .crow .d.off{background:#3a4150;box-shadow:none} .crow .d.warn{background:var(--amber);box-shadow:0 0 7px var(--amber)}
+  .crow .k{color:var(--muted)} .crow .v{margin-left:auto;color:var(--text)}
 
   aside{background:var(--panel2);border-right:1px solid var(--line);overflow-y:auto;padding:12px 10px}
   aside.right{border-right:none;border-left:1px solid var(--line)}
@@ -212,11 +230,9 @@ PAGE = r"""<!doctype html>
       <circle class="r-mid" cx="50" cy="50" r="21" fill="none" stroke="#5fd0e6" stroke-width="2.5"/>
       <circle class="r-core" cx="50" cy="50" r="6" fill="#5fd0e6"/>
     </svg>
-    <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div></div>
+    <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">your local assistant</div></div>
     <div class="sp"></div>
-    <span class="pill">fast · <b>{{PLANNER}}</b></span>
-    <span class="pill smart">smart · <b>{{SMART}}</b></span>
-    <button class="vbtn" id="voiceBtn"><span class="dot"></span> Voice</button>
+    <span class="pill"><span class="dot"></span> online</span>
   </header>
 
   <aside class="left">
@@ -263,11 +279,16 @@ PAGE = r"""<!doctype html>
   </main>
 
   <aside class="right">
-    <div class="seclbl">System</div>
-    <div id="metrics"></div>
-    <div class="seclbl">Memory vault · Obsidian</div>
-    <div class="vault"><div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div></div>
-    <div id="notes"></div>
+    <button class="vbtn wide" id="voiceBtn"><span class="dot"></span> Voice mode</button>
+    <details class="conn" open>
+      <summary>Connections &amp; system</summary>
+      <div id="connlist"></div>
+      <div class="seclbl">Usage</div>
+      <div id="metrics"></div>
+      <div class="seclbl">Memory vault</div>
+      <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
+      <div id="notes"></div>
+    </details>
   </aside>
 </div>
 
@@ -385,12 +406,14 @@ PAGE = r"""<!doctype html>
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
     if(!current)newSession();
     const sent=attachments.slice(), attNames=sent.map(a=>a.name);
+    const s=curSession();
+    const history=s?s.msgs.slice(-12).map(m=>({role:m.role==='bot'?'assistant':'user',text:m.text||''})):[];
     renderMsg('user',text||'(sent attachment)',attNames);
-    const s=curSession(); if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
+    if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
     ta.value='';auto();attachments=[];renderChips();setBusy(true);
     const tmp=thinking(); let reply='';
     try{
-      const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path)})});
+      const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
       const d=await r.json(); tmp.remove();
       const node=renderMsg('bot',d.message||'(no output)'); if(!d.ok)node.classList.add('err');
       reply=d.message||'';
@@ -403,26 +426,45 @@ PAGE = r"""<!doctype html>
     return reply;
   }
 
+  /* connections dropdown */
+  const PLANNER='{{PLANNER}}', SMART='{{SMART}}', VISION='{{VISION}}';
+  const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
+  function renderConn(){
+    const rows=[['LLM (fast)',conn.fast],['LLM (smart)',conn.smart],['Vision',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
+    document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v">'+v+'</span></div>').join('');
+  }
+  renderConn();
+
   /* metrics */
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
-  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%',m.ram_total_mb?'':'');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;}catch(e){}}
+  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
+    if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['warn','run as admin'];}renderConn();}catch(e){}}
   setInterval(loadMetrics,3000);loadMetrics();
 
   /* vault */
-  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';}else{d.classList.add('off');t.textContent='not connected';}const notes=document.getElementById('notes');notes.innerHTML='';(v.notes||[]).slice(0,8).forEach(n=>{const e=document.createElement('div');e.className='note';e.textContent=n.name;notes.appendChild(e);});}catch(e){}}
+  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();const notes=document.getElementById('notes');notes.innerHTML='';(v.notes||[]).slice(0,8).forEach(n=>{const e=document.createElement('div');e.className='note';e.textContent=n.name;notes.appendChild(e);});}catch(e){}}
   loadVault();
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,voiceActive=false,dictating=false;
   if(!SR)micBtn.style.display='none';
+  // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
+  let ttsVoice=null;
+  function pickVoice(){
+    const vs=speechSynthesis.getVoices(); if(!vs.length)return;
+    const prefer=['Natural','Online','Aria','Jenny','Ava','Emma','Sonia','Libby','Michelle','Andrew','Guy','Ryan','Google US English'];
+    for(const p of prefer){const v=vs.find(x=>x.name.includes(p)&&/^en/i.test(x.lang));if(v){ttsVoice=v;return;}}
+    ttsVoice=vs.find(x=>/^en/i.test(x.lang))||vs[0];
+  }
+  speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
   voiceBtn.onclick=()=>{if(!SR){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
-  function startVoice(){voiceActive=true;voice.classList.add('on');listen();}
-  function endVoice(){voiceActive=false;voice.classList.remove('on');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
+  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   function listen(){if(!voiceActive)return;setCore('listening');vSet('listening','Listening');vtrans.textContent='Say something…';rec=new SR();rec.lang='en-US';rec.interimResults=true;let fin='';rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};rec.onend=async()=>{if(!voiceActive)return;const q=(fin||vtrans.textContent||'').trim();if(!q||q==='Say something…'){listen();return;}vSet('thinking','Thinking');const reply=await send(q);if(!voiceActive)return;if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,200);speak(reply);}else listen();};try{rec.start();}catch(e){}}
-  function speak(text){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>\[\]()]/g,'').slice(0,600));u.rate=1.04;setCore('speaking');u.onend=()=>{if(voiceActive)listen();else setCore('idle');};u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
+  function speak(text){try{speechSynthesis.cancel();if(!ttsVoice)pickVoice();const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>\[\]()]/g,'').slice(0,600));if(ttsVoice)u.voice=ttsVoice;u.rate=0.98;u.pitch=1.02;setCore('speaking');u.onend=()=>{if(voiceActive)listen();else setCore('idle');};u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
 
   renderSessions(); ta.focus();
 </script>
@@ -447,7 +489,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path in {"/", "/index.html"}:
-            page = PAGE.replace("{{PLANNER}}", _planner_label()).replace("{{SMART}}", _smart_label())
+            page = (
+                PAGE.replace("{{PLANNER}}", _planner_label())
+                .replace("{{SMART}}", _smart_label())
+                .replace("{{VISION}}", _vision_label())
+            )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/api/metrics":
             self._json(200, system_metrics())
@@ -506,6 +552,9 @@ class Handler(BaseHTTPRequestHandler):
             attachments = payload.get("attachments") or []
             if not isinstance(attachments, list):
                 attachments = []
+            history = payload.get("history") or []
+            if not isinstance(history, list):
+                history = []
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "bad request"})
             return
@@ -521,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         try:
-            result = asyncio.run(_orchestrator.handle(command))
+            result = asyncio.run(_orchestrator.handle(command, history=history))
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
         except ApprovalDenied as exc:
             body = {"ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}}

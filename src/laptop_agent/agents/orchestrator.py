@@ -73,18 +73,29 @@ class AgentOrchestrator:
         lowered = text.lower()
         return any(trigger in lowered for trigger in triggers)
 
-    def _route(self, command: str, profile: dict[str, object]):
+    def _route(
+        self,
+        command: str,
+        profile: dict[str, object],
+        history: list[dict[str, str]] | None = None,
+    ):
         help_text = self.help_text()
         fast = self.router.plan(command, help_text, profile)
         if fast.is_command or self.planner is None:
             return fast
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
             return fast
-        return self.planner.plan(command, help_text, profile)
+        return self.planner.plan(command, help_text, profile, history)
 
-    async def handle(self, text: str, _allow_planner: bool = True) -> ToolResult:
+    async def handle(
+        self,
+        text: str,
+        _allow_planner: bool = True,
+        history: list[dict[str, str]] | None = None,
+    ) -> ToolResult:
         command = text.strip()
         lowered = command.lower()
+        history_turns = history or []
         if not command:
             return ToolResult.success("Say something and I will route it.")
 
@@ -343,11 +354,11 @@ class AgentOrchestrator:
             return await self._run_many(command[len("multi ") :])
 
         if _allow_planner:
-            planned = self._route(command, self.context.memory.get_profile())
+            planned = self._route(command, self.context.memory.get_profile(), history_turns)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
                 # _allow_planner=False stops a planned command from re-triggering
                 # the planner, which would let an LLM loop or double-call itself.
-                result = await self.handle(planned.command, _allow_planner=False)
+                result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
                 result.message = self._humanize(result)
@@ -368,7 +379,7 @@ class AgentOrchestrator:
                 if self.smart_planner is not None and self._is_complex(command):
                     smart = getattr(self.smart_planner.provider, "answer", None)
                     if smart is not None:
-                        better = smart(command, self.context.memory.get_profile())
+                        better = smart(command, self.context.memory.get_profile(), None, history_turns)
                         if better:
                             response = better
                             model_used = "smart"

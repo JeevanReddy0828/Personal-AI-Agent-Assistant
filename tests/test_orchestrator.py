@@ -10,7 +10,7 @@ from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
-from laptop_agent.planner import HeuristicPlannerProvider, Planner
+from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -463,6 +463,30 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertIn("planner", result.data)
             self.assertEqual(result.data["matches"][0]["line"], 1)
+
+    def test_smart_answer_receives_history(self) -> None:
+        class ChatPlanner:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.8, explanation="chat", response="fast")
+
+        class SmartPlanner:
+            def __init__(self) -> None:
+                self.history = None
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                self.history = history
+                return "smart"
+
+        with tempfile.TemporaryDirectory() as raw:
+            smart = SmartPlanner()
+            orchestrator = self.build(Path(raw))
+            orchestrator.planner = Planner(ChatPlanner())
+            orchestrator.smart_planner = Planner(smart)
+            history = [{"role": "user", "text": "previous question"}]
+            result = asyncio.run(orchestrator.handle("explain this design in depth", history=history))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.message, "smart")
+            self.assertEqual(smart.history, history)
 
 
 if __name__ == "__main__":

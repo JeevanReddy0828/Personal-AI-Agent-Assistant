@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from laptop_agent.planner.core import PlanDecision, Planner
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 
 
@@ -67,6 +68,34 @@ class LlmPlannerParsingTests(unittest.TestCase):
             "k", "m", base_url="https://integrate.api.nvidia.com/v1", transport=capture
         ).plan("hi", "help", {})
         self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": False})
+
+    def test_plan_includes_recent_history(self) -> None:
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return '{"action":"chat","response":"ok"}'
+
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture).plan(
+            "what did I ask?",
+            "help",
+            {},
+            [{"role": "user", "text": "summarize the README"}, {"role": "assistant", "text": "Done."}],
+        )
+
+        system = captured["messages"][0]["content"]
+        self.assertIn("Recent conversation", system)
+        self.assertIn("User: summarize the README", system)
+        self.assertIn("J.A.R.V.I.S: Done.", system)
+
+    def test_planner_accepts_legacy_provider_without_history(self) -> None:
+        class LegacyProvider:
+            def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
+                return PlanDecision(action="chat", confidence=1, explanation="legacy", response=text)
+
+        decision = Planner(LegacyProvider()).plan("hello", "help", {}, [{"role": "user", "text": "old"}])
+        self.assertTrue(decision.is_chat)
+        self.assertEqual(decision.response, "hello")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,13 @@ from laptop_agent.planner.core import PlanDecision
 # message content string. Injectable so plan() can be tested without a network.
 Transport = Callable[[dict], str]
 
+_PERSONA = (
+    "You are J.A.R.V.I.S — a calm, capable, loyal AI assistant in the spirit of Tony Stark's J.A.R.V.I.S. "
+    "Your manner: warm but never sycophantic, quietly confident, with light dry wit. You are concise and favor "
+    "substance over filler. You address the user as Jeevan now and then. You run as a desktop app window titled "
+    "'J.A.R.V.I.S' on the user's screen, so if they refer to 'you' on screen, that window is you."
+)
+
 _SYSTEM_PROMPT = (
     "You are J.A.R.V.I.S, the planning brain of a local-first laptop assistant. "
     "For each user message you either reply conversationally or route the user to ONE internal command. "
@@ -56,11 +63,18 @@ class OpenAICompatiblePlannerProvider:
         self.base_url = base_url.rstrip("/")
         self._transport = transport or self._http_transport
 
-    def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
+    def plan(
+        self,
+        text: str,
+        available_commands: str,
+        memory_profile: dict[str, object],
+        history: list[dict[str, str]] | None = None,
+    ) -> PlanDecision:
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
         system = (
-            f"{_SYSTEM_PROMPT}\n\nCurrent directory: {os.getcwd()}\n"
-            f"Known facts about the user: {facts}\n\nAvailable commands:\n{available_commands}"
+            f"{_PERSONA}\n\n{_SYSTEM_PROMPT}\n\nCurrent directory: {os.getcwd()}\n"
+            f"Known facts about the user: {facts}\n{self._history_block(history)}\n"
+            f"Available commands:\n{available_commands}"
         )
         # All user turns are plain request text so the examples and the real
         # request share one format — small models route far more reliably that way.
@@ -122,7 +136,13 @@ class OpenAICompatiblePlannerProvider:
         narrated = self._strip_reasoning(content).strip()
         return narrated or None
 
-    def answer(self, text: str, memory_profile: dict[str, object], model: str | None = None) -> str | None:
+    def answer(
+        self,
+        text: str,
+        memory_profile: dict[str, object],
+        model: str | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> str | None:
         """Plain conversational reply (no routing JSON). Used for complex questions."""
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
         payload: dict[str, object] = {
@@ -133,9 +153,8 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        "You are J.A.R.V.I.S, a sharp, concise local-first assistant. You run as a desktop app window "
-                        "titled 'J.A.R.V.I.S' on the user's screen, so if they refer to 'you' on screen, that window is "
-                        f"you. Answer directly and helpfully in Markdown. Known facts about the user: {facts}."
+                        f"{_PERSONA} Answer directly and helpfully in Markdown. "
+                        f"Known facts about the user: {facts}.\n{self._history_block(history)}"
                     ),
                 },
                 {"role": "user", "content": text},
@@ -224,6 +243,18 @@ class OpenAICompatiblePlannerProvider:
             command=str(command) if command else None,
             response=str(response) if response else None,
         )
+
+    @staticmethod
+    def _history_block(history: list[dict[str, str]] | None) -> str:
+        if not history:
+            return ""
+        lines = []
+        for turn in history[-8:]:
+            role = "User" if str(turn.get("role")) == "user" else "J.A.R.V.I.S"
+            text = str(turn.get("text") or turn.get("content") or "").strip().replace("\n", " ")
+            if text:
+                lines.append(f"{role}: {text[:300]}")
+        return "Recent conversation (oldest first):\n" + "\n".join(lines) + "\n" if lines else ""
 
     @staticmethod
     def _strip_reasoning(content: str) -> str:

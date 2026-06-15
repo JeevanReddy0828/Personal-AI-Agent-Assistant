@@ -6,8 +6,8 @@ from laptop_agent.planner.core import PlanDecision
 
 
 class HeuristicPlannerProvider:
-    def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
-        del available_commands, memory_profile
+    def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
+        del available_commands, memory_profile, history
         raw = text.strip()
         lowered = raw.lower()
 

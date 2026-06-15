@@ -22,7 +22,13 @@ class PlanDecision:
 
 
 class PlannerProvider(Protocol):
-    def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
+    def plan(
+        self,
+        text: str,
+        available_commands: str,
+        memory_profile: dict[str, object],
+        history: list[dict[str, str]] | None = None,
+    ) -> PlanDecision:
         pass
 
 
@@ -30,8 +36,18 @@ class Planner:
     def __init__(self, provider: PlannerProvider) -> None:
         self.provider = provider
 
-    def plan(self, text: str, available_commands: str, memory_profile: dict[str, object]) -> PlanDecision:
-        return self.provider.plan(text, available_commands, memory_profile)
+    def plan(
+        self,
+        text: str,
+        available_commands: str,
+        memory_profile: dict[str, object],
+        history: list[dict[str, str]] | None = None,
+    ) -> PlanDecision:
+        try:
+            return self.provider.plan(text, available_commands, memory_profile, history)
+        except TypeError:
+            # Providers that predate the history parameter.
+            return self.provider.plan(text, available_commands, memory_profile)
 
     def narrate(self, user_text: str, result_message: str, result_data: dict[str, object]) -> str | None:
         narrate = getattr(self.provider, "narrate", None)
