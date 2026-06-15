@@ -431,6 +431,21 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("Here's what I remember", result.message)
             self.assertIn("planner", result.data)
 
+    def test_humanize_formats_email_messages(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        result = ToolResult.success(
+            "Found 2 email message(s).",
+            messages=[
+                {"from": "LinkedIn <jobs@linkedin.com>", "subject": "Software Developer at IBM", "snippet": "Jobs that match you"},
+                {"from": "Google <no-reply@google.com>", "subject": "Security alert", "snippet": "New sign-in"},
+            ],
+        )
+        human = AgentOrchestrator._humanize(result)
+        self.assertIn("LinkedIn", human)
+        self.assertIn("Software Developer at IBM", human)
+        self.assertNotIn("{", human)  # no raw JSON
+
     def test_planner_recursion_is_bounded(self) -> None:
         from laptop_agent.planner.core import PlanDecision
 

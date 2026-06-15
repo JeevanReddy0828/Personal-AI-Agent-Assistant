@@ -726,6 +726,18 @@ class AgentOrchestrator:
             if "source" in first:
                 lines = [f"- {r.get('source', '')}: {str(r.get('snippet', '')).strip()[:140]}" for r in results[:5]]
                 return f"I found {len(results)} match(es):\n" + "\n".join(lines)
+        if isinstance(data.get("messages"), list):
+            messages = data["messages"]
+            if not messages:
+                return "Your inbox has no messages matching that."
+            lines = []
+            for index, mail in enumerate(messages[:8], start=1):
+                sender = str(mail.get("from", "")).split("<")[0].strip().strip('"') or str(mail.get("from", ""))
+                subject = str(mail.get("subject", "")).strip() or "(no subject)"
+                snippet = " ".join(str(mail.get("snippet", "")).split())[:110]
+                lines.append(f"{index}. **{sender}** — {subject}" + (f"\n   {snippet}" if snippet else ""))
+            more = f"\n\n…and {len(messages) - 8} more." if len(messages) > 8 else ""
+            return f"Here are your {len(messages)} most recent message(s):\n\n" + "\n".join(lines) + more
         if "text" in data and "char_count" in data:
             text = str(data.get("text", "")).strip()
             return ("Here's what I read:\n" + text[:700]) if text else result.message

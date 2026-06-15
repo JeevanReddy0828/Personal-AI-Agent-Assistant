@@ -87,6 +87,28 @@ def _warmup() -> None:
         threading.Thread(target=warmup, daemon=True).start()
 
 
+def _keep_warm(interval: float = 200.0) -> None:
+    """Ping the fast model periodically so it does not go cold between messages.
+
+    NVIDIA's hosted endpoint spins models down when idle, which makes the next
+    request slow. A light keep-alive avoids that cold-start penalty.
+    """
+    provider = getattr(_orchestrator.planner, "provider", None)
+    warmup = getattr(provider, "warmup", None)
+    if not warmup:
+        return
+
+    def loop() -> None:
+        stop = threading.Event()
+        while not stop.wait(interval):
+            try:
+                warmup()
+            except Exception:
+                pass
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -474,7 +496,7 @@ PAGE = r"""<!doctype html>
       const node=renderMsg('bot',d.message||'(no output)'); if(!d.ok)node.classList.add('err');
       reply=d.message||'';
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;  // colour by the model that actually answered
-      const data=Object.assign({},d.data||{});delete data.planner;
+      const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
       const ss=curSession();if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
@@ -497,7 +519,7 @@ PAGE = r"""<!doctype html>
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['warn','run as admin'];}renderConn();}catch(e){}}
-  setInterval(loadMetrics,3000);loadMetrics();
+  setInterval(loadMetrics,5000);loadMetrics();
 
   /* vault */
   async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();const notes=document.getElementById('notes');notes.innerHTML='';(v.notes||[]).slice(0,8).forEach(n=>{const e=document.createElement('div');e.className='note';e.textContent=n.name;notes.appendChild(e);});}catch(e){}}
@@ -529,14 +551,37 @@ PAGE = r"""<!doctype html>
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
   function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
-  function listen(){if(!voiceActive)return;setCore('listening');vSet('listening','Listening');vtrans.textContent='Say something…';rec=new SR();rec.lang='en-US';rec.interimResults=true;let fin='';rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};rec.onend=async()=>{if(!voiceActive)return;const q=(fin||vtrans.textContent||'').trim();if(!q||q==='Say something…'){listen();return;}vSet('thinking','Thinking');const reply=await send(q);if(!voiceActive)return;if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,200);speak(reply);}else listen();};try{rec.start();}catch(e){}}
-  function speak(text){try{speechSynthesis.cancel();if(!ttsVoice)pickVoice();
-    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim().slice(0,800);
-    const u=new SpeechSynthesisUtterance(clean);if(ttsVoice)u.voice=ttsVoice;u.rate=0.98;u.pitch=1.02;setCore('speaking');
-    if(voiceActive){vtrans.textContent=clean.slice(0,140);}                                   // subtitles
-    u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);vtrans.textContent='…'+clean.slice(Math.max(0,end-160),end);}};
-    u.onend=()=>{if(voiceActive){vtrans.textContent=clean.slice(-160);listen();}else setCore('idle');};
-    u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
+  let recognizing=false;
+  function listen(){
+    if(!voiceActive||recognizing)return;
+    setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
+    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;recognizing=true;
+    let fin='',heard=false;
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};
+    rec.onerror=()=>{};
+    rec.onend=async()=>{
+      recognizing=false; if(!voiceActive)return;
+      const q=(fin||(heard?vtrans.textContent:'')||'').trim();
+      if(q.length<2){listen();return;}                 // ignore noise / empty
+      vSet('thinking','Thinking');
+      const reply=await send(q);
+      if(!voiceActive)return;
+      if(reply)speak(reply);else listen();
+    };
+    try{rec.start();}catch(e){recognizing=false;}
+  }
+  function speak(text){try{
+    try{rec&&rec.stop();}catch(e){}                     // never listen while we talk (avoids echo)
+    speechSynthesis.cancel();if(!ttsVoice)pickVoice();
+    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
+    setCore('speaking');vSet('speaking','Speaking');
+    if(voiceActive)vtrans.textContent=clean.slice(0,240);                       // static, readable subtitles
+    u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
+    u.onend=()=>{if(voiceActive){setTimeout(()=>{if(voiceActive)listen();},350);}else setCore('idle');};   // small echo-guard delay
+    u.onerror=()=>{if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},350);else setCore('idle');};
+    speechSynthesis.speak(u);
+  }catch(e){if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},350);else setCore('idle');}}
 
   renderSessions(); ta.focus();
 </script>
@@ -664,6 +709,7 @@ def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     _warmup()
+    _keep_warm()
     print(f"J.A.R.V.I.S chat running at {url}")
     print("Guarded mode: high-risk actions blocked; read/search/research allowed. Ctrl+C to stop.")
     try:
@@ -719,6 +765,7 @@ def run_desktop() -> None:
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     _warmup()
+    _keep_warm()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
     if _launch_webview(url):
