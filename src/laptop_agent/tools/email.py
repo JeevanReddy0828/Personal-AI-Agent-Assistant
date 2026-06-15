@@ -118,7 +118,14 @@ class EmailTool:
             if not value
         ]
         if missing:
-            return ToolResult.failure("IMAP inbox search is not configured.", missing=missing)
+            return ToolResult.failure(
+                "I'm not connected to your email yet. To read Gmail, add an app password to your .env: "
+                "IMAP_HOST=imap.gmail.com, IMAP_USERNAME=<your-gmail>, IMAP_PASSWORD=<16-char app password>. "
+                "Generate the app password at https://myaccount.google.com/apppasswords (needs 2-step verification). "
+                "Then ask me to check your email again.",
+                missing=missing,
+                setup="gmail-app-password",
+            )
 
         safe_limit = max(1, min(limit, 25))
         criteria = self._imap_criteria(query)
