@@ -113,6 +113,13 @@ PAGE = r"""<!doctype html>
   .sess:hover{background:var(--panel)} .sess.active{background:var(--panel);border-color:var(--line2)}
 
   main{display:flex;flex-direction:column;min-height:0;position:relative}
+  .hero{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0 6px;border-bottom:1px solid var(--line);
+    background:radial-gradient(60% 120% at 50% 0%,rgba(255,176,0,.05),transparent 70%)}
+  #core{width:240px;height:118px;display:block}
+  .corestate{font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);margin-top:-6px;transition:color .4s}
+  .corestate b{color:#fff;font-weight:600}
+  .corestate.think{color:var(--amber-b)} .corestate.speak{color:var(--amber)} .corestate.listen{color:var(--ice)}
+  .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;margin-right:8px;vertical-align:middle;animation:blink 2s infinite}
   .chat{flex:1;overflow-y:auto;padding:18px 22px 6px}
   .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding-bottom:30px}
   .empty .orb{width:70px;height:70px}
@@ -219,6 +226,10 @@ PAGE = r"""<!doctype html>
   </aside>
 
   <main>
+    <div class="hero">
+      <canvas id="core" width="480" height="236"></canvas>
+      <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
+    </div>
     <div class="chat" id="chat">
       <div class="empty" id="empty">
         <svg class="orb" viewBox="0 0 100 100" aria-hidden="true">
@@ -268,6 +279,36 @@ PAGE = r"""<!doctype html>
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
         sessionsEl=document.getElementById('sessions');
   let attachments=[], busy=false;
+
+  /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
+  const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
+  let coreState='idle', stateLabels={idle:'J.A.R.V.I.S · <b>online</b>',thinking:'<b>analyzing</b>',speaking:'<b>speaking</b>',listening:'<b>listening</b>'};
+  function setCore(s){coreState=s;corestate.className='corestate '+(s==='thinking'?'think':s==='speaking'?'speak':s==='listening'?'listen':'');corestate.innerHTML='<span class="blip"></span>'+stateLabels[s];}
+  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;coreCanvas.width=r.width*dpr;coreCanvas.height=r.height*dpr;cctx.setTransform(dpr,0,0,dpr,0,0);}
+  window.addEventListener('resize',fitCanvas);
+  function drawCore(t){
+    const r=coreCanvas.getBoundingClientRect(),w=r.width,h=r.height; if(!w)return;
+    cctx.clearRect(0,0,w,h); const cx=w/2,cy=h/2,R=Math.min(w,h)/2-8;
+    const col=coreState==='thinking'?'#ffb000':coreState==='speaking'?'#ffc94d':'#5fd0e6';
+    const spd=coreState==='thinking'?2.4:coreState==='speaking'?1.6:0.6;
+    const pulse=(Math.sin(t*(coreState==='thinking'?6:3))+1)/2;
+    const glow=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.15);
+    glow.addColorStop(0,col+'30');glow.addColorStop(.45,col+'12');glow.addColorStop(1,'transparent');
+    cctx.fillStyle=glow;cctx.beginPath();cctx.arc(cx,cy,R*1.15,0,7);cctx.fill();
+    for(let i=0;i<3;i++){const rr=R*(0.5+i*0.17),off=t*spd*(i%2?-1:1)+i*1.3;cctx.strokeStyle=col;cctx.globalAlpha=.55-i*.12;cctx.lineWidth=1.6;
+      for(let a=0;a<3;a++){const s=off+a*2.094;cctx.beginPath();cctx.arc(cx,cy,rr,s,s+1.05);cctx.stroke();}}
+    cctx.globalAlpha=.35;cctx.lineWidth=1;cctx.strokeStyle=col;
+    for(let k=0;k<56;k++){const a=t*0.3+k*0.112,r1=R*0.88,r2=R*0.95;cctx.beginPath();cctx.moveTo(cx+r1*Math.cos(a),cy+r1*Math.sin(a));cctx.lineTo(cx+r2*Math.cos(a),cy+r2*Math.sin(a));cctx.stroke();}
+    const np=coreState==='thinking'?16:9;cctx.globalAlpha=.85;
+    for(let p=0;p<np;p++){const a=t*spd*1.3+p*(6.283/np),rr=R*0.72,x=cx+rr*Math.cos(a),y=cy+rr*Math.sin(a);cctx.fillStyle=col;cctx.beginPath();cctx.arc(x,y,1.7,0,7);cctx.fill();}
+    cctx.globalAlpha=1;
+    if(coreState==='speaking'){cctx.strokeStyle=col;cctx.lineWidth=2;cctx.beginPath();for(let a=0;a<=72;a++){const ang=a/72*6.283,amp=R*0.32+Math.sin(ang*7+t*9)*R*0.06;const x=cx+amp*Math.cos(ang),y=cy+amp*Math.sin(ang);a?cctx.lineTo(x,y):cctx.moveTo(x,y);}cctx.closePath();cctx.stroke();}
+    else if(coreState==='listening'){const rp=(t*0.6)%1;cctx.strokeStyle=col;cctx.globalAlpha=1-rp;cctx.lineWidth=2;cctx.beginPath();cctx.arc(cx,cy,R*0.3+rp*R*0.5,0,7);cctx.stroke();cctx.globalAlpha=1;}
+    const cr=R*0.17*(0.82+pulse*0.32);const cg=cctx.createRadialGradient(cx,cy,0,cx,cy,cr*2.2);cg.addColorStop(0,'#ffffff');cg.addColorStop(.4,col);cg.addColorStop(1,'transparent');
+    cctx.fillStyle=cg;cctx.beginPath();cctx.arc(cx,cy,cr*2.2,0,7);cctx.fill();cctx.fillStyle='#fff';cctx.beginPath();cctx.arc(cx,cy,cr*0.45,0,7);cctx.fill();
+  }
+  function coreLoop(){drawCore(performance.now()/1000);requestAnimationFrame(coreLoop);}
+  fitCanvas();coreLoop();
 
   /* markdown */
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -320,7 +361,7 @@ PAGE = r"""<!doctype html>
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(){clearEmpty();const m=document.createElement('div');m.className='msg bot';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span></div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);}
+  function setBusy(b){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'));}
 
   /* composer */
   function auto(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,150)+'px';}
@@ -380,8 +421,8 @@ PAGE = r"""<!doctype html>
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');listen();}
   function endVoice(){voiceActive=false;voice.classList.remove('on');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
-  function listen(){if(!voiceActive)return;vSet('listening','Listening');vtrans.textContent='Say something…';rec=new SR();rec.lang='en-US';rec.interimResults=true;let fin='';rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};rec.onend=async()=>{if(!voiceActive)return;const q=(fin||vtrans.textContent||'').trim();if(!q||q==='Say something…'){listen();return;}vSet('thinking','Thinking');const reply=await send(q);if(!voiceActive)return;if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,200);speak(reply);}else listen();};try{rec.start();}catch(e){}}
-  function speak(text){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>\[\]()]/g,'').slice(0,600));u.rate=1.04;u.onend=()=>{if(voiceActive)listen();};u.onerror=()=>{if(voiceActive)listen();};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();}}
+  function listen(){if(!voiceActive)return;setCore('listening');vSet('listening','Listening');vtrans.textContent='Say something…';rec=new SR();rec.lang='en-US';rec.interimResults=true;let fin='';rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};rec.onend=async()=>{if(!voiceActive)return;const q=(fin||vtrans.textContent||'').trim();if(!q||q==='Say something…'){listen();return;}vSet('thinking','Thinking');const reply=await send(q);if(!voiceActive)return;if(reply){vSet('speaking','Speaking');vtrans.textContent=reply.slice(0,200);speak(reply);}else listen();};try{rec.start();}catch(e){}}
+  function speak(text){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.replace(/[`*#_>\[\]()]/g,'').slice(0,600));u.rate=1.04;setCore('speaking');u.onend=()=>{if(voiceActive)listen();else setCore('idle');};u.onerror=()=>{if(voiceActive)listen();else setCore('idle');};speechSynthesis.speak(u);}catch(e){if(voiceActive)listen();else setCore('idle');}}
 
   renderSessions(); ta.focus();
 </script>

@@ -533,7 +533,11 @@ class AgentOrchestrator:
         if not shot.ok:
             return shot
         path = str(shot.data["path"])
-        prompt = question.strip() or "Describe what is currently on this screen. Be concise and specific about what the user is looking at."
+        prompt = question.strip() or (
+            "You are J.A.R.V.I.S, an assistant that runs as a dark desktop app window titled 'J.A.R.V.I.S' on this "
+            "very screen. Concisely describe what the user is working on. If you see your own app window (a dark chat "
+            "with an amber accent), call it out as yourself ('that dark window is me'). Focus on what matters, not every pixel."
+        )
         described = self._describe_with_vision(path, prompt)
         if described is not None:
             return ToolResult.success(described, screenshot=path, vision=True)

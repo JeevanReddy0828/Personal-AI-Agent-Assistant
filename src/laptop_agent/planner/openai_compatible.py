@@ -133,8 +133,9 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        "You are J.A.R.V.I.S, a sharp, concise local-first assistant. Answer the user directly and "
-                        f"helpfully in Markdown. Known facts about the user: {facts}."
+                        "You are J.A.R.V.I.S, a sharp, concise local-first assistant. You run as a desktop app window "
+                        "titled 'J.A.R.V.I.S' on the user's screen, so if they refer to 'you' on screen, that window is "
+                        f"you. Answer directly and helpfully in Markdown. Known facts about the user: {facts}."
                     ),
                 },
                 {"role": "user", "content": text},
