@@ -33,6 +33,9 @@ class HeuristicPlannerProvider:
         if any(phrase in lowered for phrase in ("read my screen", "read the screen", "what is on my screen", "what's on my screen", "screen text")):
             return self._command("read screen", "User wants on-screen text captured and read.", 0.85)
 
+        if any(phrase in lowered for phrase in ("look at me", "what do you see", "use the webcam", "use my webcam", "look through the camera", "look at the camera")):
+            return self._command("look at webcam", "User wants the webcam captured and described.", 0.84)
+
         if lowered in {"tasks", "show tasks", "task dashboard", "show task dashboard", "show me the tasks"}:
             return self._command("tasks", "User wants the parallel task dashboard.", 0.85)
 

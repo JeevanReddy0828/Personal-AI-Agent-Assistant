@@ -23,6 +23,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowTracker
 
@@ -52,6 +53,7 @@ def build_orchestrator(
         research=ResearchTool(approval_gate),
         terminal=TerminalTool(approval_gate),
         transcribe=TranscribeTool(),
+        webcam=WebcamTool(),
         audit=audit,
         autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
         agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),

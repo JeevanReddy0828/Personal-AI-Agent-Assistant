@@ -27,6 +27,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
@@ -44,6 +45,7 @@ class AgentContext:
     research: ResearchTool
     terminal: TerminalTool
     transcribe: TranscribeTool
+    webcam: WebcamTool
     audit: AuditLogger
     autopilot: AutopilotTracker
     agent_runs: AgentRunTracker
@@ -300,6 +302,18 @@ class AgentOrchestrator:
 
         if lowered.startswith("look at image "):
             return self._describe_image(command[len("look at image ") :].strip())
+
+        if lowered in {"look at webcam", "describe webcam", "what do you see", "look at me", "webcam"}:
+            return self._webcam_look()
+
+        if lowered.startswith("look at webcam "):
+            return self._webcam_look(command[len("look at webcam ") :].strip())
+
+        if lowered.startswith("describe webcam "):
+            return self._webcam_look(command[len("describe webcam ") :].strip())
+
+        if lowered in {"capture webcam", "webcam capture", "take a photo"}:
+            return self.context.webcam.capture()
 
         if lowered in {"tasks", "task dashboard", "show tasks"}:
             dashboard = self.context.tasks.latest()
@@ -577,6 +591,7 @@ class AgentOrchestrator:
                 "  transcribe <audio-or-video-path>",
                 "  read screen [question]   (vision: looks at your screen)",
                 "  describe image <path>    (vision)",
+                "  look at webcam [question]  (vision: captures and describes a camera frame)",
                 "  index file <path>",
                 "  recall <query>",
                 "  ask knowledge <question>",
@@ -846,6 +861,7 @@ class AgentOrchestrator:
         # vision / desktop
         "read screen <question>",
         "describe image <path>",
+        "look at webcam <question>",
         "open app <path-or-app>",
         "screenshot <output.png>",
         "play music <file-folder-or-url>",
@@ -1156,6 +1172,31 @@ class AgentOrchestrator:
             screenshot=path,
             text=ocr.data.get("text", ""),
             char_count=ocr.data.get("char_count", 0),
+        )
+
+    def _webcam_look(self, question: str = "") -> ToolResult:
+        """Capture a webcam frame and describe it with the vision model (OCR fallback)."""
+        shot = self.context.webcam.capture()
+        if not shot.ok:
+            return shot
+        path = str(shot.data["path"])
+        prompt = question.strip() or (
+            "You are J.A.R.V.I.S looking through the user's webcam. Concisely describe who and "
+            "what you see — the person, their setting, and anything notable. Be natural, not clinical."
+        )
+        described = self._describe_with_vision(path, prompt)
+        if described is not None:
+            return ToolResult.success(described, webcam=path, vision=True)
+        ocr = self.context.transcribe.ocr_image(path)
+        if ocr.ok and ocr.data.get("char_count"):
+            return ToolResult.success(
+                f"I captured a webcam frame and read {ocr.data.get('char_count', 0)} character(s) of text from it.",
+                webcam=path, text=ocr.data.get("text", ""),
+            )
+        return ToolResult.failure(
+            "I captured a webcam frame but can't interpret it: no vision model is configured. "
+            "Set OPENAI_VISION_MODEL to describe what the camera sees.",
+            webcam=path,
         )
 
     def _describe_image(self, path: str, question: str = "") -> ToolResult:

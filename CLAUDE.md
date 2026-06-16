@@ -11,7 +11,7 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
 
 - **Python 3.11+**, **zero required runtime dependencies** (`dependencies = []`).
   Heavy features live behind optional extras (`browser`, `desktop`, `docs`,
-  `voice`, `ocr`, `transcribe`, `metrics`).
+  `voice`, `ocr`, `transcribe`, `metrics`, `vision`).
 - GitHub: `JeevanReddy0828/Personal-AI-Agent-Assistant`. Owner: Jeevan
   (Bala Showri Jeev An Reddy Arlagadda), Austin TX.
 
@@ -47,7 +47,7 @@ AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat
 Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
         |
 Tools (tools/): files, web, websearch, research, browser, desktop, email,
-        music, transcribe (OCR/Whisper), obsidian
+        music, transcribe (OCR/Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool), reminders.py,

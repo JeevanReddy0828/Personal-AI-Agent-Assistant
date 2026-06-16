@@ -34,7 +34,7 @@ approval gate.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
-- Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
+- Vision: "look at my screen", "describe image", and "look at webcam" use a vision model (OCR is the fallback). Webcam capture is an optional extra (`pip install laptop-agent[vision]`, OpenCV) with a graceful install hint when absent.
 - Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity.
 - Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
 - Live health/status: a self-check (`/api/health`) surfaces whether the AI, vault, and email are connected and reachable, with first-run setup guidance when the AI is not configured.
@@ -154,6 +154,8 @@ autopilot status
 agent run summarize README.md and index it into the knowledge base
 agent runs
 agent last
+look at webcam
+look at webcam what am I holding?
 open url https://example.com
 open website example.com
 run command dir
@@ -188,7 +190,7 @@ apply to the job at https://example.com/jobs/123
 Install extras as needed:
 
 ```powershell
-pip install -e ".[browser,desktop,docs,voice,ocr,transcribe]"
+pip install -e ".[browser,desktop,docs,voice,ocr,transcribe,vision]"
 playwright install chromium
 ```
 
@@ -433,7 +435,7 @@ Audit events are written to `.agent_data/audit.jsonl` by default.
 ```text
 src/laptop_agent/
   agents/          Task router and specialist agent orchestration.
-  tools/           File, web, web-search, research, browser, desktop, email, music, and transcribe tools.
+  tools/           File, web, web-search, research, browser, desktop, email, music, transcribe, and webcam tools.
   app.py           Shared app factory used by CLI and GUI.
   audit.py         JSONL audit logger.
   cli.py           Interactive command-line interface.

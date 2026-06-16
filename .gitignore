@@ -11,3 +11,6 @@ dist/
 *.egg-info/
 .agent_data/
 .env
+
+# Local git worktrees used for parallel agent work
+.worktrees/

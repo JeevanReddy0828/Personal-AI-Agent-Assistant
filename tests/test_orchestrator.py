@@ -27,6 +27,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
+from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowTracker
 
@@ -108,6 +109,7 @@ class OrchestratorTests(unittest.TestCase):
                     ocr_backend=lambda path: f"ocr-text::{path.name}",
                     asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
                 ),
+                webcam=WebcamTool(capture_backend=lambda device, dest: (dest.write_bytes(b"\x89PNG-fake"), dest)[1]),
                 audit=AuditLogger(config.audit_log_path),
                 tasks=TaskTracker(),
                 workflows=WorkflowTracker(config.data_dir / "workflows.json"),
@@ -625,6 +627,16 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("agent run do something"))
             self.assertFalse(result.ok)
             self.assertIn("reasoning model", result.message.lower())
+
+    def test_webcam_capture_falls_back_to_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))  # no vision planner; fake OCR returns text
+            result = asyncio.run(orchestrator.handle("look at webcam"))
+            # The injected webcam backend writes a frame; with no vision model the orchestrator
+            # falls back to OCR, which (in tests) returns text — so the run succeeds with the frame.
+            self.assertTrue(result.ok)
+            self.assertIn("webcam", result.data)
+            self.assertIn("ocr-text", result.data.get("text", ""))
 
     def test_natural_language_reminder_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
