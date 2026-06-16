@@ -27,6 +27,7 @@ approval gate.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Persistent parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks across app restarts.
 - Persistent sequential workflows: run multi-step plans across tools, stop on first failure, and retry from the failed step.
+- Autopilot mode: plans and runs unattended safe local/read-only work, while blocking commands that need supervision or approval.
 - Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
@@ -36,6 +37,7 @@ approval gate.
 - Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity.
 - Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
 - Live health/status: a self-check (`/api/health`) surfaces whether the AI, vault, and email are connected and reachable, with first-run setup guidance when the AI is not configured.
+- Stop a running generation mid-stream (Esc or the stop button) and keyboard shortcuts (Ctrl+K new chat).
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
@@ -144,6 +146,10 @@ tasks
 workflow scan files . ;; summarize file README.md ;; tasks
 workflow status
 workflow retry failed
+autopilot daily briefing
+autopilot project health
+autopilot workflow briefing ;; tasks ;; run command dir
+autopilot status
 open url https://example.com
 open website example.com
 run command dir
@@ -401,6 +407,11 @@ exists rather than overwriting it.
 approval every time. Commands run synchronously with a timeout and captured
 stdout/stderr; they do not open an interactive shell or background service.
 
+`autopilot <goal>` is intentionally limited to safe local/read-only commands.
+If a planned step would send data, write files, open external URLs, run shell
+commands, or otherwise need approval, autopilot records it as blocked instead
+of waiting for confirmation.
+
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
 
@@ -417,6 +428,7 @@ src/laptop_agent/
   cli.py           Interactive command-line interface.
   gui.py           Tkinter desktop interface.
   config.py        Runtime paths and settings.
+  autopilot.py     Unattended safe-work planner and run history.
   memory.py        Local JSON profile/preferences store.
   planner/         Natural-language route planners.
   knowledge.py     Persistent searchable index over extracted text.

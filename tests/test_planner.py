@@ -97,6 +97,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "workflow retry failed")
 
+    def test_routes_autopilot_goal(self) -> None:
+        decision = self.plan("run autopilot for project health")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "autopilot project health")
+
+    def test_routes_autopilot_status(self) -> None:
+        decision = self.plan("show autopilot status")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "autopilot status")
+
     def test_routes_oauth_email_draft(self) -> None:
         decision = self.plan("draft email using gmail to ada@example.com about hello")
         self.assertTrue(decision.is_command)

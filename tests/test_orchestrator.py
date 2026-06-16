@@ -572,6 +572,26 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("knowledge", result.data)
             self.assertIn("metrics", result.data)
 
+    def test_autopilot_runs_safe_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("autopilot daily briefing"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["autopilot"]["status"], "ok")
+            self.assertGreaterEqual(result.data["autopilot"]["ok_count"], 1)
+            status = asyncio.run(orchestrator.handle("autopilot status"))
+            self.assertTrue(status.ok)
+            self.assertEqual(status.data["autopilot"]["run"], 1)
+
+    def test_autopilot_blocks_supervised_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("autopilot workflow briefing ;; run command echo hello"))
+            self.assertFalse(result.ok)
+            self.assertEqual(result.data["autopilot"]["blocked_count"], 1)
+            blocked = [step for step in result.data["autopilot"]["steps"] if step["status"] == "blocked"]
+            self.assertEqual(blocked[0]["command"], "run command echo hello")
+
     def test_natural_language_reminder_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))

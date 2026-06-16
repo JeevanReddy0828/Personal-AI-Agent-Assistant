@@ -1,0 +1,105 @@
+# CLAUDE.md
+
+Guidance for AI coding agents (Claude Code, Codex) working in this repo.
+
+## What this is
+
+A **local-first, voice-capable personal laptop agent** ("J.A.R.V.I.S"), package
+`laptop_agent`. It chats, runs safe laptop tools, does file intelligence, web
+search/research, OCR/vision, email, a knowledge base, and an autonomous task
+layer — all behind an approval gate, with an LLM "brain" that streams replies.
+
+- **Python 3.11+**, **zero required runtime dependencies** (`dependencies = []`).
+  Heavy features live behind optional extras (`browser`, `desktop`, `docs`,
+  `voice`, `ocr`, `transcribe`, `metrics`).
+- GitHub: `JeevanReddy0828/Personal-AI-Agent-Assistant`. Owner: Jeevan
+  (Bala Showri Jeev An Reddy Arlagadda), Austin TX.
+
+## Non-negotiable conventions
+
+1. **Zero required deps.** New heavy capability → optional extra + graceful
+   fallback (return a clear `ToolResult.failure` with an install hint; never
+   crash). Follow the OCR/transcribe/metrics pattern.
+2. **Approval gate for anything risky.** Sending mail, writing/moving files,
+   downloads, launching apps, shell, browser state changes → go through
+   `safety.ApprovalGate` with the right `RiskLevel`. Read-only/local = LOW/none;
+   network read (web search, inbox read) = MEDIUM; external state change =
+   HIGH/CRITICAL.
+3. **Tools return `ToolResult`** (`tools/base.py`): `ok`, `message`, `data`.
+4. **Testable network/IO.** Put network/engine calls behind an **injectable
+   backend** (see `transcribe.py`, `websearch.py`, `research.py`, the LLM
+   provider's transport) so the success path is unit-tested offline. Tests use
+   `unittest`, are dependency-free, and live in `tests/`.
+5. **Heuristic-first routing for latency.** Common requests route via
+   `planner/heuristic.py` with zero network cost; the LLM is the fallback.
+6. **Never commit secrets.** `.env` is gitignored. Scan staged diffs for
+   `nvapi-` (and the Gmail app password) before every push.
+7. **Match the surrounding style.** Concise comments, full type hints,
+   `from __future__ import annotations`.
+
+## Architecture (map)
+
+```
+Interfaces: CLI (cli.py) · Tkinter dashboard (dashboard.py/gui.py) · web app (webui.py)
+        |
+AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat reply
+        |
+Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
+        |
+Tools (tools/): files, web, websearch, research, browser, desktop, email,
+        music, transcribe (OCR/Whisper), obsidian
+Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
+        workflows.py, autopilot.py, reminders.py, metrics.py, health.py,
+        agents/control_room.py (specialist roster), safety.py, audit.py,
+        memory.py, token_vault.py (DPAPI), config.py
+```
+
+- `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
+  entry. It checks direct command prefixes, then routes via heuristic → LLM.
+  Tool results are turned into plain language by `_humanize` (local, no extra
+  LLM call). Chat replies stream via the `on_token` callback when provided.
+- **AgentContext** is a frozen dataclass of all tools/subsystems. Adding a field
+  means updating `app.py`'s `build_orchestrator` AND the test builder in
+  `tests/test_orchestrator.py` (this is the usual source of a wave of failures
+  after a merge — fix the builder).
+
+## LLM brain — tiered models
+
+Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexity:
+- `OPENAI_MODEL` — fast/simple (e.g. `meta/llama-3.1-8b-instruct`)
+- `OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`)
+- `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
+- `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
+- `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
+
+Routing uses few-shot **message turns** for reliability. The 8B alone won't route
+without them. The web app streams via `/api/stream` (SSE) and keeps the model
+warm to avoid cold-start latency.
+
+## Running it
+
+```powershell
+$env:PYTHONPATH="src"
+python -m laptop_agent.cli                                              # terminal
+python -c "from laptop_agent.webui import run_desktop; run_desktop()"   # desktop app window
+python -m laptop_agent.webui                                            # browser tab
+```
+
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (236+ passing).
+
+## Working alongside another agent (Codex)
+
+Both Claude and Codex edit this repo. To avoid collisions:
+- **Work on a branch**, not `main` (e.g. `claude/<feature>`, `codex/<feature>`).
+- `git pull` / rebase before a batch; merge to `main` between sessions.
+- Expect to reconcile the shared **test builder** and **control-room roster
+  count** when the other agent adds an `AgentContext` field or a specialist.
+
+## Outstanding / watch-outs
+
+- **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
+  they live only in gitignored `.env`).
+- GPU metrics need an elevated launch on this laptop (Optimus dGPU).
+- The user keeps durable project memory in an Obsidian vault at
+  `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem\Personal AI Agent`.
+  Keep those notes in sync when shipping features.

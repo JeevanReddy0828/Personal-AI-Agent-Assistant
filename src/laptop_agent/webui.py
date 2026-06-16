@@ -221,6 +221,7 @@ PAGE = r"""<!doctype html>
   #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.5;resize:none;max-height:150px;padding:9px 4px}
   #ta::placeholder{color:#46505f}
   .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:11px;background:var(--amber);color:#08090d;cursor:pointer;font-size:16px}
+  .sendbtn.stop{background:var(--danger);color:#fff}
   .sendbtn:hover{background:var(--amber-b)} .sendbtn:disabled{opacity:.35}
   .hint{text-align:center;color:#3f4858;font-family:var(--mono);font-size:9px;margin-top:7px}
 
@@ -323,7 +324,7 @@ PAGE = r"""<!doctype html>
         <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
         <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
       </div>
-      <div class="hint">Guarded mode — high-risk actions blocked here. Enter to send, Shift+Enter for a new line.</div>
+      <div class="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
     </div>
     <input type="file" id="file" multiple style="display:none" />
     <div class="drop" id="drop">Drop files to attach</div>
@@ -362,7 +363,7 @@ PAGE = r"""<!doctype html>
         voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
         sessionsEl=document.getElementById('sessions');
-  let attachments=[], busy=false, voiceActive=false;
+  let attachments=[], busy=false, voiceActive=false, currentAbort=null;
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
   const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
@@ -470,13 +471,20 @@ PAGE = r"""<!doctype html>
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?' <span style="color:#ff5d6c;font-size:11px">thinking on the 550B model — this can take ~45-60s</span>':tier==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b,tier){busy=b;sendBtn.disabled=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);}
+  function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
+    sendBtn.innerHTML=b?'&#9632;':'&#10148;'; sendBtn.title=b?'Stop':'Send'; sendBtn.classList.toggle('stop',b);}
+  function stopGen(){if(currentAbort){try{currentAbort.abort();}catch(e){}}}
 
   /* composer */
   function auto(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,150)+'px';}
   ta.addEventListener('input',auto);
   ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(ta.value);}});
-  sendBtn.onclick=()=>send(ta.value);
+  sendBtn.onclick=()=>{ if(busy){stopGen();} else {send(ta.value);} };
+  // keyboard shortcuts
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ if(busy)stopGen(); else if(voiceActive)endVoice(); }
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); newSession(); ta.focus(); }
+  });
 
   async function uploadFile(file){
     const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file);});
@@ -503,8 +511,9 @@ PAGE = r"""<!doctype html>
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
     md.innerHTML='<span class="dots"><span></span><span></span><span></span></span>'+(predicted==='ultra'?' <span style="color:#ff5d6c;font-size:11px">on the 550B model — this can take a moment</span>':predicted==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'');
     let reply='', streamed='';
+    currentAbort=new AbortController();
     try{
-      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
+      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
       while(true){
         const {done:fin,value}=await reader.read(); if(fin)break;
@@ -526,8 +535,11 @@ PAGE = r"""<!doctype html>
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
       const ss=curSession();if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
-    }catch(err){md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
-    finally{setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
+    }catch(err){
+      if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=curSession();if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
+      else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
+    }
+    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
     return reply;
   }
 
