@@ -253,12 +253,17 @@ class OpenAICompatiblePlannerProvider:
 
     def warmup(self) -> None:
         """Fire a tiny request so the first real message does not pay cold-start cost."""
+        self.ping()
+
+    def ping(self) -> bool:
+        """Tiny request to check the endpoint is reachable. Returns True on success."""
         try:
             self._transport(
                 {"model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
             )
+            return True
         except Exception:
-            pass
+            return False
 
     def _http_transport(self, payload: dict) -> str:
         request = urllib.request.Request(

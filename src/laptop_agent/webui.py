@@ -28,6 +28,8 @@ from pathlib import Path
 
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
+from laptop_agent.config import load_config
+from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 
@@ -35,6 +37,8 @@ HOST = "127.0.0.1"
 PORT = 8770
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "laptop_agent_uploads"
 MAX_UPLOAD_BYTES = 35 * 1024 * 1024
+_CONFIG = load_config()
+_LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-up cycle
 
 
 def _model_label(provider) -> str:
@@ -80,31 +84,30 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
 _orchestrator = build_orchestrator(approval_callback=_guarded_approval)
 
 
-def _warmup() -> None:
+def _refresh_llm_status() -> None:
+    """Ping the model and cache reachability (also keeps it warm)."""
     provider = getattr(_orchestrator.planner, "provider", None)
-    warmup = getattr(provider, "warmup", None)
-    if warmup:
-        threading.Thread(target=warmup, daemon=True).start()
+    ping = getattr(provider, "ping", None)
+    if ping is None:
+        _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
+        return
+    _LLM_STATUS["reachable"] = ping()
+
+
+def _warmup() -> None:
+    threading.Thread(target=_refresh_llm_status, daemon=True).start()
 
 
 def _keep_warm(interval: float = 200.0) -> None:
-    """Ping the fast model periodically so it does not go cold between messages.
-
-    NVIDIA's hosted endpoint spins models down when idle, which makes the next
-    request slow. A light keep-alive avoids that cold-start penalty.
-    """
-    provider = getattr(_orchestrator.planner, "provider", None)
-    warmup = getattr(provider, "warmup", None)
-    if not warmup:
+    """Ping the fast model periodically so it does not go cold between messages,
+    and refresh the cached reachability used by the health check."""
+    if getattr(getattr(_orchestrator.planner, "provider", None), "ping", None) is None:
         return
 
     def loop() -> None:
         stop = threading.Event()
         while not stop.wait(interval):
-            try:
-                warmup()
-            except Exception:
-                pass
+            _refresh_llm_status()
 
     threading.Thread(target=loop, daemon=True).start()
 
@@ -137,6 +140,13 @@ PAGE = r"""<!doctype html>
   header .sp{flex:1}
   .pill{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px}
   .pill b{color:var(--amber-b);font-weight:500}
+  #healthPill{cursor:default} #healthPill .dot{transition:background .4s,box-shadow .4s}
+  #healthPill.ok .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  #healthPill.degraded .dot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  #healthPill.setup .dot{background:var(--danger);box-shadow:0 0 8px var(--danger)}
+  .setupcard{text-align:left;max-width:480px;background:var(--panel);border:1px solid var(--danger);border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.6;color:var(--text)}
+  .setupcard b{font-family:var(--display);letter-spacing:1px;color:var(--amber-b);display:block;margin-bottom:6px}
+  .setupcard code{font-family:var(--mono);font-size:12px;background:#0a0d13;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--amber-b)}
   .pill.smart b{color:var(--purple)}
   .vbtn{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:999px;padding:7px 13px;cursor:pointer}
   .vbtn:hover{border-color:var(--amber-soft);color:var(--amber-b)}
@@ -278,7 +288,7 @@ PAGE = r"""<!doctype html>
     </svg>
     <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">your local assistant</div></div>
     <div class="sp"></div>
-    <span class="pill"><span class="dot"></span> online</span>
+    <span class="pill" id="healthPill" title="System status"><span class="dot" id="healthDot"></span> <span id="healthText">checking…</span></span>
   </header>
 
   <aside class="left">
@@ -301,6 +311,7 @@ PAGE = r"""<!doctype html>
         </svg>
         <h1>How can I help, Jeevan?</h1>
         <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
+        <div class="setupcard" id="setupCard" style="display:none"></div>
         <div class="suggest" id="suggest"></div>
       </div>
     </div>
@@ -547,6 +558,21 @@ PAGE = r"""<!doctype html>
   }catch(e){}}
   setInterval(loadAgents,2500);loadAgents();
 
+  /* health / first-run */
+  async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
+    const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
+    const label={ok:'online',degraded:'AI unreachable',setup:'setup needed'}[h.overall]||'online';
+    pill.className='pill '+h.overall; txt.textContent=label;
+    pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':'connected'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}`;
+    const card=document.getElementById('setupCard');
+    if(card){
+      if(h.overall==='setup'){card.style.display='';card.innerHTML='<b>Connect your AI</b>No language model is configured, so I can only use offline routing. Add an OpenAI-compatible key to your <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>OPENAI_BASE_URL</code>) and restart. File, search, and memory commands still work without it.';}
+      else if(h.overall==='degraded'){card.style.display='';card.innerHTML='<b>AI endpoint unreachable</b>Your model is configured but I can\'t reach it right now — check your network or API key. Offline commands (files, search, memory) still work.';}
+      else card.style.display='none';
+    }
+  }catch(e){}}
+  setInterval(loadHealth,12000);loadHealth();
+
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
   if(!SR)micBtn.style.display='none';
@@ -636,6 +662,8 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("{{VISION}}", _vision_label())
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/api/health":
+            self._json(200, system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG))
         elif self.path == "/api/metrics":
             self._json(200, system_metrics())
         elif self.path == "/api/agents":

@@ -35,6 +35,7 @@ approval gate.
 - Vision: "look at my screen" and "describe image" use a vision model (OCR is the fallback).
 - Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity.
 - Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
+- Live health/status: a self-check (`/api/health`) surfaces whether the AI, vault, and email are connected and reachable, with first-run setup guidance when the AI is not configured.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
