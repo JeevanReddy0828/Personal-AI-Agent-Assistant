@@ -37,6 +37,8 @@ class AppConfig:
     llm_vision_model: str | None
     llm_api_key: str | None
     obsidian_vault: str | None
+    search_provider: str = ""
+    search_api_key: str | None = None
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -74,6 +76,20 @@ def load_config() -> AppConfig:
     except ValueError:
         imap_port = 993
 
+    # Optional real search API (Brave / Serper). Infer the provider from whichever
+    # key is present if not set explicitly; absent → fall back to DuckDuckGo.
+    search_provider = os.environ.get("SEARCH_PROVIDER", "").strip().lower()
+    search_api_key = (
+        os.environ.get("SEARCH_API_KEY")
+        or os.environ.get("BRAVE_API_KEY")
+        or os.environ.get("SERPER_API_KEY")
+    )
+    if not search_provider:
+        if os.environ.get("BRAVE_API_KEY"):
+            search_provider = "brave"
+        elif os.environ.get("SERPER_API_KEY"):
+            search_provider = "serper"
+
     return AppConfig(
         data_dir=data_dir,
         memory_path=data_dir / "memory.json",
@@ -105,4 +121,6 @@ def load_config() -> AppConfig:
         llm_vision_model=os.environ.get("OPENAI_VISION_MODEL"),
         llm_api_key=os.environ.get("OPENAI_API_KEY"),
         obsidian_vault=os.environ.get("OBSIDIAN_VAULT"),
+        search_provider=search_provider,
+        search_api_key=search_api_key,
     )

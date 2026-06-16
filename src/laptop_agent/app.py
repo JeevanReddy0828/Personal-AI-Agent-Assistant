@@ -25,7 +25,7 @@ from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
-from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.tools.websearch import WebSearchTool, build_search_backend
 from laptop_agent.workflows import WorkflowTracker
 
 
@@ -41,17 +41,20 @@ def build_orchestrator(
     files = FileTool(approval_gate)
     web = WebTool(approval_gate, config.downloads_dir)
     desktop = DesktopTool(approval_gate)
+    # A real search API (Brave/Serper) when a key is configured, else DuckDuckGo. Shared
+    # by web search, news grounding, and research so all three get the reliable path.
+    search_backend = build_search_backend(config.search_provider, config.search_api_key)
 
     context = AgentContext(
         memory=MemoryStore(config.memory_path),
         files=files,
         web=web,
-        websearch=WebSearchTool(approval_gate),
+        websearch=WebSearchTool(approval_gate, search_backend=search_backend),
         browser=BrowserAutomationTool(approval_gate),
         desktop=desktop,
         email=EmailTool(approval_gate, config),
         music=MusicTool(approval_gate, desktop, web),
-        research=ResearchTool(approval_gate),
+        research=ResearchTool(approval_gate, search_backend=search_backend),
         terminal=TerminalTool(approval_gate),
         transcribe=TranscribeTool(),
         webcam=WebcamTool(),

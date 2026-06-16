@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -110,6 +111,108 @@ def _clean_url(href: str) -> str:
 
 def _normalize(text: str) -> str:
     return " ".join(text.split())
+
+
+# --- Real search-API backends (optional, key-gated) -------------------------------
+# These use proper JSON APIs that don't rate-limit scripted clients like the free DDG
+# scraper does. Each takes an injectable HTTP transport so the parsing is tested offline.
+
+# An HTTP transport turns (url, headers, data|None) into a decoded response body string.
+HttpTransport = Callable[[str, dict[str, str], bytes | None], str]
+
+
+def _http_request(url: str, headers: dict[str, str], data: bytes | None = None) -> str:
+    method = "POST" if data is not None else "GET"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise WebSearchError(f"Search API request failed: {exc}") from exc
+
+
+def brave_search_backend(api_key: str, transport: HttpTransport | None = None) -> SearchBackend:
+    """Brave Search API backend. Docs: https://api.search.brave.com/ ."""
+    send = transport or _http_request
+
+    def backend(query: str, limit: int) -> list[dict[str, str]]:
+        url = "https://api.search.brave.com/res/v1/web/search?" + urllib.parse.urlencode(
+            {"q": query, "count": limit}
+        )
+        headers = {"Accept": "application/json", "X-Subscription-Token": api_key, "User-Agent": _USER_AGENT}
+        body = send(url, headers, None)
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise WebSearchError(f"Brave returned invalid JSON: {exc}") from exc
+        items = (payload.get("web") or {}).get("results") or []
+        results = []
+        for item in items:
+            title = _normalize(str(item.get("title", "")))
+            url_value = str(item.get("url", "")).strip()
+            snippet = _normalize(str(item.get("description", "")))
+            if title and url_value:
+                results.append({"title": title, "url": url_value, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results
+
+    return backend
+
+
+def serper_search_backend(api_key: str, transport: HttpTransport | None = None) -> SearchBackend:
+    """Serper.dev (Google results) backend. Docs: https://serper.dev/ ."""
+    send = transport or _http_request
+
+    def backend(query: str, limit: int) -> list[dict[str, str]]:
+        data = json.dumps({"q": query, "num": limit}).encode("utf-8")
+        headers = {"Content-Type": "application/json", "X-API-KEY": api_key, "User-Agent": _USER_AGENT}
+        body = send("https://google.serper.dev/search", headers, data)
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise WebSearchError(f"Serper returned invalid JSON: {exc}") from exc
+        results = []
+        for item in payload.get("organic") or []:
+            title = _normalize(str(item.get("title", "")))
+            url_value = str(item.get("link", "")).strip()
+            snippet = _normalize(str(item.get("snippet", "")))
+            if title and url_value:
+                results.append({"title": title, "url": url_value, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results
+
+    return backend
+
+
+def build_search_backend(
+    provider: str | None,
+    api_key: str | None,
+    *,
+    primary: SearchBackend | None = None,
+    fallback: SearchBackend | None = None,
+) -> SearchBackend:
+    """Pick a search backend from config. With a configured provider + key, use that real
+    API and fall back to DuckDuckGo when it errors or returns nothing; otherwise use DDG
+    directly. ``primary``/``fallback`` are injectable for testing."""
+    fallback = fallback or _duckduckgo_backend
+    provider = (provider or "").strip().lower()
+    if primary is None and api_key and provider in {"brave", "serper"}:
+        primary = brave_search_backend(api_key) if provider == "brave" else serper_search_backend(api_key)
+    if primary is None:
+        return fallback
+
+    def resilient(query: str, limit: int) -> list[dict[str, str]]:
+        try:
+            results = primary(query, limit)
+        except WebSearchError:
+            results = []
+        if results:
+            return results
+        return fallback(query, limit)  # API down/empty → free scraper as a safety net
+
+    return resilient
 
 
 def _duckduckgo_backend(query: str, limit: int) -> list[dict[str, str]]:

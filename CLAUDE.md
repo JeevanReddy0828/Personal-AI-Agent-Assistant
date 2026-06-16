@@ -66,6 +66,11 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
   DDG endpoint) and synthesizes a cited answer from the results, preferring live
   data over training knowledge. If search yields nothing it falls back to model
   chat but appends a "may be out of date" disclaimer (`stale_warning` in data).
+- **Search backend.** `websearch.build_search_backend(provider, key)` returns a
+  resilient backend: a real API (Brave/Serper, key-gated via `SEARCH_PROVIDER` /
+  `SEARCH_API_KEY` / `BRAVE_API_KEY` / `SERPER_API_KEY`) with automatic DuckDuckGo
+  fallback, else DDG directly. `app.py` shares one backend across `websearch` and
+  `research`. API backends take an injectable HTTP transport (offline-tested).
 - **AgentContext** is a frozen dataclass of all tools/subsystems. Adding a field
   means updating `app.py`'s `build_orchestrator` AND the test builder in
   `tests/test_orchestrator.py` (this is the usual source of a wave of failures
