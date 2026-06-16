@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from laptop_agent.tasks import TaskRecord, TaskTracker
 
@@ -51,6 +53,32 @@ class TaskTrackerTests(unittest.TestCase):
         tracker.record_run([TaskRecord(index=0, command="second", status="ok", message="ok")])
         self.assertEqual(tracker.failed_commands(int(first["run"])), ["first"])
         self.assertEqual(tracker.retry_plan(999)["commands"], [])
+
+    def test_persists_runs_across_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "tasks.json"
+            tracker = TaskTracker(path)
+            first = tracker.record_run([TaskRecord(index=0, command="first", status="ok", message="done")])
+            second = tracker.record_run([TaskRecord(index=0, command="second", status="failed", message="no")])
+
+            reopened = TaskTracker(path)
+
+            self.assertEqual(reopened.latest()["run"], second["run"])
+            self.assertEqual(reopened.all_runs()[0]["run"], first["run"])
+            self.assertEqual(reopened.failed_commands(), ["second"])
+            third = reopened.record_run([TaskRecord(index=0, command="third", status="ok", message="ok")])
+            self.assertEqual(third["run"], 3)
+
+    def test_corrupt_storage_falls_back_to_empty_tracker(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "tasks.json"
+            path.write_text("not json", encoding="utf-8")
+
+            tracker = TaskTracker(path)
+
+            self.assertIsNone(tracker.latest())
+            run = tracker.record_run([TaskRecord(index=0, command="help", status="ok", message="ok")])
+            self.assertEqual(run["run"], 1)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,9 +32,10 @@ class AuditLogger:
     def tail(self, limit: int = 50) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
         events: list[dict[str, Any]] = []
-        for line in lines[-limit:]:
+        with self.path.open("r", encoding="utf-8", errors="replace") as handle:
+            lines = deque(handle, maxlen=max(1, limit))
+        for line in lines:
             try:
                 events.append(json.loads(line))
             except json.JSONDecodeError:

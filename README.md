@@ -23,7 +23,7 @@ approval gate.
 - Optional offline audio/video transcription via local Whisper.
 - Unified `extract text` and `summarize file` that auto-OCR images and transcribe media first.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
-- Parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks.
+- Persistent parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks across app restarts.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
@@ -407,5 +407,5 @@ tests/             Dependency-free unit tests.
 1. Add a local/remote LLM planner behind the orchestrator.
 2. Add scheduled/recurring research monitors that append updates to Obsidian.
 3. Wire user-facing CLI/browser syntax for email attachments.
-4. Persist task/control-room dashboard history across app restarts.
+4. Persist control-room dashboard history across app restarts.
 5. Add richer knowledge snippets with highlighted matched terms and source context.

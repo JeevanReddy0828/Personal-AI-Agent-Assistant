@@ -396,6 +396,8 @@ class HeuristicPlannerProvider:
     def _email_search(self, text: str) -> PlanDecision | None:
         lowered = text.lower()
         api_provider = self._email_api_provider(lowered)
+        if re.search(r"\b(?:summari[sz]e|digest|overview|recap|catch me up on|tldr)\b", lowered) and re.search(r"\b(inbox|emails?|mail)\b", lowered):
+            return self._command("email digest", "User wants a summary of their inbox.", 0.82)
         if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)

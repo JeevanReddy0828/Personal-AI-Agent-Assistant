@@ -460,6 +460,50 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("Here's what I remember", result.message)
             self.assertIn("planner", result.data)
 
+    def test_email_digest_summarizes_via_llm(self) -> None:
+        from laptop_agent.planner.core import PlanDecision, Planner
+        from laptop_agent.tools.base import ToolResult
+
+        class FakeEmail:
+            def search_inbox(self, query="UNSEEN", limit=10):
+                return ToolResult.success(
+                    "Found 2 email message(s).",
+                    messages=[
+                        {"from": "LinkedIn", "subject": "Job at IBM", "snippet": "match"},
+                        {"from": "Google", "subject": "Security alert", "snippet": "sign-in"},
+                    ],
+                )
+
+        class DigestProvider:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="x", response="ok")
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                return "You have 2 unread: 1 job alert, 1 security alert."
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            object.__setattr__(orchestrator.context, "email", FakeEmail())
+            orchestrator.planner = Planner(DigestProvider())
+            result = asyncio.run(orchestrator.handle("email digest"))
+            self.assertTrue(result.ok)
+            self.assertIn("job alert", result.message)
+            self.assertTrue(result.data.get("digest"))
+
+    def test_email_digest_empty_inbox(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        class EmptyEmail:
+            def search_inbox(self, query="UNSEEN", limit=10):
+                return ToolResult.success("Found 0 email message(s).", messages=[])
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            object.__setattr__(orchestrator.context, "email", EmptyEmail())
+            result = asyncio.run(orchestrator.handle("summarize my inbox"))
+            self.assertTrue(result.ok)
+            self.assertIn("caught up", result.message)
+
     def test_humanize_formats_email_messages(self) -> None:
         from laptop_agent.tools.base import ToolResult
 

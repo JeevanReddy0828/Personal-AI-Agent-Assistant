@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -21,9 +23,13 @@ class TaskTracker:
     ``tasks`` command so the user can see what the agent did in parallel.
     """
 
-    _runs: list[dict[str, object]] = field(default_factory=list)
+    storage_path: Path | None = None
     max_runs: int = 20
-    _next_run: int = 1
+    _runs: list[dict[str, object]] = field(default_factory=list, init=False)
+    _next_run: int = field(default=1, init=False)
+
+    def __post_init__(self) -> None:
+        self._load()
 
     def record_run(self, records: list[TaskRecord], retry_of: int | None = None) -> dict[str, object]:
         ok = sum(1 for record in records if record.status == "ok")
@@ -43,6 +49,7 @@ class TaskTracker:
         self._runs.append(run)
         if len(self._runs) > self.max_runs:
             self._runs = self._runs[-self.max_runs :]
+        self._save()
         return run
 
     def latest(self) -> dict[str, object] | None:
@@ -75,3 +82,36 @@ class TaskTracker:
             if run.get("run") == run_number:
                 return run
         return None
+
+    def _load(self) -> None:
+        if self.storage_path is None or not self.storage_path.exists():
+            return
+        try:
+            data = json.loads(self.storage_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        runs = data.get("runs")
+        if isinstance(runs, list):
+            self._runs = [run for run in runs if isinstance(run, dict)][-self.max_runs :]
+        try:
+            self._next_run = max(int(data.get("next_run", 1)), self._infer_next_run())
+        except (TypeError, ValueError):
+            self._next_run = self._infer_next_run()
+
+    def _save(self) -> None:
+        if self.storage_path is None:
+            return
+        payload = {"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self.storage_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _infer_next_run(self) -> int:
+        numbers = []
+        for run in self._runs:
+            try:
+                numbers.append(int(run.get("run", 0)))
+            except (TypeError, ValueError):
+                continue
+        return (max(numbers) + 1) if numbers else 1

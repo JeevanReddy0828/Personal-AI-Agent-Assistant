@@ -96,20 +96,21 @@ class FileTool:
             return ToolResult.failure(f"Path does not exist: {base}")
 
         matches: list[dict[str, object]] = []
-        files = [base] if base.is_file() else [p for p in base.rglob("*") if p.is_file()]
+        files = (base,) if base.is_file() else (p for p in base.rglob("*") if p.is_file())
         lowered = query.lower()
         for path in files:
             if path.suffix.lower() not in TEXT_EXTENSIONS:
                 continue
             try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                handle = path.open("r", encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            for number, line in enumerate(lines, start=1):
-                if lowered in line.lower():
-                    matches.append({"path": str(path), "line": number, "text": line.strip()[:300]})
-                    if len(matches) >= limit:
-                        return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
+            with handle:
+                for number, line in enumerate(handle, start=1):
+                    if lowered in line.lower():
+                        matches.append({"path": str(path), "line": number, "text": line.strip()[:300]})
+                        if len(matches) >= limit:
+                            return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
         return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
 
     def extract_document_text(self, path: str) -> ToolResult:

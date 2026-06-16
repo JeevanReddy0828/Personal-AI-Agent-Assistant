@@ -328,6 +328,12 @@ class AgentOrchestrator:
         if lowered.startswith("media "):
             return self.context.music.media_key(command[len("media ") :].strip())
 
+        if lowered in {"email digest", "summarize inbox", "summarize my inbox", "summarize my emails", "summarize my unread", "inbox digest"}:
+            return self._email_digest("UNSEEN")
+
+        if lowered.startswith("email digest "):
+            return self._email_digest(command[len("email digest ") :].strip() or "UNSEEN")
+
         if lowered.startswith("email search "):
             return self.context.email.search_inbox(command[len("email search ") :].strip() or "ALL")
 
@@ -509,6 +515,7 @@ class AgentOrchestrator:
                 "  media playpause|next|previous|stop",
                 "  email search <query>",
                 "  email unread",
+                "  email digest  (summarize your unread inbox)",
                 "  email api search gmail|outlook <query>",
                 "  email api unread gmail|outlook",
                 "  email api draft gmail|outlook to <addr> subject <subject> body <body>",
@@ -822,6 +829,37 @@ class AgentOrchestrator:
                 self.context.obsidian.append_memory(text)
             except OSError:
                 pass
+
+    def _email_digest(self, query: str = "UNSEEN") -> ToolResult:
+        """Read the inbox and summarize it into a short, grouped digest."""
+        inbox = self.context.email.search_inbox(query)
+        if not inbox.ok:
+            return inbox
+        messages = inbox.data.get("messages", [])
+        if not messages:
+            return ToolResult.success("Your inbox is all caught up — no unread messages.")
+        # Compact the messages for the model.
+        lines = []
+        for mail in messages[:25]:
+            sender = str(mail.get("from", "")).strip()
+            subject = str(mail.get("subject", "")).strip()
+            snippet = " ".join(str(mail.get("snippet", "")).split())[:160]
+            lines.append(f"- From: {sender} | Subject: {subject} | {snippet}")
+        listing = "\n".join(lines)
+        provider = self.planner.provider if self.planner else None
+        answer = getattr(provider, "answer", None)
+        if answer is None:
+            # No LLM — fall back to the readable list.
+            return ToolResult.success(self._humanize(inbox), messages=messages)
+        prompt = (
+            f"Here are {len(messages)} of my emails:\n{listing}\n\n"
+            "Give me a short digest: group them by type (e.g. job alerts, security, promotions, personal), "
+            "call out anything that looks important or time-sensitive, and keep it brief and skimmable in Markdown."
+        )
+        digest = answer(prompt, self.context.memory.get_profile(), None, getattr(self, "_history", None))
+        if not digest:
+            return ToolResult.success(self._humanize(inbox), messages=messages)
+        return ToolResult.success(digest, messages=messages, digest=True)
 
     def _email(self, expression: str) -> ToolResult:
         draft_result = self._parse_email(expression)

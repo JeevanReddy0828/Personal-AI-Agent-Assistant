@@ -60,12 +60,14 @@ class KnowledgeBase:
             return []
         store = self._load()
         documents = store["documents"]
-        doc_frequencies = self._document_frequencies(documents, terms)
-        document_count = len(documents)
-        scored: list[tuple[int, float, int, dict[str, object]]] = []
+        indexed = []
         for doc in documents:
             text = str(doc.get("text", ""))
-            counts = self._term_counts(text)
+            indexed.append((doc, text, self._term_counts(text)))
+        doc_frequencies = self._document_frequencies_from_counts([counts for _, _, counts in indexed], terms)
+        document_count = len(documents)
+        scored: list[tuple[int, float, int, dict[str, object]]] = []
+        for doc, text, counts in indexed:
             score = self._tfidf_score(counts, terms, doc_frequencies, document_count)
             if score <= 0:
                 continue
@@ -80,7 +82,7 @@ class KnowledgeBase:
                         "source": doc.get("source"),
                         "score": round(score, 4),
                         "matched_terms": matched,
-                        "snippet": self._snippet(str(doc.get("text", "")), terms),
+                        "snippet": self._snippet(text, terms),
                         "char_count": doc.get("char_count"),
                     },
                 )
@@ -161,12 +163,11 @@ class KnowledgeBase:
         return counts
 
     @staticmethod
-    def _document_frequencies(documents: list[dict[str, object]], terms: set[str]) -> dict[str, int]:
+    def _document_frequencies_from_counts(counts_by_document: list[dict[str, int]], terms: set[str]) -> dict[str, int]:
         frequencies = {term: 0 for term in terms}
-        for doc in documents:
-            present = set(_tokenize(str(doc.get("text", ""))))
+        for counts in counts_by_document:
             for term in terms:
-                if term in present:
+                if counts.get(term, 0) > 0:
                     frequencies[term] += 1
         return frequencies
 

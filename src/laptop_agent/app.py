@@ -47,7 +47,7 @@ def build_orchestrator(
         research=ResearchTool(approval_gate),
         transcribe=TranscribeTool(),
         audit=audit,
-        tasks=TaskTracker(),
+        tasks=TaskTracker(config.data_dir / "tasks.json"),
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
         obsidian=ObsidianVault(config.obsidian_vault),
     )
