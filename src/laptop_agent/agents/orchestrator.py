@@ -807,26 +807,59 @@ class AgentOrchestrator:
             autopilot=latest,
         )
 
-    # Commands the autonomous agent may choose from. Canonical forms the orchestrator
-    # dispatches directly (no planner), with argument placeholders for the model to fill.
+    # The autonomous agent's action vocabulary. These are canonical command forms the
+    # orchestrator dispatches directly (no planner), with argument placeholders for the
+    # model to fill. This is deliberately broad so users can speak naturally and let the
+    # agent translate intent into the right action — read-only steps just run, while
+    # state-changing ones (send, write, download, shell, browser) still pass through the
+    # approval gate. Keep entries to one line each; the model copies them verbatim.
     _AGENT_COMMANDS = (
+        # files & documents
         "scan files <path>",
         "read file <path>",
-        "summarize file <path>",
         "ask file <path> about <question>",
+        "summarize file <path>",
         "extract text <path>",
+        "extract tables <path>",
+        "file info <path>",
+        "search files <query> <path>",
+        "convert file <source> to <destination>",
+        "organize folder <path>",
         "index file <path>",
-        "knowledge stats",
-        "knowledge list",
+        # knowledge base
         "recall <query>",
         "ask knowledge <question>",
+        "knowledge list",
+        "knowledge stats",
+        # notes / vault memory
+        "notes search <query>",
+        "read note <name>",
+        "save note <title> : <body>",
+        "remember <key> = <value>",
+        # web & research
         "web search <query>",
         "research <topic>",
+        "research report <topic>",
         "open url <https url>",
+        "download <url>",
+        "inspect page <url>",
+        # vision / desktop
+        "read screen <question>",
+        "describe image <path>",
+        "open app <path-or-app>",
+        "screenshot <output.png>",
+        "play music <file-folder-or-url>",
+        # email (state-changing steps are approval-gated)
+        "email digest",
+        "email api search gmail <query>",
+        "email api draft gmail to <addr> subject <subject> body <body>",
+        "email api send gmail to <addr> subject <subject> body <body>",
+        # tasks, reminders, status
         "briefing",
+        "tasks",
         "reminders due",
         "reminder add <YYYY-MM-DD> <text>",
-        "tasks",
+        "run command <command>",
         "memory",
         "audit",
     )
@@ -853,7 +886,12 @@ class AgentOrchestrator:
 
         return decide
 
-    async def _run_agent(self, goal: str) -> ToolResult:
+    async def run_agent(self, goal: str, on_step=None) -> ToolResult:
+        """Public entry for autonomous runs with an optional per-step callback (used by the
+        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path."""
+        return await self._run_agent(goal, on_step=on_step)
+
+    async def _run_agent(self, goal: str, on_step=None) -> ToolResult:
         goal = goal.strip()
         if not goal:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
@@ -866,7 +904,7 @@ class AgentOrchestrator:
             max_steps=6,
         )
         try:
-            result = await agent.run(goal)
+            result = await agent.run(goal, on_step=on_step)
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
             return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)

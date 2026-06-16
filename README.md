@@ -28,7 +28,7 @@ approval gate.
 - Persistent parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks across app restarts.
 - Persistent sequential workflows: run multi-step plans across tools, stop on first failure, and retry from the failed step.
 - Autopilot mode: plans and runs unattended safe local/read-only work, while blocking commands that need supervision or approval.
-- Autonomous agent mode (`agent run <goal>`): an LLM-driven plan → act → observe → replan loop that pursues a goal across many tools, deciding the next command from what it just observed. Unlike autopilot it can genuinely act — risky steps still pass through the approval gate — and every run is persisted (`agent runs`, `agent last`).
+- Autonomous agent mode (`agent run <goal>`): an LLM-driven plan → act → observe → replan loop that pursues a goal across many tools, deciding the next command from what it just observed. Unlike autopilot it can genuinely act — risky steps still pass through the approval gate — and every run is persisted (`agent runs`, `agent last`). In the desktop app, a 🤖 toggle turns the composer into agent mode and streams the live step-by-step trace (each thought, command, and observation) as it runs. Speak naturally — the agent translates intent into the right actions, so you rarely need to remember commands.
 - Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.

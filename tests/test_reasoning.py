@@ -114,6 +114,23 @@ class AutonomousAgentTests(unittest.TestCase):
         self.assertEqual(len(result.steps), 3)
         self.assertTrue(result.final_answer)
 
+    def test_on_step_callback_streams_each_step(self) -> None:
+        brain = _ScriptedBrain(["ACTION: tasks", "ACTION: memory", "FINAL: done"])
+        seen = []
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        asyncio.run(agent.run("two steps", on_step=lambda step: seen.append(step.command)))
+        self.assertEqual(seen, ["tasks", "memory"])
+
+    def test_on_step_failure_is_swallowed(self) -> None:
+        brain = _ScriptedBrain(["ACTION: tasks", "FINAL: done"])
+
+        def boom(_step):
+            raise RuntimeError("ui blew up")
+
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        result = asyncio.run(agent.run("one step", on_step=boom))  # must not raise
+        self.assertEqual(result.status, "ok")
+
     def test_no_brain_fails_cleanly(self) -> None:
         agent = AutonomousAgent(lambda _p: "", _executor(lambda c: ToolResult.success("x")))
         result = asyncio.run(agent.run("do a thing"))

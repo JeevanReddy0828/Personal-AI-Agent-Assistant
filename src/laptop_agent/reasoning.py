@@ -140,10 +140,20 @@ class AutonomousAgent:
         lines += ["", "Your turn:"]
         return "\n".join(lines)
 
-    async def run(self, goal: str) -> AgentRunResult:
+    async def run(self, goal: str, on_step: Callable[[AgentStep], None] | None = None) -> AgentRunResult:
+        """Run the loop. ``on_step`` (if given) is called after each executed step so a UI
+        can render the trace live; it must not raise (failures are swallowed)."""
         goal = goal.strip()
         if not goal:
             return AgentRunResult(goal="", final_answer="No goal was provided.", status="failed")
+
+        def _emit(step: AgentStep) -> None:
+            if on_step is None:
+                return
+            try:
+                on_step(step)
+            except Exception:
+                pass
 
         steps: list[AgentStep] = []
         for index in range(self.max_steps):
@@ -179,15 +189,15 @@ class AutonomousAgent:
             except Exception as exc:
                 result = ToolResult.failure(str(exc))
 
-            steps.append(
-                AgentStep(
-                    index=index,
-                    thought=decision.thought,
-                    command=decision.command,
-                    status="ok" if result.ok else "failed",
-                    message=_observe(result),
-                )
+            step = AgentStep(
+                index=index,
+                thought=decision.thought,
+                command=decision.command,
+                status="ok" if result.ok else "failed",
+                message=_observe(result),
             )
+            steps.append(step)
+            _emit(step)
 
         # Ran out of steps without a FINAL — ask for a closing summary, falling back
         # to a local recap so we always hand the user something coherent.

@@ -222,6 +222,19 @@ PAGE = r"""<!doctype html>
   #ta::placeholder{color:#46505f}
   .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:11px;background:var(--amber);color:#08090d;cursor:pointer;font-size:16px}
   .sendbtn.stop{background:var(--danger);color:#fff}
+  #agentBtn.on{color:var(--amber-b);border-color:var(--amber-soft);background:rgba(255,184,77,.08)}
+  .trace{margin:6px 0 2px;border:1px solid var(--line);border-left:2px solid var(--amber-soft);border-radius:10px;background:#0a0d13;overflow:hidden}
+  .trace .thead{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--amber-b);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
+  .trace .thead .gdot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 7px var(--amber);animation:pulse 1.3s infinite}
+  .trace.done .thead .gdot{background:var(--ok);box-shadow:0 0 7px var(--ok);animation:none}
+  .trace.fail .thead .gdot{background:var(--danger);box-shadow:0 0 7px var(--danger);animation:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .tstep{padding:8px 12px;border-bottom:1px solid #0f141c;font-size:12.5px;line-height:1.5}
+  .tstep:last-child{border-bottom:none}
+  .tstep .tn{font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .tstep .tcmd{font-family:var(--mono);font-size:11.5px;color:var(--text);background:#070a0f;border:1px solid var(--line);border-radius:5px;padding:2px 7px;display:inline-block;margin:2px 0}
+  .tstep .tobs{color:var(--muted);font-size:11.5px}
+  .tstep.failed .tcmd{border-color:var(--danger);color:#ff8b96}
   .sendbtn:hover{background:var(--amber-b)} .sendbtn:disabled{opacity:.35}
   .hint{text-align:center;color:#3f4858;font-family:var(--mono);font-size:9px;margin-top:7px}
 
@@ -320,11 +333,12 @@ PAGE = r"""<!doctype html>
       <div class="chips" id="chips"></div>
       <div class="box">
         <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
+        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
         <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
         <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
         <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
       </div>
-      <div class="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
+      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
     </div>
     <input type="file" id="file" multiple style="display:none" />
     <div class="drop" id="drop">Drop files to attach</div>
@@ -362,8 +376,9 @@ PAGE = r"""<!doctype html>
         micBtn=document.getElementById('micBtn'), reactor=document.getElementById('reactor'), drop=document.getElementById('drop'),
         voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
-        sessionsEl=document.getElementById('sessions');
-  let attachments=[], busy=false, voiceActive=false, currentAbort=null;
+        sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
+        hint=document.getElementById('hint');
+  let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
   const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
@@ -480,6 +495,11 @@ PAGE = r"""<!doctype html>
   ta.addEventListener('input',auto);
   ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(ta.value);}});
   sendBtn.onclick=()=>{ if(busy){stopGen();} else {send(ta.value);} };
+  // agent-mode toggle
+  function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
+    ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file, or tap the mic)';
+    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk actions still blocked here.':'Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
+  agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){ if(busy)stopGen(); else if(voiceActive)endVoice(); }
@@ -500,6 +520,7 @@ PAGE = r"""<!doctype html>
 
   async function send(text){
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
+    if(agentMode&&text){return runAgent(text);}
     if(!current)newSession();
     const sent=attachments.slice(), attNames=sent.map(a=>a.name);
     const s=curSession();
@@ -538,6 +559,48 @@ PAGE = r"""<!doctype html>
     }catch(err){
       if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=curSession();if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
+    }
+    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
+    return reply;
+  }
+
+  /* autonomous agent mode — streams plan/act/observe steps into a live trace */
+  function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+  async function runAgent(goal){
+    if(!current)newSession();
+    const s=curSession();
+    renderMsg('user',goal); if(s){s.msgs.push({role:'user',text:goal});if(!s.title)s.title=goal.slice(0,32);saveSessions();renderSessions();}
+    ta.value='';auto();setBusy(true,'smart');
+    const node=renderMsg('bot',''); const md=node.querySelector('.md');
+    const trace=document.createElement('div');trace.className='trace';
+    trace.innerHTML='<div class="thead"><span class="gdot"></span> AGENT · planning…</div>';
+    md.innerHTML='';md.appendChild(trace);
+    let reply='';
+    currentAbort=new AbortController();
+    try{
+      const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({goal})});
+      const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
+      while(true){
+        const {done:fin,value}=await reader.read(); if(fin)break;
+        buf+=dec.decode(value,{stream:true}); const parts=buf.split('\n\n'); buf=parts.pop();
+        for(const p of parts){const line=p.split('\n').find(x=>x.startsWith('data: '));if(!line)continue;
+          let ev;try{ev=JSON.parse(line.slice(6));}catch(e){continue;}
+          if(ev.type==='step'){const st=ev.step;const row=document.createElement('div');row.className='tstep '+(st.status||'');
+            row.innerHTML='<div class="tn">step '+(st.index+1)+(st.thought?' · '+esc(st.thought):'')+'</div>'+
+              '<span class="tcmd">'+esc(st.command)+'</span><div class="tobs">'+esc(st.message)+'</div>';
+            trace.appendChild(row);chat.scrollTop=chat.scrollHeight;
+            trace.querySelector('.thead').innerHTML='<span class="gdot"></span> AGENT · '+(st.index+1)+' step(s)…';}
+          else if(ev.type==='done'){reply=ev.message||'';trace.classList.add(ev.ok?'done':'fail');
+            trace.querySelector('.thead').innerHTML='<span class="gdot"></span> AGENT · '+(ev.ok?'done':'stopped');
+            const ans=document.createElement('div');ans.className='md';ans.style.marginTop='8px';ans.innerHTML=mdToHtml(reply);
+            node.querySelector('.content').appendChild(ans);}
+        }
+      }
+      const ss=curSession();if(ss&&reply){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      loadVault();
+    }catch(err){
+      if(err&&err.name==='AbortError'){trace.classList.add('fail');trace.querySelector('.thead').innerHTML='<span class="gdot"></span> AGENT · stopped';}
+      else{node.classList.add('err');const e=document.createElement('div');e.className='md';e.textContent='Agent error: '+err;node.querySelector('.content').appendChild(e);}
     }
     finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
     return reply;
@@ -708,6 +771,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_command()
         elif self.path == "/api/stream":
             self._handle_stream()
+        elif self.path == "/api/agent":
+            self._handle_agent()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -760,6 +825,39 @@ class Handler(BaseHTTPRequestHandler):
             emit({"type": "done", "ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}})
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
+            emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
+
+    def _handle_agent(self) -> None:
+        """Run the autonomous agent, streaming each plan/act/observe step over SSE."""
+        try:
+            payload = self._read_json()
+            goal = str(payload.get("goal", "")).strip()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        if not goal:
+            self._json(400, {"ok": False, "message": "no goal"})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def emit(obj: dict) -> None:
+            try:
+                self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
+        emit({"type": "start", "goal": goal})
+        try:
+            result = asyncio.run(
+                _orchestrator.run_agent(goal, on_step=lambda step: emit({"type": "step", "step": step.__dict__}))
+            )
+            emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
+        except Exception as exc:  # pragma: no cover - defensive for the preview server.
             emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
 
     def _handle_upload(self) -> None:
