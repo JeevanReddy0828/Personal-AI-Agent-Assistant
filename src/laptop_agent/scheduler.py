@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -42,19 +43,10 @@ class Schedule:
             return Schedule(kind="daily", hour=int(data.get("hour", 0)), minute=int(data.get("minute", 0)))
         return Schedule(kind="interval", seconds=int(data.get("seconds", 3600)))
 
-    def next_after(self, reference: datetime, last_run: datetime | None) -> datetime:
-        """The next fire time strictly relevant to ``reference`` given the last run."""
-        if self.kind == "interval":
-            base = last_run or reference
-            nxt = base + timedelta(seconds=self.seconds)
-            # If we are already overdue (missed ticks), the next due time is now.
-            return nxt if nxt > reference else reference
-        target = reference.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
-        if target <= reference and (last_run is None or last_run >= target):
-            target = target + timedelta(days=1)
-        return target
-
     def is_due(self, now: datetime, last_run: datetime | None) -> bool:
+        """Whether the job should fire at ``now``. The daily target is built in the same
+        timezone as ``now`` (callers pass local-aware time), so 'daily at 08:00' fires at
+        the user's 08:00, not 08:00 UTC."""
         if self.kind == "interval":
             if last_run is None:
                 return True
@@ -164,6 +156,9 @@ class SchedulerStore:
         self.path = path
         self._jobs: list[ScheduledJob] = []
         self._next_id = 1
+        # The web UI runs a background ticker thread that calls due_jobs/mark_ran while
+        # request threads may add/remove, so every read and mutation is serialized.
+        self._lock = threading.Lock()
         self._load()
 
     def add(self, kind: str, spec: str, schedule_text: str, now: datetime) -> ScheduledJob:
@@ -171,55 +166,62 @@ class SchedulerStore:
             raise ScheduleError("Job kind must be 'command' or 'agent'.")
         if not spec.strip():
             raise ScheduleError("Nothing to run — provide a command or goal.")
-        job = ScheduledJob(
-            id=self._next_id,
-            kind=kind,
-            spec=spec.strip(),
-            schedule=parse_schedule(schedule_text),
-            created_at=now.isoformat(),
-        )
-        self._next_id += 1
-        self._jobs.append(job)
-        self._save()
-        return job
+        schedule = parse_schedule(schedule_text)  # parse (may raise) before taking the lock
+        with self._lock:
+            job = ScheduledJob(
+                id=self._next_id,
+                kind=kind,
+                spec=spec.strip(),
+                schedule=schedule,
+                created_at=now.isoformat(),
+            )
+            self._next_id += 1
+            self._jobs.append(job)
+            self._save()
+            return job
 
     def remove(self, job_id: int) -> bool:
-        before = len(self._jobs)
-        self._jobs = [job for job in self._jobs if job.id != job_id]
-        if len(self._jobs) != before:
-            self._save()
-            return True
-        return False
-
-    def set_enabled(self, job_id: int, enabled: bool) -> bool:
-        for job in self._jobs:
-            if job.id == job_id:
-                job.enabled = enabled
+        with self._lock:
+            before = len(self._jobs)
+            self._jobs = [job for job in self._jobs if job.id != job_id]
+            if len(self._jobs) != before:
                 self._save()
                 return True
-        return False
+            return False
+
+    def set_enabled(self, job_id: int, enabled: bool) -> bool:
+        with self._lock:
+            for job in self._jobs:
+                if job.id == job_id:
+                    job.enabled = enabled
+                    self._save()
+                    return True
+            return False
 
     def list_jobs(self) -> list[ScheduledJob]:
-        return list(self._jobs)
+        with self._lock:
+            return list(self._jobs)
 
     def due_jobs(self, now: datetime) -> list[ScheduledJob]:
-        due = []
-        for job in self._jobs:
-            if not job.enabled:
-                continue
-            last = _parse_iso(job.last_run_at)
-            if job.schedule.is_due(now, last):
-                due.append(job)
-        return due
+        with self._lock:
+            due = []
+            for job in self._jobs:
+                if not job.enabled:
+                    continue
+                last = _parse_iso(job.last_run_at)
+                if job.schedule.is_due(now, last):
+                    due.append(job)
+            return due
 
     def mark_ran(self, job_id: int, now: datetime, status: str) -> None:
-        for job in self._jobs:
-            if job.id == job_id:
-                job.last_run_at = now.isoformat()
-                job.last_status = status
-                job.run_count += 1
-                self._save()
-                return
+        with self._lock:
+            for job in self._jobs:
+                if job.id == job_id:
+                    job.last_run_at = now.isoformat()
+                    job.last_status = status
+                    job.run_count += 1
+                    self._save()
+                    return
 
     def _load(self) -> None:
         if not self.path.exists():
