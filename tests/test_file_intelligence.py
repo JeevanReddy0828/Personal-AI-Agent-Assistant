@@ -47,6 +47,27 @@ class SummarizeTests(unittest.TestCase):
         result = auto_approve_tool().summarize("does-not-exist.txt")
         self.assertFalse(result.ok)
 
+    def test_answers_question_from_text_file(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "runbook.txt"
+            path.write_text(
+                "The payment gateway uses idempotency keys for retries. "
+                "Nightly reconciliation compares the ledger against bank feeds. "
+                "Support tickets are routed to the billing queue.",
+                encoding="utf-8",
+            )
+            result = auto_approve_tool().answer_question(str(path), "How are retries handled?")
+            self.assertTrue(result.ok)
+            self.assertIn("idempotency keys", result.data["answer"])
+            self.assertEqual(result.data["question"], "How are retries handled?")
+
+    def test_answer_question_reports_no_match(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "runbook.txt"
+            path.write_text("The gateway reconciles payments nightly.", encoding="utf-8")
+            result = auto_approve_tool().answer_question(str(path), "Where is the Kubernetes cluster?")
+            self.assertFalse(result.ok)
+
 
 class FileInfoTests(unittest.TestCase):
     def test_reports_text_metrics(self) -> None:

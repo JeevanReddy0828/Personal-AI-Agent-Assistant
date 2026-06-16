@@ -9,7 +9,7 @@ class AgentControlRoomTests(unittest.TestCase):
     def test_snapshot_counts_available_idle_and_unavailable_agents(self) -> None:
         room = AgentControlRoom.standard(obsidian_available=False)
         snapshot = room.snapshot()
-        self.assertEqual(snapshot["summary"]["total"], 10)
+        self.assertEqual(snapshot["summary"]["total"], 14)
         self.assertEqual(snapshot["summary"]["working"], 0)
         self.assertEqual(snapshot["summary"]["unavailable"], 1)
         self.assertEqual(room.detail("notes")["status"], "unavailable")
@@ -29,6 +29,18 @@ class AgentControlRoomTests(unittest.TestCase):
     def test_unknown_command_routes_to_planner(self) -> None:
         room = AgentControlRoom.standard(obsidian_available=True)
         self.assertEqual(room.agent_for("tell me a joke"), "planner")
+
+    def test_reminder_command_routes_to_reminder_agent(self) -> None:
+        room = AgentControlRoom.standard(obsidian_available=True)
+        self.assertEqual(room.agent_for("reminder add 2026-06-20 09:00 Call Alex"), "reminders")
+
+    def test_terminal_command_routes_to_terminal_agent(self) -> None:
+        room = AgentControlRoom.standard(obsidian_available=True)
+        self.assertEqual(room.agent_for("run command echo hello"), "terminal")
+
+    def test_workflow_command_routes_to_workflow_agent(self) -> None:
+        room = AgentControlRoom.standard(obsidian_available=True)
+        self.assertEqual(room.agent_for("workflow memory ;; tasks"), "workflow")
 
     def test_history_and_counters_accumulate(self) -> None:
         room = AgentControlRoom.standard(obsidian_available=True)

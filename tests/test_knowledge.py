@@ -37,6 +37,28 @@ class KnowledgeBaseTests(unittest.TestCase):
             kb.add("a.txt", "hello world")
             self.assertEqual(kb.search("nonexistentterm"), [])
 
+    def test_answer_from_indexed_sentences(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add(
+                "payments.md",
+                "The Helios gateway accepts payment requests. "
+                "Retries are safe because every request includes an idempotency key. "
+                "Reports are exported every Friday.",
+            )
+            answer = kb.answer("How are retries safe?")
+            self.assertTrue(answer["ok"])
+            self.assertIn("idempotency key", answer["answer"])
+            self.assertEqual(answer["sources"], ["payments.md"])
+
+    def test_answer_no_match_reports_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("payments.md", "The gateway accepts payment requests.")
+            answer = kb.answer("Kubernetes autoscaling")
+            self.assertFalse(answer["ok"])
+            self.assertEqual(answer["reason"], "no relevant indexed text")
+
     def test_reindex_same_source_replaces(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             kb = self._kb(Path(raw))

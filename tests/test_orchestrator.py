@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from laptop_agent.config import AppConfig
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
+from laptop_agent.reminders import ReminderStore
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -19,10 +21,13 @@ from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
+from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.tools.research import ResearchTool
+from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.workflows import WorkflowTracker
 
 
 class OrchestratorTests(unittest.TestCase):
@@ -89,14 +94,26 @@ class OrchestratorTests(unittest.TestCase):
                         "The topic matters because it improves understanding. Many readers find it useful."
                     ),
                 ),
+                terminal=TerminalTool(
+                    gate,
+                    runner=lambda command, cwd, timeout: subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=f"ran::{command}::in::{cwd.name}",
+                        stderr="",
+                    ),
+                ),
                 transcribe=TranscribeTool(
                     ocr_backend=lambda path: f"ocr-text::{path.name}",
                     asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
                 ),
                 audit=AuditLogger(config.audit_log_path),
                 tasks=TaskTracker(),
+                workflows=WorkflowTracker(config.data_dir / "workflows.json"),
+                reminders=ReminderStore(config.data_dir / "reminders.json"),
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
                 obsidian=ObsidianVault(config.obsidian_vault),
+                autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
             ),
             Planner(HeuristicPlannerProvider()),
         )
@@ -286,6 +303,34 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(retry.data["dashboard"]["task_count"], 1)
             self.assertEqual(retry.data["results"][0]["command"], "read file missing.txt")
 
+    def test_workflow_runs_steps_sequentially(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("workflow memory ;; tasks"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["workflow"]["step_count"], 2)
+            self.assertEqual(result.data["workflow"]["failed_count"], 0)
+            status = asyncio.run(orchestrator.handle("workflow status"))
+            self.assertTrue(status.ok)
+            self.assertEqual(status.data["workflow"]["run"], 1)
+
+    def test_workflow_stops_on_failure_and_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            missing = root / "missing.txt"
+            existing = root / "ok.txt"
+            existing.write_text("hello", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            first = asyncio.run(orchestrator.handle(f"workflow read file {missing} ;; read file {existing}"))
+            self.assertFalse(first.ok)
+            self.assertEqual(first.data["workflow"]["stopped_at"], 0)
+            self.assertEqual(len(first.data["results"]), 1)
+
+            missing.write_text("now exists", encoding="utf-8")
+            retry = asyncio.run(orchestrator.handle("workflow retry failed"))
+            self.assertTrue(retry.ok)
+            self.assertEqual(retry.data["workflow"]["step_count"], 2)
+
     def test_summarize_auto_indexes_for_recall(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -315,6 +360,47 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(recalled.ok)
             self.assertTrue(recalled.data["results"])
             self.assertIn("sharding", recalled.data["results"][0]["snippet"].lower())
+
+    def test_ask_file_answers_from_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "runbook.txt"
+            doc.write_text(
+                "Payment retries use idempotency keys. "
+                "Daily reconciliation compares ledger entries with bank feeds.",
+                encoding="utf-8",
+            )
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"ask file {doc} about retries"))
+            self.assertTrue(result.ok)
+            self.assertIn("idempotency", result.data["answer"])
+
+    def test_ask_knowledge_answers_from_index(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "runbook.txt"
+            doc.write_text(
+                "Payment retries use idempotency keys. "
+                "Daily reconciliation compares ledger entries with bank feeds.",
+                encoding="utf-8",
+            )
+            orchestrator = self.build(root / "data")
+            asyncio.run(orchestrator.handle(f"index file {doc}"))
+            result = asyncio.run(orchestrator.handle("ask knowledge payment retries"))
+            self.assertTrue(result.ok)
+            self.assertIn("idempotency", result.data["answer"])
+            self.assertEqual(result.data["sources"], [str(doc)])
+
+    def test_natural_language_ask_file_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            doc = root / "runbook.txt"
+            doc.write_text("Payment retries use idempotency keys.", encoding="utf-8")
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"what does {doc} say about retries"))
+            self.assertTrue(result.ok)
+            self.assertIn("planner", result.data)
+            self.assertIn("idempotency", result.message)
 
     def test_index_image_uses_ocr_then_recall(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -443,6 +529,55 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("tasks"))
             self.assertTrue(result.ok)
             self.assertIsNone(result.data["dashboard"])
+
+    def test_reminder_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            added = asyncio.run(orchestrator.handle("reminder add 2026-06-10 09:00 Call Alex"))
+            self.assertTrue(added.ok)
+            self.assertEqual(added.data["reminder"]["message"], "Call Alex")
+            due = asyncio.run(orchestrator.handle("reminders due"))
+            self.assertTrue(due.ok)
+            self.assertEqual(due.data["reminders"][0]["message"], "Call Alex")
+            done = asyncio.run(orchestrator.handle("reminder done 1"))
+            self.assertTrue(done.data["completed"])
+            due_again = asyncio.run(orchestrator.handle("reminders due"))
+            self.assertEqual(due_again.data["reminders"], [])
+
+    def test_run_command_returns_terminal_output(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("run command echo hello"))
+            self.assertTrue(result.ok)
+            self.assertIn("ran::echo hello", result.data["stdout"])
+
+    def test_run_command_with_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            work = root / "work"
+            work.mkdir()
+            orchestrator = self.build(root / "data")
+            result = asyncio.run(orchestrator.handle(f"run command in {work} :: echo hello"))
+            self.assertTrue(result.ok)
+            self.assertIn("::in::work", result.data["stdout"])
+
+    def test_briefing_combines_local_status(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            asyncio.run(orchestrator.handle("reminder add 2026-06-10 09:00 Call Alex"))
+            result = asyncio.run(orchestrator.handle("briefing"))
+            self.assertTrue(result.ok)
+            self.assertIn("Briefing", result.message)
+            self.assertEqual(result.data["due_reminders"][0]["message"], "Call Alex")
+            self.assertIn("knowledge", result.data)
+            self.assertIn("metrics", result.data)
+
+    def test_natural_language_reminder_uses_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("remind me to call Alex at 2026-06-20 09:00"))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["reminder"]["message"], "call Alex")
 
     def test_routed_command_is_humanized_locally(self) -> None:
         from laptop_agent.planner.core import PlanDecision

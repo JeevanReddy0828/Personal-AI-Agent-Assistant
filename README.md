@@ -14,8 +14,10 @@ approval gate.
 - Tkinter desktop UI with command input, approval dialogs, audit viewer, and voice buttons.
 - Safety approval gate for risky actions.
 - Durable JSONL audit log for approval decisions.
+- Daily/status briefing that combines due reminders, task history, knowledge stats, agent status, and system metrics.
 - File scanning, reading, and text search.
 - Offline document summarization (extractive, no LLM required) for text, Markdown, and (with extras) PDF/DOCX.
+- Offline question answering over a specific file with supporting excerpts.
 - File metadata/word-count inspection and CSV/TSV/Markdown table extraction.
 - Approval-gated document conversion to `.txt`/`.md`.
 - Folder organization that previews moves by file type and applies them only after approval.
@@ -24,6 +26,8 @@ approval gate.
 - Unified `extract text` and `summarize file` that auto-OCR images and transcribe media first.
 - `read screen` desktop understanding: capture a screenshot and OCR its text in one step.
 - Persistent parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks across app restarts.
+- Persistent sequential workflows: run multi-step plans across tools, stop on first failure, and retry from the failed step.
+- Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
@@ -37,6 +41,7 @@ approval gate.
 - `research report <topic>`: a multi-section Markdown brief (overview, key findings, caveats, sources), saveable to a file or the Obsidian vault.
 - Multi-agent control room: a live roster of specialist agents with working/idle status, surfaced as a panel in the app.
 - Knowledge recall ranked with TF-IDF; summarized documents auto-index for later recall.
+- Knowledge question answering synthesizes answers from indexed local documents with source excerpts.
 - Parallel subtasks with retry/failure recovery.
 - Markdown research reports with overview, key findings, caveats, and source links, returned in chat or saved to disk/Obsidian.
 - Browser URL opening through the system browser.
@@ -46,6 +51,7 @@ approval gate.
 - Fill-preview packages that show what would be typed into which selector.
 - Approved browser fill action for safe mapped text fields, with no submit action.
 - Desktop hooks for opening apps and media keys on Windows.
+- Approval-gated terminal command execution with timeout and captured output.
 - Email draft generation via `mailto:` and optional SMTP sending.
 - IMAP inbox search with explicit approval.
 - OAuth authorization URL helpers for Gmail and Outlook app setup.
@@ -86,11 +92,18 @@ help
 remember name = Your Name
 remember my name is Your Name
 audit
+briefing
+reminder add 2026-06-20 09:00 Call Alex
+remind me to call Alex at 2026-06-20 09:00
+reminders
+reminders due
+reminder done 1
 scan files .
 find resume in .
 search files resume .
 summarize file notes.md
 summarize the file report.pdf
+ask file report.pdf about the migration risks
 file info report.pdf
 extract tables data.csv
 convert file notes.md to notes.txt
@@ -108,6 +121,7 @@ read screen
 index file report.pdf
 index file lecture.mp4
 recall billing invoices
+ask knowledge what changed about billing invoices
 what do I know about kubernetes
 knowledge list
 knowledge stats
@@ -126,8 +140,13 @@ save research report local-first AI agents to obsidian
 multi scan files . ;; summarize file notes.md
 multi retry failed
 tasks
+workflow scan files . ;; summarize file README.md ;; tasks
+workflow status
+workflow retry failed
 open url https://example.com
 open website example.com
+run command dir
+run command in C:\Users\you\Projects :: git status --short
 inspect forms https://example.com/apply
 inspect forms at example.com/apply
 preview form fill https://example.com/apply
@@ -348,7 +367,7 @@ High-risk actions require explicit confirmation:
 - Reading your inbox (read-only; medium risk, allowed in the guarded web app).
 - Researching a topic (one approval covers the search plus fetching several pages).
 - Running browser automation that changes external state.
-- Any future shell execution.
+- Running terminal/shell commands.
 
 Form inspection reads labels, names, placeholders, and required flags. It does
 not type, click submit, or send applications.
@@ -377,6 +396,10 @@ filesystem, so each requires explicit approval and shows a preview first.
 touches your files; the apply step skips any move whose destination already
 exists rather than overwriting it.
 
+`run command <command>` and `run command in <cwd> :: <command>` require critical
+approval every time. Commands run synchronously with a timeout and captured
+stdout/stderr; they do not open an interactive shell or background service.
+
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
 
@@ -397,7 +420,9 @@ src/laptop_agent/
   planner/         Natural-language route planners.
   knowledge.py     Persistent searchable index over extracted text.
   safety.py        Approval gate and risk levels.
-  tasks.py         In-memory dashboard of parallel task runs.
+  tasks.py         Persistent dashboard of parallel task runs.
+  workflows.py     Persistent sequential workflow run history.
+  reminders.py     Persistent local reminder store.
   voice.py         Optional speech-to-text and text-to-speech adapters.
 tests/             Dependency-free unit tests.
 ```

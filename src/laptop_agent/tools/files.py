@@ -157,6 +157,63 @@ class FileTool:
             keywords=keywords,
         )
 
+    def answer_question(self, path: str, question: str, sentences: int = 5) -> ToolResult:
+        target = Path(path).expanduser().resolve()
+        text, error, _meta = self._load_text(target)
+        if error is not None:
+            return error
+        return self.answer_text(text, question, source=str(target), sentences=sentences)
+
+    def answer_text(self, text: str, question: str, source: str | None = None, sentences: int = 5) -> ToolResult:
+        cleaned_question = question.strip()
+        if not cleaned_question:
+            return ToolResult.failure("Ask a question to answer from the text.")
+        sentence_list = self._split_sentences(text)
+        if not sentence_list:
+            return ToolResult.failure(
+                f"No readable prose to answer from{f' in: {source}' if source else '.'}",
+                source=source,
+            )
+        query_terms = set(self._content_words(cleaned_question))
+        if not query_terms:
+            return self.summarize_text(text, source=source, sentences=sentences)
+
+        ranked: list[tuple[float, int, str]] = []
+        for index, sentence in enumerate(sentence_list):
+            words = self._content_words(sentence)
+            if not words:
+                continue
+            overlap = sum(1 for word in words if word in query_terms)
+            if overlap <= 0:
+                continue
+            score = overlap / (len(words) ** 0.35)
+            ranked.append((score, index, sentence))
+        if not ranked:
+            return ToolResult.failure(
+                f"I could not find text relevant to: {cleaned_question}",
+                question=cleaned_question,
+                source=source,
+            )
+
+        wanted = max(1, min(sentences, 10))
+        selected = sorted(sorted(ranked, key=lambda item: (-item[0], item[1]))[:wanted], key=lambda item: item[1])
+        excerpts = [
+            {
+                "sentence": sentence,
+                "score": round(score, 4),
+                "position": index,
+            }
+            for score, index, sentence in selected
+        ]
+        answer = " ".join(str(item["sentence"]) for item in excerpts)
+        return ToolResult.success(
+            f"Answered from {source or 'text'} using {len(excerpts)} excerpt(s).",
+            question=cleaned_question,
+            source=source,
+            answer=answer,
+            excerpts=excerpts,
+        )
+
     def file_info(self, path: str) -> ToolResult:
         target = Path(path).expanduser().resolve()
         if not target.exists() or not target.is_file():

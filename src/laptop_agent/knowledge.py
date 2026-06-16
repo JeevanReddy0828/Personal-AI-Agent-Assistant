@@ -90,6 +90,55 @@ class KnowledgeBase:
         scored.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]["id"] or 0))
         return [item[3] for item in scored[: max(1, min(limit, 25))]]
 
+    def answer(self, question: str, limit: int = 6) -> dict[str, object]:
+        terms = set(_content_terms(question))
+        if not terms:
+            return {"ok": False, "reason": "question has no searchable terms", "question": question}
+        store = self._load()
+        candidates: list[tuple[float, int, int, dict[str, object]]] = []
+        for doc_index, doc in enumerate(store["documents"]):
+            source = str(doc.get("source") or "")
+            doc_id = int(doc.get("id") or 0)
+            for sentence_index, sentence in enumerate(self._split_sentences(str(doc.get("text", "")))):
+                counts = self._term_counts(sentence)
+                overlap = sum(counts.get(term, 0) for term in terms)
+                if overlap <= 0:
+                    continue
+                score = overlap / (sum(counts.values()) ** 0.35)
+                candidates.append(
+                    (
+                        score,
+                        doc_index,
+                        sentence_index,
+                        {
+                            "id": doc_id,
+                            "source": source,
+                            "sentence": sentence,
+                            "score": round(score, 4),
+                        },
+                    )
+                )
+        if not candidates:
+            return {"ok": False, "reason": "no relevant indexed text", "question": question}
+        wanted = max(1, min(limit, 12))
+        selected = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))[:wanted]
+        excerpts = [item[3] for item in selected]
+        answer = " ".join(str(item["sentence"]) for item in excerpts)
+        sources = []
+        seen = set()
+        for item in excerpts:
+            source = str(item.get("source") or "")
+            if source and source not in seen:
+                seen.add(source)
+                sources.append(source)
+        return {
+            "ok": True,
+            "question": question,
+            "answer": answer,
+            "excerpts": excerpts,
+            "sources": sources,
+        }
+
     def list_documents(self) -> list[dict[str, object]]:
         store = self._load()
         return [
@@ -161,6 +210,14 @@ class KnowledgeBase:
         for token in _tokenize(text):
             counts[token] = counts.get(token, 0) + 1
         return counts
+
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        compact = re.sub(r"\s+", " ", text).strip()
+        if not compact:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+", compact)
+        return [part.strip() for part in parts if len(part.split()) >= 4]
 
     @staticmethod
     def _document_frequencies_from_counts(counts_by_document: list[dict[str, int]], terms: set[str]) -> dict[str, int]:

@@ -4,10 +4,12 @@ from collections.abc import Callable
 
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
+from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
+from laptop_agent.reminders import ReminderStore
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -17,9 +19,11 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
+from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.workflows import WorkflowTracker
 
 
 def build_orchestrator(
@@ -45,9 +49,13 @@ def build_orchestrator(
         email=EmailTool(approval_gate, config),
         music=MusicTool(approval_gate, desktop, web),
         research=ResearchTool(approval_gate),
+        terminal=TerminalTool(approval_gate),
         transcribe=TranscribeTool(),
         audit=audit,
+        autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
         tasks=TaskTracker(config.data_dir / "tasks.json"),
+        workflows=WorkflowTracker(config.data_dir / "workflows.json"),
+        reminders=ReminderStore(config.data_dir / "reminders.json"),
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
         obsidian=ObsidianVault(config.obsidian_vault),
     )

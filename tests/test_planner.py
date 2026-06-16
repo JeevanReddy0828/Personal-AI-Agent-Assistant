@@ -42,6 +42,11 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email unread")
 
+    def test_routes_inbox_digest(self) -> None:
+        decision = self.plan("summarize my inbox")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "email digest")
+
     def test_routes_email_search(self) -> None:
         decision = self.plan("find emails about invoice")
         self.assertTrue(decision.is_command)
@@ -56,6 +61,41 @@ class HeuristicPlannerTests(unittest.TestCase):
         decision = self.plan("refresh email oauth token for gmail")
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "email oauth refresh gmail")
+
+    def test_routes_briefing(self) -> None:
+        decision = self.plan("give me a daily briefing")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "briefing")
+
+    def test_routes_reminder_add(self) -> None:
+        decision = self.plan("remind me to call Alex at 2026-06-20 09:00")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "reminder add 2026-06-20 09:00 call Alex")
+
+    def test_routes_reminders_due(self) -> None:
+        decision = self.plan("show due reminders")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "reminders due")
+
+    def test_routes_reminder_done(self) -> None:
+        decision = self.plan("complete reminder 3")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "reminder done 3")
+
+    def test_routes_explicit_terminal_command(self) -> None:
+        decision = self.plan("run terminal command: echo hello")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "run command echo hello")
+
+    def test_routes_workflow(self) -> None:
+        decision = self.plan("run workflow: memory ;; tasks")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "workflow memory ;; tasks")
+
+    def test_routes_workflow_retry(self) -> None:
+        decision = self.plan("resume failed workflow")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "workflow retry failed")
 
     def test_routes_oauth_email_draft(self) -> None:
         decision = self.plan("draft email using gmail to ada@example.com about hello")
@@ -176,6 +216,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         decision = self.plan("read file report.txt")
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "read file report.txt")
+
+    def test_routes_ask_file(self) -> None:
+        decision = self.plan("what does report.txt say about latency")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "ask file report.txt about latency")
+
+    def test_routes_ask_knowledge(self) -> None:
+        decision = self.plan("answer from knowledge about payment retries")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "ask knowledge payment retries")
 
     def test_unknown_request_returns_chat(self) -> None:
         decision = self.plan("invent something vague")

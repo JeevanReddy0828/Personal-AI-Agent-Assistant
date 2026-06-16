@@ -8,9 +8,12 @@ from pathlib import Path
 
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
+from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
+from laptop_agent.metrics import system_metrics
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
+from laptop_agent.reminders import ReminderStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -20,9 +23,11 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
+from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
 
 @dataclass(frozen=True)
@@ -36,9 +41,13 @@ class AgentContext:
     email: EmailTool
     music: MusicTool
     research: ResearchTool
+    terminal: TerminalTool
     transcribe: TranscribeTool
     audit: AuditLogger
+    autopilot: AutopilotTracker
     tasks: TaskTracker
+    workflows: WorkflowTracker
+    reminders: ReminderStore
     knowledge: KnowledgeBase
     obsidian: ObsidianVault
 
@@ -61,6 +70,7 @@ class AgentOrchestrator:
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
         self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
+        self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
@@ -135,6 +145,37 @@ class AgentOrchestrator:
         if lowered in {"audit", "show audit"}:
             return ToolResult.success("Recent audit events.", events=self.context.audit.tail())
 
+        if lowered in {"briefing", "daily briefing", "status briefing", "morning briefing"}:
+            return self._briefing()
+
+        if lowered in {"autopilot status", "autonomous status"}:
+            return self._autopilot_status()
+
+        if lowered.startswith("autopilot workflow "):
+            return await self._run_autopilot(
+                goal="custom workflow",
+                commands=parse_autopilot_steps(command[len("autopilot workflow ") :].strip()),
+            )
+
+        if lowered.startswith("autopilot "):
+            goal = command[len("autopilot ") :].strip()
+            return await self._run_autopilot(goal=goal, commands=self.autopilot_planner.plan(goal))
+
+        if lowered in {"reminders", "reminders list", "show reminders"}:
+            return self._reminders_list()
+
+        if lowered in {"reminders due", "due reminders", "show due reminders"}:
+            return self._reminders_due()
+
+        if lowered.startswith("reminder add "):
+            return self._reminder_add(command[len("reminder add ") :].strip())
+
+        if lowered.startswith("remind me "):
+            return self._reminder_add(command[len("remind me ") :].strip())
+
+        if lowered.startswith("reminder done "):
+            return self._reminder_done(command[len("reminder done ") :].strip())
+
         if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
             return self._agent_control_room()
 
@@ -146,6 +187,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("read file "):
             return self.context.files.read_text(command[len("read file ") :].strip())
+
+        if lowered.startswith("ask file "):
+            return self._ask_file(command[len("ask file ") :].strip())
 
         if lowered.startswith("summarize file "):
             return self._summarize_any(command[len("summarize file ") :].strip())
@@ -179,6 +223,12 @@ class AgentOrchestrator:
 
         if lowered.startswith("knowledge search "):
             return self._knowledge_search(command[len("knowledge search ") :].strip())
+
+        if lowered.startswith("ask knowledge "):
+            return self._knowledge_answer(command[len("ask knowledge ") :].strip())
+
+        if lowered.startswith("answer from knowledge "):
+            return self._knowledge_answer(command[len("answer from knowledge ") :].strip())
 
         if lowered.startswith("recall "):
             return self._knowledge_search(command[len("recall ") :].strip())
@@ -249,6 +299,15 @@ class AgentOrchestrator:
                 f"Latest run: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.{retry_hint}",
                 dashboard=dashboard,
             )
+
+        if lowered in {"workflow status", "workflows", "workflow dashboard"}:
+            return self._workflow_status()
+
+        if lowered in {"workflow retry failed", "retry failed workflow"}:
+            return await self._workflow_retry_failed()
+
+        if lowered.startswith("workflow "):
+            return await self._run_workflow(command[len("workflow ") :].strip())
 
         if lowered.startswith("convert file "):
             rest = command[len("convert file ") :].strip()
@@ -321,6 +380,15 @@ class AgentOrchestrator:
 
         if lowered.startswith("screenshot "):
             return self.context.desktop.screenshot(command[len("screenshot ") :].strip())
+
+        if lowered.startswith("run command "):
+            return self._run_terminal_command(command[len("run command ") :].strip())
+
+        if lowered.startswith("terminal "):
+            return self._run_terminal_command(command[len("terminal ") :].strip())
+
+        if lowered.startswith("shell "):
+            return self._run_terminal_command(command[len("shell ") :].strip())
 
         if lowered.startswith("play music "):
             return self.context.music.play(command[len("play music ") :].strip())
@@ -476,9 +544,16 @@ class AgentOrchestrator:
                 "  remember <key> = <value>",
                 "  memory",
                 "  audit",
+                "  briefing",
+                "  autopilot <goal>",
+                "  autopilot workflow <safe command 1> ;; <safe command 2>",
+                "  autopilot status",
+                "  reminder add <YYYY-MM-DD HH:MM> <message>",
+                "  reminders | reminders due | reminder done <id>",
                 "  agents | agent <id>",
                 "  scan files <path>",
                 "  read file <path>",
+                "  ask file <path> about <question>",
                 "  summarize file <path>  (text, PDF, DOCX, images, audio, video)",
                 "  extract text <path>",
                 "  file info <path>",
@@ -491,6 +566,7 @@ class AgentOrchestrator:
                 "  describe image <path>    (vision)",
                 "  index file <path>",
                 "  recall <query>",
+                "  ask knowledge <question>",
                 "  knowledge list",
                 "  knowledge stats",
                 "  knowledge export <path>",
@@ -511,6 +587,8 @@ class AgentOrchestrator:
                 "  fill form <url>",
                 "  open app <path-or-app>",
                 "  screenshot <output.png>",
+                "  run command <command>",
+                "  run command in <cwd> :: <command>",
                 "  play music <file-folder-or-url>",
                 "  media playpause|next|previous|stop",
                 "  email search <query>",
@@ -532,7 +610,188 @@ class AgentOrchestrator:
                 "  multi <command 1> ;; <command 2>",
                 "  multi retry failed",
                 "  tasks",
+                "  workflow <command 1> ;; <command 2>",
+                "  workflow status | workflow retry failed",
             ]
+        )
+
+    def _reminder_add(self, expression: str) -> ToolResult:
+        cleaned = expression.strip().strip("'\"")
+        match = re.match(
+            r"(?P<date>\d{4}-\d{2}-\d{2})(?:[ T](?P<time>\d{2}:\d{2}))?\s+(?P<message>.+)$",
+            cleaned,
+        )
+        if match:
+            due_at = match.group("date") + (" " + match.group("time") if match.group("time") else " 09:00")
+            message = match.group("message").strip()
+        else:
+            natural = re.match(r"(?:to\s+)?(?P<message>.+?)\s+(?:at|on)\s+(?P<due>.+)$", cleaned, re.IGNORECASE)
+            if not natural:
+                return ToolResult.failure("Use: reminder add <YYYY-MM-DD HH:MM> <message>")
+            due_at = natural.group("due").strip()
+            message = natural.group("message").strip()
+        try:
+            outcome = self.context.reminders.add(due_at, message)
+        except ValueError:
+            return ToolResult.failure("Reminder date/time must look like YYYY-MM-DD HH:MM.")
+        if not outcome.get("ok"):
+            return ToolResult.failure(f"Could not add reminder: {outcome.get('reason', 'unknown error')}")
+        reminder = outcome["reminder"]
+        return ToolResult.success(
+            f"Reminder #{reminder['id']} set for {reminder['due_at']}: {reminder['message']}",
+            reminder=reminder,
+        )
+
+    def _reminders_list(self) -> ToolResult:
+        reminders = self.context.reminders.list()
+        return ToolResult.success(
+            f"{len(reminders)} active reminder(s).",
+            reminders=reminders,
+        )
+
+    def _reminders_due(self) -> ToolResult:
+        reminders = self.context.reminders.due()
+        return ToolResult.success(
+            f"{len(reminders)} reminder(s) due.",
+            reminders=reminders,
+        )
+
+    def _reminder_done(self, raw: str) -> ToolResult:
+        try:
+            reminder_id = int(raw.strip())
+        except ValueError:
+            return ToolResult.failure("Use: reminder done <id>")
+        completed = self.context.reminders.complete(reminder_id)
+        return ToolResult.success(
+            f"Completed reminder #{reminder_id}." if completed else f"No active reminder #{reminder_id}.",
+            id=reminder_id,
+            completed=completed,
+        )
+
+    def _briefing(self) -> ToolResult:
+        due_reminders = self.context.reminders.due()
+        active_reminders = self.context.reminders.list()
+        latest_tasks = self.context.tasks.latest()
+        knowledge_stats = self.context.knowledge.stats()
+        agents = self.control_room.snapshot()
+        metrics = system_metrics()
+
+        lines = ["## Briefing", ""]
+        if due_reminders:
+            lines.append(f"**Due reminders:** {len(due_reminders)}")
+            lines.extend(f"- #{item.get('id')} {item.get('message')} ({item.get('due_at')})" for item in due_reminders[:5])
+        else:
+            lines.append("**Due reminders:** none")
+
+        upcoming = [item for item in active_reminders if item not in due_reminders]
+        if upcoming:
+            lines.append("")
+            lines.append(f"**Upcoming:** {len(upcoming)} active reminder(s)")
+            lines.extend(f"- #{item.get('id')} {item.get('message')} ({item.get('due_at')})" for item in upcoming[:3])
+
+        lines.append("")
+        if latest_tasks:
+            lines.append(
+                "**Latest task run:** "
+                f"{latest_tasks.get('ok_count', 0)} ok, {latest_tasks.get('failed_count', 0)} failed "
+                f"across {latest_tasks.get('task_count', 0)} task(s)"
+            )
+        else:
+            lines.append("**Latest task run:** none yet")
+
+        lines.append(
+            "**Knowledge:** "
+            f"{knowledge_stats['document_count']} document(s), {knowledge_stats['total_char_count']} indexed character(s)"
+        )
+        agent_summary = agents["summary"]
+        lines.append(
+            "**Agents:** "
+            f"{agent_summary['working']} working, {agent_summary['idle']} idle, {agent_summary['unavailable']} unavailable"
+        )
+        cpu = metrics.get("cpu_percent")
+        ram = metrics.get("ram_percent")
+        lines.append(
+            "**System:** "
+            f"CPU {cpu if cpu is not None else 'n/a'}%, RAM {ram if ram is not None else 'n/a'}%"
+        )
+
+        return ToolResult.success(
+            "\n".join(lines),
+            due_reminders=due_reminders,
+            active_reminders=active_reminders,
+            latest_tasks=latest_tasks,
+            knowledge=knowledge_stats,
+            agents=agents,
+            metrics=metrics,
+        )
+
+    def _run_terminal_command(self, expression: str) -> ToolResult:
+        cleaned = expression.strip()
+        if not cleaned:
+            return ToolResult.failure("Use: run command <command>")
+        match = re.match(r"in\s+(.+?)\s+::\s+(.+)$", cleaned, re.IGNORECASE | re.DOTALL)
+        if match:
+            cwd = match.group(1).strip().strip("'\"")
+            command = match.group(2).strip()
+            return self.context.terminal.run(command, cwd=cwd)
+        return self.context.terminal.run(cleaned)
+
+    async def _run_autopilot(self, goal: str, commands: list[str]) -> ToolResult:
+        cleaned_goal = goal.strip() or "autopilot"
+        if not commands:
+            return ToolResult.failure("Autopilot could not build a plan for that goal.", goal=cleaned_goal)
+
+        results = []
+        records: list[AutopilotStep] = []
+        for index, planned in enumerate(commands):
+            command = planned.strip()
+            if not self.autopilot_planner.is_safe_command(command):
+                message = "Blocked: this command needs supervision or approval."
+                results.append({"command": command, "ok": False, "message": message, "data": {}})
+                records.append(AutopilotStep(index=index, command=command, status="blocked", message=message))
+                continue
+            agent_id = self.control_room.start(command)
+            try:
+                result = await self.handle(command, _allow_planner=False)
+            except Exception as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                result = ToolResult.failure(str(exc))
+            else:
+                self.control_room.finish(agent_id, result.message, ok=result.ok)
+            results.append({"command": command, "ok": result.ok, "message": result.message, "data": result.data})
+            records.append(
+                AutopilotStep(
+                    index=index,
+                    command=command,
+                    status="ok" if result.ok else "failed",
+                    message=result.message,
+                )
+            )
+
+        run = self.context.autopilot.record_run(cleaned_goal, records)
+        if run["status"] == "ok":
+            return ToolResult.success(
+                f"Autopilot completed {run['ok_count']} step(s) for: {cleaned_goal}",
+                goal=cleaned_goal,
+                plan=commands,
+                results=results,
+                autopilot=run,
+            )
+        return ToolResult.failure(
+            f"Autopilot finished with {run['failed_count']} failed and {run['blocked_count']} blocked step(s).",
+            goal=cleaned_goal,
+            plan=commands,
+            results=results,
+            autopilot=run,
+        )
+
+    def _autopilot_status(self) -> ToolResult:
+        latest = self.context.autopilot.latest()
+        if latest is None:
+            return ToolResult.success("No autopilot runs yet.", autopilot=None)
+        return ToolResult.success(
+            f"Latest autopilot run: {latest['status']} ({latest['ok_count']} ok, {latest['failed_count']} failed, {latest['blocked_count']} blocked).",
+            autopilot=latest,
         )
 
     def _extract_text_any(self, path: str) -> ToolResult:
@@ -635,6 +894,41 @@ class AgentOrchestrator:
             f"Found {len(results)} relevant document(s) for '{cleaned}'.",
             query=cleaned,
             results=results,
+        )
+
+    def _ask_file(self, expression: str) -> ToolResult:
+        cleaned = expression.strip().strip("'\"")
+        match = re.search(r"\s+(?:about|for|on)\s+", cleaned, re.IGNORECASE)
+        if match:
+            path = cleaned[: match.start()].strip().strip("'\"")
+            question = cleaned[match.end() :].strip().strip("'\"")
+        else:
+            split_at = cleaned.find("?")
+            if split_at > 0:
+                path = cleaned[:split_at].strip().strip("'\"")
+                question = cleaned[split_at + 1 :].strip().strip("'\"")
+            else:
+                return ToolResult.failure("Use: ask file <path> about <question>")
+        if not path or not question:
+            return ToolResult.failure("Use: ask file <path> about <question>")
+        return self.context.files.answer_question(path, question)
+
+    def _knowledge_answer(self, question: str) -> ToolResult:
+        cleaned = question.strip().strip("'\"?")
+        if not cleaned:
+            return ToolResult.failure("Use: ask knowledge <question>")
+        answer = self.context.knowledge.answer(cleaned)
+        if not answer.get("ok"):
+            return ToolResult.failure(
+                f"I could not answer from indexed knowledge: {answer.get('reason', 'no relevant text')}.",
+                question=cleaned,
+            )
+        return ToolResult.success(
+            f"Answered from {len(answer.get('sources', []))} indexed source(s).",
+            question=cleaned,
+            answer=answer.get("answer", ""),
+            excerpts=answer.get("excerpts", []),
+            sources=answer.get("sources", []),
         )
 
     def _knowledge_forget(self, raw: str) -> ToolResult:
@@ -756,6 +1050,10 @@ class AgentOrchestrator:
         if not result.ok:
             return result.message
         data = result.data
+        if data.get("digest"):  # already an LLM-written summary; leave it as-is
+            return result.message
+        if data.get("answer"):
+            return str(data["answer"])
         if data.get("summary"):
             return str(data["summary"])
         if "files" in data and "root" in data:
@@ -787,9 +1085,39 @@ class AgentOrchestrator:
         if "text" in data and "char_count" in data:
             text = str(data.get("text", "")).strip()
             return ("Here's what I read:\n" + text[:700]) if text else result.message
+        if "returncode" in data and "command" in data:
+            stdout = str(data.get("stdout") or "").strip()
+            stderr = str(data.get("stderr") or "").strip()
+            output = stdout or stderr
+            if output:
+                return result.message + "\n" + output[:900]
+            return result.message
         if data.get("dashboard"):
             board = data["dashboard"]
             return f"Latest run: {board.get('ok_count', 0)} ok, {board.get('failed_count', 0)} failed across {board.get('task_count', 0)} task(s)."
+        if data.get("workflow"):
+            workflow = data["workflow"]
+            if isinstance(workflow, dict):
+                return f"Latest workflow: {workflow.get('ok_count', 0)} ok, {workflow.get('failed_count', 0)} failed across {workflow.get('step_count', 0)} step(s)."
+        if data.get("autopilot"):
+            autopilot = data["autopilot"]
+            if isinstance(autopilot, dict):
+                return (
+                    f"Autopilot {autopilot.get('status')}: "
+                    f"{autopilot.get('ok_count', 0)} ok, {autopilot.get('failed_count', 0)} failed, "
+                    f"{autopilot.get('blocked_count', 0)} blocked."
+                )
+        if isinstance(data.get("reminders"), list):
+            reminders = data["reminders"]
+            if not reminders:
+                return result.message
+            lines = [
+                f"- #{item.get('id')} {item.get('due_at')}: {item.get('message')}"
+                for item in reminders[:8]
+                if isinstance(item, dict)
+            ]
+            more = f"\n...and {len(reminders) - 8} more." if len(reminders) > 8 else ""
+            return result.message + "\n" + "\n".join(lines) + more
         if "documents" in data and isinstance(data["documents"], list):
             docs = data["documents"]
             if not docs:
@@ -925,6 +1253,78 @@ class AgentOrchestrator:
         if not commands:
             return ToolResult.success("No failed subtasks to retry.", retry=plan)
         return await self._run_many(" ;; ".join(commands), retry_of=int(plan["run"]))
+
+    async def _run_workflow(self, expression: str) -> ToolResult:
+        commands = [item.strip() for item in expression.split(";;") if item.strip()]
+        if not commands:
+            return ToolResult.failure("Use: workflow <command 1> ;; <command 2>")
+        if any(command.lower().startswith("workflow ") for command in commands):
+            return ToolResult.failure("Workflow steps cannot start another workflow.")
+
+        payload = []
+        records: list[WorkflowStep] = []
+        stopped_at = None
+        for index, command in enumerate(commands):
+            agent_id = self.control_room.start(command)
+            try:
+                result = await self.handle(command)
+            except Exception as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                result = ToolResult.failure(str(exc))
+            else:
+                self.control_room.finish(agent_id, result.message, ok=result.ok)
+            payload.append({"command": command, "ok": result.ok, "message": result.message, "data": result.data})
+            records.append(
+                WorkflowStep(
+                    index=index,
+                    command=command,
+                    status="ok" if result.ok else "failed",
+                    message=result.message,
+                )
+            )
+            if not result.ok:
+                stopped_at = index
+                for pending_index, pending_command in enumerate(commands[index + 1 :], start=index + 1):
+                    records.append(
+                        WorkflowStep(
+                            index=pending_index,
+                            command=pending_command,
+                            status="pending",
+                            message="Not run because an earlier step failed.",
+                        )
+                    )
+                break
+
+        dashboard = self.context.workflows.record_run(records, stopped_at=stopped_at)
+        if stopped_at is None:
+            return ToolResult.success(
+                f"Workflow completed: {len(records)} step(s) ok.",
+                results=payload,
+                workflow=dashboard,
+            )
+        return ToolResult.failure(
+            f"Workflow stopped at step {stopped_at + 1}: {records[-1].message}",
+            results=payload,
+            workflow=dashboard,
+        )
+
+    def _workflow_status(self) -> ToolResult:
+        dashboard = self.context.workflows.latest()
+        if dashboard is None:
+            return ToolResult.success("No workflow runs yet. Use 'workflow <cmd> ;; <cmd>'.", workflow=None)
+        retry_hint = " Use 'workflow retry failed' to resume from the failed step." if dashboard.get("retry_available") else ""
+        return ToolResult.success(
+            f"Latest workflow: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.{retry_hint}",
+            workflow=dashboard,
+        )
+
+    async def _workflow_retry_failed(self) -> ToolResult:
+        commands = self.context.workflows.retry_commands()
+        if not self.context.workflows.latest():
+            return ToolResult.failure("No workflow run to retry. Use 'workflow <cmd> ;; <cmd>' first.")
+        if not commands:
+            return ToolResult.success("No failed workflow steps to retry.", workflow=self.context.workflows.latest())
+        return await self._run_workflow(" ;; ".join(commands))
 
     def _agent_control_room(self) -> ToolResult:
         snapshot = self.control_room.snapshot()

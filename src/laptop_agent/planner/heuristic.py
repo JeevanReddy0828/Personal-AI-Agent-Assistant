@@ -17,6 +17,9 @@ class HeuristicPlannerProvider:
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
 
+        if re.search(r"\b(?:briefing|daily brief|morning brief|status brief|catch me up)\b", lowered):
+            return self._command("briefing", "User wants a compact assistant status briefing.", 0.86)
+
         casual = self._casual(lowered)
         if casual:
             return casual
@@ -26,6 +29,22 @@ class HeuristicPlannerProvider:
 
         if lowered in {"tasks", "show tasks", "task dashboard", "show task dashboard", "show me the tasks"}:
             return self._command("tasks", "User wants the parallel task dashboard.", 0.85)
+
+        workflow = self._workflow(raw)
+        if workflow:
+            return workflow
+
+        autopilot = self._autopilot(raw)
+        if autopilot:
+            return autopilot
+
+        reminder = self._reminder(raw)
+        if reminder:
+            return reminder
+
+        terminal = self._terminal(raw)
+        if terminal:
+            return terminal
 
         remember = self._remember(raw)
         if remember:
@@ -42,6 +61,10 @@ class HeuristicPlannerProvider:
         email_oauth = self._email_oauth(raw)
         if email_oauth:
             return email_oauth
+
+        ask_file = self._ask_file(raw)
+        if ask_file:
+            return ask_file
 
         file_search = self._file_search(raw)
         if file_search:
@@ -151,6 +174,69 @@ class HeuristicPlannerProvider:
         value = match.group(2).strip()
         return self._command(f"remember {key} = {value}", "User wants to store a profile detail.", 0.9)
 
+    def _reminder(self, text: str) -> PlanDecision | None:
+        lowered = text.lower().strip()
+        if lowered in {"reminders", "show reminders", "list reminders", "my reminders"}:
+            return self._command("reminders", "User wants to list active reminders.", 0.86)
+        if lowered in {"reminders due", "due reminders", "what reminders are due", "show due reminders"}:
+            return self._command("reminders due", "User wants due reminders.", 0.86)
+        done = re.search(r"\b(?:complete|finish|mark done|mark complete)\s+reminder\s+#?(\d+)\b", text, re.IGNORECASE)
+        if done:
+            return self._command(f"reminder done {done.group(1)}", "User wants to complete a reminder.", 0.84)
+        add = re.search(
+            r"\bremind me\s+(?:to\s+)?(.+?)\s+(?:at|on)\s+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)$",
+            text,
+            re.IGNORECASE,
+        )
+        if add:
+            message = add.group(1).strip().strip("'\"")
+            due = add.group(2).strip()
+            return self._command(f"reminder add {due} {message}", "User wants to create a reminder.", 0.86)
+        return None
+
+    def _workflow(self, text: str) -> PlanDecision | None:
+        lowered = text.lower().strip()
+        if lowered in {"workflow status", "workflow dashboard", "show workflows", "show workflow"}:
+            return self._command("workflow status", "User wants the latest workflow dashboard.", 0.85)
+        if lowered in {"workflow retry failed", "retry failed workflow", "resume failed workflow"}:
+            return self._command("workflow retry failed", "User wants to resume a failed workflow.", 0.85)
+        match = re.search(r"\b(?:run|start|execute)\s+(?:a\s+)?workflow\s*[:\-]\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        expression = match.group(1).strip()
+        if not expression or ";;" not in expression:
+            return None
+        return self._command(f"workflow {expression}", "User wants to run a sequential workflow.", 0.82)
+
+    def _autopilot(self, text: str) -> PlanDecision | None:
+        lowered = text.lower().strip()
+        if lowered in {"autopilot status", "autonomous status", "show autopilot status"}:
+            return self._command("autopilot status", "User wants the latest autopilot run.", 0.85)
+        match = re.search(r"\b(?:run|start|use)\s+autopilot\s+(?:for|on)?\s*(.+)$", text, re.IGNORECASE)
+        if not match:
+            match = re.search(r"\bautopilot\s*[:\-]\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        goal = match.group(1).strip().strip("'\"")
+        if not goal:
+            return None
+        return self._command(f"autopilot {goal}", "User wants unattended safe local work.", 0.82)
+
+    def _terminal(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:run|execute)\s+(?:this\s+)?(?:terminal\s+|shell\s+)?command\s*[:\-]?\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            match = re.search(r"\b(?:terminal|shell)\s*[:\-]\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        command = match.group(1).strip().strip("'\"")
+        if not command:
+            return None
+        return self._command(f"run command {command}", "User explicitly asked to run a terminal command.", 0.78)
+
     def _file_search(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:search|find|look for)\s+(?:files?\s+)?(?:for\s+)?(.+?)\s+(?:in|under|inside)\s+(.+)$", text, re.IGNORECASE)
         if not match:
@@ -190,6 +276,15 @@ class HeuristicPlannerProvider:
         return self._command(f"organize folder {root}{suffix}", "User wants files organized by type.", 0.78)
 
     def _knowledge(self, text: str) -> PlanDecision | None:
+        answer_match = re.search(
+            r"\b(?:ask|answer from|answer using)\s+(?:my\s+)?(?:knowledge|knowledge base|indexed documents?)\s*(?:about|for|on)?\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if answer_match:
+            question = answer_match.group(1).strip().strip("'\"?")
+            if question:
+                return self._command(f"ask knowledge {question}", "User wants an answer synthesized from indexed knowledge.", 0.82)
         if re.search(r"\b(?:knowledge|indexed documents?)\b", text, re.IGNORECASE) and re.search(
             r"\b(?:stats|status|summary|inventory)\b",
             text,
@@ -255,6 +350,27 @@ class HeuristicPlannerProvider:
             return None
         path = match.group(1).strip().strip("'\"")
         return self._command(f"read file {path}", "User wants to read a supported document.", 0.8)
+
+    def _ask_file(self, text: str) -> PlanDecision | None:
+        extensions = r"(?:txt|md|markdown|tex|csv|json|yaml|yml|pdf|docx)"
+        match = re.search(
+            rf"\b(?:ask|question)\s+(?:the\s+)?(?:file\s+)?(.+\.{extensions})\s+(?:about|on|for)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            match = re.search(
+                rf"\bwhat\s+(?:does|do)\s+(.+\.{extensions})\s+say\s+about\s+(.+)$",
+                text,
+                re.IGNORECASE,
+            )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"")
+        question = match.group(2).strip().strip("'\"?")
+        if not path or not question:
+            return None
+        return self._command(f"ask file {path} about {question}", "User wants a focused answer from a file.", 0.82)
 
     def _research(self, text: str) -> PlanDecision | None:
         match = re.search(

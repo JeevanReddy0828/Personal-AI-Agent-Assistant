@@ -131,6 +131,30 @@ class AgentControlRoom:
                     "Runs parallel subtasks, records dashboards, and retries failures.",
                     ("multi", "tasks", "task dashboard"),
                 ),
+                AgentDefinition(
+                    "workflow",
+                    "Workflow Captain",
+                    "Runs sequential multi-step workflows and resumes failed runs.",
+                    ("workflow", "workflows"),
+                ),
+                AgentDefinition(
+                    "autopilot",
+                    "Autopilot Supervisor",
+                    "Plans and runs unattended safe local work, blocking anything that needs supervision.",
+                    ("autopilot", "autonomous"),
+                ),
+                AgentDefinition(
+                    "reminders",
+                    "Reminder Clerk",
+                    "Stores reminders, lists upcoming items, and marks completed reminders.",
+                    ("reminder", "reminders", "remind me"),
+                ),
+                AgentDefinition(
+                    "terminal",
+                    "Terminal Operator",
+                    "Runs explicitly approved local terminal commands with captured output.",
+                    ("run command", "terminal", "shell"),
+                ),
             ]
         )
 
