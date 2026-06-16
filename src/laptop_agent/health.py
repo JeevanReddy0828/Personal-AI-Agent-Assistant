@@ -45,6 +45,10 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
         },
         "vault": {"connected": vault_connected, "path": getattr(config, "obsidian_vault", None)},
         "email": {"configured": email_configured},
+        "search": {
+            "provider": getattr(config, "search_provider", "") or "duckduckgo",
+            "api_key": bool(getattr(config, "search_api_key", None)),
+        },
         "smart_planner": getattr(orchestrator, "smart_planner", None) is not None,
         "vision_planner": getattr(orchestrator, "vision_planner", None) is not None,
     }

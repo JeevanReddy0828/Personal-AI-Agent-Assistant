@@ -30,6 +30,7 @@ approval gate.
 - Autopilot mode: plans and runs unattended safe local/read-only work, while blocking commands that need supervision or approval.
 - Autonomous agent mode (`agent run <goal>`): an LLM-driven plan → act → observe → replan loop that pursues a goal across many tools, deciding the next command from what it just observed. Unlike autopilot it can genuinely act — risky steps still pass through the approval gate — and every run is persisted (`agent runs`, `agent last`). In the desktop app, a 🤖 toggle turns the composer into agent mode and streams the live step-by-step trace (each thought, command, and observation) as it runs. Speak naturally — the agent translates intent into the right actions, so you rarely need to remember commands.
 - Live-news grounding: time-sensitive questions ("did the Iran war end?", "latest on X", "who won the 2026 …", a recent year) automatically trigger a web search, and the answer is synthesized from those live results with inline citations and a Sources list — instead of relying on stale model knowledge. If live search is unavailable, the reply says so rather than sounding confidently out of date.
+- Pluggable web search: DuckDuckGo by default (no key), or a real search API (Brave / Serper) when a key is configured — with automatic DuckDuckGo fallback if the API errors. Shared by web search, news grounding, and research.
 - Recurring scheduler: `schedule <when> :: <command>` and `schedule agent <when> :: <goal>` run commands or autonomous agent goals on a recurring basis (`every 30 minutes`, `every 2 hours`, `hourly`, `daily at 08:00`). Jobs persist across restarts; a background ticker fires due jobs each minute while the app runs (`schedule list`, `schedule remove <id>`, `schedule run due`).
 - Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
@@ -337,6 +338,21 @@ instead, that reply is shown as conversation. If any required value is missing o
 the model is unreachable, the app falls back to the offline heuristic planner.
 The brain can propose draft/preparation commands, but final risky actions still
 go through the approval gate, and a planned command never re-triggers planning.
+
+## Web search backend
+
+Web search, live-news grounding, and `research` use DuckDuckGo by default (zero
+config, but the free endpoint occasionally rate-limits). For reliable results,
+add a real search API key — the agent uses it and automatically falls back to
+DuckDuckGo if the API errors or returns nothing:
+
+```text
+SEARCH_PROVIDER=brave          # or: serper  (inferred if you only set a key below)
+SEARCH_API_KEY=your-key        # or BRAVE_API_KEY=... / SERPER_API_KEY=...
+```
+
+Supported providers: [Brave Search API](https://api.search.brave.com/) and
+[Serper](https://serper.dev/) (Google results). No key → DuckDuckGo.
 
 ## Obsidian memory
 
