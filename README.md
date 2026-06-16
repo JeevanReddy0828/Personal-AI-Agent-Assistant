@@ -29,6 +29,7 @@ approval gate.
 - Persistent sequential workflows: run multi-step plans across tools, stop on first failure, and retry from the failed step.
 - Autopilot mode: plans and runs unattended safe local/read-only work, while blocking commands that need supervision or approval.
 - Autonomous agent mode (`agent run <goal>`): an LLM-driven plan → act → observe → replan loop that pursues a goal across many tools, deciding the next command from what it just observed. Unlike autopilot it can genuinely act — risky steps still pass through the approval gate — and every run is persisted (`agent runs`, `agent last`). In the desktop app, a 🤖 toggle turns the composer into agent mode and streams the live step-by-step trace (each thought, command, and observation) as it runs. Speak naturally — the agent translates intent into the right actions, so you rarely need to remember commands.
+- Recurring scheduler: `schedule <when> :: <command>` and `schedule agent <when> :: <goal>` run commands or autonomous agent goals on a recurring basis (`every 30 minutes`, `every 2 hours`, `hourly`, `daily at 08:00`). Jobs persist across restarts; a background ticker fires due jobs each minute while the app runs (`schedule list`, `schedule remove <id>`, `schedule run due`).
 - Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
@@ -156,6 +157,10 @@ agent runs
 agent last
 look at webcam
 look at webcam what am I holding?
+schedule daily at 08:00 :: briefing
+schedule agent every 2 hours :: triage my unread email
+schedule list
+schedule run due
 open url https://example.com
 open website example.com
 run command dir
@@ -443,6 +448,7 @@ src/laptop_agent/
   config.py        Runtime paths and settings.
   autopilot.py     Unattended safe-work planner and run history.
   reasoning.py     Autonomous agent loop (plan/act/observe/replan) and run history.
+  scheduler.py     Recurring job store (interval / daily) for commands and agent goals.
   memory.py        Local JSON profile/preferences store.
   planner/         Natural-language route planners.
   knowledge.py     Persistent searchable index over extracted text.

@@ -112,6 +112,20 @@ def _keep_warm(interval: float = 200.0) -> None:
     threading.Thread(target=loop, daemon=True).start()
 
 
+def _schedule_ticker(interval: float = 60.0) -> None:
+    """Fire any due scheduled jobs once a minute. Daemon thread so it stops with the app."""
+
+    def loop() -> None:
+        stop = threading.Event()
+        while not stop.wait(interval):
+            try:
+                asyncio.run(_orchestrator.run_due_schedules())
+            except Exception:
+                pass  # never let a scheduled run take down the ticker
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -924,6 +938,7 @@ def main() -> None:
     url = f"http://{HOST}:{PORT}"
     _warmup()
     _keep_warm()
+    _schedule_ticker()
     print(f"J.A.R.V.I.S chat running at {url}")
     print("Guarded mode: high-risk actions blocked; read/search/research allowed. Ctrl+C to stop.")
     try:
@@ -980,6 +995,7 @@ def run_desktop() -> None:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     _warmup()
     _keep_warm()
+    _schedule_ticker()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
     if _launch_webview(url):

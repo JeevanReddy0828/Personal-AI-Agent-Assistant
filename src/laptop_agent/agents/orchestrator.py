@@ -4,6 +4,7 @@ import asyncio
 import re
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from laptop_agent.agents.control_room import AgentControlRoom
@@ -15,6 +16,7 @@ from laptop_agent.metrics import system_metrics
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -49,6 +51,7 @@ class AgentContext:
     audit: AuditLogger
     autopilot: AutopilotTracker
     agent_runs: AgentRunTracker
+    scheduler: SchedulerStore
     tasks: TaskTracker
     workflows: WorkflowTracker
     reminders: ReminderStore
@@ -179,6 +182,21 @@ class AgentOrchestrator:
 
         if lowered.startswith("reminder done "):
             return self._reminder_done(command[len("reminder done ") :].strip())
+
+        if lowered in {"schedule", "schedule list", "schedules", "show schedule"}:
+            return self._schedule_list()
+
+        if lowered in {"schedule run due", "run due schedules", "schedule tick"}:
+            return await self.run_due_schedules()
+
+        if lowered.startswith("schedule remove "):
+            return self._schedule_remove(command[len("schedule remove ") :].strip())
+
+        if lowered.startswith("schedule agent "):
+            return self._schedule_add("agent", command[len("schedule agent ") :].strip())
+
+        if lowered.startswith("schedule "):
+            return self._schedule_add("command", command[len("schedule ") :].strip())
 
         if lowered in {"agent runs", "agent history", "autonomous runs"}:
             return self._agent_runs()
@@ -575,6 +593,9 @@ class AgentOrchestrator:
                 "  autopilot status",
                 "  agent run <goal>   (autonomous multi-step: plans, acts, observes, repeats)",
                 "  agent runs | agent last",
+                "  schedule <when> :: <command>     (e.g. 'daily at 08:00 :: briefing')",
+                "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
+                "  schedule list | schedule remove <id> | schedule run due",
                 "  reminder add <YYYY-MM-DD HH:MM> <message>",
                 "  reminders | reminders due | reminder done <id>",
                 "  agents | agent <id>",
@@ -950,6 +971,62 @@ class AgentOrchestrator:
             f"{latest['failed_count']} failed across {latest['step_count']} step(s)).",
             agent=latest,
         )
+
+    def _schedule_add(self, kind: str, expression: str) -> ToolResult:
+        # Expression: "<schedule> :: <command-or-goal>", e.g. "daily at 08:00 :: briefing".
+        if "::" not in expression:
+            return ToolResult.failure(
+                "Use: schedule <when> :: <command>   or   schedule agent <when> :: <goal>\n"
+                "e.g. 'schedule daily at 08:00 :: briefing' or 'schedule agent every 2 hours :: triage my unread email'"
+            )
+        when, spec = (part.strip() for part in expression.split("::", 1))
+        try:
+            job = self.context.scheduler.add(kind, spec, when, datetime.now(UTC))
+        except ScheduleError as exc:
+            return ToolResult.failure(str(exc))
+        return ToolResult.success(
+            f"Scheduled {kind} #{job.id}: {job.schedule.describe()} → {job.spec}",
+            job=job.to_dict(),
+        )
+
+    def _schedule_remove(self, raw: str) -> ToolResult:
+        try:
+            job_id = int(raw.strip().lstrip("#"))
+        except ValueError:
+            return ToolResult.failure("Use: schedule remove <id>")
+        if self.context.scheduler.remove(job_id):
+            return ToolResult.success(f"Removed scheduled job #{job_id}.")
+        return ToolResult.failure(f"No scheduled job #{job_id}.")
+
+    def _schedule_list(self) -> ToolResult:
+        jobs = [job.to_dict() for job in self.context.scheduler.list_jobs()]
+        if not jobs:
+            return ToolResult.success("No scheduled jobs. Add one with 'schedule <when> :: <command>'.", jobs=[])
+        return ToolResult.success(f"{len(jobs)} scheduled job(s).", jobs=jobs)
+
+    async def run_due_schedules(self, now: datetime | None = None) -> ToolResult:
+        """Run every job whose schedule is due. Called by the background ticker and the
+        'schedule run due' command. Each job runs through handle()/run_agent so risky steps
+        still hit the approval gate."""
+        moment = now or datetime.now(UTC)
+        due = self.context.scheduler.due_jobs(moment)
+        ran = []
+        for job in due:
+            try:
+                if job.kind == "agent":
+                    result = await self._run_agent(job.spec)
+                else:
+                    result = await self.handle(job.spec, _allow_planner=False)
+                status = "ok" if result.ok else "failed"
+                message = result.message
+            except Exception as exc:
+                status, message = "failed", str(exc)
+            self.context.scheduler.mark_ran(job.id, datetime.now(UTC), status)
+            ran.append({"id": job.id, "kind": job.kind, "spec": job.spec, "status": status, "message": message})
+        if not ran:
+            return ToolResult.success("No scheduled jobs are due.", ran=[])
+        ok = sum(1 for item in ran if item["status"] == "ok")
+        return ToolResult.success(f"Ran {len(ran)} due job(s): {ok} ok.", ran=ran)
 
     def _extract_text_any(self, path: str) -> ToolResult:
         target = path.strip().strip("'\"")

@@ -11,6 +11,7 @@ from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
 from laptop_agent.reasoning import AgentRunTracker
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -57,6 +58,7 @@ def build_orchestrator(
         audit=audit,
         autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
         agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
+        scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
         tasks=TaskTracker(config.data_dir / "tasks.json"),
         workflows=WorkflowTracker(config.data_dir / "workflows.json"),
         reminders=ReminderStore(config.data_dir / "reminders.json"),

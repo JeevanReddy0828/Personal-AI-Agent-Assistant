@@ -23,6 +23,7 @@ from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.reasoning import AgentRunTracker
+from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
@@ -118,6 +119,7 @@ class OrchestratorTests(unittest.TestCase):
                 obsidian=ObsidianVault(config.obsidian_vault),
                 autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
                 agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
+                scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
             ),
             Planner(HeuristicPlannerProvider()),
         )
@@ -627,6 +629,34 @@ class OrchestratorTests(unittest.TestCase):
             result = asyncio.run(orchestrator.handle("agent run do something"))
             self.assertFalse(result.ok)
             self.assertIn("reasoning model", result.message.lower())
+
+    def test_schedule_add_list_and_run_due(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            added = asyncio.run(orchestrator.handle("schedule every 30 minutes :: briefing"))
+            self.assertTrue(added.ok)
+            self.assertEqual(added.data["job"]["kind"], "command")
+            self.assertEqual(added.data["job"]["spec"], "briefing")
+
+            listed = asyncio.run(orchestrator.handle("schedule list"))
+            self.assertEqual(len(listed.data["jobs"]), 1)
+
+            # A brand-new interval job is immediately due, so run-due should fire it once.
+            ran = asyncio.run(orchestrator.handle("schedule run due"))
+            self.assertTrue(ran.ok)
+            self.assertEqual(len(ran.data["ran"]), 1)
+            self.assertEqual(ran.data["ran"][0]["status"], "ok")
+
+            removed = asyncio.run(orchestrator.handle("schedule remove 1"))
+            self.assertTrue(removed.ok)
+            self.assertEqual(asyncio.run(orchestrator.handle("schedule list")).data["jobs"], [])
+
+    def test_schedule_rejects_bad_expression(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            bad = asyncio.run(orchestrator.handle("schedule briefing"))  # missing '::'
+            self.assertFalse(bad.ok)
+            self.assertIn("::", bad.message)
 
     def test_webcam_capture_falls_back_to_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

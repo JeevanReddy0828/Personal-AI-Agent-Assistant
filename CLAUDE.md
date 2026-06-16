@@ -50,9 +50,10 @@ Tools (tools/): files, web, websearch, research, browser, desktop, email,
         music, transcribe (OCR/Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
-        agent loop — plan/act/observe/replan over any tool), reminders.py,
-        metrics.py, health.py, agents/control_room.py (specialist roster),
-        safety.py, audit.py, memory.py, token_vault.py (DPAPI), config.py
+        agent loop — plan/act/observe/replan over any tool), scheduler.py
+        (recurring jobs), reminders.py, metrics.py, health.py,
+        agents/control_room.py (specialist roster), safety.py, audit.py,
+        memory.py, token_vault.py (DPAPI), config.py
 ```
 
 - `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
