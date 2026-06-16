@@ -20,6 +20,12 @@ class HeuristicPlannerProvider:
         if re.search(r"\b(?:briefing|daily brief|morning brief|status brief|catch me up)\b", lowered):
             return self._command("briefing", "User wants a compact assistant status briefing.", 0.86)
 
+        # Explicit autonomous-agent phrasing wins over keyword fallbacks below, so
+        # "autonomously summarize X" runs the loop instead of a one-shot summarize.
+        agent = self._agent(raw)
+        if agent:
+            return agent
+
         casual = self._casual(lowered)
         if casual:
             return casual
@@ -221,6 +227,28 @@ class HeuristicPlannerProvider:
         if not goal:
             return None
         return self._command(f"autopilot {goal}", "User wants unattended safe local work.", 0.82)
+
+    def _agent(self, text: str) -> PlanDecision | None:
+        lowered = text.lower().strip()
+        if lowered in {"agent runs", "agent history", "autonomous runs"}:
+            return self._command("agent runs", "User wants the autonomous agent run history.", 0.85)
+        if lowered in {"agent last", "agent status"}:
+            return self._command("agent last", "User wants the latest autonomous agent run.", 0.85)
+        # Explicit "autonomously <goal>" / "agent, <goal>" style triggers only, so normal
+        # requests like "do something vague" are never hijacked into a tool-using loop.
+        match = re.search(
+            r"\b(?:autonomously|on your own|by yourself)\s+(.+)$", text, re.IGNORECASE
+        )
+        if not match:
+            match = re.search(r"\bagent\s*[,:\-]\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            match = re.search(r"\b(?:take over|go ahead) and\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        goal = match.group(1).strip().strip("'\"")
+        if not goal:
+            return None
+        return self._command(f"agent run {goal}", "User wants the autonomous agent to pursue a goal.", 0.8)
 
     def _terminal(self, text: str) -> PlanDecision | None:
         match = re.search(

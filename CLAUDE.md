@@ -49,9 +49,10 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, web, websearch, research, browser, desktop, email,
         music, transcribe (OCR/Whisper), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
-        workflows.py, autopilot.py, reminders.py, metrics.py, health.py,
-        agents/control_room.py (specialist roster), safety.py, audit.py,
-        memory.py, token_vault.py (DPAPI), config.py
+        workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
+        agent loop — plan/act/observe/replan over any tool), reminders.py,
+        metrics.py, health.py, agents/control_room.py (specialist roster),
+        safety.py, audit.py, memory.py, token_vault.py (DPAPI), config.py
 ```
 
 - `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
@@ -62,6 +63,14 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
   means updating `app.py`'s `build_orchestrator` AND the test builder in
   `tests/test_orchestrator.py` (this is the usual source of a wave of failures
   after a merge — fix the builder).
+- **Two autonomy layers, don't conflate them.** `autopilot.py` runs a *static*
+  plan restricted to a safe read-only allowlist (blocks anything risky).
+  `reasoning.py`'s `AutonomousAgent` is the *LLM-driven* plan/act/observe/replan
+  loop that can use any command (risky ones still hit the approval gate). Its
+  reasoning brain is an injected `decide(prompt)->str` callable so the loop is
+  unit-tested offline; in `orchestrator._build_agent_brain` it's backed by
+  `provider.answer` on the smart (or fast) tier. Persisted via the `agent_runs`
+  AgentContext field.
 
 ## LLM brain — tiered models
 

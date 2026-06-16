@@ -28,6 +28,7 @@ approval gate.
 - Persistent parallel task dashboard that records `multi` subtask status/results and can retry failed subtasks across app restarts.
 - Persistent sequential workflows: run multi-step plans across tools, stop on first failure, and retry from the failed step.
 - Autopilot mode: plans and runs unattended safe local/read-only work, while blocking commands that need supervision or approval.
+- Autonomous agent mode (`agent run <goal>`): an LLM-driven plan → act → observe → replan loop that pursues a goal across many tools, deciding the next command from what it just observed. Unlike autopilot it can genuinely act — risky steps still pass through the approval gate — and every run is persisted (`agent runs`, `agent last`).
 - Persistent local reminders: add dated reminders, list active/upcoming items, show due items, and mark them complete.
 - Agent control room: inspect specialist agents, live working/idle/available counts, and per-agent details.
 - Searchable local knowledge base: index text/PDF/DOCX/image/audio/video into a persistent index and recall across it offline with TF-IDF-style ranking.
@@ -150,6 +151,9 @@ autopilot daily briefing
 autopilot project health
 autopilot workflow briefing ;; tasks ;; run command dir
 autopilot status
+agent run summarize README.md and index it into the knowledge base
+agent runs
+agent last
 open url https://example.com
 open website example.com
 run command dir
@@ -412,6 +416,13 @@ If a planned step would send data, write files, open external URLs, run shell
 commands, or otherwise need approval, autopilot records it as blocked instead
 of waiting for confirmation.
 
+`agent run <goal>` is the autonomous counterpart: the LLM picks one command at a
+time from the agent's command set, runs it, reads the result, and decides the
+next move, up to a step cap. It is *not* limited to the safe allowlist — risky
+steps still go through the approval gate (and are auto-denied in the guarded web
+UI), so it can do real work while staying safe. Requires a configured LLM; with
+only the offline heuristic router it reports that no reasoning model is available.
+
 The CLI approval gate prompts in the terminal. The GUI approval gate shows a
 visible modal dialog before continuing.
 
@@ -429,6 +440,7 @@ src/laptop_agent/
   gui.py           Tkinter desktop interface.
   config.py        Runtime paths and settings.
   autopilot.py     Unattended safe-work planner and run history.
+  reasoning.py     Autonomous agent loop (plan/act/observe/replan) and run history.
   memory.py        Local JSON profile/preferences store.
   planner/         Natural-language route planners.
   knowledge.py     Persistent searchable index over extracted text.

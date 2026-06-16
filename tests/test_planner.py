@@ -107,6 +107,21 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "autopilot status")
 
+    def test_routes_autonomous_agent_goal(self) -> None:
+        decision = self.plan("autonomously summarize the README and index it")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "agent run summarize the README and index it")
+
+    def test_routes_agent_runs(self) -> None:
+        decision = self.plan("agent runs")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "agent runs")
+
+    def test_do_phrase_is_not_hijacked_into_agent(self) -> None:
+        # "do something vague" must NOT route to the autonomous agent.
+        decision = self.plan("do something vague")
+        self.assertFalse(decision.is_command and decision.command.startswith("agent run"))
+
     def test_routes_oauth_email_draft(self) -> None:
         decision = self.plan("draft email using gmail to ada@example.com about hello")
         self.assertTrue(decision.is_command)

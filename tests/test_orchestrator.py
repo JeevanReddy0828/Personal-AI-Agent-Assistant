@@ -22,6 +22,7 @@ from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.autopilot import AutopilotTracker
+from laptop_agent.reasoning import AgentRunTracker
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
@@ -114,6 +115,7 @@ class OrchestratorTests(unittest.TestCase):
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
                 obsidian=ObsidianVault(config.obsidian_vault),
                 autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
+                agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
             ),
             Planner(HeuristicPlannerProvider()),
         )
@@ -591,6 +593,38 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(result.data["autopilot"]["blocked_count"], 1)
             blocked = [step for step in result.data["autopilot"]["steps"] if step["status"] == "blocked"]
             self.assertEqual(blocked[0]["command"], "run command echo hello")
+
+    def test_autonomous_agent_runs_to_completion(self) -> None:
+        class ScriptedProvider:
+            def __init__(self):
+                self.calls = 0
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                self.calls += 1
+                if self.calls == 1:
+                    return "THOUGHT: check what I know\nACTION: knowledge stats"
+                return "THOUGHT: done\nFINAL: Checked the knowledge base; it is ready."
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.smart_planner = Planner(ScriptedProvider())
+            result = asyncio.run(orchestrator.handle("agent run check my knowledge base"))
+            self.assertTrue(result.ok)
+            self.assertIn("knowledge base", result.message)
+            self.assertEqual(result.data["agent"]["status"], "ok")
+            self.assertEqual(result.data["agent"]["ok_count"], 1)
+            self.assertEqual(result.data["steps"][0]["command"], "knowledge stats")
+
+            last = asyncio.run(orchestrator.handle("agent last"))
+            self.assertTrue(last.ok)
+            self.assertEqual(last.data["agent"]["run"], 1)
+
+    def test_autonomous_agent_without_llm_fails_clearly(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))  # heuristic planner only — no answer()
+            result = asyncio.run(orchestrator.handle("agent run do something"))
+            self.assertFalse(result.ok)
+            self.assertIn("reasoning model", result.message.lower())
 
     def test_natural_language_reminder_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

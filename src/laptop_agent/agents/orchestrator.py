@@ -13,6 +13,7 @@ from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.metrics import system_metrics
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
+from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
@@ -45,6 +46,7 @@ class AgentContext:
     transcribe: TranscribeTool
     audit: AuditLogger
     autopilot: AutopilotTracker
+    agent_runs: AgentRunTracker
     tasks: TaskTracker
     workflows: WorkflowTracker
     reminders: ReminderStore
@@ -175,6 +177,15 @@ class AgentOrchestrator:
 
         if lowered.startswith("reminder done "):
             return self._reminder_done(command[len("reminder done ") :].strip())
+
+        if lowered in {"agent runs", "agent history", "autonomous runs"}:
+            return self._agent_runs()
+
+        if lowered in {"agent last", "agent status", "autonomous status"}:
+            return self._agent_last()
+
+        if lowered.startswith("agent run "):
+            return await self._run_agent(command[len("agent run ") :].strip())
 
         if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
             return self._agent_control_room()
@@ -548,6 +559,8 @@ class AgentOrchestrator:
                 "  autopilot <goal>",
                 "  autopilot workflow <safe command 1> ;; <safe command 2>",
                 "  autopilot status",
+                "  agent run <goal>   (autonomous multi-step: plans, acts, observes, repeats)",
+                "  agent runs | agent last",
                 "  reminder add <YYYY-MM-DD HH:MM> <message>",
                 "  reminders | reminders due | reminder done <id>",
                 "  agents | agent <id>",
@@ -792,6 +805,96 @@ class AgentOrchestrator:
         return ToolResult.success(
             f"Latest autopilot run: {latest['status']} ({latest['ok_count']} ok, {latest['failed_count']} failed, {latest['blocked_count']} blocked).",
             autopilot=latest,
+        )
+
+    # Commands the autonomous agent may choose from. Canonical forms the orchestrator
+    # dispatches directly (no planner), with argument placeholders for the model to fill.
+    _AGENT_COMMANDS = (
+        "scan files <path>",
+        "read file <path>",
+        "summarize file <path>",
+        "ask file <path> about <question>",
+        "extract text <path>",
+        "index file <path>",
+        "knowledge stats",
+        "knowledge list",
+        "recall <query>",
+        "ask knowledge <question>",
+        "web search <query>",
+        "research <topic>",
+        "open url <https url>",
+        "briefing",
+        "reminders due",
+        "reminder add <YYYY-MM-DD> <text>",
+        "tasks",
+        "memory",
+        "audit",
+    )
+
+    def _agent_reference(self) -> str:
+        return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
+
+    def _build_agent_brain(self):
+        """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
+
+        Prefers the smart tier for reasoning, then the fast planner. Returns a brain that
+        yields '' when no LLM is configured, so the loop ends with a clear message instead
+        of looping blindly on the heuristic router.
+        """
+        planner = self.smart_planner or self.planner
+        provider = planner.provider if planner else None
+        answer = getattr(provider, "answer", None)
+        if answer is None:
+            return lambda _prompt: ""
+        profile = self.context.memory.get_profile()
+
+        def decide(prompt: str) -> str:
+            return answer(prompt, profile, None, None) or ""
+
+        return decide
+
+    async def _run_agent(self, goal: str) -> ToolResult:
+        goal = goal.strip()
+        if not goal:
+            return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
+
+        agent_id = self.control_room.start(f"agent: {goal}")
+        agent = AutonomousAgent(
+            decide=self._build_agent_brain(),
+            execute=lambda command: self.handle(command, _allow_planner=False),
+            command_reference=self._agent_reference(),
+            max_steps=6,
+        )
+        try:
+            result = await agent.run(goal)
+        except Exception as exc:  # defensive — keep the control room consistent
+            self.control_room.finish(agent_id, str(exc), ok=False)
+            return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)
+        self.control_room.finish(agent_id, result.final_answer, ok=result.status != "failed")
+
+        run = self.context.agent_runs.record_run(result)
+        payload = dict(
+            goal=goal,
+            answer=result.final_answer,
+            steps=[step.__dict__ for step in result.steps],
+            agent=run,
+        )
+        if result.status == "failed":
+            return ToolResult.failure(result.final_answer, **payload)
+        return ToolResult.success(result.final_answer, **payload)
+
+    def _agent_runs(self) -> ToolResult:
+        runs = self.context.agent_runs.all_runs()
+        return ToolResult.success(f"{len(runs)} autonomous run(s) on record.", agent_runs=runs)
+
+    def _agent_last(self) -> ToolResult:
+        latest = self.context.agent_runs.latest()
+        if latest is None:
+            return ToolResult.success("No autonomous agent runs yet.", agent=None)
+        return ToolResult.success(
+            f"Latest agent run: {latest['status']} ({latest['ok_count']} ok, "
+            f"{latest['failed_count']} failed across {latest['step_count']} step(s)).",
+            agent=latest,
         )
 
     def _extract_text_any(self, path: str) -> ToolResult:
