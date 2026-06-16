@@ -4,7 +4,7 @@ import asyncio
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from laptop_agent.agents.control_room import AgentControlRoom
@@ -201,7 +201,7 @@ class AgentOrchestrator:
         if lowered in {"agent runs", "agent history", "autonomous runs"}:
             return self._agent_runs()
 
-        if lowered in {"agent last", "agent status", "autonomous status"}:
+        if lowered in {"agent last", "agent status", "last agent run"}:
             return self._agent_last()
 
         if lowered.startswith("agent run "):
@@ -981,7 +981,7 @@ class AgentOrchestrator:
             )
         when, spec = (part.strip() for part in expression.split("::", 1))
         try:
-            job = self.context.scheduler.add(kind, spec, when, datetime.now(UTC))
+            job = self.context.scheduler.add(kind, spec, when, datetime.now().astimezone())
         except ScheduleError as exc:
             return ToolResult.failure(str(exc))
         return ToolResult.success(
@@ -1008,7 +1008,7 @@ class AgentOrchestrator:
         """Run every job whose schedule is due. Called by the background ticker and the
         'schedule run due' command. Each job runs through handle()/run_agent so risky steps
         still hit the approval gate."""
-        moment = now or datetime.now(UTC)
+        moment = now or datetime.now().astimezone()
         due = self.context.scheduler.due_jobs(moment)
         ran = []
         for job in due:
@@ -1021,7 +1021,7 @@ class AgentOrchestrator:
                 message = result.message
             except Exception as exc:
                 status, message = "failed", str(exc)
-            self.context.scheduler.mark_ran(job.id, datetime.now(UTC), status)
+            self.context.scheduler.mark_ran(job.id, datetime.now().astimezone(), status)
             ran.append({"id": job.id, "kind": job.kind, "spec": job.spec, "status": status, "message": message})
         if not ran:
             return ToolResult.success("No scheduled jobs are due.", ran=[])

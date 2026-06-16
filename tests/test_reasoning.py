@@ -59,6 +59,14 @@ class ParseTests(unittest.TestCase):
         d = parse_agent_decision("ACTION: none")
         self.assertTrue(d.is_final)
 
+    def test_thought_only_reply_drops_the_label(self) -> None:
+        # A reply that is only a THOUGHT (no ACTION/FINAL) should surface the thought
+        # text as the answer, without the literal 'THOUGHT:' prefix leaking to the user.
+        d = parse_agent_decision("THOUGHT: I should summarize the README")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "I should summarize the README")
+        self.assertNotIn("THOUGHT", d.final_answer)
+
 
 class AutonomousAgentTests(unittest.TestCase):
     def test_runs_steps_then_finishes(self) -> None:

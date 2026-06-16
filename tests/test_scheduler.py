@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from laptop_agent.scheduler import (
@@ -65,6 +65,16 @@ class DueLogicTests(unittest.TestCase):
         self.assertFalse(s.is_due(_t(9, 0), _t(8, 1)))
         # Next day it is due again.
         self.assertTrue(s.is_due(_t(8, 1) + timedelta(days=1), _t(8, 1)))
+
+    def test_daily_target_uses_now_timezone_not_utc(self) -> None:
+        # The daily target is built in the tz of `now` (callers pass local time), so a
+        # job set for 08:00 fires at 08:00 local — not 08:00 UTC.
+        s = Schedule(kind="daily", hour=8, minute=0)
+        austin = timezone(timedelta(hours=-5))
+        before = datetime(2026, 6, 16, 7, 59, tzinfo=austin)
+        after = datetime(2026, 6, 16, 8, 1, tzinfo=austin)
+        self.assertFalse(s.is_due(before, None))
+        self.assertTrue(s.is_due(after, None))
 
 
 class SchedulerStoreTests(unittest.TestCase):

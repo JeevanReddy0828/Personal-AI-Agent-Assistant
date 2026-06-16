@@ -74,9 +74,14 @@ def parse_agent_decision(text: str) -> AgentDecision:
             return AgentDecision(thought=thought, command=command, final_answer="", is_final=False)
 
     # No structured headers: the model just answered. Treat the whole thing as the
-    # final answer so the loop ends gracefully instead of spinning. Drop a leading
-    # THOUGHT: header if that is all it emitted, so the user sees clean prose.
-    answer = _THOUGHT_RE.sub("", raw).strip() if thought_match else raw
+    # final answer so the loop ends gracefully instead of spinning. Strip a THOUGHT:
+    # header so the user sees clean prose; if the reply was *only* a thought, surface
+    # that thought's text (without the label) rather than the raw 'THOUGHT: …' line.
+    if thought_match:
+        stripped = _THOUGHT_RE.sub("", raw).strip()
+        answer = stripped or thought
+    else:
+        answer = raw
     return AgentDecision(thought=thought, command="", final_answer=answer or raw, is_final=True)
 
 
