@@ -60,6 +60,12 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
   entry. It checks direct command prefixes, then routes via heuristic → LLM.
   Tool results are turned into plain language by `_humanize` (local, no extra
   LLM call). Chat replies stream via the `on_token` callback when provided.
+- **Freshness path.** Before answering a chat turn, `_needs_fresh_info` flags
+  time-sensitive questions (keywords + patterns like "did X end", recent years);
+  `_grounded_news_answer` then runs a web search (one retry for the flaky free
+  DDG endpoint) and synthesizes a cited answer from the results, preferring live
+  data over training knowledge. If search yields nothing it falls back to model
+  chat but appends a "may be out of date" disclaimer (`stale_warning` in data).
 - **AgentContext** is a frozen dataclass of all tools/subsystems. Adding a field
   means updating `app.py`'s `build_orchestrator` AND the test builder in
   `tests/test_orchestrator.py` (this is the usual source of a wave of failures
