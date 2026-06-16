@@ -630,6 +630,73 @@ class OrchestratorTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn("reasoning model", result.message.lower())
 
+    def test_needs_fresh_info_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            for q in [
+                "did the iran war end?",
+                "what's the latest on the election",
+                "who won the 2026 finals",
+                "is the bridge still closed",
+                "update on the ceasefire",
+            ]:
+                self.assertTrue(o._needs_fresh_info(q), q)
+            for q in ["what is 2 + 2", "write a poem about the sea", "define entropy"]:
+                self.assertFalse(o._needs_fresh_info(q), q)
+
+    def test_fresh_question_answers_from_web(self) -> None:
+        class DualProvider:
+            def __init__(self):
+                self.saw_web = False
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                if "WEB SEARCH RESULTS" in text:
+                    self.saw_web = True
+                    return "As of today, a ceasefire holds. [1]"
+                return "(generic non-web reply)"
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            provider = DualProvider()
+            orchestrator.smart_planner = Planner(provider)
+            result = asyncio.run(orchestrator.handle("did the iran war end?"))
+            self.assertTrue(result.ok)
+            self.assertTrue(result.data.get("grounded"))
+            self.assertTrue(provider.saw_web)
+            self.assertEqual(len(result.data["sources"]), 2)
+            self.assertIn("Sources", result.message)
+            self.assertIn("https://example.com/1", result.message)
+
+    def test_non_fresh_question_skips_web(self) -> None:
+        class DualProvider:
+            def __init__(self):
+                self.saw_web = False
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                if "WEB SEARCH RESULTS" in text:
+                    self.saw_web = True
+                return "a calm poem about waves"
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            provider = DualProvider()
+            orchestrator.smart_planner = Planner(provider)
+            result = asyncio.run(orchestrator.handle("write a poem about the sea"))
+            self.assertTrue(result.ok)
+            self.assertFalse(provider.saw_web)
+            self.assertNotIn("grounded", result.data)
+
+    def test_fresh_question_warns_when_no_llm_to_ground(self) -> None:
+        # Heuristic-only build (no answer()): a time-sensitive question can't be grounded,
+        # so the reply should carry an honest "may be out of date" warning rather than
+        # sound confident.
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("what is the latest news on the election"))
+            self.assertTrue(result.ok)
+            self.assertTrue(result.data.get("stale_warning"))
+            self.assertIn("out of date", result.message.lower())
+
     def test_schedule_add_list_and_run_due(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))

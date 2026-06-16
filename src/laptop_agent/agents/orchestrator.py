@@ -544,6 +544,15 @@ class AgentOrchestrator:
                 )
                 return result
             if planned.is_chat and planned.response:
+                # Time-sensitive questions ("latest", "did X end", a recent year, …) must
+                # not be answered from stale model knowledge — search the web first and
+                # answer grounded in the results. Falls back to normal chat if there is no
+                # LLM or the search returns nothing.
+                needs_fresh = self._needs_fresh_info(command)
+                if needs_fresh:
+                    grounded = self._grounded_news_answer(command, history_turns, on_token)
+                    if grounded is not None:
+                        return grounded
                 response = planned.response
                 # Escalate by task complexity: fast -> smart -> ultra.
                 tier_planner, tier_label = self._pick_chat_model(self._complexity(command))
@@ -567,8 +576,16 @@ class AgentOrchestrator:
                         better = answer(command, profile, None, history_turns)
                         if better:
                             response = better
+                if needs_fresh:
+                    # We wanted live data but couldn't get it (no results / search down) — be
+                    # honest that this answer may be stale rather than sounding confident.
+                    note = "\n\n_Note: I couldn't reach live web search just now, so this may be out of date. Try again, or ask me to “search the web for …”._"
+                    response = response + note
+                    if on_token is not None:
+                        on_token(note)
                 return ToolResult.success(
                     response,
+                    stale_warning=needs_fresh,
                     planner={
                         "source_text": command,
                         "confidence": planned.confidence,
@@ -578,6 +595,102 @@ class AgentOrchestrator:
                 )
 
         return self._conversation_fallback(command)
+
+    # Signals that a question is about current/volatile facts and should be answered from
+    # live web results rather than the model's training data.
+    _FRESH_KEYWORDS = (
+        "latest", "currently", "current ", "right now", "today", "tonight", "yesterday",
+        "this week", "this month", "this year", "recent", "breaking", "so far", "as of",
+        "up to date", "newest", " news", "this morning", "at the moment", "these days",
+        "ongoing", "just happened", "this weekend", "nowadays", "this season",
+    )
+    _FRESH_PATTERNS = (
+        r"\bwho (?:is|are|was|won) (?:the )?(?:current|new|latest|winning)?\b",
+        r"\bwho won\b",
+        r"\bdid .+?\b(?:end|win|won|lose|happen|die|resign|drop|launch|release|pass)\b",
+        r"\bis .+?\b(?:still|over|dead|alive|out|available|open|closed|winning)\b",
+        r"\bhas .+?\b(?:ended|started|launched|released|happened|died|won)\b",
+        r"\bwhat(?:'s| is| are| was)?\b.*\b(?:happening|the latest|new|going on|status)\b",
+        r"\b(?:price|stock|score|weather|forecast|exchange rate)\b",
+        r"\b20(?:2[4-9]|3\d)\b",  # years 2024-2039 (recent/future vs. training cutoff)
+        r"\belection\b",
+        r"\bwho is (?:the )?president\b",
+        r"\brelease date\b",
+        r"\bwhen (?:is|does|will|did)\b.*\b(?:release|come out|launch|start|happen)\b",
+        r"\bwar\b.*\b(?:end|ended|over|still|update|status|now|going|latest)\b",
+        r"\b(?:update|news|latest) on\b",
+    )
+
+    def _needs_fresh_info(self, text: str) -> bool:
+        if self.context.websearch is None:
+            return False
+        lowered = " " + text.lower()
+        if any(keyword in lowered for keyword in self._FRESH_KEYWORDS):
+            return True
+        return any(re.search(pattern, lowered) for pattern in self._FRESH_PATTERNS)
+
+    def _grounded_news_answer(self, command: str, history_turns, on_token) -> ToolResult | None:
+        """Search the web and synthesize a cited answer. Returns None (so the caller falls
+        back to normal chat) when there is no LLM or the search yields nothing."""
+        provider = (self.smart_planner or self.planner).provider if (self.smart_planner or self.planner) else None
+        answer = getattr(provider, "answer", None)
+        if answer is None:
+            return None  # no LLM to synthesize — let normal chat handle it
+        # The free DuckDuckGo endpoint is occasionally rate-limited; one retry turns most
+        # transient empty results into a usable answer instead of a silent stale fallback.
+        results = None
+        for _attempt in range(2):
+            search = self.context.websearch.search(command, limit=5)
+            results = search.data.get("results") if search.ok else None
+            if results:
+                break
+        if not results:
+            return None
+
+        today = datetime.now().astimezone().strftime("%A, %B %d, %Y")
+        sources = []
+        lines = []
+        for i, item in enumerate(results, 1):
+            title = str(item.get("title", "")).strip()
+            snippet = str(item.get("snippet", "")).strip()
+            url = str(item.get("url", "")).strip()
+            lines.append(f"[{i}] {title}\n{snippet}\n({url})")
+            sources.append({"n": i, "title": title, "url": url})
+        context = "\n\n".join(lines)
+        prompt = (
+            f"Today is {today}. Answer the user's question using the web search results below, "
+            f"which are current. Prefer this live information over any prior knowledge, lead with the "
+            f"most up-to-date facts, and cite sources inline like [1]. If the results don't clearly "
+            f"answer it, say what is and isn't known.\n\n"
+            f"QUESTION: {command}\n\nWEB SEARCH RESULTS:\n{context}"
+        )
+        profile = self.context.memory.get_profile()
+        streamer = getattr(provider, "stream_answer", None)
+        streamed_live = on_token is not None and streamer is not None
+        text = ""
+        if streamed_live:
+            chunks: list[str] = []
+            for token in streamer(prompt, profile, None, history_turns):
+                chunks.append(token)
+                on_token(token)
+            text = "".join(chunks).strip()
+        if not text:
+            text = (answer(prompt, profile, None, history_turns) or "").strip()
+        if not text:
+            return None
+
+        footer = "\n\n**Sources**\n" + "\n".join(
+            f"{s['n']}. [{s['title'] or s['url']}]({s['url']})" for s in sources if s["url"]
+        )
+        if streamed_live and on_token is not None:
+            on_token(footer)  # stream the footer so the live view matches the final message
+        return ToolResult.success(
+            text + footer,
+            grounded=True,
+            sources=sources,
+            query=search.data.get("query", command),
+            planner={"source_text": command, "model": "web+llm", "explanation": "Answered from live web search."},
+        )
 
     @staticmethod
     def help_text() -> str:
