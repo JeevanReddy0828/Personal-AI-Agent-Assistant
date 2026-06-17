@@ -97,7 +97,9 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 
 Routing uses few-shot **message turns** for reliability. The 8B alone won't route
 without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE),
-streams autonomous-agent traces via `/api/agent`, exposes `/api/health`, and runs
+streams autonomous-agent traces via `/api/agent`, exposes `/api/health`, serves a
+Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
+disable, routed through the same `schedule …` orchestrator commands), and runs
 a 60s background `_schedule_ticker` for due scheduled jobs; it keeps the model
 warm to avoid cold-start latency.
 
@@ -110,7 +112,7 @@ python -c "from laptop_agent.webui import run_desktop; run_desktop()"   # deskto
 python -m laptop_agent.webui                                            # browser tab
 ```
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (299+ passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (307+ passing).
 
 ## Working alongside another agent (Codex)
 

@@ -64,6 +64,12 @@ def _compose_command(command: str, attachments: object) -> str:
     )
 
 
+def _schedule_snapshot() -> dict:
+    """Current scheduled jobs as plain JSON for the web panel."""
+    result = asyncio.run(_orchestrator.handle("schedule list"))
+    return {"ok": result.ok, "message": result.message, "jobs": _json_safe(result.data.get("jobs", []))}
+
+
 def _model_label(provider) -> str:
     model = getattr(provider, "model", "") or ""
     return model.split("/")[-1][:20] if model else "llm"
@@ -300,6 +306,23 @@ PAGE = r"""<!doctype html>
   .agentcard .status{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase}
   .agentcard .role{font-size:11px;color:var(--muted);line-height:1.35;margin-top:5px}
   .agentcard .task{font-family:var(--mono);font-size:10px;color:var(--amber-b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
+  /* scheduled jobs panel */
+  .schedform{display:flex;flex-direction:column;gap:6px;margin:6px}
+  .schedform select,.schedform input{background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 8px;outline:none}
+  .schedform select:focus,.schedform input:focus{border-color:var(--amber-soft)}
+  .schedform button{background:var(--amber-soft);border:none;border-radius:7px;color:#0a0c10;font-family:var(--display);font-size:11px;letter-spacing:1px;padding:8px;cursor:pointer}
+  .schedform button:hover{filter:brightness(1.12)}
+  .schedmsg{font-family:var(--mono);font-size:10px;color:var(--muted);min-height:12px}
+  .schedmsg.err{color:var(--amber-b)}
+  .schedcard{margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+  .schedcard.off{opacity:.5}
+  .schedcard .top{display:flex;align-items:center;gap:7px}
+  .schedcard .kind{font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--amber-soft)}
+  .schedcard .when{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted)}
+  .schedcard .spec{font-size:11px;color:var(--text);line-height:1.35;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .schedcard .meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:5px;display:flex;gap:9px;align-items:center}
+  .schedcard .meta button{background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;text-transform:uppercase;letter-spacing:.5px}
+  .schedcard .meta button:hover{color:var(--amber-b)}
 
   /* leave the hero core visible above the overlay so its colour shows in voice mode */
   .voice{position:absolute;inset:150px 0 0 0;z-index:5;background:rgba(8,9,13,.92);backdrop-filter:blur(7px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:var(--ice)}
@@ -403,6 +426,17 @@ PAGE = r"""<!doctype html>
       <summary>Agent control room</summary>
       <div id="agentSummary"></div>
       <div id="agentList"></div>
+    </details>
+    <details class="conn" id="schedPanel">
+      <summary>Scheduled jobs</summary>
+      <div class="schedform">
+        <select id="schedKind"><option value="command">command</option><option value="agent">agent</option></select>
+        <input id="schedWhen" type="text" placeholder="when — e.g. daily at 08:00" autocomplete="off">
+        <input id="schedSpec" type="text" placeholder="command or goal to run" autocomplete="off">
+        <button id="schedAdd" type="button">Schedule it</button>
+        <div class="schedmsg" id="schedMsg"></div>
+      </div>
+      <div id="schedList"></div>
     </details>
   </aside>
 </div>
@@ -670,6 +704,35 @@ PAGE = r"""<!doctype html>
   }catch(e){}}
   setInterval(loadAgents,2500);loadAgents();
 
+  /* scheduled jobs */
+  function renderSchedule(jobs){
+    const list=document.getElementById('schedList');
+    if(!jobs||!jobs.length){list.innerHTML='<div class="note">No scheduled jobs yet.</div>';return;}
+    list.innerHTML=jobs.map(j=>{
+      const last=j.last_run_at?('· last '+esc(String(j.last_run_at).slice(0,16).replace('T',' '))+(j.last_status?' ('+esc(j.last_status)+')':'')):'· not run yet';
+      const toggle=j.enabled?'disable':'enable';
+      return '<div class="schedcard'+(j.enabled?'':' off')+'"><div class="top"><span class="kind">'+esc(j.kind)+'</span><span class="when">'+esc(j.schedule_text||'')+'</span></div>'+
+        '<div class="spec">'+esc(j.spec||'')+'</div>'+
+        '<div class="meta"><span>'+(j.run_count||0)+' run(s) '+last+'</span>'+
+        '<button data-act="'+toggle+'" data-id="'+j.id+'">'+toggle+'</button>'+
+        '<button data-act="remove" data-id="'+j.id+'">remove</button></div></div>';
+    }).join('');
+    list.querySelectorAll('button[data-act]').forEach(b=>{b.onclick=()=>postSched({action:b.dataset.act,id:b.dataset.id});});
+  }
+  async function loadSchedule(){try{const d=await (await fetch('/api/schedule')).json();renderSchedule(d.jobs);}catch(e){}}
+  async function postSched(payload){
+    const msg=document.getElementById('schedMsg');msg.className='schedmsg';msg.textContent='…';
+    try{const r=await fetch('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json();msg.textContent=d.message||'';msg.className='schedmsg'+(d.ok?'':' err');renderSchedule(d.jobs);
+      if(d.ok&&payload.action==='add'){document.getElementById('schedWhen').value='';document.getElementById('schedSpec').value='';}
+    }catch(e){msg.textContent='Could not reach the scheduler.';msg.className='schedmsg err';}
+  }
+  document.getElementById('schedAdd').onclick=()=>postSched({action:'add',kind:document.getElementById('schedKind').value,
+    when:document.getElementById('schedWhen').value,spec:document.getElementById('schedSpec').value});
+  document.getElementById('schedSpec').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('schedAdd').click();});
+  document.getElementById('schedPanel').addEventListener('toggle',function(){if(this.open)loadSchedule();});
+  setInterval(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
+
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
@@ -792,6 +855,8 @@ class Handler(BaseHTTPRequestHandler):
                     "notes": listing.data.get("notes", []),
                 },
             )
+        elif self.path == "/api/schedule":
+            self._json(200, _schedule_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -810,6 +875,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_stream()
         elif self.path == "/api/agent":
             self._handle_agent()
+        elif self.path == "/api/schedule":
+            self._handle_schedule()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -903,6 +970,56 @@ class Handler(BaseHTTPRequestHandler):
         dest = UPLOAD_DIR / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_schedule(self) -> None:
+        """Add / remove / toggle a scheduled job, then return the refreshed list.
+
+        Mutations route through the same orchestrator commands the CLI uses, so the
+        parsing/validation and approval semantics stay identical; the response always
+        carries the current job list so the panel re-renders from one round-trip.
+        """
+        try:
+            payload = self._read_json()
+            action = str(payload.get("action", "")).strip().lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+
+        message = ""
+        ok = True
+        if action == "add":
+            kind = "agent" if str(payload.get("kind", "command")).strip().lower() == "agent" else "command"
+            when = str(payload.get("when", "")).strip()
+            spec = str(payload.get("spec", "")).strip()
+            if not when or not spec:
+                self._json(400, {"ok": False, "message": "Provide both a schedule and a command/goal.", "jobs": []})
+                return
+            prefix = "schedule agent " if kind == "agent" else "schedule "
+            result = asyncio.run(_orchestrator.handle(f"{prefix}{when} :: {spec}"))
+            ok, message = result.ok, result.message
+        elif action == "remove":
+            try:
+                job_id = int(str(payload.get("id", "")).lstrip("#"))
+            except ValueError:
+                self._json(400, {"ok": False, "message": "Invalid job id.", "jobs": []})
+                return
+            result = asyncio.run(_orchestrator.handle(f"schedule remove {job_id}"))
+            ok, message = result.ok, result.message
+        elif action in {"enable", "disable"}:
+            try:
+                job_id = int(str(payload.get("id", "")).lstrip("#"))
+            except ValueError:
+                self._json(400, {"ok": False, "message": "Invalid job id.", "jobs": []})
+                return
+            changed = _orchestrator.context.scheduler.set_enabled(job_id, action == "enable")
+            ok = changed
+            message = f"Job #{job_id} {action}d." if changed else f"No scheduled job #{job_id}."
+        else:
+            self._json(400, {"ok": False, "message": "Unknown action.", "jobs": []})
+            return
+
+        snapshot = _schedule_snapshot()
+        self._json(200, {"ok": ok, "message": message, "jobs": snapshot["jobs"]})
 
     def _handle_command(self) -> None:
         try:
