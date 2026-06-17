@@ -186,6 +186,42 @@ def serper_search_backend(api_key: str, transport: HttpTransport | None = None) 
     return backend
 
 
+def serpapi_search_backend(api_key: str, transport: HttpTransport | None = None) -> SearchBackend:
+    """SerpApi (serpapi.com, Google results) backend. Note: distinct from Serper.dev.
+    Docs: https://serpapi.com/ ."""
+    send = transport or _http_request
+
+    def backend(query: str, limit: int) -> list[dict[str, str]]:
+        url = "https://serpapi.com/search.json?" + urllib.parse.urlencode(
+            {"engine": "google", "q": query, "api_key": api_key, "num": limit}
+        )
+        headers = {"Accept": "application/json", "User-Agent": _USER_AGENT}
+        body = send(url, headers, None)
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise WebSearchError(f"SerpApi returned invalid JSON: {exc}") from exc
+        results = []
+        for item in payload.get("organic_results") or []:
+            title = _normalize(str(item.get("title", "")))
+            url_value = str(item.get("link", "")).strip()
+            snippet = _normalize(str(item.get("snippet", "")))
+            if title and url_value:
+                results.append({"title": title, "url": url_value, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results
+
+    return backend
+
+
+_API_BACKENDS = {
+    "brave": brave_search_backend,
+    "serper": serper_search_backend,
+    "serpapi": serpapi_search_backend,
+}
+
+
 def build_search_backend(
     provider: str | None,
     api_key: str | None,
@@ -198,8 +234,8 @@ def build_search_backend(
     directly. ``primary``/``fallback`` are injectable for testing."""
     fallback = fallback or _duckduckgo_backend
     provider = (provider or "").strip().lower()
-    if primary is None and api_key and provider in {"brave", "serper"}:
-        primary = brave_search_backend(api_key) if provider == "brave" else serper_search_backend(api_key)
+    if primary is None and api_key and provider in _API_BACKENDS:
+        primary = _API_BACKENDS[provider](api_key)
     if primary is None:
         return fallback
 

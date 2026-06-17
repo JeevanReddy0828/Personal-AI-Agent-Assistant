@@ -76,19 +76,23 @@ def load_config() -> AppConfig:
     except ValueError:
         imap_port = 993
 
-    # Optional real search API (Brave / Serper). Infer the provider from whichever
-    # key is present if not set explicitly; absent → fall back to DuckDuckGo.
+    # Optional real search API (Brave / Serper.dev / SerpApi). Infer the provider from
+    # whichever key is present if not set explicitly; absent → fall back to DuckDuckGo.
     search_provider = os.environ.get("SEARCH_PROVIDER", "").strip().lower()
     search_api_key = (
         os.environ.get("SEARCH_API_KEY")
         or os.environ.get("BRAVE_API_KEY")
         or os.environ.get("SERPER_API_KEY")
+        or os.environ.get("SERPAPI_API_KEY")
+        or os.environ.get("SERPAPI_KEY")
     )
     if not search_provider:
         if os.environ.get("BRAVE_API_KEY"):
             search_provider = "brave"
         elif os.environ.get("SERPER_API_KEY"):
             search_provider = "serper"
+        elif os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPAPI_KEY"):
+            search_provider = "serpapi"
 
     return AppConfig(
         data_dir=data_dir,
