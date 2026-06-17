@@ -9,7 +9,8 @@ Panes: chat sessions, a Markdown-rendered conversation with file upload and
 voice, live system metrics (CPU/GPU/RAM), and the Obsidian memory vault.
 
 Run:  python -m laptop_agent.webui                 (browser tab)
-      python -c "from laptop_agent.webui import run_desktop; run_desktop()"  (app window)
+      python -m laptop_agent.webui --desktop       (frameless desktop app window)
+      laptop-agent-deck                            (same desktop window, installed command)
 """
 
 from __future__ import annotations
@@ -1206,26 +1207,45 @@ def run_desktop() -> None:
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
+    # Prefer a frameless Chrome/Edge "app" window: it looks like a native desktop app
+    # (no tabs or address bar) AND keeps the Web Speech API, which the voice loop needs.
+    # pywebview is only a fallback, because on Windows it runs on Edge WebView2, which
+    # does not ship speech recognition — voice would silently fail there.
+    process = _launch_app_window(url)
+    if process is not None:
+        print("Chat opened as a desktop app window (voice enabled).")
+        try:
+            threading.Event().wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            server.shutdown()
+        return
+
     if _launch_webview(url):
+        print("Opened in a native webview. Note: voice input needs Chrome or Edge, not the webview.")
         server.shutdown()
         return
 
-    process = _launch_app_window(url)
-    if process is None:
-        print("No Chromium-based browser found; opening in the default browser instead.")
-        webbrowser.open(url)
-    else:
-        print("Chat opened as a desktop window.")
+    print("No Chromium-based browser found; opening in the default browser instead.")
+    webbrowser.open(url)
     print("Running. Press Ctrl+C here to stop.")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
         pass
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
         server.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    # `python -m laptop_agent.webui --desktop` opens a frameless desktop app window
+    # (same as the `laptop-agent-deck` command); without it, serves a browser tab.
+    if any(flag in sys.argv[1:] for flag in ("--desktop", "-d", "--app")):
+        run_desktop()
+    else:
+        main()

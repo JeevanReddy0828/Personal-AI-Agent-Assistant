@@ -112,9 +112,13 @@ avoid cold-start latency.
 ```powershell
 $env:PYTHONPATH="src"
 python -m laptop_agent.cli                                              # terminal
-python -c "from laptop_agent.webui import run_desktop; run_desktop()"   # desktop app window
+python -m laptop_agent.webui --desktop                                  # desktop app window (or: laptop-agent-deck)
 python -m laptop_agent.webui                                            # browser tab
 ```
+
+The desktop window opens a frameless Chrome/Edge `--app` window (no tabs/address
+bar) rather than pywebview, because the voice loop needs the Web Speech API, which
+Edge WebView2 (pywebview's Windows backend) does not provide.
 
 Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (318+ passing).
 
