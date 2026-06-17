@@ -431,6 +431,7 @@ PAGE = r"""<!doctype html>
       <div class="vstate" id="vstate">Listening</div>
       <div class="vcap">subtitles</div>
       <div class="vtrans" id="vtrans">Say something…</div>
+      <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
       <button class="vend" id="vend">End voice</button>
     </div>
   </main>
@@ -643,9 +644,9 @@ PAGE = r"""<!doctype html>
           const line=buf.slice(0,i); buf=buf.slice(i+2);
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
-          if(ev.type==='token'){streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          if(ev.type==='token'){if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
           else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
-          else if(ev.type==='done'){done=ev;}
+          else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
         }
       }
       const d=done||{ok:true,message:streamed,data:{}};
@@ -849,19 +850,26 @@ PAGE = r"""<!doctype html>
     const bw=new Set(b.split(' ')), aw=a.split(' ');
     return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
   }
+  // --- voice timing HUD: marks where each turn spends time so latency is visible ---
+  let vT0=0, vMarks=[];
+  function vstart(){vT0=performance.now();vMarks=[];}
+  function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
+    vstart();
     // continuous + our own silence timer: Chrome's built-in end-of-speech detection can
     // wait many seconds before firing onend, which feels like a long "thinking" pause.
     // We finalize ~1.2s after the user stops talking so the turn snaps to the reply.
     rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;recognizing=true;
     let fin='',heard=false,silence=null;
-    const finalize=()=>{try{rec.stop();}catch(e){}};
-    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1200);};
-    rec.onerror=()=>{};
+    const finalize=()=>{vmark('settle');try{rec.stop();}catch(e){}};
+    rec.onstart=()=>vmark('mic-on');
+    rec.onspeechstart=()=>vmark('speech');
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1200);};
+    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
     rec.onend=async()=>{
-      clearTimeout(silence);recognizing=false; if(!voiceActive||speaking)return;
+      clearTimeout(silence);recognizing=false;vmark('rec-end'); if(!voiceActive||speaking)return;
       const q=(fin||(heard?vtrans.textContent:'')||'').trim();
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
@@ -879,6 +887,7 @@ PAGE = r"""<!doctype html>
     const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
+    u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
     u.onend=()=>{speaking=false;pumpTTS();};            // next sentence, or resume listening when the queue drains
     u.onerror=()=>{speaking=false;pumpTTS();};
