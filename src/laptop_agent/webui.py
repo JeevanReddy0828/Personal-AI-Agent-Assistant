@@ -41,6 +41,29 @@ _CONFIG = load_config()
 _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-up cycle
 
 
+def _compose_command(command: str, attachments: object) -> str:
+    """Fold uploaded file paths into the command the orchestrator runs.
+
+    A bare upload (no typed message) goes straight through the universal file
+    processor, which auto-detects the type and picks the best action. When the
+    user typed something, the paths are appended as context so the LLM/heuristic
+    router can target them for whatever the message asks.
+    """
+    command = (command or "").strip()
+    paths = [str(p) for p in attachments if p] if isinstance(attachments, list) else []
+    if not paths:
+        return command
+    if not command:
+        if len(paths) == 1:
+            return f"process file {paths[0]}"
+        return "multi " + " ;; ".join(f"process file {path}" for path in paths)
+    listing = "; ".join(paths)
+    return (
+        f"{command}\n\n[The user attached file(s) saved at: {listing}. "
+        "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
+    )
+
+
 def _model_label(provider) -> str:
     model = getattr(provider, "model", "") or ""
     return model.split("/")[-1][:20] if model else "llm"
@@ -511,7 +534,7 @@ PAGE = r"""<!doctype html>
   sendBtn.onclick=()=>{ if(busy){stopGen();} else {send(ta.value);} };
   // agent-mode toggle
   function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
-    ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file, or tap the mic)';
+    ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file to auto-process it, or tap the mic)';
     hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk actions still blocked here.':'Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
@@ -791,19 +814,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def _command_with_attachments(self, payload: dict) -> tuple[str, list]:
-        command = str(payload.get("command", "")).strip()
-        attachments = payload.get("attachments") or []
-        if not isinstance(attachments, list):
-            attachments = []
-        paths = [str(p) for p in attachments if p]
-        if paths:
-            listing = "; ".join(paths)
-            if not command:
-                command = "Summarize or describe the attached file(s)."
-            command = (
-                f"{command}\n\n[The user attached file(s) saved at: {listing}. "
-                "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
-            )
+        command = _compose_command(str(payload.get("command", "")), payload.get("attachments") or [])
         history = payload.get("history") or []
         return command, history if isinstance(history, list) else []
 
@@ -896,26 +907,13 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_command(self) -> None:
         try:
             payload = self._read_json()
-            command = str(payload.get("command", "")).strip()
-            attachments = payload.get("attachments") or []
-            if not isinstance(attachments, list):
-                attachments = []
+            command = _compose_command(str(payload.get("command", "")), payload.get("attachments") or [])
             history = payload.get("history") or []
             if not isinstance(history, list):
                 history = []
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "bad request"})
             return
-
-        paths = [str(p) for p in attachments if p]
-        if paths:
-            listing = "; ".join(paths)
-            if not command:
-                command = "Summarize or describe the attached file(s)."
-            command = (
-                f"{command}\n\n[The user attached file(s) saved at: {listing}. "
-                "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
-            )
 
         # Light up the matching specialist in the control room while this runs,
         # so the agents panel reflects single commands, not just multi subtasks.
