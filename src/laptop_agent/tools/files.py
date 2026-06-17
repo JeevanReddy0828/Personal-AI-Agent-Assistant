@@ -258,6 +258,76 @@ class FileTool:
             tables=tables,
         )
 
+    def analyze_spreadsheet(self, path: str, max_rows: int = 10000) -> ToolResult:
+        """Compute per-column statistics for a CSV/TSV file (stdlib only).
+
+        Numeric columns get count/min/max/mean/sum; everything else gets a value
+        count and a few sample values. Read-only and local, so no approval gate.
+        """
+        target = Path(path).expanduser().resolve()
+        if not target.exists() or not target.is_file():
+            return ToolResult.failure(f"File does not exist: {target}")
+        suffix = target.suffix.lower()
+        if suffix not in {".csv", ".tsv"}:
+            return ToolResult.failure(
+                f"Spreadsheet analysis supports .csv and .tsv files, not {suffix or 'unknown'}.",
+                hint="Convert .xlsx to .csv first, or use 'file info' for metadata.",
+            )
+
+        delimiter = "\t" if suffix == ".tsv" else ","
+        try:
+            with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+                reader = csv.reader(handle, delimiter=delimiter)
+                rows = [row for _, row in zip(range(max_rows + 1), reader)]
+        except OSError as exc:
+            return ToolResult.failure(f"Could not read spreadsheet: {exc}")
+        if not rows:
+            return ToolResult.failure(f"Spreadsheet is empty: {target.name}")
+
+        header = rows[0]
+        body = rows[1:]
+        truncated = len(body) >= max_rows
+        columns = [self._column_stats(header[index] or f"column_{index + 1}", index, body) for index in range(len(header))]
+        return ToolResult.success(
+            f"Analyzed {len(body)} row(s) across {len(header)} column(s) in {target.name}.",
+            path=str(target),
+            row_count=len(body),
+            column_count=len(header),
+            truncated=truncated,
+            columns=columns,
+        )
+
+    @staticmethod
+    def _column_stats(name: str, index: int, body: list[list[str]]) -> dict[str, object]:
+        values = [row[index].strip() for row in body if index < len(row)]
+        non_empty = [value for value in values if value]
+        numbers: list[float] = []
+        for value in non_empty:
+            try:
+                numbers.append(float(value.replace(",", "")))
+            except ValueError:
+                continue
+        is_numeric = bool(non_empty) and len(numbers) == len(non_empty)
+        stats: dict[str, object] = {
+            "name": name,
+            "type": "number" if is_numeric else ("empty" if not non_empty else "text"),
+            "count": len(non_empty),
+            "empty": len(values) - len(non_empty),
+        }
+        if is_numeric and numbers:
+            total = sum(numbers)
+            stats.update(
+                min=round(min(numbers), 4),
+                max=round(max(numbers), 4),
+                mean=round(total / len(numbers), 4),
+                sum=round(total, 4),
+            )
+        else:
+            uniques = list(dict.fromkeys(non_empty))
+            stats["unique"] = len(uniques)
+            stats["samples"] = uniques[:3]
+        return stats
+
     def convert(self, source: str, destination: str) -> ToolResult:
         src = Path(source).expanduser().resolve()
         dst = Path(destination).expanduser().resolve()

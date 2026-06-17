@@ -22,6 +22,7 @@ from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
+from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
@@ -81,6 +82,7 @@ class AgentOrchestrator:
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
+        self._file_processor_cache: FileProcessor | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -296,6 +298,20 @@ class AgentOrchestrator:
 
         if lowered.startswith("extract tables "):
             return self.context.files.extract_tables(command[len("extract tables ") :].strip())
+
+        if lowered.startswith("analyze spreadsheet "):
+            return self.context.files.analyze_spreadsheet(command[len("analyze spreadsheet ") :].strip())
+
+        if lowered.startswith("analyse spreadsheet "):
+            return self.context.files.analyze_spreadsheet(command[len("analyse spreadsheet ") :].strip())
+
+        if lowered.startswith("inspect file "):
+            return self._file_processor().inspect(command[len("inspect file ") :].strip())
+
+        if lowered.startswith("process file "):
+            rest = command[len("process file ") :].strip()
+            target, intent = self._split_process_intent(rest)
+            return self._file_processor().process(target, intent)
 
         if lowered.startswith("ocr image "):
             return self.context.transcribe.ocr_image(command[len("ocr image ") :].strip())
@@ -719,6 +735,8 @@ class AgentOrchestrator:
                 "  extract text <path>",
                 "  file info <path>",
                 "  extract tables <path>",
+                "  analyze spreadsheet <path>  (per-column stats for CSV/TSV)",
+                "  process file <path> [as <operation>]  (auto-detects type, picks the best action)",
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
                 "  ocr image <path>",
@@ -970,6 +988,8 @@ class AgentOrchestrator:
         "summarize file <path>",
         "extract text <path>",
         "extract tables <path>",
+        "analyze spreadsheet <path>",
+        "process file <path>",
         "file info <path>",
         "search files <query> <path>",
         "convert file <source> to <destination>",
@@ -1140,6 +1160,24 @@ class AgentOrchestrator:
             return ToolResult.success("No scheduled jobs are due.", ran=[])
         ok = sum(1 for item in ran if item["status"] == "ok")
         return ToolResult.success(f"Ran {len(ran)} due job(s): {ok} ok.", ran=ran)
+
+    def _file_processor(self) -> FileProcessor:
+        # Built lazily from existing tools — no AgentContext field needed.
+        if self._file_processor_cache is None:
+            self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
+        return self._file_processor_cache
+
+    @staticmethod
+    def _split_process_intent(rest: str) -> tuple[str, str | None]:
+        """Split 'process file <path>' from an optional trailing '... as <intent>'.
+
+        Accepts 'report.csv as stats' or 'report.csv : summarize'; otherwise the
+        whole string is the path and the processor picks the default operation.
+        """
+        match = re.search(r"\s+(?:as|for|:)\s+([\w ]+)$", rest, re.IGNORECASE)
+        if match:
+            return rest[: match.start()].strip().strip("'\""), match.group(1).strip()
+        return rest.strip().strip("'\""), None
 
     def _extract_text_any(self, path: str) -> ToolResult:
         target = path.strip().strip("'\"")
@@ -1454,6 +1492,23 @@ class AgentOrchestrator:
                 lines.append(f"{index}. **{sender}** — {subject}" + (f"\n   {snippet}" if snippet else ""))
             more = f"\n\n…and {len(messages) - 8} more." if len(messages) > 8 else ""
             return f"Here are your {len(messages)} most recent message(s):\n\n" + "\n".join(lines) + more
+        if isinstance(data.get("columns"), list) and "row_count" in data:
+            columns = data["columns"]
+            lines = []
+            for column in columns[:12]:
+                if not isinstance(column, dict):
+                    continue
+                if column.get("type") == "number":
+                    lines.append(
+                        f"- {column.get('name')}: number "
+                        f"(min {column.get('min')}, max {column.get('max')}, mean {column.get('mean')})"
+                    )
+                else:
+                    samples = ", ".join(str(value) for value in column.get("samples", [])[:3])
+                    detail = f"{column.get('unique', 0)} unique" + (f"; e.g. {samples}" if samples else "")
+                    lines.append(f"- {column.get('name')}: {column.get('type')} ({detail})")
+            more = f"\n…and {len(columns) - 12} more column(s)." if len(columns) > 12 else ""
+            return result.message + "\n" + "\n".join(lines) + more
         if "text" in data and "char_count" in data:
             text = str(data.get("text", "")).strip()
             return ("Here's what I read:\n" + text[:700]) if text else result.message

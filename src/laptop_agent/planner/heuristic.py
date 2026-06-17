@@ -83,6 +83,14 @@ class HeuristicPlannerProvider:
         if file_scan:
             return file_scan
 
+        spreadsheet = self._spreadsheet(raw)
+        if spreadsheet:
+            return spreadsheet
+
+        process_file = self._process_file(raw)
+        if process_file:
+            return process_file
+
         summarize_file = self._summarize_file(raw)
         if summarize_file:
             return summarize_file
@@ -293,6 +301,30 @@ class HeuristicPlannerProvider:
             return None
         path = match.group(1).strip().strip("'\"")
         return self._command(f"summarize file {path}", "User wants an extractive summary of a document or media file.", 0.82)
+
+    def _process_file(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:process|handle|deal with|what(?:'?s| is) (?:in|inside))\s+"
+            r"(?:the\s+)?(?:file\s+)?(.+\.[a-z0-9]{1,5})$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"?")
+        return self._command(f"process file {path}", "User wants the agent to auto-detect and process a file.", 0.8)
+
+    def _spreadsheet(self, text: str) -> PlanDecision | None:
+        match = re.search(
+            r"\b(?:analy[sz]e|stats? (?:for|of|on)|column stats? (?:for|of)|summari[sz]e the data in)\s+"
+            r"(?:the\s+)?(?:spreadsheet\s+|csv\s+|data\s+|file\s+)?(.+\.(?:csv|tsv))$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        path = match.group(1).strip().strip("'\"")
+        return self._command(f"analyze spreadsheet {path}", "User wants per-column statistics for a spreadsheet.", 0.82)
 
     def _organize(self, text: str) -> PlanDecision | None:
         match = re.search(

@@ -46,7 +46,8 @@ AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat
         |
 Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
         |
-Tools (tools/): files, web, websearch, research, browser, desktop, email,
+Tools (tools/): files, file_processor (universal "process file" dispatcher),
+        web, websearch, research, browser, desktop, email,
         music, transcribe (OCR/Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
@@ -109,7 +110,7 @@ python -c "from laptop_agent.webui import run_desktop; run_desktop()"   # deskto
 python -m laptop_agent.webui                                            # browser tab
 ```
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (287+ passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (299+ passing).
 
 ## Working alongside another agent (Codex)
 

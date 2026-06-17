@@ -12,6 +12,26 @@ class HeuristicPlannerTests(unittest.TestCase):
     def plan(self, text: str):
         return self.provider.plan(text, "help text", {})
 
+    def test_routes_process_file(self) -> None:
+        decision = self.plan("process file C:/reports/q3.pdf")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "process file C:/reports/q3.pdf")
+
+    def test_routes_whats_in_file(self) -> None:
+        decision = self.plan("what's in budget.csv")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "process file budget.csv")
+
+    def test_routes_spreadsheet_analysis(self) -> None:
+        decision = self.plan("analyze sales.csv")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "analyze spreadsheet sales.csv")
+
+    def test_routes_stats_for_tsv(self) -> None:
+        decision = self.plan("stats for data.tsv")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "analyze spreadsheet data.tsv")
+
     def test_routes_open_url(self) -> None:
         decision = self.plan("open website example.com")
         self.assertTrue(decision.is_command)
