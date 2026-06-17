@@ -862,19 +862,24 @@ PAGE = r"""<!doctype html>
     // wait many seconds before firing onend, which feels like a long "thinking" pause.
     // We finalize ~1.2s after the user stops talking so the turn snaps to the reply.
     rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;recognizing=true;
-    let fin='',heard=false,silence=null;
-    const finalize=()=>{vmark('settle');try{rec.stop();}catch(e){}};
-    rec.onstart=()=>vmark('mic-on');
-    rec.onspeechstart=()=>vmark('speech');
-    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1200);};
-    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
-    rec.onend=async()=>{
-      clearTimeout(silence);recognizing=false;vmark('rec-end'); if(!voiceActive||speaking)return;
-      const q=(fin||(heard?vtrans.textContent:'')||'').trim();
+    let fin='',heard=false,silence=null,handled=false;
+    // Act on the transcript we already have the moment the user pauses, and abort()
+    // immediately — waiting for Chrome's stop()/onend stalled ~28s in testing.
+    const handle=async(raw)=>{
+      if(handled)return; handled=true; recognizing=false; clearTimeout(silence);
+      try{rec.abort();}catch(e){}
+      if(!voiceActive||speaking)return;
+      const q=(raw||'').trim();
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
       await send(q);                                    // send() streams sentences back via voiceTurnDone; it drives speech, not us
     };
+    const finalize=()=>{vmark('settle');handle(fin||vtrans.textContent);};
+    rec.onstart=()=>vmark('mic-on');
+    rec.onspeechstart=()=>vmark('speech');
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
+    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
+    rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
     try{rec.start();}catch(e){recognizing=false;}
   }
   function speakChunk(text){try{
