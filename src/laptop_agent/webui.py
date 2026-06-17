@@ -32,6 +32,7 @@ from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.voice import SpeechChunker
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -631,7 +632,8 @@ PAGE = r"""<!doctype html>
     let reply='', streamed='';
     currentAbort=new AbortController();
     try{
-      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
+      const speakStream=voiceActive; if(speakStream)voiceTurnReset();
+      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history,voice:speakStream})});
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
       while(true){
         const {done:fin,value}=await reader.read(); if(fin)break;
@@ -641,6 +643,7 @@ PAGE = r"""<!doctype html>
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
           if(ev.type==='token'){streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
           else if(ev.type==='done'){done=ev;}
         }
       }
@@ -657,7 +660,7 @@ PAGE = r"""<!doctype html>
       if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=curSession();if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
-    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
+    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
     return reply;
   }
 
@@ -818,8 +821,25 @@ PAGE = r"""<!doctype html>
   vend.onclick=endVoice;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false, lastSpoken='';
+  // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
+  // one at a time so the first sentence plays while the rest is still being written.
+  let ttsQueue=[], streamComplete=false, spokeAny=false;
+  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;try{speechSynthesis.cancel();}catch(e){}speaking=false;}
+  function voiceTurnDone(reply){
+    streamComplete=true;
+    if(!spokeAny){ if(reply){enqueueTTS(reply);} else { afterTurn(); } }   // no streamed sentences (e.g. a tool result) — speak the whole reply
+    else pumpTTS();                                                        // resume check in case the queue already drained
+  }
+  function enqueueTTS(text){const t=(text||'').trim();if(!t)return;spokeAny=true;ttsQueue.push(t);pumpTTS();}
+  function pumpTTS(){
+    if(!voiceActive){ttsQueue=[];return;}
+    if(speaking)return;                                  // one utterance at a time
+    if(!ttsQueue.length){if(streamComplete)afterTurn();return;}
+    speakChunk(ttsQueue.shift());
+  }
+  function afterTurn(){if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay
   // reject recognized speech that is really the agent hearing its own voice
   function isEcho(q){
     const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
@@ -840,25 +860,24 @@ PAGE = r"""<!doctype html>
       const q=(fin||(heard?vtrans.textContent:'')||'').trim();
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
-      const reply=await send(q);
-      if(!voiceActive)return;
-      if(reply)speak(reply);else listen();
+      await send(q);                                    // send() streams sentences back via voiceTurnDone; it drives speech, not us
     };
     try{rec.start();}catch(e){recognizing=false;}
   }
-  function speak(text){try{
+  function speakChunk(text){try{
     speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
-    speechSynthesis.cancel();if(!ttsVoice)pickVoice();
+    if(!ttsVoice)pickVoice();
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
-    lastSpoken=clean;                                   // remember it so we can reject the echo
+    if(!clean){speaking=false;pumpTTS();return;}
+    lastSpoken=(lastSpoken?lastSpoken+' '+clean:clean).slice(-600);        // accumulate spoken text so we can reject the echo
     const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
-    if(voiceActive)vtrans.textContent=clean.slice(0,240);                       // static, readable subtitles
+    if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{speaking=false;if(voiceActive){setTimeout(()=>{if(voiceActive)listen();},600);}else setCore('idle');};   // echo-guard delay
-    u.onerror=()=>{speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');};
+    u.onend=()=>{speaking=false;pumpTTS();};            // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
-  }catch(e){speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');}}
+  }catch(e){speaking=false;pumpTTS();}}
 
   renderSessions(); ta.focus();
 </script>
@@ -944,6 +963,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             command, history = self._command_with_attachments(payload)
+            voice = bool(payload.get("voice"))
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "bad request"})
             return
@@ -960,11 +980,24 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
 
+        # In voice mode, split the streamed reply into sentences and push each as a
+        # `tts` event the moment it completes, so the browser starts speaking the
+        # first sentence instead of waiting for the whole reply (low time-to-audio).
+        chunker = SpeechChunker() if voice else None
+
+        def on_token(token: str) -> None:
+            emit({"type": "token", "text": token})
+            if chunker is not None:
+                for sentence in chunker.feed(token):
+                    emit({"type": "tts", "text": sentence})
+
         agent_id = _orchestrator.control_room.start(command)
         try:
-            result = asyncio.run(
-                _orchestrator.handle(command, history=history, on_token=lambda t: emit({"type": "token", "text": t}))
-            )
+            result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
+            if chunker is not None:
+                tail = chunker.flush()
+                if tail:
+                    emit({"type": "tts", "text": tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
         except ApprovalDenied as exc:
