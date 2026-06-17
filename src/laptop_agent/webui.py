@@ -1229,7 +1229,7 @@ def run_desktop() -> None:
     if process is not None:
         print("Chat opened as a desktop app window (voice enabled).")
         try:
-            threading.Event().wait()
+            process.wait()          # quit the app when the window is closed
         except KeyboardInterrupt:
             pass
         finally:
