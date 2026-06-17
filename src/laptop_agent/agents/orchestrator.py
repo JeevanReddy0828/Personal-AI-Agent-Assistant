@@ -127,6 +127,12 @@ class AgentOrchestrator:
             return fast
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
             return fast
+        # When the instant router is already confident this is plain chat (e.g. a
+        # greeting), skip the LLM routing round-trip — it would only confirm "this is
+        # chat" and then the chat path makes a second LLM call to actually answer.
+        # Cutting the redundant classify call roughly halves latency for small talk.
+        if fast.is_chat and fast.confidence >= 0.6:
+            return fast
         return self.planner.plan(command, help_text, profile, history)
 
     async def handle(

@@ -826,7 +826,7 @@ PAGE = r"""<!doctype html>
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
   let ttsQueue=[], streamComplete=false, spokeAny=false;
-  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;try{speechSynthesis.cancel();}catch(e){}speaking=false;}
+  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;speaking=false;}   // no cancel(): Chrome drops the next speak() if cancel() ran just before it
   function voiceTurnDone(reply){
     streamComplete=true;
     if(!spokeAny){ if(reply){enqueueTTS(reply);} else { afterTurn(); } }   // no streamed sentences (e.g. a tool result) — speak the whole reply
@@ -866,6 +866,7 @@ PAGE = r"""<!doctype html>
   }
   function speakChunk(text){try{
     speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
+    try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
     if(!ttsVoice)pickVoice();
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
     if(!clean){speaking=false;pumpTTS();return;}
