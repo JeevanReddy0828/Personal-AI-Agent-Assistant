@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from laptop_agent.tools.base import ToolResult
@@ -58,12 +57,6 @@ _INTENT_ALIASES = {
     "info": "info",
     "metadata": "info",
 }
-
-
-@dataclass(frozen=True)
-class _Detection:
-    category: str
-    operation: str
 
 
 class FileProcessor:
