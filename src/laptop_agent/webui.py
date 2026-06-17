@@ -851,12 +851,16 @@ PAGE = r"""<!doctype html>
   function listen(){
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
-    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;recognizing=true;
-    let fin='',heard=false;
-    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};
+    // continuous + our own silence timer: Chrome's built-in end-of-speech detection can
+    // wait many seconds before firing onend, which feels like a long "thinking" pause.
+    // We finalize ~1.2s after the user stops talking so the turn snaps to the reply.
+    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;recognizing=true;
+    let fin='',heard=false,silence=null;
+    const finalize=()=>{try{rec.stop();}catch(e){}};
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1200);};
     rec.onerror=()=>{};
     rec.onend=async()=>{
-      recognizing=false; if(!voiceActive||speaking)return;
+      clearTimeout(silence);recognizing=false; if(!voiceActive||speaking)return;
       const q=(fin||(heard?vtrans.textContent:'')||'').trim();
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
