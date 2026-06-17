@@ -70,6 +70,12 @@ def _schedule_snapshot() -> dict:
     return {"ok": result.ok, "message": result.message, "jobs": _json_safe(result.data.get("jobs", []))}
 
 
+def _agent_runs_snapshot() -> dict:
+    """Autonomous agent run history as plain JSON for the web panel."""
+    result = asyncio.run(_orchestrator.handle("agent runs"))
+    return {"ok": result.ok, "runs": _json_safe(result.data.get("agent_runs", []))}
+
+
 def _model_label(provider) -> str:
     model = getattr(provider, "model", "") or ""
     return model.split("/")[-1][:20] if model else "llm"
@@ -323,6 +329,22 @@ PAGE = r"""<!doctype html>
   .schedcard .meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:5px;display:flex;gap:9px;align-items:center}
   .schedcard .meta button{background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;text-transform:uppercase;letter-spacing:.5px}
   .schedcard .meta button:hover{color:var(--amber-b)}
+  .runcard{margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+  .runcard[open]{border-color:rgba(255,176,0,.28)}
+  .runcard summary{list-style:none;cursor:pointer}
+  .runcard summary::-webkit-details-marker{display:none}
+  .runcard .top{display:flex;align-items:center;gap:7px}
+  .runcard .status{font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--ok)}
+  .runcard.failed .status{color:#ff5d6c}
+  .runcard.stopped .status{color:var(--amber-b)}
+  .runcard .when{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted)}
+  .runcard .goal{font-size:11px;color:var(--text);line-height:1.35;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .runcard .meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:5px;display:flex;gap:9px;align-items:center}
+  .runcard .answer{font-size:11px;color:var(--muted);line-height:1.4;margin-top:8px;white-space:pre-wrap}
+  .runstep{border-top:1px solid var(--line);padding-top:7px;margin-top:7px}
+  .runstep .meta{margin-top:0;text-transform:uppercase}
+  .runstep .cmd{font-family:var(--mono);font-size:10px;color:var(--amber-b);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .runstep .txt{font-size:11px;color:var(--muted);line-height:1.35;margin-top:4px;white-space:pre-wrap}
 
   /* leave the hero core visible above the overlay so its colour shows in voice mode */
   .voice{position:absolute;inset:150px 0 0 0;z-index:5;background:rgba(8,9,13,.92);backdrop-filter:blur(7px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:var(--ice)}
@@ -437,6 +459,10 @@ PAGE = r"""<!doctype html>
         <div class="schedmsg" id="schedMsg"></div>
       </div>
       <div id="schedList"></div>
+    </details>
+    <details class="conn" id="runsPanel">
+      <summary>Agent runs</summary>
+      <div id="runsList"></div>
     </details>
   </aside>
 </div>
@@ -733,6 +759,33 @@ PAGE = r"""<!doctype html>
   document.getElementById('schedPanel').addEventListener('toggle',function(){if(this.open)loadSchedule();});
   setInterval(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
 
+  /* agent runs */
+  function renderAgentRuns(runs){
+    const list=document.getElementById('runsList');
+    if(!runs||!runs.length){list.innerHTML='<div class="note">No agent runs yet.</div>';return;}
+    list.innerHTML=runs.slice().reverse().map(r=>{
+      const status=String(r.status||'');
+      const cls=['ok','failed','stopped'].includes(status)?status:'';
+      const when=r.created_at?esc(String(r.created_at).slice(0,16).replace('T',' ')):'';
+      const summary=esc(String(r.ok_count||0))+' ok / '+esc(String(r.failed_count||0))+' failed across '+esc(String(r.step_count||0))+' steps';
+      const steps=(r.steps||[]).map(s=>{
+        const idx=esc(String(s.index||0));
+        const stepStatus=esc(String(s.status||''));
+        const cmd=esc(String(s.command||''));
+        const thought=esc(String(s.thought||''));
+        const msg=esc(String(s.message||''));
+        return '<div class="runstep"><div class="meta"><span>'+idx+' &middot; '+stepStatus+'</span></div>'+
+          '<div class="cmd">'+cmd+'</div><div class="txt">'+thought+(thought&&msg?'<br>':'')+msg+'</div></div>';
+      }).join('');
+      const answer=r.final_answer?'<div class="answer">'+esc(String(r.final_answer))+'</div>':'';
+      return '<details class="runcard '+cls+'"><summary><div class="top"><span class="status">'+esc(status)+'</span><span class="when">'+when+'</span></div>'+
+        '<div class="goal">'+esc(String(r.goal||''))+'</div><div class="meta"><span>'+summary+'</span></div></summary>'+answer+steps+'</details>';
+    }).join('');
+  }
+  async function loadAgentRuns(){try{const d=await (await fetch('/api/agent-runs')).json();renderAgentRuns(d.runs);}catch(e){}}
+  document.getElementById('runsPanel').addEventListener('toggle',function(){if(this.open)loadAgentRuns();});
+  setInterval(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
+
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
@@ -857,6 +910,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif self.path == "/api/schedule":
             self._json(200, _schedule_snapshot())
+        elif self.path == "/api/agent-runs":
+            self._json(200, _agent_runs_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
 
