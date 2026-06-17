@@ -12,6 +12,7 @@ from laptop_agent.tools.websearch import (
     _clean_url,
     brave_search_backend,
     build_search_backend,
+    serpapi_search_backend,
     serper_search_backend,
 )
 
@@ -101,6 +102,26 @@ class SearchApiBackendTests(unittest.TestCase):
         self.assertEqual(results, [{"title": "T", "url": "https://t.com", "snippet": "snip"}])
         self.assertEqual(seen["key"], "s-key")
         self.assertEqual(seen["body"]["q"], "latest news")
+
+    def test_serpapi_backend_parses_organic_results(self) -> None:
+        seen = {}
+
+        def transport(url, headers, data):
+            seen["url"] = url
+            return json.dumps({"organic_results": [
+                {"title": "Deal", "link": "https://news.com/x", "snippet": "ceasefire"},
+                {"title": "More", "link": "https://news.com/y", "snippet": "details"},
+            ]})
+
+        backend = serpapi_search_backend("sa-key", transport=transport)
+        results = backend("iran war", 1)
+        self.assertEqual(results, [{"title": "Deal", "url": "https://news.com/x", "snippet": "ceasefire"}])
+        self.assertIn("api_key=sa-key", seen["url"])
+        self.assertIn("engine=google", seen["url"])
+
+    def test_build_selects_serpapi_provider(self) -> None:
+        backend = build_search_backend("serpapi", "k", primary=lambda q, n: [{"title": "S", "url": "u", "snippet": ""}])
+        self.assertEqual(backend("q", 3)[0]["title"], "S")
 
     def test_invalid_json_raises_websearcherror(self) -> None:
         backend = brave_search_backend("k", transport=lambda u, h, d: "<html>not json</html>")

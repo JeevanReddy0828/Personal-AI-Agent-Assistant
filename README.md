@@ -347,12 +347,14 @@ add a real search API key — the agent uses it and automatically falls back to
 DuckDuckGo if the API errors or returns nothing:
 
 ```text
-SEARCH_PROVIDER=brave          # or: serper  (inferred if you only set a key below)
-SEARCH_API_KEY=your-key        # or BRAVE_API_KEY=... / SERPER_API_KEY=...
+SEARCH_PROVIDER=serpapi        # or: brave / serper  (inferred if you only set a key below)
+SEARCH_API_KEY=your-key        # or BRAVE_API_KEY / SERPER_API_KEY / SERPAPI_API_KEY
 ```
 
-Supported providers: [Brave Search API](https://api.search.brave.com/) and
-[Serper](https://serper.dev/) (Google results). No key → DuckDuckGo.
+Supported providers: [Brave Search API](https://api.search.brave.com/),
+[Serper.dev](https://serper.dev/), and [SerpApi](https://serpapi.com/) — the last
+two return Google results (note: Serper.dev and SerpApi are different services).
+No key → DuckDuckGo.
 
 ## Obsidian memory
 
