@@ -24,8 +24,17 @@ def _default_transcript(video_id: str) -> str:
         raise MissingTranscriptError(
             "YouTube transcripts need: pip install youtube-transcript-api"
         ) from exc
-    chunks = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
-    return " ".join(str(chunk.get("text", "")) for chunk in chunks if chunk.get("text"))
+    langs = ["en", "en-US", "en-GB"]
+    # v1.x replaced the classmethod get_transcript() with an instance .fetch() that
+    # returns a FetchedTranscript; support both so it works across versions.
+    fetch = getattr(YouTubeTranscriptApi(), "fetch", None)
+    if callable(fetch):
+        fetched = fetch(video_id, languages=langs)
+        to_raw = getattr(fetched, "to_raw_data", None)
+        items = to_raw() if callable(to_raw) else [{"text": getattr(s, "text", "")} for s in fetched]
+    else:
+        items = YouTubeTranscriptApi.get_transcript(video_id, languages=langs)
+    return " ".join(str(item.get("text", "")) for item in items if item.get("text"))
 
 
 class YouTubeTool:
