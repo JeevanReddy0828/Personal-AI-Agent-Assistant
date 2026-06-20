@@ -151,6 +151,10 @@ class HeuristicPlannerProvider:
         if fill_form:
             return fill_form
 
+        youtube_summary = self._youtube_summary(raw)
+        if youtube_summary:
+            return youtube_summary
+
         youtube = self._youtube(raw)
         if youtube:
             return youtube
@@ -581,6 +585,21 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"fill form {match.group(1)}", "User wants approved browser filling without submission.", 0.78)
+
+    def _youtube_summary(self, text: str) -> PlanDecision | None:
+        """Summarize/answer about a YouTube video from its transcript."""
+        url = re.search(r"(https?://\S*(?:youtube\.com|youtu\.be)\S*|youtu\.be/[A-Za-z0-9_-]{11})", text, re.IGNORECASE)
+        if not url:
+            return None
+        link = url.group(1).strip().strip("<>'\"")
+        wants_summary = re.search(
+            r"summar|tl;?dr|recap|key ?points|takeaway|what(?:'s| is| does| are)|\b(?:explain|about|gist|notes)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if not wants_summary:
+            return None
+        return self._command(f"summarize youtube {link}", "User wants a YouTube video summarized.", 0.85)
 
     def _youtube(self, text: str) -> PlanDecision | None:
         """Make YouTube requests actually open the browser (via the music tool's
