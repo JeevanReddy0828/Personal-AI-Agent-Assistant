@@ -79,6 +79,10 @@ class HeuristicPlannerProvider:
         if file_search:
             return file_search
 
+        local_lookup = self._local_lookup(raw)
+        if local_lookup:
+            return local_lookup
+
         file_scan = self._file_scan(raw)
         if file_scan:
             return file_scan
@@ -277,12 +281,43 @@ class HeuristicPlannerProvider:
         return self._command(f"run command {command}", "User explicitly asked to run a terminal command.", 0.78)
 
     def _file_search(self, text: str) -> PlanDecision | None:
-        match = re.search(r"\b(?:search|find|look for)\s+(?:files?\s+)?(?:for\s+)?(.+?)\s+(?:in|under|inside)\s+(.+)$", text, re.IGNORECASE)
+        match = re.search(r"\b(?:search|find|look for)\s+(?:for\s+)?(.+?)\s+(?:in|under|inside)\s+(.+)$", text, re.IGNORECASE)
         if not match:
             return None
         query = match.group(1).strip().strip("'\"")
         root = match.group(2).strip().strip("'\"")
+        # Only treat this as a FILE search when there's an explicit file/folder cue or
+        # the root is clearly a path. Otherwise a request like "find Indian restaurants
+        # in Kyle, TX" must NOT become a file scan — let it fall through to web search /
+        # the LLM router instead of erroring with "Path does not exist".
+        has_file_cue = re.search(r"\b(files?|folders?|director(?:y|ies)|docs?|documents?)\b", text, re.IGNORECASE)
+        path_like = re.search(r"[\\/]|^[A-Za-z]:|^[.~]|\.[A-Za-z0-9]{1,5}$", root)
+        named_file = re.search(r"\S\.[A-Za-z0-9]{1,5}\b", query)  # query names a file, e.g. report.txt
+        if not has_file_cue and not path_like and not named_file:
+            return None
+        query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
+
+    def _local_lookup(self, text: str) -> PlanDecision | None:
+        """Recommendation / local-place queries go to web search — live data beats
+        stale model knowledge. e.g. 'find me Indian restaurants in Kyle, TX'."""
+        place = re.search(
+            r"\b(restaurants?|cafes?|coffee|bars?|pubs?|hotels?|motels?|shops?|stores?|gym|gyms|salons?|"
+            r"clinics?|hospitals?|pharmac(?:y|ies)|dentists?|doctors?|gas stations?|parking|things to do|"
+            r"places? to (?:eat|visit|stay|go)|near me|nearby|open now)\b",
+            text,
+            re.IGNORECASE,
+        )
+        intent = re.search(r"\b(find|show|get|recommend|suggest|where|best|good|top|cheap|nearest|list)\b", text, re.IGNORECASE)
+        if not place or not intent:
+            return None
+        if re.search(r"\b(files?|folders?|director(?:y|ies))\b", text, re.IGNORECASE):
+            return None  # a file request that happens to mention a place word
+        query = re.sub(r"^\s*(?:hey\s+jarvis[,\s]*)?(?:can you|could you|please|would you)?\s*", "", text, flags=re.IGNORECASE)
+        query = re.sub(r"^\s*(?:find|get|show|give)\s+me\s+", "", query, flags=re.IGNORECASE).strip().strip("?")
+        if not query:
+            return None
+        return self._command(f"web search {query}", "User wants local recommendations — search the web.", 0.8)
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)

@@ -32,6 +32,27 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "analyze spreadsheet data.tsv")
 
+    def test_local_recommendation_goes_to_web_search(self) -> None:
+        decision = self.plan("find me Indian restaurants in kyle, Tx")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "web search Indian restaurants in kyle, Tx")
+
+    def test_near_me_goes_to_web_search(self) -> None:
+        decision = self.plan("best coffee near me")
+        self.assertTrue(decision.is_command)
+        self.assertTrue(decision.command.startswith("web search"))
+
+    def test_file_search_needs_a_file_cue(self) -> None:
+        # explicit "files" -> file search
+        decision = self.plan("search files config in src")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "search files config src")
+
+    def test_named_file_routes_to_file_search(self) -> None:
+        decision = self.plan("find report.txt in downloads")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "search files report.txt downloads")
+
     def test_routes_open_url(self) -> None:
         decision = self.plan("open website example.com")
         self.assertTrue(decision.is_command)
