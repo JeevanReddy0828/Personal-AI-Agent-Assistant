@@ -23,9 +23,20 @@ class WhisperCacheTests(unittest.TestCase):
             transcribe_module._WHISPER_MODELS.pop("unit-test-model", None)
 
     def test_warm_whisper_is_safe_without_engine(self) -> None:
-        # Whisper isn't a test dependency, so warming is a graceful no-op (False),
-        # never an exception.
-        self.assertFalse(warm_whisper())
+        # With Whisper unavailable, warming is a graceful no-op (False), never an
+        # exception. Force the import to fail so the test is deterministic and never
+        # downloads/loads a model.
+        import sys
+
+        saved = sys.modules.get("whisper", "absent")
+        sys.modules["whisper"] = None  # makes `import whisper` raise ImportError
+        try:
+            self.assertFalse(warm_whisper())
+        finally:
+            if saved == "absent":
+                sys.modules.pop("whisper", None)
+            else:
+                sys.modules["whisper"] = saved
 
 
 class OcrTests(unittest.TestCase):

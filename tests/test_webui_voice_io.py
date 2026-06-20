@@ -44,6 +44,14 @@ class VoiceIoApiTests(unittest.TestCase):
         )
         return urllib.request.urlopen(req, timeout=15)
 
+    def test_native_query_string_serves_page(self) -> None:
+        # The native window loads /?app=1; routing must ignore the query (regression:
+        # it used to 404 with "not found").
+        resp = urllib.request.urlopen(self.base + "/?app=1", timeout=15)
+        body = resp.read().decode()
+        self.assertEqual(resp.status, 200)
+        self.assertIn("J.A.R.V.I.S", body)
+
     def test_transcribe_returns_text(self) -> None:
         audio = "data:audio/webm;base64," + base64.b64encode(b"fake-opus-bytes").decode()
         resp = self._post("/api/transcribe", {"audio": audio, "ext": "webm"})

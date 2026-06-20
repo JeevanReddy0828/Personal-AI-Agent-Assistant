@@ -990,7 +990,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json")
 
     def do_GET(self) -> None:
-        if self.path in {"/", "/index.html"}:
+        path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
+        if path in {"/", "/index.html"}:
             page = (
                 PAGE.replace("{{PLANNER}}", _planner_label())
                 .replace("{{SMART}}", _smart_label())
@@ -998,13 +999,13 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("{{VISION}}", _vision_label())
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
-        elif self.path == "/api/health":
+        elif path == "/api/health":
             self._json(200, system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG))
-        elif self.path == "/api/metrics":
+        elif path == "/api/metrics":
             self._json(200, system_metrics())
-        elif self.path == "/api/agents":
+        elif path == "/api/agents":
             self._json(200, {"ok": True, "control_room": _json_safe(_orchestrator.control_room.snapshot())})
-        elif self.path == "/api/vault":
+        elif path == "/api/vault":
             status = asyncio.run(_orchestrator.handle("notes status"))
             listing = asyncio.run(_orchestrator.handle("notes list"))
             self._json(
@@ -1016,9 +1017,9 @@ class Handler(BaseHTTPRequestHandler):
                     "notes": listing.data.get("notes", []),
                 },
             )
-        elif self.path == "/api/schedule":
+        elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
-        elif self.path == "/api/agent-runs":
+        elif path == "/api/agent-runs":
             self._json(200, _agent_runs_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
