@@ -642,6 +642,21 @@ class HeuristicPlannerProvider:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
+        # General "show/give/get me my (important/recent) emails" or "emails from the last
+        # N days" -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
+        # not OAuth, unless the user explicitly names a provider — OAuth reads are gated.
+        general_read = re.search(
+            r"\b(?:show|give|get|fetch|read|check|find|pull up|bring up)\s+(?:me|my|all|the|up)\b.*\b(emails?|inbox|mail)\b", lowered
+        ) or re.search(
+            r"\b(?:important|recent|latest|priority|any)\b[\w\s,'-]*\b(emails?|inbox|mail)\b", lowered
+        ) or re.search(
+            r"\b(emails?|inbox|mail)\b[\w\s,'-]*\b(?:from|in|over|for|the)\b[\w\s,'-]*\b(?:last|past|recent|today|yesterday|days?|hours?|week)\b",
+            lowered,
+        )
+        if general_read and not re.search(r"\b(?:send|draft|write|compose|reply|delete)\b", lowered):
+            if api_provider:
+                return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
+            return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)
         match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
         if not match:
             return None

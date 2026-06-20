@@ -42,6 +42,21 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertTrue(decision.command.startswith("web search"))
 
+    def test_general_email_read_uses_imap_digest_not_oauth(self) -> None:
+        # Regression: "give me important emails" was routed to a high-risk Outlook
+        # OAuth read and blocked; it must use the local IMAP digest instead.
+        for phrase in (
+            "for last 2 days - give me any important emails",
+            "show me my emails",
+            "any emails from the last 2 days",
+        ):
+            decision = self.plan(phrase)
+            self.assertTrue(decision.is_command, phrase)
+            self.assertEqual(decision.command, "email digest", phrase)
+
+    def test_unread_email_still_routes_to_imap(self) -> None:
+        self.assertEqual(self.plan("check unread emails").command, "email unread")
+
     def test_file_search_needs_a_file_cue(self) -> None:
         # explicit "files" -> file search
         decision = self.plan("search files config in src")
