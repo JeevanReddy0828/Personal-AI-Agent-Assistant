@@ -206,7 +206,7 @@ PAGE = r"""<!doctype html>
   .scan{position:fixed;left:0;right:0;height:140px;z-index:-1;pointer-events:none;
     background:linear-gradient(180deg,transparent,rgba(95,208,230,.06) 60%,transparent);animation:scan 7.5s linear infinite}
   @keyframes scan{0%{transform:translateY(-160px)}100%{transform:translateY(100vh)}}
-  .app{position:relative;display:grid;grid-template-columns:218px 1fr 300px;grid-template-rows:58px 1fr;height:100vh}
+  .app{position:relative;display:grid;grid-template-columns:296px minmax(0,1fr) minmax(384px,440px);grid-template-rows:58px 1fr;height:100vh}
   /* corner brackets on framed elements */
   .bracket{position:relative}
   .bracket::before,.bracket::after{content:'';position:absolute;width:10px;height:10px;pointer-events:none}
@@ -253,12 +253,13 @@ PAGE = r"""<!doctype html>
   .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-left:2px solid transparent;border-radius:7px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}
   .sess:hover{background:rgba(95,208,230,.05)} .sess.active{background:rgba(95,208,230,.08);border-left-color:var(--ice);color:#eaf6fb}
 
-  main{display:flex;flex-direction:column;min-height:0;position:relative}
-  .hero{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0 8px;border-bottom:1px solid var(--line);
-    background:radial-gradient(60% 130% at 50% 0%,rgba(95,208,230,.08),transparent 72%)}
-  .hero::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(95,208,230,.55),transparent)}
-  #core{width:240px;height:118px;display:block;filter:drop-shadow(0 0 14px rgba(95,208,230,.25))}
-  .corestate{font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);margin-top:-6px;transition:color .4s}
+  /* centre stage: the particle core is the showpiece */
+  .stage{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;overflow:hidden;
+    background:radial-gradient(60% 60% at 50% 46%,rgba(95,208,230,.06),transparent 70%)}
+  #core{display:block;width:100%;height:100%;position:absolute;inset:0;cursor:crosshair}
+  .corestate{position:absolute;bottom:42px;left:0;right:0;text-align:center;font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);transition:color .4s;z-index:2;text-shadow:0 0 16px currentColor}
+  main.chatcol{display:flex;flex-direction:column;min-height:0;position:relative;border-left:1px solid var(--line);background:linear-gradient(180deg,rgba(8,11,18,.5),rgba(6,8,13,.4));backdrop-filter:blur(9px)}
+  .corestate-x{font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);margin-top:-6px;transition:color .4s}
   .corestate b{color:#fff;font-weight:600}
   .corestate.think{color:var(--amber-b)} .corestate.speak{color:var(--amber)} .corestate.listen{color:var(--ice)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;margin-right:8px;vertical-align:middle;animation:blink 2s infinite}
@@ -389,8 +390,8 @@ PAGE = r"""<!doctype html>
   .runstep .txt{font-size:11px;color:var(--muted);line-height:1.35;margin-top:4px;white-space:pre-wrap}
 
   /* leave the hero core visible above the overlay so its colour shows in voice mode */
-  .voice{position:absolute;inset:150px 0 0 0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;gap:24px;color:var(--ice);
-    background:radial-gradient(70% 60% at 50% 42%,rgba(8,14,20,.72),rgba(5,7,11,.95));backdrop-filter:blur(10px)}
+  .voice{position:absolute;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;gap:24px;color:var(--ice);
+    background:radial-gradient(70% 60% at 50% 50%,rgba(8,14,20,.55),rgba(5,7,11,.9));backdrop-filter:blur(6px)}
   /* concentric targeting reticle behind the readout */
   .voice::before{content:'';position:absolute;width:340px;height:340px;border-radius:50%;border:1px solid rgba(95,208,230,.18);
     box-shadow:inset 0 0 60px -20px rgba(95,208,230,.4);animation:spin 22s linear infinite}
@@ -441,51 +442,7 @@ PAGE = r"""<!doctype html>
     <button class="newchat" id="newChat">+  New chat</button>
     <div class="seclbl">Sessions</div>
     <div id="sessions"></div>
-  </aside>
-
-  <main>
-    <div class="hero">
-      <canvas id="core" width="480" height="236"></canvas>
-      <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
-    </div>
-    <div class="chat" id="chat">
-      <div class="empty" id="empty">
-        <svg class="orb" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="r-ring1" cx="50" cy="50" r="42" fill="none" stroke="#ffb000" stroke-width="2" stroke-dasharray="6 10"/>
-          <circle class="r-mid" cx="50" cy="50" r="22" fill="none" stroke="#ffb000" stroke-width="2.5"/>
-          <circle class="r-core" cx="50" cy="50" r="6" fill="#ffb000"/>
-        </svg>
-        <h1>How can I help, Jeevan?</h1>
-        <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
-        <div class="setupcard" id="setupCard" style="display:none"></div>
-        <div class="suggest" id="suggest"></div>
-      </div>
-    </div>
-    <div class="composer">
-      <div class="chips" id="chips"></div>
-      <div class="box">
-        <button class="iconbtn voice" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S">&#128266;</button>
-        <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
-        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
-        <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
-        <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
-        <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
-      </div>
-      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
-    </div>
-    <input type="file" id="file" multiple style="display:none" />
-    <div class="drop" id="drop">Drop files to attach</div>
-    <div class="voice" id="voice" data-state="listening">
-      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="vstate" id="vstate">Listening</div>
-      <div class="vcap">subtitles</div>
-      <div class="vtrans" id="vtrans">Say something…</div>
-      <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
-      <button class="vend" id="vend">End voice</button>
-    </div>
-  </main>
-
-  <aside class="right">
+    <div class="seclbl">Systems</div>
     <details class="conn" open>
       <summary>Connections &amp; system</summary>
       <div id="connlist"></div>
@@ -516,6 +473,44 @@ PAGE = r"""<!doctype html>
       <div id="runsList"></div>
     </details>
   </aside>
+
+  <section class="stage">
+    <canvas id="core"></canvas>
+    <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
+    <div class="voice" id="voice" data-state="listening">
+      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="vstate" id="vstate">Listening</div>
+      <div class="vcap">subtitles</div>
+      <div class="vtrans" id="vtrans">Say something…</div>
+      <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
+      <button class="vend" id="vend">End voice</button>
+    </div>
+  </section>
+
+  <main class="chatcol">
+    <div class="chat" id="chat">
+      <div class="empty" id="empty">
+        <h1>How can I help, Jeevan?</h1>
+        <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
+        <div class="setupcard" id="setupCard" style="display:none"></div>
+        <div class="suggest" id="suggest"></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="chips" id="chips"></div>
+      <div class="box">
+        <button class="iconbtn voice" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S" aria-label="Voice mode"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 6.5v11M12 3v18M16 6.5v11M20 10v4"/></svg></button>
+        <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
+        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
+        <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
+        <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
+        <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
+      </div>
+      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
+    </div>
+    <input type="file" id="file" multiple style="display:none" />
+    <div class="drop" id="drop">Drop files to attach</div>
+  </main>
 </div>
 
 <script>
@@ -556,32 +551,68 @@ PAGE = r"""<!doctype html>
     else label='J.A.R.V.I.S · <b>online</b>';
     corestate.className='corestate';corestate.style.color=col;corestate.innerHTML='<span class="blip"></span>'+label;
     voice.style.color=col;  // overlay bars + state text follow the same colour
+    pulseCore();            // ripple the particle sphere on every state change
   }
-  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;coreCanvas.width=r.width*dpr;coreCanvas.height=r.height*dpr;cctx.setTransform(dpr,0,0,dpr,0,0);}
+  /* ---- 3D particle sphere: a cloud of light points that rotates, breathes,
+        energises while J.A.R.V.I.S works, and scatters under the cursor ---- */
+  const NP=760, pts=[];
+  (function(){const gold=Math.PI*(3-Math.sqrt(5));for(let i=0;i<NP;i++){const y=1-(i/(NP-1))*2,rr=Math.sqrt(1-y*y),th=gold*i;
+    pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
+  const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
+  let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false;
+  function pulseCore(){shock=Math.min(1.6,shock+1);}   // hoisted; called by setCore + send
+  function targetEnergy(){
+    if(busy||coreState==='thinking')return 1.0;
+    if(coreState==='speaking')return 0.74;
+    if(coreState==='listening')return 0.6;
+    if(voiceActive)return 0.42;
+    return hover?0.36:0.15;
+  }
+  function hex2rgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);coreCanvas.width=Math.max(1,r.width*dpr);coreCanvas.height=Math.max(1,r.height*dpr);cctx.setTransform(dpr,0,0,dpr,0,0);}
   window.addEventListener('resize',fitCanvas);
-  function drawCore(t){
+  coreCanvas.addEventListener('mousemove',e=>{const r=coreCanvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hover=true;});
+  coreCanvas.addEventListener('mouseleave',()=>{hover=false;mx=my=-999;});
+  function drawSphere(t){
     const r=coreCanvas.getBoundingClientRect(),w=r.width,h=r.height; if(!w)return;
-    cctx.clearRect(0,0,w,h); const cx=w/2,cy=h/2,R=Math.min(w,h)/2-8;
-    const col=coreColor();
-    const spd=coreState==='thinking'?2.4:coreState==='speaking'?1.6:0.6;
-    const pulse=(Math.sin(t*(coreState==='thinking'?6:3))+1)/2;
-    const glow=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.15);
-    glow.addColorStop(0,col+'30');glow.addColorStop(.45,col+'12');glow.addColorStop(1,'transparent');
-    cctx.fillStyle=glow;cctx.beginPath();cctx.arc(cx,cy,R*1.15,0,7);cctx.fill();
-    for(let i=0;i<3;i++){const rr=R*(0.5+i*0.17),off=t*spd*(i%2?-1:1)+i*1.3;cctx.strokeStyle=col;cctx.globalAlpha=.55-i*.12;cctx.lineWidth=1.6;
-      for(let a=0;a<3;a++){const s=off+a*2.094;cctx.beginPath();cctx.arc(cx,cy,rr,s,s+1.05);cctx.stroke();}}
-    cctx.globalAlpha=.35;cctx.lineWidth=1;cctx.strokeStyle=col;
-    for(let k=0;k<56;k++){const a=t*0.3+k*0.112,r1=R*0.88,r2=R*0.95;cctx.beginPath();cctx.moveTo(cx+r1*Math.cos(a),cy+r1*Math.sin(a));cctx.lineTo(cx+r2*Math.cos(a),cy+r2*Math.sin(a));cctx.stroke();}
-    const np=coreState==='thinking'?16:9;cctx.globalAlpha=.85;
-    for(let p=0;p<np;p++){const a=t*spd*1.3+p*(6.283/np),rr=R*0.72,x=cx+rr*Math.cos(a),y=cy+rr*Math.sin(a);cctx.fillStyle=col;cctx.beginPath();cctx.arc(x,y,1.7,0,7);cctx.fill();}
-    cctx.globalAlpha=1;
-    if(coreState==='speaking'){cctx.strokeStyle=col;cctx.lineWidth=2;cctx.beginPath();for(let a=0;a<=72;a++){const ang=a/72*6.283,amp=R*0.32+Math.sin(ang*7+t*9)*R*0.06;const x=cx+amp*Math.cos(ang),y=cy+amp*Math.sin(ang);a?cctx.lineTo(x,y):cctx.moveTo(x,y);}cctx.closePath();cctx.stroke();}
-    else if(coreState==='listening'){const rp=(t*0.6)%1;cctx.strokeStyle=col;cctx.globalAlpha=1-rp;cctx.lineWidth=2;cctx.beginPath();cctx.arc(cx,cy,R*0.3+rp*R*0.5,0,7);cctx.stroke();cctx.globalAlpha=1;}
-    const cr=R*0.17*(0.82+pulse*0.32);const cg=cctx.createRadialGradient(cx,cy,0,cx,cy,cr*2.2);cg.addColorStop(0,'#ffffff');cg.addColorStop(.4,col);cg.addColorStop(1,'transparent');
-    cctx.fillStyle=cg;cctx.beginPath();cctx.arc(cx,cy,cr*2.2,0,7);cctx.fill();cctx.fillStyle='#fff';cctx.beginPath();cctx.arc(cx,cy,cr*0.45,0,7);cctx.fill();
+    cctx.clearRect(0,0,w,h);
+    const cx=w/2,cy=h/2,R=Math.min(w,h)*0.34;
+    energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
+    const e=Math.min(1.8,energy+shock*0.7);
+    rot+=0.0015+e*0.011;
+    const tint=(coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null;
+    const cosY=Math.cos(rot),sinY=Math.sin(rot),cosX=Math.cos(rotX),sinX=Math.sin(rotX);
+    const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e));
+    // soft ambient bloom
+    const amb=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.8);
+    amb.addColorStop(0,'rgba(95,208,230,'+(0.05+e*0.09).toFixed(3)+')');amb.addColorStop(.55,'rgba(120,80,220,0.025)');amb.addColorStop(1,'transparent');
+    cctx.fillStyle=amb;cctx.fillRect(0,0,w,h);
+    cctx.globalCompositeOperation='lighter';
+    for(let i=0;i<NP;i++){const p=pts[i];
+      const jit=e*0.05*Math.sin(t*3+p.ph), s=1+jit;
+      const bx=p.x*s,by=p.y*s,bz=p.z*s;
+      const x1=bx*cosY+bz*sinY, z1=-bx*sinY+bz*cosY;
+      const y2=by*cosX-z1*sinX, z2=by*sinX+z1*cosX;
+      const persp=1/(1.85-z2*0.6);
+      let sx=cx+x1*breathe*persp+p.dx, sy=cy+y2*breathe*persp+p.dy;
+      if(hover){const ax=sx-mx,ay=sy-my,d2=ax*ax+ay*ay; if(d2<10000){const d=Math.sqrt(d2)||1,f=(1-d/100)*2.6;p.dx+=ax/d*f;p.dy+=ay/d*f;}}
+      p.dx*=0.85;p.dy*=0.85;
+      sx=cx+x1*breathe*persp+p.dx; sy=cy+y2*breathe*persp+p.dy;
+      const mix=(x1+1)/2; let cr=MAG[0]+(CYAN[0]-MAG[0])*mix,cg=MAG[1]+(CYAN[1]-MAG[1])*mix,cb=MAG[2]+(CYAN[2]-MAG[2])*mix;
+      if(tint){cr=(cr+tint[0])/2;cg=(cg+tint[1])/2;cb=(cb+tint[2])/2;}
+      const depth=(z2+1)/2, tw=0.62+0.38*Math.sin(t*2.2+p.ph);
+      const a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35);
+      cctx.fillStyle='rgba('+(cr|0)+','+(cg|0)+','+(cb|0)+','+a.toFixed(3)+')';
+      cctx.beginPath();cctx.arc(sx,sy,sz,0,6.283);cctx.fill();
+    }
+    const ccr=R*0.12*(0.8+e*0.45+Math.sin(t*3)*0.06);
+    const cg2=cctx.createRadialGradient(cx,cy,0,cx,cy,ccr*3.2);
+    cg2.addColorStop(0,'rgba(255,255,255,'+(0.45+e*0.4).toFixed(3)+')');cg2.addColorStop(.4,'rgba(95,208,230,0.45)');cg2.addColorStop(1,'transparent');
+    cctx.fillStyle=cg2;cctx.beginPath();cctx.arc(cx,cy,ccr*3.2,0,6.283);cctx.fill();
+    cctx.globalCompositeOperation='source-over';
   }
-  function coreLoop(){drawCore(performance.now()/1000);requestAnimationFrame(coreLoop);}
-  fitCanvas();coreLoop();
+  function coreLoop(){drawSphere(performance.now()/1000);requestAnimationFrame(coreLoop);}
+  fitCanvas();setTimeout(fitCanvas,60);coreLoop();
 
   /* markdown */
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
