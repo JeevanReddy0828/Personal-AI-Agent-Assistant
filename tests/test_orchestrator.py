@@ -955,13 +955,38 @@ class OrchestratorTests(unittest.TestCase):
             orchestrator.planner = Planner(ChatPlanner())
             orchestrator.smart_planner = Planner(Tier("smart"))
             orchestrator.ultra_planner = Planner(Tier("ultra"))
-            simple = asyncio.run(orchestrator.handle("hey there"))
+            # A non-greeting so it goes through the LLM router (greetings short-circuit it).
+            simple = asyncio.run(orchestrator.handle("tell me something fun"))
             mid = asyncio.run(orchestrator.handle("explain how this works"))
             hard = asyncio.run(orchestrator.handle("give me a comprehensive in-depth analysis from scratch"))
             self.assertEqual(simple.message, "fast-reply")
             self.assertEqual(mid.message, "smart-reply")
             self.assertEqual(hard.message, "ultra-reply")
             self.assertEqual(hard.data["planner"]["model"], "ultra")
+
+    def test_greeting_skips_llm_routing_call(self) -> None:
+        # A confident heuristic greeting should answer without the extra LLM routing
+        # round-trip (which would only confirm "this is chat"), halving small-talk latency.
+        class CountingChatPlanner:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def plan(self, text, available_commands, memory_profile, history=None):
+                self.calls += 1
+                return PlanDecision(action="chat", confidence=0.8, explanation="chat", response="router-reply")
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            counting = CountingChatPlanner()
+            orchestrator.planner = Planner(counting)
+
+            greeting = asyncio.run(orchestrator.handle("hey jarvis how are you"))
+            self.assertTrue(greeting.ok)
+            self.assertEqual(counting.calls, 0)  # short-circuited — no routing LLM call
+
+            # A non-greeting chat still consults the LLM router.
+            asyncio.run(orchestrator.handle("tell me something fun"))
+            self.assertEqual(counting.calls, 1)
 
     def test_smart_answer_receives_history(self) -> None:
         class ChatPlanner:

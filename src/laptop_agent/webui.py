@@ -9,7 +9,8 @@ Panes: chat sessions, a Markdown-rendered conversation with file upload and
 voice, live system metrics (CPU/GPU/RAM), and the Obsidian memory vault.
 
 Run:  python -m laptop_agent.webui                 (browser tab)
-      python -c "from laptop_agent.webui import run_desktop; run_desktop()"  (app window)
+      python -m laptop_agent.webui --desktop       (frameless desktop app window)
+      laptop-agent-deck                            (same desktop window, installed command)
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -68,6 +70,14 @@ def _schedule_snapshot() -> dict:
     """Current scheduled jobs as plain JSON for the web panel."""
     result = asyncio.run(_orchestrator.handle("schedule list"))
     return {"ok": result.ok, "message": result.message, "jobs": _json_safe(result.data.get("jobs", []))}
+
+
+# Injectable so tests exercise the /api/tts success path without a speech engine.
+_TTS_BACKEND = None
+
+
+def _render_tts(text: str) -> bytes | None:
+    return synthesize_wav(text, _TTS_BACKEND)
 
 
 def _agent_runs_snapshot() -> dict:
@@ -172,69 +182,97 @@ PAGE = r"""<!doctype html>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root{
-    --bg:#08090d; --bg2:#0c0e14; --panel:#11141c; --panel2:#0d1018; --line:#1c2230; --line2:#283143;
-    --amber:#ffb000; --amber-b:#ffc94d; --amber-soft:#7a5a16; --ice:#5fd0e6;
-    --text:#e9eef4; --muted:#7c879a; --ok:#54e0a0; --danger:#ff5d6c; --purple:#a98bff;
+    --bg:#05070b; --bg2:rgba(10,14,22,.72); --panel:rgba(14,19,28,.66); --panel2:rgba(8,12,19,.55);
+    --line:rgba(95,208,230,.14); --line2:rgba(95,208,230,.30);
+    --amber:#ffb43a; --amber-b:#ffd27a; --amber-soft:#9a6a1e;
+    --ice:#5fd0e6; --ice-b:#9bf0ff; --ice-deep:#1d8aa6;
+    --text:#dfeaf2; --muted:#6f8497; --ok:#46e0b0; --danger:#ff5d6c; --purple:#a98bff;
     --display:'Chakra Petch',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hidden}
-  .app{display:grid;grid-template-columns:212px 1fr 286px;grid-template-rows:54px 1fr;height:100vh}
+  body{background:#05070b;color:var(--text);font-family:var(--body);overflow:hidden}
+  /* deep-space gradient + an arc-reactor glow rising from the centre-bottom */
+  body::before{content:'';position:fixed;inset:0;z-index:-3;
+    background:
+      radial-gradient(120% 80% at 50% -10%,rgba(95,208,230,.10),transparent 55%),
+      radial-gradient(90% 70% at 50% 116%,rgba(255,180,58,.10),transparent 55%),
+      linear-gradient(180deg,#070a10,#04060a 70%)}
+  /* faint HUD grid + a slow scan sweep across the whole deck */
+  body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(95,208,230,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(95,208,230,.05) 1px,transparent 1px);
+    background-size:46px 46px;
+    -webkit-mask-image:radial-gradient(120% 100% at 50% 0%,#000,transparent 80%);mask-image:radial-gradient(120% 100% at 50% 0%,#000,transparent 80%)}
+  .scan{position:fixed;left:0;right:0;height:140px;z-index:-1;pointer-events:none;
+    background:linear-gradient(180deg,transparent,rgba(95,208,230,.06) 60%,transparent);animation:scan 7.5s linear infinite}
+  @keyframes scan{0%{transform:translateY(-160px)}100%{transform:translateY(100vh)}}
+  .app{position:relative;display:grid;grid-template-columns:296px minmax(0,1fr) minmax(384px,440px);grid-template-rows:58px 1fr;height:100vh}
+  /* corner brackets on framed elements */
+  .bracket{position:relative}
+  .bracket::before,.bracket::after{content:'';position:absolute;width:10px;height:10px;pointer-events:none}
+  .bracket::before{top:-1px;left:-1px;border-top:1.5px solid var(--ice);border-left:1.5px solid var(--ice);opacity:.55}
+  .bracket::after{bottom:-1px;right:-1px;border-bottom:1.5px solid var(--ice);border-right:1.5px solid var(--ice);opacity:.55}
 
-  header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--bg2)}
-  .reactor{width:28px;height:28px}
-  .brand .n{font-family:var(--display);font-weight:700;letter-spacing:4px;font-size:15px}
-  .brand .n b{color:var(--amber)}
+  header{grid-column:1/-1;display:flex;align-items:center;gap:13px;padding:0 18px;background:linear-gradient(180deg,rgba(9,13,20,.85),rgba(6,9,14,.6));
+    border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(95,208,230,.12),0 10px 30px -18px rgba(95,208,230,.4);backdrop-filter:blur(8px)}
+  .reactor{width:30px;height:30px;filter:drop-shadow(0 0 6px rgba(95,208,230,.55))}
+  .brand .n{font-family:var(--display);font-weight:700;letter-spacing:5px;font-size:15px;color:#eaf6fb}
+  .brand .n b{color:var(--ice);text-shadow:0 0 8px rgba(95,208,230,.6)}
+  .brand .s{font-family:var(--mono);font-size:8.5px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-top:1px}
   header .sp{flex:1}
-  .pill{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px}
-  .pill b{color:var(--amber-b);font-weight:500}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:6px 12px;
+    border:1px solid var(--line);border-radius:999px;background:rgba(95,208,230,.04)}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+  .pill b{color:var(--ice-b);font-weight:500}
   #healthPill{cursor:default} #healthPill .dot{transition:background .4s,box-shadow .4s}
-  #healthPill.ok .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-  #healthPill.degraded .dot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
-  #healthPill.setup .dot{background:var(--danger);box-shadow:0 0 8px var(--danger)}
-  .setupcard{text-align:left;max-width:480px;background:var(--panel);border:1px solid var(--danger);border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.6;color:var(--text)}
+  #healthPill.ok .dot{background:var(--ok);box-shadow:0 0 9px var(--ok)}
+  #healthPill.degraded .dot{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  #healthPill.setup .dot{background:var(--danger);box-shadow:0 0 9px var(--danger)}
+  .setupcard{text-align:left;max-width:480px;background:var(--panel);border:1px solid var(--danger);border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.6;color:var(--text);backdrop-filter:blur(6px)}
   .setupcard b{font-family:var(--display);letter-spacing:1px;color:var(--amber-b);display:block;margin-bottom:6px}
-  .setupcard code{font-family:var(--mono);font-size:12px;background:#0a0d13;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--amber-b)}
+  .setupcard code{font-family:var(--mono);font-size:12px;background:#0a0d13;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--ice-b)}
   .pill.smart b{color:var(--purple)}
-  .vbtn{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:999px;padding:7px 13px;cursor:pointer}
-  .vbtn:hover{border-color:var(--amber-soft);color:var(--amber-b)}
-  .vbtn .dot{width:7px;height:7px;border-radius:50%;background:var(--ice);box-shadow:0 0 8px var(--ice)}
-  .vbtn.wide{width:100%;justify-content:center;margin:2px 0 12px;padding:11px;font-size:12px;letter-spacing:1px;background:var(--bg2)}
-  .vbtn.wide.on{background:var(--amber);color:#08090d;border-color:var(--amber)} .vbtn.wide.on .dot{background:#08090d;box-shadow:none}
-  details.conn{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
-  details.conn>summary{font-family:var(--display);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--amber-b);padding:11px 12px;cursor:pointer;list-style:none;user-select:none}
+  details.conn{position:relative;border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden;margin-bottom:11px;backdrop-filter:blur(7px)}
+  details.conn::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(95,208,230,.5),transparent)}
+  details.conn>summary{position:relative;font-family:var(--display);font-size:10.5px;letter-spacing:2.5px;text-transform:uppercase;color:var(--ice-b);padding:11px 13px;cursor:pointer;list-style:none;user-select:none}
+  details.conn>summary::before{content:'\25C9';color:var(--ice);margin-right:8px;font-size:8px;vertical-align:middle;opacity:.8}
   details.conn>summary::-webkit-details-marker{display:none}
-  details.conn>summary::after{content:'\25BE';float:right;color:var(--muted)} details.conn[open]>summary::after{content:'\25B4'}
+  details.conn>summary::after{content:'+';float:right;color:var(--muted);font-family:var(--mono)} details.conn[open]>summary::after{content:'\2212'}
   details.conn>div,details.conn>.seclbl,details.conn>.vstat{margin-left:6px;margin-right:6px}
-  .crow{display:flex;align-items:center;gap:8px;padding:7px 8px;font-family:var(--mono);font-size:11px;border-bottom:1px dashed #141a26}
+  .crow{display:flex;align-items:center;gap:8px;padding:7px 8px;font-family:var(--mono);font-size:11px;border-bottom:1px dashed rgba(95,208,230,.1)}
   .crow .d{width:7px;height:7px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 7px var(--ok)} .crow .d.off{background:#3a4150;box-shadow:none} .crow .d.warn{background:var(--amber);box-shadow:0 0 7px var(--amber)}
   .crow .k{color:var(--muted)} .crow .v{margin-left:auto;color:var(--text)}
 
-  aside{background:var(--panel2);border-right:1px solid var(--line);overflow-y:auto;padding:12px 10px}
+  aside{background:linear-gradient(180deg,rgba(8,11,18,.66),rgba(6,8,13,.5));border-right:1px solid var(--line);overflow-y:auto;padding:14px 11px;backdrop-filter:blur(9px)}
   aside.right{border-right:none;border-left:1px solid var(--line)}
-  .seclbl{font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--amber-soft);text-transform:uppercase;margin:14px 6px 8px}
-  .newchat{width:100%;text-align:left;background:var(--amber);color:#08090d;border:none;border-radius:9px;padding:10px 12px;font-family:var(--display);font-weight:600;font-size:12px;letter-spacing:1px;cursor:pointer}
-  .newchat:hover{background:var(--amber-b)}
-  .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-radius:8px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sess:hover{background:var(--panel)} .sess.active{background:var(--panel);border-color:var(--line2)}
+  .seclbl{font-family:var(--mono);font-size:8.5px;letter-spacing:2.5px;color:var(--ice-deep);text-transform:uppercase;margin:16px 6px 8px;display:flex;align-items:center;gap:8px}
+  .seclbl::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(95,208,230,.22),transparent)}
+  .newchat{width:100%;text-align:left;color:#eaf6fb;background:linear-gradient(135deg,rgba(95,208,230,.16),rgba(95,208,230,.05));border:1px solid var(--line2);
+    border-radius:10px;padding:11px 13px;font-family:var(--display);font-weight:600;font-size:12px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;transition:.2s}
+  .newchat:hover{border-color:var(--ice);box-shadow:0 0 18px -4px rgba(95,208,230,.5);color:#fff}
+  .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-left:2px solid transparent;border-radius:7px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}
+  .sess:hover{background:rgba(95,208,230,.05)} .sess.active{background:rgba(95,208,230,.08);border-left-color:var(--ice);color:#eaf6fb}
 
-  main{display:flex;flex-direction:column;min-height:0;position:relative}
-  .hero{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0 6px;border-bottom:1px solid var(--line);
-    background:radial-gradient(60% 120% at 50% 0%,rgba(255,176,0,.05),transparent 70%)}
-  #core{width:240px;height:118px;display:block}
-  .corestate{font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);margin-top:-6px;transition:color .4s}
+  /* centre stage: the particle core is the showpiece */
+  .stage{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;overflow:hidden;
+    background:radial-gradient(60% 60% at 50% 46%,rgba(95,208,230,.06),transparent 70%)}
+  #core{display:block;width:100%;height:100%;position:absolute;inset:0;cursor:crosshair}
+  .corestate{position:absolute;bottom:42px;left:0;right:0;text-align:center;font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);transition:color .4s;z-index:2;text-shadow:0 0 16px currentColor}
+  main.chatcol{display:flex;flex-direction:column;min-height:0;position:relative;border-left:1px solid var(--line);background:linear-gradient(180deg,rgba(8,11,18,.5),rgba(6,8,13,.4));backdrop-filter:blur(9px)}
+  .corestate-x{font-family:var(--display);letter-spacing:5px;text-transform:uppercase;font-size:11px;color:var(--ice);margin-top:-6px;transition:color .4s}
   .corestate b{color:#fff;font-weight:600}
   .corestate.think{color:var(--amber-b)} .corestate.speak{color:var(--amber)} .corestate.listen{color:var(--ice)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;margin-right:8px;vertical-align:middle;animation:blink 2s infinite}
   .chat{flex:1;overflow-y:auto;padding:18px 22px 6px}
   .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding-bottom:30px}
   .empty .orb{width:70px;height:70px}
-  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:2px;font-size:20px;margin:0}
+  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:21px;margin:0;color:#eaf6fb;text-shadow:0 0 22px rgba(95,208,230,.35)}
   .empty p{color:var(--muted);font-size:13px;margin:0;max-width:420px;line-height:1.6}
   .suggest{display:grid;grid-template-columns:1fr 1fr;gap:9px;width:100%;max-width:480px}
-  .scard{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px;cursor:pointer;font-size:12.5px}
-  .scard:hover{border-color:var(--amber-soft)} .scard b{display:block;font-family:var(--display);font-size:10px;letter-spacing:1px;color:var(--amber-b);text-transform:uppercase;margin-bottom:3px}
+  .scard{position:relative;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 14px;cursor:pointer;font-size:12.5px;transition:.18s;overflow:hidden}
+  .scard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ice);opacity:0;transition:.18s}
+  .scard:hover{border-color:var(--line2);background:rgba(95,208,230,.05);transform:translateY(-1px)} .scard:hover::before{opacity:.8}
+  .scard b{display:block;font-family:var(--display);font-size:9.5px;letter-spacing:1.5px;color:var(--ice-b);text-transform:uppercase;margin-bottom:3px}
 
   .msg{display:flex;gap:11px;margin:16px 0;animation:rise .25s ease both}
   .msg .av{width:28px;height:28px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:10px}
@@ -262,16 +300,26 @@ PAGE = r"""<!doctype html>
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
   .chip{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11px}
   .chip .ic{color:var(--amber)} .chip .rm{cursor:pointer;color:var(--muted)} .chip .rm:hover{color:var(--danger)}
-  .box{display:flex;align-items:flex-end;gap:6px;background:var(--bg2);border:1px solid var(--line2);border-radius:15px;padding:6px 6px 6px 5px}
-  .box:focus-within{border-color:var(--amber-soft);box-shadow:0 0 0 1px var(--amber-soft)}
-  .iconbtn{width:38px;height:38px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-size:16px;position:relative}
-  .iconbtn:hover{background:#161a23;color:var(--amber-b)} .iconbtn.live{color:var(--amber)}
-  .iconbtn.live::after{content:'';position:absolute;inset:0;border-radius:10px;border:1.5px solid var(--amber);animation:ring 1.1s ease-out infinite}
+  .box{display:flex;align-items:flex-end;gap:5px;background:linear-gradient(180deg,rgba(11,16,24,.92),rgba(7,10,16,.92));border:1px solid var(--line2);border-radius:16px;padding:6px 7px 6px 6px;transition:.2s}
+  .box:focus-within{border-color:var(--ice);box-shadow:0 0 0 1px rgba(95,208,230,.5),0 0 26px -6px rgba(95,208,230,.45)}
+  .iconbtn{width:38px;height:38px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-size:16px;position:relative;transition:.15s}
+  .iconbtn:hover{background:rgba(95,208,230,.08);color:var(--ice-b)} .iconbtn.live{color:var(--ice)}
+  .iconbtn.live::after{content:'';position:absolute;inset:0;border-radius:10px;border:1.5px solid var(--ice);animation:ring 1.1s ease-out infinite}
+  /* full-width Voice-mode toggle directly under the message box — unmistakable */
+  .voicetoggle{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:9px;cursor:pointer;
+    background:linear-gradient(180deg,rgba(95,208,230,.12),rgba(95,208,230,.05));border:1px solid var(--line2);border-radius:12px;
+    color:var(--ice-b);font-family:var(--display);font-size:11.5px;letter-spacing:2.5px;text-transform:uppercase;padding:11px;transition:.18s}
+  .voicetoggle:hover{border-color:var(--ice);background:rgba(95,208,230,.16);box-shadow:0 0 22px -7px rgba(95,208,230,.7);color:#eaf6fb}
+  .voicetoggle .vico{display:flex} .voicetoggle .vico svg{width:18px;height:18px}
+  .voicetoggle .on-label{display:none}
+  .voicetoggle.on{color:#04181e;background:radial-gradient(circle at 50% 0%,var(--ice-b),var(--ice));border-color:var(--ice);box-shadow:0 0 26px -6px rgba(95,208,230,.9)}
+  .voicetoggle.on .off-label{display:none} .voicetoggle.on .on-label{display:inline}
+  .voicetoggle.on .vico svg{animation:blink 1.1s infinite}
   #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.5;resize:none;max-height:150px;padding:9px 4px}
   #ta::placeholder{color:#46505f}
-  .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:11px;background:var(--amber);color:#08090d;cursor:pointer;font-size:16px}
-  .sendbtn.stop{background:var(--danger);color:#fff}
-  #agentBtn.on{color:var(--amber-b);border-color:var(--amber-soft);background:rgba(255,184,77,.08)}
+  .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:12px;background:radial-gradient(circle at 50% 35%,#ffe6ad,var(--amber));color:#1a1102;cursor:pointer;font-size:16px;box-shadow:0 0 16px -3px rgba(255,180,58,.65);transition:.15s}
+  .sendbtn.stop{background:radial-gradient(circle,#ff9aa3,var(--danger));color:#fff;box-shadow:0 0 16px -3px rgba(255,93,108,.6)}
+  #agentBtn.on{color:var(--ice-b);background:rgba(95,208,230,.12);box-shadow:inset 0 0 0 1px rgba(95,208,230,.3)}
   .trace{margin:6px 0 2px;border:1px solid var(--line);border-left:2px solid var(--amber-soft);border-radius:10px;background:#0a0d13;overflow:hidden}
   .trace .thead{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--amber-b);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
   .trace .thead .gdot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 7px var(--amber);animation:pulse 1.3s infinite}
@@ -347,17 +395,24 @@ PAGE = r"""<!doctype html>
   .runstep .txt{font-size:11px;color:var(--muted);line-height:1.35;margin-top:4px;white-space:pre-wrap}
 
   /* leave the hero core visible above the overlay so its colour shows in voice mode */
-  .voice{position:absolute;inset:150px 0 0 0;z-index:5;background:rgba(8,9,13,.92);backdrop-filter:blur(7px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:var(--ice)}
+  .voice{position:absolute;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;gap:24px;color:var(--ice);
+    background:radial-gradient(70% 60% at 50% 50%,rgba(8,14,20,.55),rgba(5,7,11,.9));backdrop-filter:blur(6px)}
+  /* concentric targeting reticle behind the readout */
+  .voice::before{content:'';position:absolute;width:340px;height:340px;border-radius:50%;border:1px solid rgba(95,208,230,.18);
+    box-shadow:inset 0 0 60px -20px rgba(95,208,230,.4);animation:spin 22s linear infinite}
+  .voice::after{content:'';position:absolute;width:240px;height:240px;border-radius:50%;border:1px dashed rgba(95,208,230,.22);animation:spinrev 16s linear infinite}
   .voice.on{display:flex}
-  .bars{display:flex;align-items:center;gap:4px;height:30px}
-  .bars i{width:4px;height:8px;background:currentColor;border-radius:3px;animation:bars 1s ease-in-out infinite}
+  .voice>*{position:relative;z-index:1}
+  .bars{display:flex;align-items:center;gap:5px;height:34px}
+  .bars i{width:4px;height:8px;background:currentColor;border-radius:3px;box-shadow:0 0 8px currentColor;animation:bars 1s ease-in-out infinite}
   .bars i:nth-child(2){animation-delay:.12s}.bars i:nth-child(3){animation-delay:.24s}.bars i:nth-child(4){animation-delay:.36s}.bars i:nth-child(5){animation-delay:.48s}
   .voice[data-state="thinking"] .bars{opacity:.25}
-  .vstate{font-family:var(--display);letter-spacing:4px;text-transform:uppercase;font-size:13px;color:currentColor}
-  .vcap{font-family:var(--mono);font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted)}
-  .vtrans{max-width:560px;min-height:52px;text-align:center;color:var(--text);font-size:18px;line-height:1.5;padding:0 20px}
-  .vend{font-family:var(--display);letter-spacing:2px;font-size:12px;color:#08090d;background:var(--amber);border:none;border-radius:999px;padding:11px 26px;cursor:pointer}
-  .drop{position:absolute;inset:10px;z-index:6;background:rgba(255,176,0,.06);border:2px dashed var(--amber);border-radius:16px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:2px;color:var(--amber-b);pointer-events:none}
+  .vstate{font-family:var(--display);letter-spacing:6px;text-transform:uppercase;font-size:14px;color:currentColor;text-shadow:0 0 16px currentColor}
+  .vcap{font-family:var(--mono);font-size:8.5px;letter-spacing:4px;text-transform:uppercase;color:var(--muted)}
+  .vtrans{max-width:580px;min-height:52px;text-align:center;color:#eaf6fb;font-size:19px;line-height:1.5;padding:0 20px;font-weight:300}
+  .vend{font-family:var(--display);letter-spacing:3px;text-transform:uppercase;font-size:11px;color:var(--ice-b);background:rgba(95,208,230,.08);border:1px solid var(--line2);border-radius:999px;padding:11px 28px;cursor:pointer;transition:.2s}
+  .vend:hover{border-color:var(--ice);box-shadow:0 0 20px -4px rgba(95,208,230,.6);color:#fff}
+  .drop{position:absolute;inset:10px;z-index:6;background:rgba(95,208,230,.07);border:2px dashed var(--ice);border-radius:16px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:3px;text-transform:uppercase;color:var(--ice-b);pointer-events:none}
   .drop.on{display:flex}
 
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#1b2230;border-radius:8px}
@@ -375,6 +430,7 @@ PAGE = r"""<!doctype html>
 </style>
 </head>
 <body>
+<div class="scan"></div>
 <div class="app">
   <header>
     <svg class="reactor" id="reactor" viewBox="0 0 100 100" aria-hidden="true">
@@ -391,50 +447,7 @@ PAGE = r"""<!doctype html>
     <button class="newchat" id="newChat">+  New chat</button>
     <div class="seclbl">Sessions</div>
     <div id="sessions"></div>
-  </aside>
-
-  <main>
-    <div class="hero">
-      <canvas id="core" width="480" height="236"></canvas>
-      <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
-    </div>
-    <div class="chat" id="chat">
-      <div class="empty" id="empty">
-        <svg class="orb" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="r-ring1" cx="50" cy="50" r="42" fill="none" stroke="#ffb000" stroke-width="2" stroke-dasharray="6 10"/>
-          <circle class="r-mid" cx="50" cy="50" r="22" fill="none" stroke="#ffb000" stroke-width="2.5"/>
-          <circle class="r-core" cx="50" cy="50" r="6" fill="#ffb000"/>
-        </svg>
-        <h1>How can I help, Jeevan?</h1>
-        <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
-        <div class="setupcard" id="setupCard" style="display:none"></div>
-        <div class="suggest" id="suggest"></div>
-      </div>
-    </div>
-    <div class="composer">
-      <div class="chips" id="chips"></div>
-      <div class="box">
-        <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
-        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
-        <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
-        <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
-        <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
-      </div>
-      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
-    </div>
-    <input type="file" id="file" multiple style="display:none" />
-    <div class="drop" id="drop">Drop files to attach</div>
-    <div class="voice" id="voice" data-state="listening">
-      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="vstate" id="vstate">Listening</div>
-      <div class="vcap">subtitles</div>
-      <div class="vtrans" id="vtrans">Say something…</div>
-      <button class="vend" id="vend">End voice</button>
-    </div>
-  </main>
-
-  <aside class="right">
-    <button class="vbtn wide" id="voiceBtn"><span class="dot"></span> Voice mode</button>
+    <div class="seclbl">Systems</div>
     <details class="conn" open>
       <summary>Connections &amp; system</summary>
       <div id="connlist"></div>
@@ -465,6 +478,48 @@ PAGE = r"""<!doctype html>
       <div id="runsList"></div>
     </details>
   </aside>
+
+  <section class="stage">
+    <canvas id="core"></canvas>
+    <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
+    <div class="voice" id="voice" data-state="listening">
+      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="vstate" id="vstate">Listening</div>
+      <div class="vcap">subtitles</div>
+      <div class="vtrans" id="vtrans">Say something…</div>
+      <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
+      <button class="vend" id="vend">End voice</button>
+    </div>
+  </section>
+
+  <main class="chatcol">
+    <div class="chat" id="chat">
+      <div class="empty" id="empty">
+        <h1>How can I help, Jeevan?</h1>
+        <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
+        <div class="setupcard" id="setupCard" style="display:none"></div>
+        <div class="suggest" id="suggest"></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="chips" id="chips"></div>
+      <div class="box">
+        <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
+        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
+        <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
+        <button class="iconbtn" id="micBtn" title="Dictate">&#127908;</button>
+        <button class="sendbtn" id="sendBtn" title="Send">&#10148;</button>
+      </div>
+      <button class="voicetoggle" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S hands-free">
+        <span class="vico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/><path d="M7.7 7.7a6 6 0 000 8.6M4.9 4.9a10 10 0 000 14.2M16.3 7.7a6 6 0 010 8.6M19.1 4.9a10 10 0 010 14.2"/></svg></span>
+        <span class="vlabel off-label">Voice mode</span>
+        <span class="vlabel on-label">Listening · tap to stop</span>
+      </button>
+      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
+    </div>
+    <input type="file" id="file" multiple style="display:none" />
+    <div class="drop" id="drop">Drop files to attach</div>
+  </main>
 </div>
 
 <script>
@@ -505,32 +560,68 @@ PAGE = r"""<!doctype html>
     else label='J.A.R.V.I.S · <b>online</b>';
     corestate.className='corestate';corestate.style.color=col;corestate.innerHTML='<span class="blip"></span>'+label;
     voice.style.color=col;  // overlay bars + state text follow the same colour
+    pulseCore();            // ripple the particle sphere on every state change
   }
-  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;coreCanvas.width=r.width*dpr;coreCanvas.height=r.height*dpr;cctx.setTransform(dpr,0,0,dpr,0,0);}
+  /* ---- 3D particle sphere: a cloud of light points that rotates, breathes,
+        energises while J.A.R.V.I.S works, and scatters under the cursor ---- */
+  const NP=760, pts=[];
+  (function(){const gold=Math.PI*(3-Math.sqrt(5));for(let i=0;i<NP;i++){const y=1-(i/(NP-1))*2,rr=Math.sqrt(1-y*y),th=gold*i;
+    pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
+  const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
+  let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false;
+  function pulseCore(){shock=Math.min(1.6,shock+1);}   // hoisted; called by setCore + send
+  function targetEnergy(){
+    if(busy||coreState==='thinking')return 1.0;
+    if(coreState==='speaking')return 0.74;
+    if(coreState==='listening')return 0.6;
+    if(voiceActive)return 0.42;
+    return hover?0.36:0.15;
+  }
+  function hex2rgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);coreCanvas.width=Math.max(1,r.width*dpr);coreCanvas.height=Math.max(1,r.height*dpr);cctx.setTransform(dpr,0,0,dpr,0,0);}
   window.addEventListener('resize',fitCanvas);
-  function drawCore(t){
+  coreCanvas.addEventListener('mousemove',e=>{const r=coreCanvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hover=true;});
+  coreCanvas.addEventListener('mouseleave',()=>{hover=false;mx=my=-999;});
+  function drawSphere(t){
     const r=coreCanvas.getBoundingClientRect(),w=r.width,h=r.height; if(!w)return;
-    cctx.clearRect(0,0,w,h); const cx=w/2,cy=h/2,R=Math.min(w,h)/2-8;
-    const col=coreColor();
-    const spd=coreState==='thinking'?2.4:coreState==='speaking'?1.6:0.6;
-    const pulse=(Math.sin(t*(coreState==='thinking'?6:3))+1)/2;
-    const glow=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.15);
-    glow.addColorStop(0,col+'30');glow.addColorStop(.45,col+'12');glow.addColorStop(1,'transparent');
-    cctx.fillStyle=glow;cctx.beginPath();cctx.arc(cx,cy,R*1.15,0,7);cctx.fill();
-    for(let i=0;i<3;i++){const rr=R*(0.5+i*0.17),off=t*spd*(i%2?-1:1)+i*1.3;cctx.strokeStyle=col;cctx.globalAlpha=.55-i*.12;cctx.lineWidth=1.6;
-      for(let a=0;a<3;a++){const s=off+a*2.094;cctx.beginPath();cctx.arc(cx,cy,rr,s,s+1.05);cctx.stroke();}}
-    cctx.globalAlpha=.35;cctx.lineWidth=1;cctx.strokeStyle=col;
-    for(let k=0;k<56;k++){const a=t*0.3+k*0.112,r1=R*0.88,r2=R*0.95;cctx.beginPath();cctx.moveTo(cx+r1*Math.cos(a),cy+r1*Math.sin(a));cctx.lineTo(cx+r2*Math.cos(a),cy+r2*Math.sin(a));cctx.stroke();}
-    const np=coreState==='thinking'?16:9;cctx.globalAlpha=.85;
-    for(let p=0;p<np;p++){const a=t*spd*1.3+p*(6.283/np),rr=R*0.72,x=cx+rr*Math.cos(a),y=cy+rr*Math.sin(a);cctx.fillStyle=col;cctx.beginPath();cctx.arc(x,y,1.7,0,7);cctx.fill();}
-    cctx.globalAlpha=1;
-    if(coreState==='speaking'){cctx.strokeStyle=col;cctx.lineWidth=2;cctx.beginPath();for(let a=0;a<=72;a++){const ang=a/72*6.283,amp=R*0.32+Math.sin(ang*7+t*9)*R*0.06;const x=cx+amp*Math.cos(ang),y=cy+amp*Math.sin(ang);a?cctx.lineTo(x,y):cctx.moveTo(x,y);}cctx.closePath();cctx.stroke();}
-    else if(coreState==='listening'){const rp=(t*0.6)%1;cctx.strokeStyle=col;cctx.globalAlpha=1-rp;cctx.lineWidth=2;cctx.beginPath();cctx.arc(cx,cy,R*0.3+rp*R*0.5,0,7);cctx.stroke();cctx.globalAlpha=1;}
-    const cr=R*0.17*(0.82+pulse*0.32);const cg=cctx.createRadialGradient(cx,cy,0,cx,cy,cr*2.2);cg.addColorStop(0,'#ffffff');cg.addColorStop(.4,col);cg.addColorStop(1,'transparent');
-    cctx.fillStyle=cg;cctx.beginPath();cctx.arc(cx,cy,cr*2.2,0,7);cctx.fill();cctx.fillStyle='#fff';cctx.beginPath();cctx.arc(cx,cy,cr*0.45,0,7);cctx.fill();
+    cctx.clearRect(0,0,w,h);
+    const cx=w/2,cy=h/2,R=Math.min(w,h)*0.34;
+    energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
+    const e=Math.min(1.8,energy+shock*0.7);
+    rot+=0.0015+e*0.011;
+    const tint=(coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null;
+    const cosY=Math.cos(rot),sinY=Math.sin(rot),cosX=Math.cos(rotX),sinX=Math.sin(rotX);
+    const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e));
+    // soft ambient bloom
+    const amb=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.8);
+    amb.addColorStop(0,'rgba(95,208,230,'+(0.05+e*0.09).toFixed(3)+')');amb.addColorStop(.55,'rgba(120,80,220,0.025)');amb.addColorStop(1,'transparent');
+    cctx.fillStyle=amb;cctx.fillRect(0,0,w,h);
+    cctx.globalCompositeOperation='lighter';
+    for(let i=0;i<NP;i++){const p=pts[i];
+      const jit=e*0.05*Math.sin(t*3+p.ph), s=1+jit;
+      const bx=p.x*s,by=p.y*s,bz=p.z*s;
+      const x1=bx*cosY+bz*sinY, z1=-bx*sinY+bz*cosY;
+      const y2=by*cosX-z1*sinX, z2=by*sinX+z1*cosX;
+      const persp=1/(1.85-z2*0.6);
+      let sx=cx+x1*breathe*persp+p.dx, sy=cy+y2*breathe*persp+p.dy;
+      if(hover){const ax=sx-mx,ay=sy-my,d2=ax*ax+ay*ay; if(d2<10000){const d=Math.sqrt(d2)||1,f=(1-d/100)*2.6;p.dx+=ax/d*f;p.dy+=ay/d*f;}}
+      p.dx*=0.85;p.dy*=0.85;
+      sx=cx+x1*breathe*persp+p.dx; sy=cy+y2*breathe*persp+p.dy;
+      const mix=(x1+1)/2; let cr=MAG[0]+(CYAN[0]-MAG[0])*mix,cg=MAG[1]+(CYAN[1]-MAG[1])*mix,cb=MAG[2]+(CYAN[2]-MAG[2])*mix;
+      if(tint){cr=(cr+tint[0])/2;cg=(cg+tint[1])/2;cb=(cb+tint[2])/2;}
+      const depth=(z2+1)/2, tw=0.62+0.38*Math.sin(t*2.2+p.ph);
+      const a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35);
+      cctx.fillStyle='rgba('+(cr|0)+','+(cg|0)+','+(cb|0)+','+a.toFixed(3)+')';
+      cctx.beginPath();cctx.arc(sx,sy,sz,0,6.283);cctx.fill();
+    }
+    const ccr=R*0.12*(0.8+e*0.45+Math.sin(t*3)*0.06);
+    const cg2=cctx.createRadialGradient(cx,cy,0,cx,cy,ccr*3.2);
+    cg2.addColorStop(0,'rgba(255,255,255,'+(0.45+e*0.4).toFixed(3)+')');cg2.addColorStop(.4,'rgba(95,208,230,0.45)');cg2.addColorStop(1,'transparent');
+    cctx.fillStyle=cg2;cctx.beginPath();cctx.arc(cx,cy,ccr*3.2,0,6.283);cctx.fill();
+    cctx.globalCompositeOperation='source-over';
   }
-  function coreLoop(){drawCore(performance.now()/1000);requestAnimationFrame(coreLoop);}
-  fitCanvas();coreLoop();
+  function coreLoop(){drawSphere(performance.now()/1000);requestAnimationFrame(coreLoop);}
+  fitCanvas();setTimeout(fitCanvas,60);coreLoop();
 
   /* markdown */
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -631,7 +722,8 @@ PAGE = r"""<!doctype html>
     let reply='', streamed='';
     currentAbort=new AbortController();
     try{
-      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history})});
+      const speakStream=voiceActive; if(speakStream)voiceTurnReset();
+      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history,voice:speakStream})});
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
       while(true){
         const {done:fin,value}=await reader.read(); if(fin)break;
@@ -640,8 +732,9 @@ PAGE = r"""<!doctype html>
           const line=buf.slice(0,i); buf=buf.slice(i+2);
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
-          if(ev.type==='token'){streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
-          else if(ev.type==='done'){done=ev;}
+          if(ev.type==='token'){if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
+          else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
         }
       }
       const d=done||{ok:true,message:streamed,data:{}};
@@ -657,7 +750,7 @@ PAGE = r"""<!doctype html>
       if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=curSession();if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
-    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
+    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
     return reply;
   }
 
@@ -803,7 +896,10 @@ PAGE = r"""<!doctype html>
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
-  if(!SR)micBtn.style.display='none';
+  // Native app window (pywebview): ?app=1 is set by run_desktop. There is no Web Speech
+  // API, so voice records audio and uses the server (/api/transcribe + /api/tts).
+  const NATIVE=location.search.indexOf('app=1')>=0;
+  if(!SR)micBtn.style.display='none';                   // dictation needs Web Speech; voice mode uses the server in NATIVE
   // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
   let ttsVoice=null;
   function pickVoice(){
@@ -814,12 +910,29 @@ PAGE = r"""<!doctype html>
   }
   speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
-  voiceBtn.onclick=()=>{if(!SR){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
+  voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false, lastSpoken='';
+  // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
+  // one at a time so the first sentence plays while the rest is still being written.
+  let ttsQueue=[], streamComplete=false, spokeAny=false;
+  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;speaking=false;}   // no cancel(): Chrome drops the next speak() if cancel() ran just before it
+  function voiceTurnDone(reply){
+    streamComplete=true;
+    if(!spokeAny){ if(reply){enqueueTTS(reply);} else { afterTurn(); } }   // no streamed sentences (e.g. a tool result) — speak the whole reply
+    else pumpTTS();                                                        // resume check in case the queue already drained
+  }
+  function enqueueTTS(text){const t=(text||'').trim();if(!t)return;spokeAny=true;ttsQueue.push(t);pumpTTS();}
+  function pumpTTS(){
+    if(!voiceActive){ttsQueue=[];return;}
+    if(speaking)return;                                  // one utterance at a time
+    if(!ttsQueue.length){if(streamComplete)afterTurn();return;}
+    speakChunk(ttsQueue.shift());
+  }
+  function afterTurn(){if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay
   // reject recognized speech that is really the agent hearing its own voice
   function isEcho(q){
     const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
@@ -828,37 +941,112 @@ PAGE = r"""<!doctype html>
     const bw=new Set(b.split(' ')), aw=a.split(' ');
     return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
   }
+  // --- voice timing HUD: marks where each turn spends time so latency is visible ---
+  let vT0=0, vMarks=[];
+  function vstart(){vT0=performance.now();vMarks=[];}
+  function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
+    if(NATIVE)return nativeListen();                     // server-side speech path for the app window
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
-    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;recognizing=true;
-    let fin='',heard=false;
-    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;heard=true;vtrans.textContent=t;if(e.results[e.results.length-1].isFinal)fin=t;};
-    rec.onerror=()=>{};
-    rec.onend=async()=>{
-      recognizing=false; if(!voiceActive||speaking)return;
-      const q=(fin||(heard?vtrans.textContent:'')||'').trim();
+    vstart();
+    // continuous + our own silence timer: Chrome's built-in end-of-speech detection can
+    // wait many seconds before firing onend, which feels like a long "thinking" pause.
+    // We finalize ~1.2s after the user stops talking so the turn snaps to the reply.
+    rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;recognizing=true;
+    let fin='',heard=false,silence=null,handled=false;
+    // Act on the transcript we already have the moment the user pauses, and abort()
+    // immediately — waiting for Chrome's stop()/onend stalled ~28s in testing.
+    const handle=async(raw)=>{
+      if(handled)return; handled=true; recognizing=false; clearTimeout(silence);
+      try{rec.abort();}catch(e){}
+      if(!voiceActive||speaking)return;
+      const q=(raw||'').trim();
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
-      const reply=await send(q);
-      if(!voiceActive)return;
-      if(reply)speak(reply);else listen();
+      await send(q);                                    // send() streams sentences back via voiceTurnDone; it drives speech, not us
     };
+    const finalize=()=>{vmark('settle');handle(fin||vtrans.textContent);};
+    rec.onstart=()=>vmark('mic-on');
+    rec.onspeechstart=()=>vmark('speech');
+    rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
+    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
+    rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
     try{rec.start();}catch(e){recognizing=false;}
   }
-  function speak(text){try{
-    speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
-    speechSynthesis.cancel();if(!ttsVoice)pickVoice();
+  // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
+  function blobToB64(blob){return new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(blob);});}
+  async function nativeListen(){
+    if(!voiceActive||recognizing||speaking)return;
+    setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';vstart();recognizing=true;
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}
+    catch(e){recognizing=false;vSet('idle','Mic blocked');vtrans.textContent='Microphone permission is needed for voice.';return;}
+    const mime=(window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/webm'))?'audio/webm':((window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/ogg'))?'audio/ogg':'');
+    let mr;try{mr=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);}catch(e){recognizing=false;vSet('idle','No recorder');return;}
+    const chunks=[];mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    const ac=new (window.AudioContext||window.webkitAudioContext)();const srcN=ac.createMediaStreamSource(stream);const an=ac.createAnalyser();an.fftSize=512;srcN.connect(an);
+    const buf=new Uint8Array(an.fftSize);let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
+    const cleanup=()=>{try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
+    const stopRec=()=>{if(stopped)return;stopped=true;try{mr.stop();}catch(e){}};
+    const tick=()=>{
+      if(stopped||!voiceActive){stopRec();return;}
+      an.getByteTimeDomainData(buf);let peak=0;for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128);if(v>peak)peak=v;}
+      const now=performance.now();
+      if(peak>9){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
+      else if(spoke&&now-lastLoud>1000){vmark('settle');stopRec();return;}    // ~1s silence after speech
+      if(now-t0>12000){stopRec();return;}                                      // hard cap
+      requestAnimationFrame(tick);
+    };
+    mr.onstop=async()=>{
+      recognizing=false;vmark('rec-end');cleanup();
+      if(!voiceActive||speaking)return;
+      if(!spoke||!chunks.length){listen();return;}
+      vSet('thinking','Transcribing…');
+      let q='';
+      try{const blob=new Blob(chunks,{type:mime||'audio/webm'});const b64=await blobToB64(blob);
+        const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:b64,ext:mime.indexOf('ogg')>=0?'ogg':'webm'})});
+        const d=await r.json();vmark('stt');q=(d.text||'').trim();
+        if(!d.ok&&d.message){vtrans.textContent=d.message;}
+      }catch(e){}
+      if(!voiceActive)return;
+      if(q.length<2){listen();return;}
+      vtrans.textContent=q;vSet('thinking','Thinking');
+      await send(q);
+    };
+    try{mr.start();vmark('mic-on');requestAnimationFrame(tick);}catch(e){recognizing=false;cleanup();}
+  }
+  async function playTTS(text){
+    speaking=true;
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
-    lastSpoken=clean;                                   // remember it so we can reject the echo
+    if(!clean){speaking=false;pumpTTS();return;}
+    setCore('speaking');vSet('speaking','Speaking');if(voiceActive)vtrans.textContent=clean.slice(0,240);
+    try{
+      const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
+      if(!r.ok)throw new Error('tts '+r.status);
+      const blob=new Blob([await r.arrayBuffer()],{type:'audio/wav'});const a=new Audio(URL.createObjectURL(blob));
+      a.onended=()=>{speaking=false;pumpTTS();};a.onerror=()=>{speaking=false;pumpTTS();};
+      vmark('speak');a.play();
+    }catch(e){speaking=false;pumpTTS();}
+  }
+  function speakChunk(text){
+    if(NATIVE)return playTTS(text);
+    try{
+    speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
+    try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
+    if(!ttsVoice)pickVoice();
+    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    if(!clean){speaking=false;pumpTTS();return;}
+    lastSpoken=(lastSpoken?lastSpoken+' '+clean:clean).slice(-600);        // accumulate spoken text so we can reject the echo
     const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
-    if(voiceActive)vtrans.textContent=clean.slice(0,240);                       // static, readable subtitles
+    if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
+    u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{speaking=false;if(voiceActive){setTimeout(()=>{if(voiceActive)listen();},600);}else setCore('idle');};   // echo-guard delay
-    u.onerror=()=>{speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');};
+    u.onend=()=>{speaking=false;pumpTTS();};            // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
-  }catch(e){speaking=false;if(voiceActive)setTimeout(()=>{if(voiceActive)listen();},600);else setCore('idle');}}
+  }catch(e){speaking=false;pumpTTS();}}
 
   renderSessions(); ta.focus();
 </script>
@@ -882,7 +1070,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json")
 
     def do_GET(self) -> None:
-        if self.path in {"/", "/index.html"}:
+        path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
+        if path in {"/", "/index.html"}:
             page = (
                 PAGE.replace("{{PLANNER}}", _planner_label())
                 .replace("{{SMART}}", _smart_label())
@@ -890,13 +1079,13 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("{{VISION}}", _vision_label())
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
-        elif self.path == "/api/health":
+        elif path == "/api/health":
             self._json(200, system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG))
-        elif self.path == "/api/metrics":
+        elif path == "/api/metrics":
             self._json(200, system_metrics())
-        elif self.path == "/api/agents":
+        elif path == "/api/agents":
             self._json(200, {"ok": True, "control_room": _json_safe(_orchestrator.control_room.snapshot())})
-        elif self.path == "/api/vault":
+        elif path == "/api/vault":
             status = asyncio.run(_orchestrator.handle("notes status"))
             listing = asyncio.run(_orchestrator.handle("notes list"))
             self._json(
@@ -908,9 +1097,9 @@ class Handler(BaseHTTPRequestHandler):
                     "notes": listing.data.get("notes", []),
                 },
             )
-        elif self.path == "/api/schedule":
+        elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
-        elif self.path == "/api/agent-runs":
+        elif path == "/api/agent-runs":
             self._json(200, _agent_runs_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
@@ -932,6 +1121,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/transcribe":
+            self._handle_transcribe()
+        elif self.path == "/api/tts":
+            self._handle_tts()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -944,6 +1137,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             command, history = self._command_with_attachments(payload)
+            voice = bool(payload.get("voice"))
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "bad request"})
             return
@@ -960,11 +1154,26 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
 
+        # In voice mode, split the streamed reply into sentences and push each as a
+        # `tts` event the moment it completes, so the browser starts speaking the
+        # first sentence instead of waiting for the whole reply (low time-to-audio).
+        chunker = SpeechChunker() if voice else None
+
+        def on_token(token: str) -> None:
+            emit({"type": "token", "text": token})
+            if chunker is not None:
+                for sentence in chunker.feed(token):
+                    spoken = clean_for_speech(sentence)
+                    if spoken:
+                        emit({"type": "tts", "text": spoken})
+
         agent_id = _orchestrator.control_room.start(command)
         try:
-            result = asyncio.run(
-                _orchestrator.handle(command, history=history, on_token=lambda t: emit({"type": "token", "text": t}))
-            )
+            result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
+            if chunker is not None:
+                tail = clean_for_speech(chunker.flush() or "")
+                if tail:
+                    emit({"type": "tts", "text": tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
         except ApprovalDenied as exc:
@@ -1025,6 +1234,51 @@ class Handler(BaseHTTPRequestHandler):
         dest = UPLOAD_DIR / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_transcribe(self) -> None:
+        """Speech-to-text for the native app's voice loop: accept a recorded audio
+        clip and return the transcript via the local TranscribeTool. This replaces
+        the browser Web Speech API so voice works in a non-browser (webview) window."""
+        try:
+            payload = self._read_json()
+            data = str(payload.get("audio", ""))
+            if data.startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            raw = base64.b64decode(data, validate=False)
+            suffix = str(payload.get("ext", "webm")).lstrip(".").lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "could not read audio"})
+            return
+        if not raw:
+            self._json(400, {"ok": False, "message": "empty audio"})
+            return
+        if len(raw) > MAX_UPLOAD_BYTES:
+            self._json(413, {"ok": False, "message": "audio too large"})
+            return
+        if suffix not in {"webm", "ogg", "wav", "m4a", "mp4", "mp3"}:
+            suffix = "webm"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        clip = UPLOAD_DIR / f"voice_in.{suffix}"
+        clip.write_bytes(raw)
+        result = _orchestrator.context.transcribe.transcribe_media(str(clip))
+        text = str(result.data.get("text", "")).strip() if result.ok else ""
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+
+    def _handle_tts(self) -> None:
+        """Text-to-speech for the native app's voice loop: render a sentence to WAV
+        audio server-side (offline engine) so the page can play it without the
+        browser's speechSynthesis, which is unavailable in a webview window."""
+        try:
+            payload = self._read_json()
+            text = str(payload.get("text", ""))
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        wav = _render_tts(text)
+        if not wav:
+            self._json(503, {"ok": False, "message": "Text-to-speech needs: pip install pyttsx3"})
+            return
+        self._send(200, wav, "audio/wav")
 
     def _handle_schedule(self) -> None:
         """Add / remove / toggle a scheduled job, then return the refreshed list.
@@ -1152,7 +1406,11 @@ def _launch_webview(url: str) -> bool:
         import webview  # type: ignore
     except ImportError:
         return False
-    webview.create_window("J.A.R.V.I.S", url, width=1280, height=860, background_color="#08090d")
+    # ?app=1 tells the page it is in a non-browser window, so voice uses the
+    # server-side speech path (record -> /api/transcribe, play /api/tts) instead of
+    # the Web Speech API, which is unavailable inside a webview.
+    sep = "&" if "?" in url else "?"
+    webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
     webview.start()
     return True
 
@@ -1166,28 +1424,53 @@ def run_desktop() -> None:
     _warmup()
     _keep_warm()
     _schedule_ticker()
+    # Warm the speech model in the background so the first voice turn isn't slow
+    # (no-op if Whisper isn't installed).
+    from laptop_agent.tools.transcribe import warm_whisper
+
+    threading.Thread(target=warm_whisper, daemon=True).start()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
+    # Prefer a true native window (pywebview): no Edge, its own taskbar entry. Voice
+    # works because speech is handled server-side (Whisper STT + offline TTS), not via
+    # the browser's Web Speech API. This is the real "downloadable app" experience.
     if _launch_webview(url):
+        print("Opened as a native app window.")
         server.shutdown()
         return
 
+    # Fallback when pywebview isn't installed: a frameless Chrome/Edge --app window.
+    # It looks like an app and keeps the (browser) Web Speech API for voice.
     process = _launch_app_window(url)
-    if process is None:
-        print("No Chromium-based browser found; opening in the default browser instead.")
-        webbrowser.open(url)
-    else:
-        print("Chat opened as a desktop window.")
+    if process is not None:
+        print("pywebview not installed — opened a frameless Chrome/Edge app window instead.")
+        try:
+            process.wait()          # quit the app when the window is closed
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            server.shutdown()
+        return
+
+    print("No app window backend found; opening in the default browser instead.")
+    webbrowser.open(url)
     print("Running. Press Ctrl+C here to stop.")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
         pass
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
         server.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    # `python -m laptop_agent.webui --desktop` opens a frameless desktop app window
+    # (same as the `laptop-agent-deck` command); without it, serves a browser tab.
+    if any(flag in sys.argv[1:] for flag in ("--desktop", "-d", "--app")):
+        run_desktop()
+    else:
+        main()

@@ -32,6 +32,55 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "analyze spreadsheet data.tsv")
 
+    def test_local_recommendation_goes_to_web_search(self) -> None:
+        decision = self.plan("find me Indian restaurants in kyle, Tx")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "web search Indian restaurants in kyle, Tx")
+
+    def test_near_me_goes_to_web_search(self) -> None:
+        decision = self.plan("best coffee near me")
+        self.assertTrue(decision.is_command)
+        self.assertTrue(decision.command.startswith("web search"))
+
+    def test_general_email_read_uses_imap_digest_not_oauth(self) -> None:
+        # Regression: "give me important emails" was routed to a high-risk Outlook
+        # OAuth read and blocked; it must use the local IMAP digest instead.
+        for phrase in (
+            "for last 2 days - give me any important emails",
+            "show me my emails",
+            "any emails from the last 2 days",
+        ):
+            decision = self.plan(phrase)
+            self.assertTrue(decision.is_command, phrase)
+            self.assertEqual(decision.command, "email digest", phrase)
+
+    def test_unread_email_still_routes_to_imap(self) -> None:
+        self.assertEqual(self.plan("check unread emails").command, "email unread")
+
+    def test_file_search_needs_a_file_cue(self) -> None:
+        # explicit "files" -> file search
+        decision = self.plan("search files config in src")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "search files config src")
+
+    def test_named_file_routes_to_file_search(self) -> None:
+        decision = self.plan("find report.txt in downloads")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "search files report.txt downloads")
+
+    def test_open_youtube_and_search_routes_to_music(self) -> None:
+        decision = self.plan("Hey Jarvis can you open YouTube and type Telugu music?")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "play music Telugu music")
+
+    def test_play_on_youtube_routes_to_music(self) -> None:
+        decision = self.plan("play despacito on youtube")
+        self.assertEqual(decision.command, "play music despacito")
+
+    def test_open_youtube_bare_opens_url(self) -> None:
+        decision = self.plan("open youtube")
+        self.assertEqual(decision.command, "open url https://www.youtube.com")
+
     def test_routes_open_url(self) -> None:
         decision = self.plan("open website example.com")
         self.assertTrue(decision.is_command)

@@ -96,11 +96,15 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
 
 Routing uses few-shot **message turns** for reliability. The 8B alone won't route
-without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE),
-streams autonomous-agent traces via `/api/agent`, exposes `/api/health`, serves a
+without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE) —
+which, when the request sets `voice:true`, also emits incremental `tts` sentence
+events (carved by `voice.SpeechChunker`) so the browser voice loop starts speaking
+the first sentence before generation finishes — streams autonomous-agent traces
+via `/api/agent`, exposes `/api/health`, serves a
 Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
 disable, routed through the same `schedule …` orchestrator commands), exposes
-read-only autonomous-agent run history via `/api/agent-runs`, and runs a 60s
+read-only autonomous-agent run history via `/api/agent-runs`, serves server-side
+voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
 avoid cold-start latency.
 
@@ -109,11 +113,20 @@ avoid cold-start latency.
 ```powershell
 $env:PYTHONPATH="src"
 python -m laptop_agent.cli                                              # terminal
-python -c "from laptop_agent.webui import run_desktop; run_desktop()"   # desktop app window
+python -m laptop_agent.webui --desktop                                  # desktop app window (or: laptop-agent-deck)
 python -m laptop_agent.webui                                            # browser tab
 ```
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (310+ passing).
+The desktop window prefers a true native **pywebview** window (`app` extra; no
+Edge browser, its own taskbar entry) and falls back to a frameless Chrome/Edge
+`--app` window when pywebview is absent. Because Edge WebView2 (pywebview's
+Windows backend) ships no Web Speech API, the native window does voice
+**server-side**: it sets `?app=1`, records the mic, transcribes via `/api/transcribe`
+(local `TranscribeTool`/Whisper), and plays sentences from `/api/tts` (offline
+pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
+`packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
+
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (323+ passing).
 
 ## Working alongside another agent (Codex)
 

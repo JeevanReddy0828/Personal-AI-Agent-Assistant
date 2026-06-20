@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -24,8 +27,35 @@ class WebTool:
                 reason="Opening an external URL can reveal local browser/session state to a website.",
             )
         )
-        webbrowser.open(normalized)
+        if not self._launch_browser(normalized):
+            return ToolResult.failure(
+                f"Couldn't open a browser for: {normalized}. You can paste it manually.", url=normalized
+            )
         return ToolResult.success(f"Opened URL: {normalized}", url=normalized)
+
+    @staticmethod
+    def _launch_browser(url: str) -> bool:
+        """Open a URL in the system browser, reliably across environments.
+
+        webbrowser.open is flaky when launched from a packaged/embedded app, so on
+        Windows go through the shell handler (os.startfile) first, and on macOS/Linux
+        use the platform opener, falling back to webbrowser."""
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(url)  # type: ignore[attr-defined]  # noqa: S606 - shell default handler
+                return True
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", url])
+                return True
+            if webbrowser.open(url):
+                return True
+            subprocess.Popen(["xdg-open", url])
+            return True
+        except Exception:
+            try:
+                return webbrowser.open(url)
+            except Exception:
+                return False
 
     def download(self, url: str, filename: str | None = None) -> ToolResult:
         normalized = self._normalize_url(url)

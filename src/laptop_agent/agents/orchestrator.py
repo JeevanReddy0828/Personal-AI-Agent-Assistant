@@ -127,6 +127,12 @@ class AgentOrchestrator:
             return fast
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
             return fast
+        # When the instant router is already confident this is plain chat (e.g. a
+        # greeting), skip the LLM routing round-trip — it would only confirm "this is
+        # chat" and then the chat path makes a second LLM call to actually answer.
+        # Cutting the redundant classify call roughly halves latency for small talk.
+        if fast.is_chat and fast.confidence >= 0.6:
+            return fast
         return self.planner.plan(command, help_text, profile, history)
 
     async def handle(
@@ -1118,7 +1124,7 @@ class AgentOrchestrator:
         except ScheduleError as exc:
             return ToolResult.failure(str(exc))
         return ToolResult.success(
-            f"Scheduled {kind} #{job.id}: {job.schedule.describe()} → {job.spec}",
+            f"Scheduled {kind} #{job.id}: {job.schedule.describe()} -> {job.spec}",
             job=job.to_dict(),
         )
 
@@ -1601,15 +1607,23 @@ class AgentOrchestrator:
             snippet = " ".join(str(mail.get("snippet", "")).split())[:160]
             lines.append(f"- From: {sender} | Subject: {subject} | {snippet}")
         listing = "\n".join(lines)
-        provider = self.planner.provider if self.planner else None
+        # Inbox triage benefits from a stronger model than the fast router — use the
+        # smart tier when available so the classification is reliable.
+        tier_planner = self.smart_planner or self.planner
+        provider = tier_planner.provider if tier_planner else None
         answer = getattr(provider, "answer", None)
         if answer is None:
             # No LLM — fall back to the readable list.
             return ToolResult.success(self._humanize(inbox), messages=messages)
         prompt = (
-            f"Here are {len(messages)} of my emails:\n{listing}\n\n"
-            "Give me a short digest: group them by type (e.g. job alerts, security, promotions, personal), "
-            "call out anything that looks important or time-sensitive, and keep it brief and skimmable in Markdown."
+            f"You are my inbox triage assistant. Here are {len(messages)} emails:\n{listing}\n\n"
+            "Classify them into a tight, skimmable Markdown digest. Use these section headers in this order, "
+            "omitting any that have no emails:\n"
+            "**Needs attention** (time-sensitive or needs a reply/action), **Finance**, **Security & accounts** "
+            "(logins, passwords, verification — and flag anything that looks like phishing or a scam), "
+            "**Work & job alerts**, **Personal & social**, **Promotions & newsletters**.\n"
+            "Under each header, give one bullet per email: sender — subject — why it matters (a few words). "
+            "Put every email in exactly one section. Finish with a one-line **Bottom line** of what to handle first."
         )
         digest = answer(prompt, self.context.memory.get_profile(), None, getattr(self, "_history", None))
         if not digest:
