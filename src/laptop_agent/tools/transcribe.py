@@ -149,7 +149,15 @@ def _builtin_asr_backend(target: Path) -> dict[str, object]:
         ) from exc
     model_name = os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base")
     model = _load_whisper_model(model_name)
-    result = model.transcribe(str(target))
+    # Pin the language (default English). Without this, Whisper auto-detects per clip
+    # and on short utterances often guesses wrong, transcribing English speech as
+    # garbled Turkish/French/etc. Set LAPTOP_AGENT_WHISPER_LANG=auto to re-enable
+    # detection, or to another code (e.g. "es") for a different language.
+    lang = os.environ.get("LAPTOP_AGENT_WHISPER_LANG", "en").strip().lower()
+    options: dict[str, object] = {"fp16": False}
+    if lang and lang != "auto":
+        options["language"] = lang
+    result = model.transcribe(str(target), **options)
     segments = [
         {"start": segment.get("start"), "end": segment.get("end"), "text": str(segment.get("text", "")).strip()}
         for segment in result.get("segments", [])
