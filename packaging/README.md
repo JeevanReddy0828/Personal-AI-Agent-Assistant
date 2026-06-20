@@ -8,17 +8,35 @@ opens the frameless desktop window directly.
 
 ```powershell
 # from the repo root
-pip install pyinstaller
+pip install pyinstaller pywebview pyttsx3
 ./packaging/build_app.ps1
 ```
 
 Output: `dist/JARVIS.exe` (a single windowless executable).
 
+## The window
+
+The app opens a **true native window** via pywebview (no Edge browser, its own
+taskbar entry). On Windows it renders through the WebView2 runtime, which ships
+with Windows 11. If pywebview isn't bundled, it falls back to a frameless
+Chrome/Edge `--app` window.
+
+## Voice
+
+Because WebView2 has no Web Speech API, the native window does voice **server-side**:
+it records the mic, transcribes via `/api/transcribe`, and plays replies from
+`/api/tts`.
+
+- **TTS** works out of the box (offline `pyttsx3`, bundled).
+- **STT** needs a speech engine installed — `pip install openai-whisper` (large:
+  pulls in PyTorch + ffmpeg) or a lighter offline engine wired into `TranscribeTool`.
+  Without one, voice output still speaks but voice *input* returns an install hint.
+  To bundle Whisper, add `--collect-all whisper` to `build_app.ps1`.
+
 ## What the user needs
 
-- **Chrome or Edge** installed. The app uses the system browser engine to render
-  its window (kept out of the bundle to stay small and to keep the Web Speech API
-  available for voice). Edge ships with Windows, so this is normally already met.
+- **WebView2 runtime** (preinstalled on Windows 11; the app falls back to Edge/Chrome
+  `--app` otherwise).
 - A **`.env` file next to `JARVIS.exe`** with their model credentials, e.g.:
   ```
   OPENAI_API_KEY=...

@@ -33,7 +33,7 @@ from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
-from laptop_agent.voice import SpeechChunker
+from laptop_agent.voice import SpeechChunker, synthesize_wav
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -70,6 +70,14 @@ def _schedule_snapshot() -> dict:
     """Current scheduled jobs as plain JSON for the web panel."""
     result = asyncio.run(_orchestrator.handle("schedule list"))
     return {"ok": result.ok, "message": result.message, "jobs": _json_safe(result.data.get("jobs", []))}
+
+
+# Injectable so tests exercise the /api/tts success path without a speech engine.
+_TTS_BACKEND = None
+
+
+def _render_tts(text: str) -> bytes | None:
+    return synthesize_wav(text, _TTS_BACKEND)
 
 
 def _agent_runs_snapshot() -> dict:
@@ -808,7 +816,10 @@ PAGE = r"""<!doctype html>
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
-  if(!SR)micBtn.style.display='none';
+  // Native app window (pywebview): ?app=1 is set by run_desktop. There is no Web Speech
+  // API, so voice records audio and uses the server (/api/transcribe + /api/tts).
+  const NATIVE=location.search.indexOf('app=1')>=0;
+  if(!SR)micBtn.style.display='none';                   // dictation needs Web Speech; voice mode uses the server in NATIVE
   // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
   let ttsVoice=null;
   function pickVoice(){
@@ -819,7 +830,7 @@ PAGE = r"""<!doctype html>
   }
   speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
-  voiceBtn.onclick=()=>{if(!SR){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
+  voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
@@ -855,6 +866,7 @@ PAGE = r"""<!doctype html>
   function vstart(){vT0=performance.now();vMarks=[];}
   function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
+    if(NATIVE)return nativeListen();                     // server-side speech path for the app window
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
     vstart();
@@ -882,7 +894,64 @@ PAGE = r"""<!doctype html>
     rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
     try{rec.start();}catch(e){recognizing=false;}
   }
-  function speakChunk(text){try{
+  // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
+  function blobToB64(blob){return new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(blob);});}
+  async function nativeListen(){
+    if(!voiceActive||recognizing||speaking)return;
+    setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';vstart();recognizing=true;
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}
+    catch(e){recognizing=false;vSet('idle','Mic blocked');vtrans.textContent='Microphone permission is needed for voice.';return;}
+    const mime=(window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/webm'))?'audio/webm':((window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/ogg'))?'audio/ogg':'');
+    let mr;try{mr=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);}catch(e){recognizing=false;vSet('idle','No recorder');return;}
+    const chunks=[];mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    const ac=new (window.AudioContext||window.webkitAudioContext)();const srcN=ac.createMediaStreamSource(stream);const an=ac.createAnalyser();an.fftSize=512;srcN.connect(an);
+    const buf=new Uint8Array(an.fftSize);let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
+    const cleanup=()=>{try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
+    const stopRec=()=>{if(stopped)return;stopped=true;try{mr.stop();}catch(e){}};
+    const tick=()=>{
+      if(stopped||!voiceActive){stopRec();return;}
+      an.getByteTimeDomainData(buf);let peak=0;for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128);if(v>peak)peak=v;}
+      const now=performance.now();
+      if(peak>9){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
+      else if(spoke&&now-lastLoud>1000){vmark('settle');stopRec();return;}    // ~1s silence after speech
+      if(now-t0>12000){stopRec();return;}                                      // hard cap
+      requestAnimationFrame(tick);
+    };
+    mr.onstop=async()=>{
+      recognizing=false;vmark('rec-end');cleanup();
+      if(!voiceActive||speaking)return;
+      if(!spoke||!chunks.length){listen();return;}
+      vSet('thinking','Transcribing…');
+      let q='';
+      try{const blob=new Blob(chunks,{type:mime||'audio/webm'});const b64=await blobToB64(blob);
+        const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:b64,ext:mime.indexOf('ogg')>=0?'ogg':'webm'})});
+        const d=await r.json();vmark('stt');q=(d.text||'').trim();
+        if(!d.ok&&d.message){vtrans.textContent=d.message;}
+      }catch(e){}
+      if(!voiceActive)return;
+      if(q.length<2){listen();return;}
+      vtrans.textContent=q;vSet('thinking','Thinking');
+      await send(q);
+    };
+    try{mr.start();vmark('mic-on');requestAnimationFrame(tick);}catch(e){recognizing=false;cleanup();}
+  }
+  async function playTTS(text){
+    speaking=true;
+    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    if(!clean){speaking=false;pumpTTS();return;}
+    setCore('speaking');vSet('speaking','Speaking');if(voiceActive)vtrans.textContent=clean.slice(0,240);
+    try{
+      const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
+      if(!r.ok)throw new Error('tts '+r.status);
+      const blob=new Blob([await r.arrayBuffer()],{type:'audio/wav'});const a=new Audio(URL.createObjectURL(blob));
+      a.onended=()=>{speaking=false;pumpTTS();};a.onerror=()=>{speaking=false;pumpTTS();};
+      vmark('speak');a.play();
+    }catch(e){speaking=false;pumpTTS();}
+  }
+  function speakChunk(text){
+    if(NATIVE)return playTTS(text);
+    try{
     speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
     try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
     if(!ttsVoice)pickVoice();
@@ -971,6 +1040,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/transcribe":
+            self._handle_transcribe()
+        elif self.path == "/api/tts":
+            self._handle_tts()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1078,6 +1151,51 @@ class Handler(BaseHTTPRequestHandler):
         dest = UPLOAD_DIR / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_transcribe(self) -> None:
+        """Speech-to-text for the native app's voice loop: accept a recorded audio
+        clip and return the transcript via the local TranscribeTool. This replaces
+        the browser Web Speech API so voice works in a non-browser (webview) window."""
+        try:
+            payload = self._read_json()
+            data = str(payload.get("audio", ""))
+            if data.startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            raw = base64.b64decode(data, validate=False)
+            suffix = str(payload.get("ext", "webm")).lstrip(".").lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "could not read audio"})
+            return
+        if not raw:
+            self._json(400, {"ok": False, "message": "empty audio"})
+            return
+        if len(raw) > MAX_UPLOAD_BYTES:
+            self._json(413, {"ok": False, "message": "audio too large"})
+            return
+        if suffix not in {"webm", "ogg", "wav", "m4a", "mp4", "mp3"}:
+            suffix = "webm"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        clip = UPLOAD_DIR / f"voice_in.{suffix}"
+        clip.write_bytes(raw)
+        result = _orchestrator.context.transcribe.transcribe_media(str(clip))
+        text = str(result.data.get("text", "")).strip() if result.ok else ""
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+
+    def _handle_tts(self) -> None:
+        """Text-to-speech for the native app's voice loop: render a sentence to WAV
+        audio server-side (offline engine) so the page can play it without the
+        browser's speechSynthesis, which is unavailable in a webview window."""
+        try:
+            payload = self._read_json()
+            text = str(payload.get("text", ""))
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        wav = _render_tts(text)
+        if not wav:
+            self._json(503, {"ok": False, "message": "Text-to-speech needs: pip install pyttsx3"})
+            return
+        self._send(200, wav, "audio/wav")
 
     def _handle_schedule(self) -> None:
         """Add / remove / toggle a scheduled job, then return the refreshed list.
@@ -1205,7 +1323,11 @@ def _launch_webview(url: str) -> bool:
         import webview  # type: ignore
     except ImportError:
         return False
-    webview.create_window("J.A.R.V.I.S", url, width=1280, height=860, background_color="#08090d")
+    # ?app=1 tells the page it is in a non-browser window, so voice uses the
+    # server-side speech path (record -> /api/transcribe, play /api/tts) instead of
+    # the Web Speech API, which is unavailable inside a webview.
+    sep = "&" if "?" in url else "?"
+    webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
     webview.start()
     return True
 
@@ -1221,13 +1343,19 @@ def run_desktop() -> None:
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
-    # Prefer a frameless Chrome/Edge "app" window: it looks like a native desktop app
-    # (no tabs or address bar) AND keeps the Web Speech API, which the voice loop needs.
-    # pywebview is only a fallback, because on Windows it runs on Edge WebView2, which
-    # does not ship speech recognition — voice would silently fail there.
+    # Prefer a true native window (pywebview): no Edge, its own taskbar entry. Voice
+    # works because speech is handled server-side (Whisper STT + offline TTS), not via
+    # the browser's Web Speech API. This is the real "downloadable app" experience.
+    if _launch_webview(url):
+        print("Opened as a native app window.")
+        server.shutdown()
+        return
+
+    # Fallback when pywebview isn't installed: a frameless Chrome/Edge --app window.
+    # It looks like an app and keeps the (browser) Web Speech API for voice.
     process = _launch_app_window(url)
     if process is not None:
-        print("Chat opened as a desktop app window (voice enabled).")
+        print("pywebview not installed — opened a frameless Chrome/Edge app window instead.")
         try:
             process.wait()          # quit the app when the window is closed
         except KeyboardInterrupt:
@@ -1238,12 +1366,7 @@ def run_desktop() -> None:
             server.shutdown()
         return
 
-    if _launch_webview(url):
-        print("Opened in a native webview. Note: voice input needs Chrome or Edge, not the webview.")
-        server.shutdown()
-        return
-
-    print("No Chromium-based browser found; opening in the default browser instead.")
+    print("No app window backend found; opening in the default browser instead.")
     webbrowser.open(url)
     print("Running. Press Ctrl+C here to stop.")
     try:

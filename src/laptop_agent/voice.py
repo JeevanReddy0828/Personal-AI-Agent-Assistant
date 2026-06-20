@@ -79,3 +79,48 @@ class VoiceIO:
         except sr.RequestError as exc:
             return ToolResult.failure(f"Speech recognition failed: {exc}")
         return ToolResult.success("Heard voice input.", text=text)
+
+
+# A TTS backend turns text into WAV bytes. Injectable so the success path is tested
+# offline without a speech engine installed.
+SpeechBackend = "Callable[[str], bytes]"
+
+
+def _pyttsx3_wav(text: str) -> bytes:
+    """Render text to a WAV file with the offline SAPI/espeak engine and read it back."""
+    import tempfile
+    from pathlib import Path
+
+    import pyttsx3  # type: ignore
+
+    engine = pyttsx3.init()
+    dest = Path(tempfile.gettempdir()) / f"laptop_agent_tts_{abs(hash(text)) % 10_000_000}.wav"
+    engine.save_to_file(text, str(dest))
+    engine.runAndWait()
+    try:
+        return dest.read_bytes()
+    finally:
+        try:
+            dest.unlink()
+        except OSError:
+            pass
+
+
+def synthesize_wav(text: str, backend=None) -> bytes | None:
+    """Return spoken-audio WAV bytes for ``text`` server-side (offline TTS).
+
+    Returns None when the text is empty or no engine is available, so the web
+    layer can fall back gracefully instead of crashing. The engine call sits
+    behind an injectable ``backend`` so tests run without pyttsx3 installed.
+    """
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+    render = backend or _pyttsx3_wav
+    try:
+        data = render(cleaned)
+    except ImportError:
+        return None
+    except Exception:  # pragma: no cover - depends on the live engine.
+        return None
+    return data or None
