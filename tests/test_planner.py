@@ -42,6 +42,14 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertTrue(decision.command.startswith("web search"))
 
+    def test_weather_routes_to_weather_tool(self) -> None:
+        decision = self.plan("what's the weather in Austin, TX")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "weather Austin, TX")
+
+    def test_weather_strips_time_words(self) -> None:
+        self.assertEqual(self.plan("weather forecast for Dallas tomorrow").command, "weather Dallas")
+
     def test_general_email_read_uses_imap_digest_not_oauth(self) -> None:
         # Regression: "give me important emails" was routed to a high-risk Outlook
         # OAuth read and blocked; it must use the local IMAP digest instead.

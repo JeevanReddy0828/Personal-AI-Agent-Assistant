@@ -79,6 +79,10 @@ class HeuristicPlannerProvider:
         if file_search:
             return file_search
 
+        weather = self._weather(raw)
+        if weather:
+            return weather
+
         local_lookup = self._local_lookup(raw)
         if local_lookup:
             return local_lookup
@@ -301,6 +305,23 @@ class HeuristicPlannerProvider:
             return None
         query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
+
+    def _weather(self, text: str) -> PlanDecision | None:
+        """Real forecast (Open-Meteo) instead of opening a web search for weather."""
+        if not re.search(r"\b(weather|forecast|temperature)\b", text, re.IGNORECASE):
+            return None
+        match = re.search(r"\b(?:in|for|at|near|around)\s+(.+)$", text, re.IGNORECASE)
+        if not match:
+            return None
+        location = re.sub(
+            r"\b(today|tonight|tomorrow|right now|now|this (?:week|weekend|morning|afternoon|evening)|currently|like)\b",
+            "",
+            match.group(1),
+            flags=re.IGNORECASE,
+        ).strip(" ?.!,'\"")
+        if not location:
+            return None
+        return self._command(f"weather {location}", "User wants a weather forecast.", 0.85)
 
     def _local_lookup(self, text: str) -> PlanDecision | None:
         """Recommendation / local-place queries go to web search — live data beats

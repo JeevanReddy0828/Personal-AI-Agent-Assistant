@@ -48,7 +48,8 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
         |
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
-        music, transcribe (OCR/Whisper), webcam (vision extra), obsidian
+        music, weather (Open-Meteo, real forecast — no key),
+        transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool), scheduler.py
@@ -126,7 +127,13 @@ Windows backend) ships no Web Speech API, the native window does voice
 pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
 `packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (323+ passing).
+Speech-to-text has two engines, chosen by `LAPTOP_AGENT_STT` (default `auto`):
+**Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
+browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
+when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
+bundles the Vosk path for a far smaller `JARVIS.exe`.
+
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (353+ passing).
 
 ## Working alongside another agent (Codex)
 

@@ -975,46 +975,57 @@ PAGE = r"""<!doctype html>
     try{rec.start();}catch(e){recognizing=false;}
   }
   // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
-  function blobToB64(blob){return new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(blob);});}
+  // Capture raw PCM and encode a 16kHz mono 16-bit WAV in the browser, so the server
+  // can transcribe with a lightweight engine (Vosk) using only the stdlib — no ffmpeg.
+  function flattenF32(chunks){let n=0;for(const c of chunks)n+=c.length;const out=new Float32Array(n);let o=0;for(const c of chunks){out.set(c,o);o+=c.length;}return out;}
+  function encodeWavB64(samples,inRate){
+    const outRate=16000, ratio=inRate/outRate, outLen=Math.max(1,Math.floor(samples.length/ratio));
+    const bytes=outLen*2, buf=new ArrayBuffer(44+bytes), dv=new DataView(buf);
+    const w=(o,s)=>{for(let i=0;i<s.length;i++)dv.setUint8(o+i,s.charCodeAt(i));};
+    w(0,'RIFF');dv.setUint32(4,36+bytes,true);w(8,'WAVE');w(12,'fmt ');dv.setUint32(16,16,true);
+    dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,outRate,true);dv.setUint32(28,outRate*2,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);
+    w(36,'data');dv.setUint32(40,bytes,true);
+    for(let i=0;i<outLen;i++){let s=samples[Math.floor(i*ratio)]||0;s=Math.max(-1,Math.min(1,s));dv.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true);}
+    let bin='';const u8=new Uint8Array(buf);for(let i=0;i<u8.length;i++)bin+=String.fromCharCode(u8[i]);
+    return 'data:audio/wav;base64,'+btoa(bin);
+  }
   async function nativeListen(){
     if(!voiceActive||recognizing||speaking)return;
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';vstart();recognizing=true;
     let stream;
-    try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});}
     catch(e){recognizing=false;vSet('idle','Mic blocked');vtrans.textContent='Microphone permission is needed for voice.';return;}
-    const mime=(window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/webm'))?'audio/webm':((window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/ogg'))?'audio/ogg':'');
-    let mr;try{mr=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);}catch(e){recognizing=false;vSet('idle','No recorder');return;}
-    const chunks=[];mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
-    const ac=new (window.AudioContext||window.webkitAudioContext)();const srcN=ac.createMediaStreamSource(stream);const an=ac.createAnalyser();an.fftSize=512;srcN.connect(an);
-    const buf=new Uint8Array(an.fftSize);let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
-    const cleanup=()=>{try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
-    const stopRec=()=>{if(stopped)return;stopped=true;try{mr.stop();}catch(e){}};
-    const tick=()=>{
-      if(stopped||!voiceActive){stopRec();return;}
-      an.getByteTimeDomainData(buf);let peak=0;for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128);if(v>peak)peak=v;}
-      const now=performance.now();
-      if(peak>9){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
-      else if(spoke&&now-lastLoud>1000){vmark('settle');stopRec();return;}    // ~1s silence after speech
-      if(now-t0>12000){stopRec();return;}                                      // hard cap
-      requestAnimationFrame(tick);
-    };
-    mr.onstop=async()=>{
-      recognizing=false;vmark('rec-end');cleanup();
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const srcN=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();
+    sink.gain.value=0;  // route through a muted sink so the graph runs without speaker feedback
+    const samples=[]; let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
+    const cleanup=()=>{try{proc.disconnect();}catch(e){}try{srcN.disconnect();}catch(e){}try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
+    const finish=async()=>{
+      if(stopped)return; stopped=true; cleanup(); recognizing=false; vmark('rec-end');
       if(!voiceActive||speaking)return;
-      if(!spoke||!chunks.length){listen();return;}
+      if(!spoke||!samples.length){listen();return;}
       vSet('thinking','Transcribing…');
       let q='';
-      try{const blob=new Blob(chunks,{type:mime||'audio/webm'});const b64=await blobToB64(blob);
-        const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:b64,ext:mime.indexOf('ogg')>=0?'ogg':'webm'})});
+      try{const b64=encodeWavB64(flattenF32(samples),ac.sampleRate||48000);
+        const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:b64,ext:'wav'})});
         const d=await r.json();vmark('stt');q=(d.text||'').trim();
-        if(!d.ok&&d.message){vtrans.textContent=d.message;}
+        if(!d.ok&&d.message)vtrans.textContent=d.message;
       }catch(e){}
       if(!voiceActive)return;
       if(q.length<2){listen();return;}
       vtrans.textContent=q;vSet('thinking','Thinking');
       await send(q);
     };
-    try{mr.start();vmark('mic-on');requestAnimationFrame(tick);}catch(e){recognizing=false;cleanup();}
+    proc.onaudioprocess=e=>{
+      if(stopped)return;
+      const ch=e.inputBuffer.getChannelData(0); samples.push(new Float32Array(ch));
+      let peak=0;for(let i=0;i<ch.length;i+=8){const v=Math.abs(ch[i]);if(v>peak)peak=v;}
+      const now=performance.now();
+      if(peak>0.035){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
+      else if(spoke&&now-lastLoud>1000){vmark('settle');finish();return;}   // ~1s silence after speech
+      if(now-t0>12000)finish();                                              // hard cap
+    };
+    try{srcN.connect(proc);proc.connect(sink);sink.connect(ac.destination);vmark('mic-on');}catch(e){recognizing=false;cleanup();}
   }
   async function playTTS(text){
     speaking=true;
@@ -1425,10 +1436,10 @@ def run_desktop() -> None:
     _keep_warm()
     _schedule_ticker()
     # Warm the speech model in the background so the first voice turn isn't slow
-    # (no-op if Whisper isn't installed).
-    from laptop_agent.tools.transcribe import warm_whisper
+    # (no-op if no STT engine is installed).
+    from laptop_agent.tools.transcribe import warm_stt
 
-    threading.Thread(target=warm_whisper, daemon=True).start()
+    threading.Thread(target=warm_stt, daemon=True).start()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
     # Prefer a true native window (pywebview): no Edge, its own taskbar entry. Voice
