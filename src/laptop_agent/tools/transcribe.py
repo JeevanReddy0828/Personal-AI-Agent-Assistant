@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -35,7 +36,7 @@ class TranscribeTool:
 
     def __init__(self, ocr_backend: OcrBackend | None = None, asr_backend: AsrBackend | None = None) -> None:
         self._ocr_backend = ocr_backend or _builtin_ocr_backend
-        self._asr_backend = asr_backend or _builtin_asr_backend
+        self._asr_backend = asr_backend or _default_asr_backend
 
     def ocr_image(self, path: str, max_chars: int = 20000) -> ToolResult:
         target = Path(path).expanduser().resolve()
@@ -138,6 +139,113 @@ def warm_whisper() -> bool:
         return True
     except Exception:  # pragma: no cover - depends on the live engine/model download.
         return False
+
+
+# --- Vosk: lightweight offline speech-to-text (~50MB model, no PyTorch, no ffmpeg).
+# Reads 16-bit mono PCM WAV with the stdlib `wave` module, so the packaged app can
+# stay small. Whisper remains available for higher accuracy.
+_VOSK_MODELS: dict[str, object] = {}
+
+
+def _resolve_vosk_model_path() -> str | None:
+    explicit = os.environ.get("VOSK_MODEL") or os.environ.get("LAPTOP_AGENT_VOSK_MODEL")
+    if explicit and Path(explicit).exists():
+        return explicit
+    bases = []
+    if getattr(sys, "frozen", False):
+        bases.append(Path(sys.executable).parent)
+    bases.append(Path.cwd())
+    bases.append(Path(__file__).resolve().parents[3])  # repo root (src/laptop_agent/tools/..)
+    for base in bases:
+        models = base / "models"
+        if models.is_dir():
+            for child in sorted(models.iterdir()):
+                if child.is_dir() and "vosk" in child.name.lower():
+                    return str(child)
+    return None
+
+
+def _load_vosk_model(path: str):
+    model = _VOSK_MODELS.get(path)
+    if model is None:
+        from vosk import Model  # type: ignore
+
+        model = Model(path)
+        _VOSK_MODELS[path] = model
+    return model
+
+
+def _vosk_available() -> bool:
+    try:
+        import vosk  # type: ignore  # noqa: F401
+    except ImportError:
+        return False
+    return _resolve_vosk_model_path() is not None
+
+
+def _vosk_asr_backend(target: Path) -> dict[str, object]:
+    import json as _json
+    import wave
+
+    try:
+        from vosk import KaldiRecognizer  # type: ignore
+    except ImportError as exc:
+        raise MissingDependencyError(
+            "Lightweight speech needs: pip install vosk, plus a model in a 'models' folder "
+            "(e.g. vosk-model-small-en-us-0.15 from https://alphacephei.com/vosk/models)."
+        ) from exc
+    model_path = _resolve_vosk_model_path()
+    if not model_path:
+        raise MissingDependencyError(
+            "No Vosk model found. Put one in a 'models' folder next to the app "
+            "(e.g. vosk-model-small-en-us-0.15) or set VOSK_MODEL to its path."
+        )
+    model = _load_vosk_model(model_path)
+    try:
+        wf = wave.open(str(target), "rb")
+    except (wave.Error, EOFError) as exc:
+        raise RuntimeError(f"Vosk needs 16-bit mono PCM WAV audio: {exc}") from exc
+    with wf:
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+            raise RuntimeError("Vosk needs 16-bit mono PCM WAV audio.")
+        recognizer = KaldiRecognizer(model, wf.getframerate())
+        parts: list[str] = []
+        while True:
+            frames = wf.readframes(4000)
+            if not frames:
+                break
+            if recognizer.AcceptWaveform(frames):
+                parts.append(str(_json.loads(recognizer.Result()).get("text", "")))
+        parts.append(str(_json.loads(recognizer.FinalResult()).get("text", "")))
+    text = " ".join(part for part in parts if part).strip()
+    return {"text": text, "segments": [], "language": "en", "engine": f"vosk:{Path(model_path).name}"}
+
+
+def _default_asr_backend(target: Path) -> dict[str, object]:
+    """Pick the STT engine: LAPTOP_AGENT_STT=vosk|whisper, or 'auto' (default) which
+    prefers the lightweight Vosk when a model is present, else Whisper."""
+    engine = os.environ.get("LAPTOP_AGENT_STT", "auto").strip().lower()
+    if engine == "vosk":
+        return _vosk_asr_backend(target)
+    if engine == "whisper":
+        return _builtin_asr_backend(target)
+    if _vosk_available():
+        return _vosk_asr_backend(target)
+    return _builtin_asr_backend(target)
+
+
+def warm_stt() -> bool:
+    """Pre-load whichever STT engine is selected so the first voice turn isn't slow."""
+    engine = os.environ.get("LAPTOP_AGENT_STT", "auto").strip().lower()
+    if engine in ("vosk", "auto") and _vosk_available():
+        try:
+            _load_vosk_model(_resolve_vosk_model_path())  # type: ignore[arg-type]
+            return True
+        except Exception:  # pragma: no cover - depends on the model files.
+            pass
+    if engine == "vosk":
+        return False
+    return warm_whisper()
 
 
 def _builtin_asr_backend(target: Path) -> dict[str, object]:

@@ -29,6 +29,7 @@ from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
+from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -83,6 +84,7 @@ class AgentOrchestrator:
         # route instantly and reliably with zero network latency.
         self.router = Planner(HeuristicPlannerProvider())
         self._file_processor_cache: FileProcessor | None = None
+        self._weather_tool_cache: WeatherTool | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -409,6 +411,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
+
+        if lowered.startswith("weather "):
+            return self._weather_tool().forecast(command[len("weather ") :].strip())
 
         if lowered.startswith("web search "):
             return self.context.websearch.search(command[len("web search ") :].strip())
@@ -762,6 +767,7 @@ class AgentOrchestrator:
                 "  remember note <text>",
                 "  search files <query> <path>",
                 "  web search <query>",
+                "  weather <location>  (real current + 3-day forecast)",
                 "  research <topic>",
                 "  research report <topic>",
                 "  save research report <topic> to <path|obsidian>",
@@ -1013,6 +1019,7 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         # web & research
         "web search <query>",
+        "weather <location>",
         "research <topic>",
         "research report <topic>",
         "open url <https url>",
@@ -1172,6 +1179,12 @@ class AgentOrchestrator:
         if self._file_processor_cache is None:
             self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
         return self._file_processor_cache
+
+    def _weather_tool(self) -> WeatherTool:
+        if self._weather_tool_cache is None:
+            # Reuse the shared approval gate so weather is MEDIUM-gated like other network reads.
+            self._weather_tool_cache = WeatherTool(approval_gate=self.context.web.approval_gate)
+        return self._weather_tool_cache
 
     @staticmethod
     def _split_process_intent(rest: str) -> tuple[str, str | None]:

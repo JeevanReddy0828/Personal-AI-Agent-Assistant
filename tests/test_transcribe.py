@@ -4,12 +4,71 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import os
+
 import laptop_agent.tools.transcribe as transcribe_module
-from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool, warm_whisper
+from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool, warm_stt, warm_whisper
 
 
 def raise_missing(_path: Path):
     raise MissingDependencyError("engine not installed: pip install something")
+
+
+class SttEngineSelectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._saved_env = os.environ.get("LAPTOP_AGENT_STT")
+        self._saved_vosk = transcribe_module._vosk_asr_backend
+        self._saved_whisper = transcribe_module._builtin_asr_backend
+        self.calls: list[str] = []
+        transcribe_module._vosk_asr_backend = lambda t: (self.calls.append("vosk"), {"text": "v"})[1]
+        transcribe_module._builtin_asr_backend = lambda t: (self.calls.append("whisper"), {"text": "w"})[1]
+
+    def tearDown(self) -> None:
+        transcribe_module._vosk_asr_backend = self._saved_vosk
+        transcribe_module._builtin_asr_backend = self._saved_whisper
+        if self._saved_env is None:
+            os.environ.pop("LAPTOP_AGENT_STT", None)
+        else:
+            os.environ["LAPTOP_AGENT_STT"] = self._saved_env
+
+    def test_explicit_whisper(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "whisper"
+        transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["whisper"])
+
+    def test_explicit_vosk(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "vosk"
+        transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["vosk"])
+
+    def test_auto_prefers_vosk_when_available(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        saved = transcribe_module._vosk_available
+        transcribe_module._vosk_available = lambda: True
+        try:
+            transcribe_module._default_asr_backend(Path("clip.wav"))
+        finally:
+            transcribe_module._vosk_available = saved
+        self.assertEqual(self.calls, ["vosk"])
+
+    def test_auto_falls_back_to_whisper(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        saved = transcribe_module._vosk_available
+        transcribe_module._vosk_available = lambda: False
+        try:
+            transcribe_module._default_asr_backend(Path("clip.wav"))
+        finally:
+            transcribe_module._vosk_available = saved
+        self.assertEqual(self.calls, ["whisper"])
+
+    def test_vosk_missing_dependency_message(self) -> None:
+        # Vosk isn't a test dependency, so the real backend raises a clear install hint.
+        with self.assertRaises(MissingDependencyError):
+            self._saved_vosk(Path("clip.wav"))
+
+    def test_warm_stt_is_safe(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "vosk"  # avoids touching/downloading Whisper
+        self.assertFalse(warm_stt())
 
 
 class WhisperCacheTests(unittest.TestCase):

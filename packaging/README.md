@@ -28,10 +28,15 @@ it records the mic, transcribes via `/api/transcribe`, and plays replies from
 `/api/tts`.
 
 - **TTS** works out of the box (offline `pyttsx3`, bundled).
-- **STT** needs a speech engine installed — `pip install openai-whisper` (large:
-  pulls in PyTorch + ffmpeg) or a lighter offline engine wired into `TranscribeTool`.
-  Without one, voice output still speaks but voice *input* returns an install hint.
-  To bundle Whisper, add `--collect-all whisper` to `build_app.ps1`.
+- **STT** has two engines, picked by `LAPTOP_AGENT_STT` (`auto` default):
+  - **Vosk (lightweight, recommended for distribution)** — ~50MB model, **no PyTorch,
+    no ffmpeg**. `pip install vosk`, download a small model from
+    https://alphacephei.com/vosk/models and unzip it into a `models\` folder (or set
+    `VOSK_MODEL`). Build with **`build_app_small.ps1`** — a fraction of the Whisper size.
+  - **Whisper (accurate, heavy)** — `pip install openai-whisper`, needs ffmpeg on PATH;
+    pulls in PyTorch (multi-GB). Build with `build_app.ps1`.
+  - `auto` prefers Vosk when a model is present, else falls back to Whisper.
+  - Without any engine, voice output still speaks but voice *input* returns an install hint.
 
 ## What the user needs
 
