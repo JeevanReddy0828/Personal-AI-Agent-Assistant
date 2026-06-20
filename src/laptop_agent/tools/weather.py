@@ -6,6 +6,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
 # WMO weather interpretation codes (Open-Meteo) -> plain English.
@@ -46,13 +47,22 @@ class WeatherTool:
     GEOCODE = "https://geocoding-api.open-meteo.com/v1/search"
     FORECAST = "https://api.open-meteo.com/v1/forecast"
 
-    def __init__(self, transport: HttpJson | None = None) -> None:
+    def __init__(self, transport: HttpJson | None = None, approval_gate: ApprovalGate | None = None) -> None:
         self._get = transport or _urllib_json
+        self._gate = approval_gate
 
     def forecast(self, location: str, days: int = 3) -> ToolResult:
         place = (location or "").strip().strip("?.!,'\"")
         if not place:
             return ToolResult.failure("Where? Try 'weather in Austin'.")
+        if self._gate is not None:  # network read -> MEDIUM, like web search / research
+            self._gate.require(
+                ApprovalRequest(
+                    action=f"Look up the weather for {place}",
+                    risk=RiskLevel.MEDIUM,
+                    reason="A weather lookup calls an external service over the network.",
+                )
+            )
         # Open-Meteo's geocoder matches a bare city best, so fall back from the full
         # string to forms without a trailing state/country code, e.g. "Austin TX" -> "Austin".
         candidates = [place]

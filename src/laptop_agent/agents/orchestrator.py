@@ -1182,7 +1182,8 @@ class AgentOrchestrator:
 
     def _weather_tool(self) -> WeatherTool:
         if self._weather_tool_cache is None:
-            self._weather_tool_cache = WeatherTool()
+            # Reuse the shared approval gate so weather is MEDIUM-gated like other network reads.
+            self._weather_tool_cache = WeatherTool(approval_gate=self.context.web.approval_gate)
         return self._weather_tool_cache
 
     @staticmethod

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.weather import WeatherTool
 
 
@@ -42,6 +43,14 @@ class WeatherTests(unittest.TestCase):
 
     def test_empty_location(self) -> None:
         self.assertFalse(WeatherTool(transport=fake_transport(GEO, FORECAST)).forecast("  ").ok)
+
+    def test_gated_network_read(self) -> None:
+        # Allowed gate -> works; denying gate -> blocked before any network call.
+        ok_tool = WeatherTool(transport=fake_transport(GEO, FORECAST), approval_gate=ApprovalGate(lambda r: True))
+        self.assertTrue(ok_tool.forecast("Austin").ok)
+        denied = WeatherTool(transport=fake_transport(GEO, FORECAST), approval_gate=ApprovalGate(lambda r: False))
+        with self.assertRaises(ApprovalDenied):
+            denied.forecast("Austin")
 
 
 if __name__ == "__main__":
