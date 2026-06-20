@@ -392,6 +392,17 @@ PAGE = r"""<!doctype html>
   .runstep{border-top:1px solid var(--line);padding-top:7px;margin-top:7px}
   .runstep .meta{margin-top:0;text-transform:uppercase}
   .runstep .cmd{font-family:var(--mono);font-size:10px;color:var(--amber-b);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* voice mode = a violet theme shift (no written overlay); the chat carries the words */
+  .voicewash{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .55s;
+    background:radial-gradient(80% 70% at 50% 54%,rgba(179,136,255,.13),transparent 70%),radial-gradient(120% 50% at 50% 0%,rgba(179,136,255,.08),transparent 60%)}
+  body.voicing .voicewash{opacity:1;animation:voicepulse 3.2s ease-in-out infinite}
+  @keyframes voicepulse{0%,100%{opacity:.7}50%{opacity:1}}
+  body.voicing .scan{background:linear-gradient(180deg,transparent,rgba(179,136,255,.08) 60%,transparent)}
+  body.voicing .corestate{color:#c9b3ff}
+  body.voicing .box:focus-within{border-color:#b388ff;box-shadow:0 0 0 1px rgba(179,136,255,.5),0 0 26px -6px rgba(179,136,255,.5)}
+  body.voicing .voicetoggle{border-color:rgba(179,136,255,.4);color:#d9c6ff;background:linear-gradient(180deg,rgba(179,136,255,.14),rgba(179,136,255,.05))}
+  body.voicing .voicetoggle.on{color:#1a0f2e;background:radial-gradient(circle at 50% 0%,#d9c6ff,#b388ff);border-color:#b388ff;box-shadow:0 0 26px -6px rgba(179,136,255,.9)}
+  body.voicing .reactor{filter:drop-shadow(0 0 7px rgba(179,136,255,.7))}
   .runstep .txt{font-size:11px;color:var(--muted);line-height:1.35;margin-top:4px;white-space:pre-wrap}
 
   /* leave the hero core visible above the overlay so its colour shows in voice mode */
@@ -431,6 +442,7 @@ PAGE = r"""<!doctype html>
 </head>
 <body>
 <div class="scan"></div>
+<div class="voicewash"></div>
 <div class="app">
   <header>
     <svg class="reactor" id="reactor" viewBox="0 0 100 100" aria-hidden="true">
@@ -536,7 +548,7 @@ PAGE = r"""<!doctype html>
   const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
   let coreState='idle', activeTier='fast';
   const TIER_COLORS={fast:'#54e0a0',smart:'#a98bff',ultra:'#ff5d6c'};   // green / violet / red
-  const VOICE_COLOR='#5fd0e6';                                          // cyan in voice mode
+  const VOICE_COLOR='#b388ff';                                          // violet shift in voice mode
   const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model · 550B'};
   function coreColor(){
     if(coreState==='listening')return VOICE_COLOR;
@@ -589,12 +601,14 @@ PAGE = r"""<!doctype html>
     energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
     const e=Math.min(1.8,energy+shock*0.7);
     rot+=0.0015+e*0.011;
-    const tint=(coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null;
+    // voice mode shifts the whole core to violet so the theme reads as "listening"
+    const VRGB=[179,136,255], acc=voiceActive?VRGB:[95,208,230];
+    const tint=voiceActive?VRGB:((coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null);
     const cosY=Math.cos(rot),sinY=Math.sin(rot),cosX=Math.cos(rotX),sinX=Math.sin(rotX);
     const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e));
     // soft ambient bloom
     const amb=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.8);
-    amb.addColorStop(0,'rgba(95,208,230,'+(0.05+e*0.09).toFixed(3)+')');amb.addColorStop(.55,'rgba(120,80,220,0.025)');amb.addColorStop(1,'transparent');
+    amb.addColorStop(0,'rgba('+acc[0]+','+acc[1]+','+acc[2]+','+(0.05+e*0.09).toFixed(3)+')');amb.addColorStop(.55,'rgba(120,80,220,0.025)');amb.addColorStop(1,'transparent');
     cctx.fillStyle=amb;cctx.fillRect(0,0,w,h);
     cctx.globalCompositeOperation='lighter';
     for(let i=0;i<NP;i++){const p=pts[i];
@@ -616,7 +630,7 @@ PAGE = r"""<!doctype html>
     }
     const ccr=R*0.12*(0.8+e*0.45+Math.sin(t*3)*0.06);
     const cg2=cctx.createRadialGradient(cx,cy,0,cx,cy,ccr*3.2);
-    cg2.addColorStop(0,'rgba(255,255,255,'+(0.45+e*0.4).toFixed(3)+')');cg2.addColorStop(.4,'rgba(95,208,230,0.45)');cg2.addColorStop(1,'transparent');
+    cg2.addColorStop(0,'rgba(255,255,255,'+(0.45+e*0.4).toFixed(3)+')');cg2.addColorStop(.4,'rgba('+acc[0]+','+acc[1]+','+acc[2]+',0.45)');cg2.addColorStop(1,'transparent');
     cctx.fillStyle=cg2;cctx.beginPath();cctx.arc(cx,cy,ccr*3.2,0,6.283);cctx.fill();
     cctx.globalCompositeOperation='source-over';
   }
@@ -913,8 +927,10 @@ PAGE = r"""<!doctype html>
   voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
-  function startVoice(){voiceActive=true;voice.classList.add('on');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceActive=false;voice.classList.remove('on');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  // Voice mode is signalled by a violet theme shift (body.voicing) — no full-screen
+  // written overlay. The conversation itself still streams into the chat panel.
+  function startVoice(){voiceActive=true;document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
+  function endVoice(){voiceActive=false;document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false, lastSpoken='';
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
