@@ -2,7 +2,21 @@ from __future__ import annotations
 
 import unittest
 
-from laptop_agent.voice import SpeechChunker
+from laptop_agent.voice import SpeechChunker, clean_for_speech
+
+
+class CleanForSpeechTests(unittest.TestCase):
+    def test_drops_heading_underlines_and_rules(self) -> None:
+        self.assertEqual(clean_for_speech("================"), "")
+        self.assertEqual(clean_for_speech("--------------------"), "")
+
+    def test_strips_markdown_markers(self) -> None:
+        self.assertEqual(clean_for_speech("**Possible Sources**"), "Possible Sources")
+        self.assertEqual(clean_for_speech("# Heading"), "Heading")
+        self.assertEqual(clean_for_speech("- Government databases"), "Government databases")
+
+    def test_keeps_plain_text(self) -> None:
+        self.assertEqual(clean_for_speech("Agent Greg"), "Agent Greg")
 
 
 class SpeechChunkerTests(unittest.TestCase):

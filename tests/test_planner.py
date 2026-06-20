@@ -53,6 +53,19 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "search files report.txt downloads")
 
+    def test_open_youtube_and_search_routes_to_music(self) -> None:
+        decision = self.plan("Hey Jarvis can you open YouTube and type Telugu music?")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "play music Telugu music")
+
+    def test_play_on_youtube_routes_to_music(self) -> None:
+        decision = self.plan("play despacito on youtube")
+        self.assertEqual(decision.command, "play music despacito")
+
+    def test_open_youtube_bare_opens_url(self) -> None:
+        decision = self.plan("open youtube")
+        self.assertEqual(decision.command, "open url https://www.youtube.com")
+
     def test_routes_open_url(self) -> None:
         decision = self.plan("open website example.com")
         self.assertTrue(decision.is_command)

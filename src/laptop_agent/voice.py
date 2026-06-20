@@ -10,6 +10,27 @@ from laptop_agent.tools.base import ToolResult
 # start on the first sentence instead of waiting for the whole reply.
 _BOUNDARY = re.compile(r"[.!?…](?=\s)|\n")
 
+# Markdown decorations that must not be read aloud (heading underlines like "=====",
+# rules like "----", bullets, emphasis markers, code ticks, link brackets).
+_DECOR_ONLY = re.compile(r"^[\s=\-*_~.#·•>|`]{2,}$")
+_SPEAK_STRIP = re.compile(r"[`*_>#\[\]()|~]+")
+
+
+def clean_for_speech(text: str) -> str:
+    """Strip markdown so text-to-speech doesn't read '=====' as 'equals equals…'.
+
+    Returns '' for fragments that are purely decoration (heading underlines, rules),
+    so the caller can skip speaking them entirely.
+    """
+    t = (text or "").strip()
+    if not t or _DECOR_ONLY.match(t):
+        return ""
+    t = re.sub(r"^\s*[-*•·]\s+", "", t)          # leading bullet markers
+    t = _SPEAK_STRIP.sub(" ", t)                  # inline markdown markers
+    t = re.sub(r"={2,}|-{3,}|\.{4,}|~{2,}", " ", t)  # leftover decorative runs
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
 
 class SpeechChunker:
     """Turn a stream of text deltas into complete, speakable sentences.

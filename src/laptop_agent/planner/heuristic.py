@@ -147,6 +147,10 @@ class HeuristicPlannerProvider:
         if fill_form:
             return fill_form
 
+        youtube = self._youtube(raw)
+        if youtube:
+            return youtube
+
         music = self._music(raw)
         if music:
             return music
@@ -556,6 +560,28 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"fill form {match.group(1)}", "User wants approved browser filling without submission.", 0.78)
+
+    def _youtube(self, text: str) -> PlanDecision | None:
+        """Make YouTube requests actually open the browser (via the music tool's
+        YouTube search) instead of letting the LLM claim it opened a tab."""
+        t = text.strip()
+        m = re.search(r"\bplay\s+(.+?)\s+on\s+youtube\b", t, re.IGNORECASE)
+        if m:
+            return self._command(f"play music {m.group(1).strip()}", "Play it on YouTube.", 0.84)
+        m = re.search(
+            r"\b(?:open\s+youtube\s+(?:and\s+)?(?:type|search(?:\s+for)?|play|look\s*up)\s+"
+            r"|(?:search|look\s*up)\s+(?:on\s+)?youtube\s+(?:for\s+)?"
+            r"|youtube\s+(?:search\s+(?:for\s+)?|for\s+))(.+)$",
+            t,
+            re.IGNORECASE,
+        )
+        if m:
+            query = m.group(1).strip().strip("?'\"")
+            if query:
+                return self._command(f"play music {query}", "Search it on YouTube.", 0.84)
+        if re.search(r"\bopen\s+youtube\s*$", t, re.IGNORECASE) or re.fullmatch(r"\s*youtube\s*", t, re.IGNORECASE):
+            return self._command("open url https://www.youtube.com", "Open YouTube.", 0.8)
+        return None
 
     def _music(self, text: str) -> PlanDecision | None:
         lowered = text.lower()

@@ -33,7 +33,7 @@ from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
-from laptop_agent.voice import SpeechChunker, synthesize_wav
+from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -1163,13 +1163,15 @@ class Handler(BaseHTTPRequestHandler):
             emit({"type": "token", "text": token})
             if chunker is not None:
                 for sentence in chunker.feed(token):
-                    emit({"type": "tts", "text": sentence})
+                    spoken = clean_for_speech(sentence)
+                    if spoken:
+                        emit({"type": "tts", "text": spoken})
 
         agent_id = _orchestrator.control_room.start(command)
         try:
             result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
             if chunker is not None:
-                tail = chunker.flush()
+                tail = clean_for_speech(chunker.flush() or "")
                 if tail:
                     emit({"type": "tts", "text": tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
