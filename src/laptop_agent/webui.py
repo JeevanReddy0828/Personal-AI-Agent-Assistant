@@ -1341,6 +1341,11 @@ def run_desktop() -> None:
     _warmup()
     _keep_warm()
     _schedule_ticker()
+    # Warm the speech model in the background so the first voice turn isn't slow
+    # (no-op if Whisper isn't installed).
+    from laptop_agent.tools.transcribe import warm_whisper
+
+    threading.Thread(target=warm_whisper, daemon=True).start()
     print(f"J.A.R.V.I.S chat serving at {url}")
 
     # Prefer a true native window (pywebview): no Edge, its own taskbar entry. Voice

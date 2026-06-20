@@ -111,15 +111,44 @@ def _builtin_ocr_backend(target: Path) -> str:
         ) from exc
 
 
+# Whisper models are expensive to load (hundreds of MB from disk). Cache by name so
+# the voice loop loads once and stays warm — otherwise every utterance reloads it.
+_WHISPER_MODELS: dict[str, object] = {}
+
+
+def _load_whisper_model(model_name: str):
+    model = _WHISPER_MODELS.get(model_name)
+    if model is None:
+        import whisper  # type: ignore
+
+        model = whisper.load_model(model_name)
+        _WHISPER_MODELS[model_name] = model
+    return model
+
+
+def warm_whisper() -> bool:
+    """Pre-load the speech model so the first voice turn isn't slow. Returns False
+    (no-op) when Whisper isn't installed, so callers can warm it best-effort."""
+    try:
+        import whisper  # type: ignore  # noqa: F401
+    except ImportError:
+        return False
+    try:
+        _load_whisper_model(os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base"))
+        return True
+    except Exception:  # pragma: no cover - depends on the live engine/model download.
+        return False
+
+
 def _builtin_asr_backend(target: Path) -> dict[str, object]:
     try:
-        import whisper  # type: ignore
+        import whisper  # type: ignore  # noqa: F401
     except ImportError as exc:
         raise MissingDependencyError(
             "Media transcription requires: pip install openai-whisper (and ffmpeg on PATH)."
         ) from exc
     model_name = os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base")
-    model = whisper.load_model(model_name)
+    model = _load_whisper_model(model_name)
     result = model.transcribe(str(target))
     segments = [
         {"start": segment.get("start"), "end": segment.get("end"), "text": str(segment.get("text", "")).strip()}

@@ -12,10 +12,11 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
-# pywebview (native window) and pyttsx3 (offline TTS) are imported lazily inside
-# functions, so PyInstaller can't see them by static analysis — collect them
-# explicitly. An STT engine (e.g. openai-whisper) is NOT bundled by default to keep
-# the app small; install one and add --collect-all whisper if you want voice input.
+# pywebview (native window), pyttsx3 (offline TTS), and whisper (STT) are imported
+# lazily inside functions, so PyInstaller can't see them by static analysis — collect
+# them explicitly. Whisper pulls in PyTorch, so the bundle is large (multi-GB) and the
+# build is slow; drop the whisper/torch lines if you don't need in-app voice input.
+# ffmpeg must be on the end user's PATH for Whisper to decode recorded audio.
 python -m PyInstaller `
     --noconfirm --clean --onefile --noconsole `
     --name JARVIS `
@@ -25,6 +26,8 @@ python -m PyInstaller `
     --collect-all pyttsx3 `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
+    --collect-all whisper `
+    --collect-all torch `
     --distpath "$root\dist" `
     --workpath "$root\build" `
     --specpath "$root\build" `

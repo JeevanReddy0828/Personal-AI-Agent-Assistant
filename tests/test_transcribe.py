@@ -4,11 +4,28 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool
+import laptop_agent.tools.transcribe as transcribe_module
+from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool, warm_whisper
 
 
 def raise_missing(_path: Path):
     raise MissingDependencyError("engine not installed: pip install something")
+
+
+class WhisperCacheTests(unittest.TestCase):
+    def test_model_is_cached_by_name(self) -> None:
+        sentinel = object()
+        transcribe_module._WHISPER_MODELS["unit-test-model"] = sentinel
+        try:
+            # Returns the cached model without importing whisper.
+            self.assertIs(transcribe_module._load_whisper_model("unit-test-model"), sentinel)
+        finally:
+            transcribe_module._WHISPER_MODELS.pop("unit-test-model", None)
+
+    def test_warm_whisper_is_safe_without_engine(self) -> None:
+        # Whisper isn't a test dependency, so warming is a graceful no-op (False),
+        # never an exception.
+        self.assertFalse(warm_whisper())
 
 
 class OcrTests(unittest.TestCase):
