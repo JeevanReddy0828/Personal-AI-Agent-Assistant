@@ -33,7 +33,7 @@ class MusicTool:
         if not opened.ok:
             return opened
         return ToolResult.success(
-            f"Searching YouTube for “{query}”.", query=query, url=opened.data.get("url"), source="youtube"
+            f'Searching YouTube for "{query}".', query=query, url=opened.data.get("url"), source="youtube"
         )
 
     @staticmethod

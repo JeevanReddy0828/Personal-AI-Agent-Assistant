@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 
 from laptop_agent.app import build_orchestrator
 from laptop_agent.safety import ApprovalDenied
@@ -39,6 +40,14 @@ def _json_safe(value):
 
 
 def main() -> None:
+    # Windows terminals default to cp1252, which can't encode characters that appear
+    # in tool messages (arrows, curly quotes, em dashes). Print as UTF-8 so the CLI
+    # never crashes with a UnicodeEncodeError mid-answer.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
     asyncio.run(repl())
 
 

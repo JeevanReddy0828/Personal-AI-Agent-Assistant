@@ -1124,7 +1124,7 @@ class AgentOrchestrator:
         except ScheduleError as exc:
             return ToolResult.failure(str(exc))
         return ToolResult.success(
-            f"Scheduled {kind} #{job.id}: {job.schedule.describe()} → {job.spec}",
+            f"Scheduled {kind} #{job.id}: {job.schedule.describe()} -> {job.spec}",
             job=job.to_dict(),
         )
 
