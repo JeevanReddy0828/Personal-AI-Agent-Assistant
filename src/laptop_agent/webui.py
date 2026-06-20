@@ -305,11 +305,13 @@ PAGE = r"""<!doctype html>
   .iconbtn{width:38px;height:38px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-size:16px;position:relative;transition:.15s}
   .iconbtn:hover{background:rgba(95,208,230,.08);color:var(--ice-b)} .iconbtn.live{color:var(--ice)}
   .iconbtn.live::after{content:'';position:absolute;inset:0;border-radius:10px;border:1.5px solid var(--ice);animation:ring 1.1s ease-out infinite}
-  /* voice-mode toggle, moved into the composer beside dictate */
-  .iconbtn.voice{color:var(--ice);font-size:17px}
-  .iconbtn.voice:hover{background:rgba(95,208,230,.1)}
-  .iconbtn.voice.on{color:#04181e;background:radial-gradient(circle,var(--ice-b),var(--ice));box-shadow:0 0 16px -2px rgba(95,208,230,.8)}
-  .iconbtn.voice.on::after{content:'';position:absolute;inset:-3px;border-radius:12px;border:1.5px solid var(--ice);animation:ring 1.4s ease-out infinite}
+  /* voice-mode toggle, moved into the composer beside dictate — made deliberately
+     prominent (tinted disc + ring) so it reads as the primary "talk to me" control */
+  .iconbtn.voice{width:40px;height:40px;color:var(--ice);border-radius:50%;background:rgba(95,208,230,.12);box-shadow:inset 0 0 0 1.5px rgba(95,208,230,.45),0 0 14px -6px rgba(95,208,230,.7)}
+  .iconbtn.voice svg{width:21px;height:21px}
+  .iconbtn.voice:hover{background:rgba(95,208,230,.22);color:var(--ice-b);box-shadow:inset 0 0 0 1.5px var(--ice),0 0 16px -4px rgba(95,208,230,.8)}
+  .iconbtn.voice.on{color:#04181e;background:radial-gradient(circle,var(--ice-b),var(--ice));box-shadow:0 0 20px -2px rgba(95,208,230,.9)}
+  .iconbtn.voice.on::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:1.5px solid var(--ice);animation:ring 1.4s ease-out infinite}
   #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.5;resize:none;max-height:150px;padding:9px 4px}
   #ta::placeholder{color:#46505f}
   .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:12px;background:radial-gradient(circle at 50% 35%,#ffe6ad,var(--amber));color:#1a1102;cursor:pointer;font-size:16px;box-shadow:0 0 16px -3px rgba(255,180,58,.65);transition:.15s}
@@ -499,7 +501,7 @@ PAGE = r"""<!doctype html>
     <div class="composer">
       <div class="chips" id="chips"></div>
       <div class="box">
-        <button class="iconbtn voice" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S" aria-label="Voice mode"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 6.5v11M12 3v18M16 6.5v11M20 10v4"/></svg></button>
+        <button class="iconbtn voice" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S" aria-label="Voice mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/><path d="M7.7 7.7a6 6 0 000 8.6M4.9 4.9a10 10 0 000 14.2M16.3 7.7a6 6 0 010 8.6M19.1 4.9a10 10 0 010 14.2"/></svg></button>
         <button class="iconbtn" id="attachBtn" title="Attach a file">&#128206;</button>
         <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps">&#129302;</button>
         <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
