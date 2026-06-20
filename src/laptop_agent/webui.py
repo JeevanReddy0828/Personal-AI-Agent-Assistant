@@ -580,7 +580,7 @@ PAGE = r"""<!doctype html>
   (function(){const gold=Math.PI*(3-Math.sqrt(5));for(let i=0;i<NP;i++){const y=1-(i/(NP-1))*2,rr=Math.sqrt(1-y*y),th=gold*i;
     pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
   const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
-  let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false;
+  let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false, expand=0;
   function pulseCore(){shock=Math.min(1.6,shock+1);}   // hoisted; called by setCore + send
   function targetEnergy(){
     if(busy||coreState==='thinking')return 1.0;
@@ -600,12 +600,17 @@ PAGE = r"""<!doctype html>
     const cx=w/2,cy=h/2,R=Math.min(w,h)*0.34;
     energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
     const e=Math.min(1.8,energy+shock*0.7);
-    rot+=0.0015+e*0.011;
+    // "searching the internet": while the agent works, the globe expands, spins up,
+    // and a bright scan band sweeps across it. expand eases in/out so it's smooth.
+    const searching = busy || coreState==='thinking' || coreState==='listening';
+    expand += ((searching?1:0)-expand)*0.05;
+    rot+=0.0015+e*0.011+expand*0.013;
+    const scanLat = searching ? Math.sin(t*1.6) : 99;
     // voice mode shifts the whole core to violet so the theme reads as "listening"
     const VRGB=[179,136,255], acc=voiceActive?VRGB:[95,208,230];
     const tint=voiceActive?VRGB:((coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null);
     const cosY=Math.cos(rot),sinY=Math.sin(rot),cosX=Math.cos(rotX),sinX=Math.sin(rotX);
-    const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e));
+    const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e))*(1+0.22*expand);   // puff outward while searching
     // soft ambient bloom
     const amb=cctx.createRadialGradient(cx,cy,0,cx,cy,R*1.8);
     amb.addColorStop(0,'rgba('+acc[0]+','+acc[1]+','+acc[2]+','+(0.05+e*0.09).toFixed(3)+')');amb.addColorStop(.55,'rgba(120,80,220,0.025)');amb.addColorStop(1,'transparent');
@@ -624,7 +629,10 @@ PAGE = r"""<!doctype html>
       const mix=(x1+1)/2; let cr=MAG[0]+(CYAN[0]-MAG[0])*mix,cg=MAG[1]+(CYAN[1]-MAG[1])*mix,cb=MAG[2]+(CYAN[2]-MAG[2])*mix;
       if(tint){cr=(cr+tint[0])/2;cg=(cg+tint[1])/2;cb=(cb+tint[2])/2;}
       const depth=(z2+1)/2, tw=0.62+0.38*Math.sin(t*2.2+p.ph);
-      const a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35);
+      let a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35);
+      // scan band: particles the sweep crosses flare brighter and whiter
+      const near=expand*Math.max(0,1-Math.abs(by-scanLat)/0.16);
+      if(near>0){a=Math.min(1,a+near*0.55);sz*=1+near*1.3;cr=cr+(235-cr)*near;cg=cg+(248-cg)*near;cb=cb+(255-cb)*near;}
       cctx.fillStyle='rgba('+(cr|0)+','+(cg|0)+','+(cb|0)+','+a.toFixed(3)+')';
       cctx.beginPath();cctx.arc(sx,sy,sz,0,6.283);cctx.fill();
     }
