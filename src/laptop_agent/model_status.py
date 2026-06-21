@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import threading
 
-# Chat model tiers, fastest first. The orchestrator escalates fast -> smart ->
-# ultra by question complexity and falls back the other way when a tier is busy.
-TIERS = ("fast", "smart", "ultra")
+# Chat model tiers the orchestrator may use, in fallback order. It escalates
+# fast -> smart -> ultra by complexity, then degrades the other way when a tier is
+# busy, ending at the cross-provider "openrouter" safety net.
+TIERS = ("fast", "smart", "ultra", "openrouter")
 
 
 class ModelStatus:

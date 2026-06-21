@@ -72,6 +72,7 @@ class AgentOrchestrator:
         smart_planner: Planner | None = None,
         vision_planner: Planner | None = None,
         ultra_planner: Planner | None = None,
+        fallback_planner: Planner | None = None,
     ) -> None:
         self.context = context
         self.planner = planner
@@ -81,6 +82,9 @@ class AgentOrchestrator:
         self.ultra_planner = ultra_planner
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
+        # Optional cross-provider fallback (e.g. OpenRouter) tried when every
+        # primary tier is congested/unreachable, so chat keeps working.
+        self.fallback_planner = fallback_planner
         self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
         # Tracks per-tier model reachability so chat can fall back fast<-smart<-ultra
         # when a tier is congested, and health can show "the advanced model is busy".
@@ -680,17 +684,37 @@ class AgentOrchestrator:
                         break
                 if not answered:
                     # Fall back to the fast tier. When streaming, generate a fresh
-                    # reply; otherwise planned.response is already the fast model's.
-                    if on_token is not None and self.planner is not None:
-                        reply = self._tier_reply(self.planner.provider, command, profile, history_turns, on_token)
+                    # reply; otherwise planned.response is already the fast model's —
+                    # unless routing itself failed (confidence 0), which means even the
+                    # fast tier is down and we should try the cross-provider fallback.
+                    fast_provider = self.planner.provider if self.planner else None
+                    real_fast = fast_provider is not None and type(fast_provider).__name__ != "HeuristicPlannerProvider"
+                    if on_token is not None and fast_provider is not None:
+                        reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
+                        if real_fast:
+                            self.model_status.record("fast", bool(reply))
                         if reply:
-                            response, model_used = reply, "fast"
-                            self.model_status.record("fast", True)
-                degraded = requested_label != "fast" and model_used != requested_label
+                            response, model_used, answered = reply, "fast", True
+                    elif real_fast and planned.response and planned.confidence > 0:
+                        model_used, answered = "fast", True
+                        self.model_status.record("fast", True)
+                    elif real_fast:
+                        self.model_status.record("fast", False)
+                if not answered and self.fallback_planner is not None:
+                    # Cross-provider safety net (e.g. OpenRouter): a different backend
+                    # that may be up when the primary provider is throttled.
+                    reply = self._tier_reply(self.fallback_planner.provider, command, profile, history_turns, on_token)
+                    self.model_status.record("openrouter", bool(reply))
+                    if reply:
+                        response, model_used, answered = reply, "openrouter", True
+                degraded = model_used != requested_label
                 if degraded:
-                    # Be honest that the requested tier was busy rather than passing
-                    # off the faster model's answer as the stronger one's.
-                    note = f"\n\n_(My {requested_label} model was busy, so I answered with my faster model.)_"
+                    # Be honest about the fallback rather than passing off a lesser
+                    # model's answer as the requested one's.
+                    if model_used == "openrouter":
+                        note = "\n\n_(My usual models were busy, so I answered with a backup model.)_"
+                    else:
+                        note = f"\n\n_(My {requested_label} model was busy, so I answered with my faster model.)_"
                     response = response + note
                     if on_token is not None:
                         on_token(note)
