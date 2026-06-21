@@ -34,6 +34,7 @@ from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
+from laptop_agent.window_fx import apply_window_effects
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -41,6 +42,9 @@ UPLOAD_DIR = Path(tempfile.gettempdir()) / "laptop_agent_uploads"
 MAX_UPLOAD_BYTES = 35 * 1024 * 1024
 _CONFIG = load_config()
 _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-up cycle
+# True only when serving the dedicated desktop window (run_desktop), so the HUD's
+# real window effects (opacity / always-on-top) never touch a normal browser window.
+_DESKTOP_MODE = False
 
 
 def _compose_command(command: str, attachments: object) -> str:
@@ -451,6 +455,29 @@ PAGE = r"""<!doctype html>
   .r-core{animation:corepulse 2.6s ease-in-out infinite}
   .busy .r-core,.busy .r-mid{stroke:var(--amber)!important;fill:var(--amber)!important}
   .busy .r-ring1,.busy .r-ring2{stroke:var(--amber)!important}
+
+  /* adaptive HUD controls */
+  .hud{display:flex;align-items:center;gap:8px;position:relative}
+  .hudbtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid var(--line);border-radius:8px;
+    background:rgba(95,208,230,.04);color:var(--muted);cursor:pointer;font-size:14px;line-height:1;transition:.16s}
+  .hudbtn:hover{color:var(--ice-b);border-color:var(--line2)}
+  .hudbtn.on{color:#04181d;background:radial-gradient(circle at 50% 0%,#9be8f5,var(--ice));border-color:var(--ice);box-shadow:0 0 16px -4px rgba(95,208,230,.8)}
+  .hudpop{position:absolute;top:38px;right:0;z-index:40;width:212px;background:var(--panel);border:1px solid var(--line2);border-radius:11px;
+    padding:12px 13px;display:none;flex-direction:column;gap:11px;backdrop-filter:blur(10px);box-shadow:0 18px 40px -18px rgba(0,0,0,.8)}
+  .hudpop.open{display:flex}
+  .hudpop .row{display:flex;flex-direction:column;gap:6px}
+  .hudpop .lbl{font-family:var(--mono);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+  .hudpop input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;background:var(--line2);outline:none}
+  .hudpop input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--ice);cursor:pointer;box-shadow:0 0 8px rgba(95,208,230,.7)}
+  .hudpop .toggle{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text);cursor:pointer}
+  .hudpop .sw{width:34px;height:18px;border-radius:999px;background:var(--line2);position:relative;transition:.18s;flex-shrink:0}
+  .hudpop .sw::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#9fb2c4;transition:.18s}
+  .hudpop .toggle.on .sw{background:var(--ice)}
+  .hudpop .toggle.on .sw::after{left:18px;background:#04181d}
+  .hudpop .hint2{font-family:var(--mono);font-size:8.5px;color:var(--muted);line-height:1.4}
+  /* compact layout: collapse the left rail + center stage to a focused chat HUD */
+  body.compact .app{grid-template-columns:0 0 minmax(0,1fr)}
+  body.compact .left,body.compact .stage{display:none}
 </style>
 </head>
 <body>
@@ -465,6 +492,18 @@ PAGE = r"""<!doctype html>
     </svg>
     <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">your local assistant</div></div>
     <div class="sp"></div>
+    <div class="hud">
+      <button class="hudbtn" id="compactBtn" title="Compact layout — chat only">&#9707;</button>
+      <button class="hudbtn" id="hudBtn" title="HUD settings — transparency &amp; always-on-top">&#9881;</button>
+      <div class="hudpop" id="hudPop">
+        <div class="row">
+          <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
+          <input type="range" id="opacityRange" min="35" max="100" step="1" value="100">
+        </div>
+        <div class="toggle" id="onTopToggle"><span>Always on top</span><span class="sw"></span></div>
+        <div class="hint2" id="hudHint">Window effects apply in the desktop app.</div>
+      </div>
+    </div>
     <span class="pill" id="healthPill" title="System status"><span class="dot" id="healthDot"></span> <span id="healthText">checking…</span></span>
   </header>
 
@@ -942,6 +981,31 @@ PAGE = r"""<!doctype html>
   document.getElementById('mapGo').onclick=()=>{const q=document.getElementById('mapQuery').value.trim();if(q)loadMap(q);};
   document.getElementById('mapQuery').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('mapGo').click();}});
 
+  /* adaptive HUD: transparency, compact layout, always-on-top */
+  const hudPop=document.getElementById('hudPop'),hudBtn=document.getElementById('hudBtn');
+  const opRange=document.getElementById('opacityRange'),opVal=document.getElementById('opacityVal');
+  const onTopToggle=document.getElementById('onTopToggle'),compactBtn=document.getElementById('compactBtn');
+  async function postWindow(body){try{const r=await fetch('/api/window',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await r.json();}catch(e){return {native:false};}}
+  async function applyOpacity(pct,post){
+    const o=pct/100; opVal.textContent=pct+'%';
+    // Live visual fade; if a real desktop window handled it, drop the CSS fade.
+    document.querySelector('.app').style.opacity=String(o);
+    if(post){const d=await postWindow({opacity:o}); if(d&&d.applied&&d.applied.opacity!=null){document.querySelector('.app').style.opacity='';}}
+  }
+  opRange.addEventListener('input',()=>applyOpacity(+opRange.value,false));
+  opRange.addEventListener('change',()=>{localStorage.setItem('hudOpacity',opRange.value);applyOpacity(+opRange.value,true);});
+  function setCompact(on){document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);localStorage.setItem('hudCompact',on?'1':'0');}
+  compactBtn.onclick=()=>setCompact(!document.body.classList.contains('compact'));
+  async function setOnTop(on,post){onTopToggle.classList.toggle('on',on);localStorage.setItem('hudOnTop',on?'1':'0');if(post){const d=await postWindow({on_top:on});if(!(d&&d.applied&&d.applied.on_top!=null))document.getElementById('hudHint').textContent='Always-on-top works only in the desktop app.';}}
+  onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
+  hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
+  document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
+  (function restoreHud(){
+    const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}
+    if(localStorage.getItem('hudCompact')==='1')setCompact(true);
+    if(localStorage.getItem('hudOnTop')==='1')setOnTop(true,true);
+  })();
+
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
@@ -1202,6 +1266,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_schedule()
         elif self.path == "/api/map":
             self._handle_map()
+        elif self.path == "/api/window":
+            self._handle_window()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1434,6 +1500,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
+    def _handle_window(self) -> None:
+        """Adaptive-HUD window effects for the desktop app: translucency (opacity)
+        and an always-on-top pin. A no-op (native=False) in a normal browser so we
+        never make the user's whole browser see-through."""
+        try:
+            payload = self._read_json()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        if not _DESKTOP_MODE:
+            self._json(200, {"ok": True, "native": False, "applied": {"opacity": None, "on_top": None}})
+            return
+        opacity = payload.get("opacity")
+        on_top = payload.get("on_top")
+        applied = apply_window_effects(
+            opacity=float(opacity) if isinstance(opacity, (int, float)) else None,
+            on_top=bool(on_top) if on_top is not None else None,
+        )
+        self._json(200, {"ok": True, "native": True, "applied": applied})
+
     def _handle_command(self) -> None:
         try:
             payload = self._read_json()
@@ -1521,6 +1607,8 @@ def _launch_webview(url: str) -> bool:
 
 def run_desktop() -> None:
     """Serve the chat and open it in a dedicated desktop window (no browser chrome)."""
+    global _DESKTOP_MODE
+    _DESKTOP_MODE = True  # enable real HUD window effects (opacity / always-on-top)
     server = ThreadingHTTPServer((HOST, 0), Handler)
     port = server.server_address[1]
     url = f"http://{HOST}:{port}"

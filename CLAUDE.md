@@ -150,13 +150,23 @@ Windows backend) ships no Web Speech API, the native window does voice
 pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
 `packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
 
+The header has an **adaptive-HUD** control (gear popover): a transparency slider, a
+compact-layout toggle (collapses the left rail + center stage to a chat-only HUD),
+and an always-on-top pin — all persisted in `localStorage`. Real window effects
+(alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`,
+targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S
+— so a same-named third-party app is never touched; graceful no-op elsewhere)
+behind a desktop-gated `/api/window`
+POST (`_DESKTOP_MODE`, set only by `run_desktop`, so a normal browser is never
+touched). In a browser the slider still fades the app visually via CSS.
+
 Speech-to-text has two engines, chosen by `LAPTOP_AGENT_STT` (default `auto`):
 **Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
 browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (402 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (408 passing).
 
 ## Working alongside another agent (Codex)
 

@@ -51,6 +51,7 @@ approval gate.
 - Lightweight or accurate speech-to-text: choose **Vosk** (~50 MB, no PyTorch/ffmpeg) for a tiny download or **Whisper** for accuracy, via `LAPTOP_AGENT_STT` (`auto` by default).
 - Web-UI panels: a Scheduled-jobs panel (view/add/remove/enable), an Agent-runs history panel, and a Map panel (plot a place or `A to B` route on OpenStreetMap), alongside the control room and live metrics.
 - Holographic HUD redesign: a reactive 3D particle-sphere core that energizes, expands, and runs a scanning sweep while the agent works.
+- Adaptive HUD controls (header gear): a transparency slider for a see-through window, a compact layout toggle (chat-only HUD), and an always-on-top pin — settings persist. Real window effects apply in the desktop app (Windows); a browser gets the visual fade.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
