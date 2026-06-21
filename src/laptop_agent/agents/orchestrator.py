@@ -33,6 +33,7 @@ from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.tools.youtube import YouTubeTool
 from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
 
@@ -85,6 +86,7 @@ class AgentOrchestrator:
         self.router = Planner(HeuristicPlannerProvider())
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
+        self._youtube_tool_cache: YouTubeTool | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -414,6 +416,12 @@ class AgentOrchestrator:
 
         if lowered.startswith("weather "):
             return self._weather_tool().forecast(command[len("weather ") :].strip())
+
+        if lowered.startswith("summarize youtube "):
+            return self._youtube_summary(command[len("summarize youtube ") :].strip())
+
+        if lowered.startswith("youtube summary "):
+            return self._youtube_summary(command[len("youtube summary ") :].strip())
 
         if lowered.startswith("web search "):
             return self.context.websearch.search(command[len("web search ") :].strip())
@@ -768,6 +776,7 @@ class AgentOrchestrator:
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  weather <location>  (real current + 3-day forecast)",
+                "  summarize youtube <url>  (transcript -> summary, asks indexed too)",
                 "  research <topic>",
                 "  research report <topic>",
                 "  save research report <topic> to <path|obsidian>",
@@ -1020,6 +1029,7 @@ class AgentOrchestrator:
         # web & research
         "web search <query>",
         "weather <location>",
+        "summarize youtube <url>",
         "research <topic>",
         "research report <topic>",
         "open url <https url>",
@@ -1185,6 +1195,46 @@ class AgentOrchestrator:
             # Reuse the shared approval gate so weather is MEDIUM-gated like other network reads.
             self._weather_tool_cache = WeatherTool(approval_gate=self.context.web.approval_gate)
         return self._weather_tool_cache
+
+    def _youtube_tool(self) -> YouTubeTool:
+        if self._youtube_tool_cache is None:
+            self._youtube_tool_cache = YouTubeTool()
+        return self._youtube_tool_cache
+
+    def _youtube_summary(self, url: str) -> ToolResult:
+        cleaned = url.strip().strip("'\"")
+        if not cleaned:
+            return ToolResult.failure("Use: summarize youtube <url>")
+        got = self._youtube_tool().transcript(cleaned)
+        if not got.ok:
+            return got
+        text = str(got.data["transcript"])
+        video_id = str(got.data["video_id"])
+        # Summarize with the smart tier (better than the fast router for long transcripts).
+        tier_planner = self.smart_planner or self.planner
+        provider = tier_planner.provider if tier_planner else None
+        answer = getattr(provider, "answer", None)
+        summary = ""
+        if answer is not None:
+            prompt = (
+                "Summarize this YouTube video from its transcript. Give a one-line **TL;DR**, then 4-6 "
+                "**key points** as bullets, then any **action items or takeaways**. Be concise and skimmable.\n\n"
+                f"Transcript:\n{text[:8000]}"
+            )
+            summary = answer(prompt, self.context.memory.get_profile(), None, None) or ""
+        if not summary:
+            extractive = self.context.files.summarize_text(text, source=f"youtube:{video_id}", sentences=6)
+            summary = str(extractive.data.get("summary", "")) if extractive.ok else ""
+        # Index the transcript so the user can ask follow-up questions about the video.
+        indexed = self.context.knowledge.add(f"youtube:{video_id}", text)
+        return ToolResult.success(
+            summary or f"Fetched the transcript for {got.data['url']}.",
+            video_id=video_id,
+            url=got.data["url"],
+            summary=summary,
+            transcript_chars=len(text),
+            indexed=indexed,
+        )
 
     @staticmethod
     def _split_process_intent(rest: str) -> tuple[str, str | None]:

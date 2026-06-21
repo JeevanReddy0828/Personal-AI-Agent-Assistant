@@ -42,6 +42,16 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertTrue(decision.command.startswith("web search"))
 
+    def test_youtube_summary_routes_to_summarizer(self) -> None:
+        decision = self.plan("summarize this youtube video https://youtu.be/dQw4w9WgXcQ")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "summarize youtube https://youtu.be/dQw4w9WgXcQ")
+
+    def test_plain_youtube_link_without_summary_intent_is_not_summarized(self) -> None:
+        # "play X on youtube" must NOT become a transcript summary.
+        decision = self.plan("play lofi beats on youtube")
+        self.assertTrue(decision.command.startswith("play music"))
+
     def test_weather_routes_to_weather_tool(self) -> None:
         decision = self.plan("what's the weather in Austin, TX")
         self.assertTrue(decision.is_command)
