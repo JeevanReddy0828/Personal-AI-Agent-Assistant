@@ -332,6 +332,12 @@ class AgentOrchestrator:
         if lowered.startswith("note search "):
             return self.context.obsidian.search(command[len("note search ") :].strip())
 
+        if lowered in {"notes audit", "vault audit", "audit notes", "audit vault"}:
+            return self.context.obsidian.audit()
+
+        if lowered.startswith("ask vault ") or lowered.startswith("ask notes "):
+            return self._ask_vault(command.split(" ", 2)[2].strip() if len(command.split(" ", 2)) > 2 else "")
+
         if lowered.startswith("read note "):
             return self.context.obsidian.read_note(command[len("read note ") :].strip())
 
@@ -887,6 +893,8 @@ class AgentOrchestrator:
                 "  knowledge export <path>",
                 "  knowledge forget <id>",
                 "  notes status | notes list | notes search <query>",
+                "  ask vault <question>  (link-aware answer from your notes)",
+                "  notes audit  (orphans, broken links, notes missing a summary)",
                 "  read note <name> | save note <title> : <body>",
                 "  remember note <text>",
                 "  search files <query> <path>",
@@ -1144,6 +1152,8 @@ class AgentOrchestrator:
         "knowledge stats",
         # notes / vault memory
         "notes search <query>",
+        "ask vault <question>",
+        "notes audit",
         "read note <name>",
         "save note <title> : <body>",
         "remember <key> = <value>",
@@ -1834,6 +1844,32 @@ class AgentOrchestrator:
                 self.context.obsidian.append_memory(text)
             except OSError:
                 pass
+
+    def _ask_vault(self, question: str) -> ToolResult:
+        """Answer a question from the Obsidian vault using link-aware retrieval: pull
+        the best note plus its linked neighbours, then ground the model on that bundle.
+        Falls back to returning the assembled context when no model is available."""
+        question = question.strip()
+        if not question:
+            return ToolResult.failure("Use: ask vault <question>")
+        bundle = self.context.obsidian.context_for(question)
+        if not bundle.ok:
+            return bundle
+        notes = list(bundle.data.get("notes", []))
+        context = str(bundle.data.get("context", ""))
+        prompt = (
+            "Answer the question using ONLY the vault notes below. Cite note titles in "
+            "square brackets like [Note]. If the notes don't contain the answer, say so plainly.\n\n"
+            f"NOTES:\n{context}\n\nQUESTION: {question}\n\nAnswer:"
+        )
+        answer = self._build_agent_brain()(prompt).strip()
+        if not answer:  # no LLM configured — hand back the linked context itself
+            return ToolResult.success(
+                f"From {len(notes)} linked note(s) ({', '.join(notes)}):\n\n{context}",
+                question=question, notes=notes, answered=False,
+            )
+        return ToolResult.success(answer, question=question, notes=notes,
+                                  primary=bundle.data.get("primary"), answered=True)
 
     def _email_digest(self, query: str = "UNSEEN") -> ToolResult:
         """Read the inbox and summarize it into a short, grouped digest."""
