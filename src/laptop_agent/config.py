@@ -133,7 +133,7 @@ def load_config() -> AppConfig:
         search_provider=search_provider,
         search_api_key=search_api_key,
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-        # A widely-available free model by default; override with OPENROUTER_MODEL.
-        openrouter_model=os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        # A capable, clean-output free model by default; override with OPENROUTER_MODEL.
+        openrouter_model=os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free"),
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
     )
