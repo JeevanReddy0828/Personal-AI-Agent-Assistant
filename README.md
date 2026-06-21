@@ -56,7 +56,7 @@ approval gate.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
 - `research report <topic>`: a multi-section Markdown brief (overview, key findings, caveats, sources), saveable to a file or the Obsidian vault.
-- Problem-solver / advisor: `solve <problem or decision>` (also "help me decide…", "should I X or Y") researches the question, lays out 2–4 options with pros/cons/risks/effort, commits to a recommendation, and gives a concrete action plan — grounded in live web context and indexed for recall. Uses the strongest available model with automatic fallback when a tier is busy.
+- Problem-solver / advisor: `solve <problem or decision>` researches the question, lays out 2–4 options with pros/cons/risks/effort, commits to a recommendation, and gives a concrete action plan — grounded in live web context and indexed for recall. You don't have to type the command: the assistant's brain automatically routes decision/problem questions ("I'm torn between two offers…", "how should I handle…") to it. Uses the strongest available model with automatic fallback when a tier is busy.
 - Multi-agent control room: a live roster of specialist agents with working/idle status, surfaced as a panel in the app.
 - Knowledge recall ranked with TF-IDF; summarized documents auto-index for later recall.
 - Knowledge question answering synthesizes answers from indexed local documents with source excerpts.
