@@ -144,7 +144,9 @@ route geometry/bbox + multi-waypoint directions, routed through `trip …`; the 
 adds/reorders stops and draws the route as an inline SVG), serves server-side
 voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
-avoid cold-start latency.
+avoid cold-start latency. Chat replies stream token-by-token; instant local command
+results (which arrive whole) are revealed with a JS `typewriter()` pass so both feel
+alive — skipped for >4k-char output and cancelled by Stop/Esc.
 
 ## Running it
 

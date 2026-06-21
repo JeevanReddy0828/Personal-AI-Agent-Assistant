@@ -811,7 +811,24 @@ PAGE = r"""<!doctype html>
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?' <span style="color:#ff5d6c;font-size:11px">thinking on the 550B model — this can take ~45-60s</span>':tier==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
   function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
     sendBtn.innerHTML=b?'&#9632;':'&#10148;'; sendBtn.title=b?'Stop':'Send'; sendBtn.classList.toggle('stop',b);}
-  function stopGen(){if(currentAbort){try{currentAbort.abort();}catch(e){}}}
+  function stopGen(){twCancel=true;if(currentAbort){try{currentAbort.abort();}catch(e){}}}
+  // Typewriter reveal for instant (non-streamed) results — local command output
+  // arrives as one block, so animate it like a streamed reply for a consistent feel.
+  let twCancel=false;
+  function typewriter(el,text){
+    twCancel=false;
+    const total=text.length;
+    if(total>4000){el.innerHTML=mdToHtml(text);return;}   // skip animation for very long output
+    const step=Math.max(2,Math.ceil(total/160));          // ~constant ~1.5s regardless of length
+    let i=0;
+    (function tick(){
+      if(twCancel){el.innerHTML=mdToHtml(text);return;}
+      i=Math.min(total,i+step);
+      el.innerHTML=mdToHtml(text.slice(0,i));
+      chat.scrollTop=chat.scrollHeight;
+      if(i<total)setTimeout(tick,16); else el.innerHTML=mdToHtml(text);
+    })();
+  }
 
   /* composer */
   function auto(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,150)+'px';}
@@ -875,7 +892,9 @@ PAGE = r"""<!doctype html>
       const d=done||{ok:true,message:streamed,data:{}};
       reply=d.message||streamed||'(no output)';
       if(!d.ok)node.classList.add('err');
-      md.innerHTML=mdToHtml(reply);
+      // Chat already revealed itself token-by-token; a local command result arrives
+      // whole (streamed==''), so give it the same live feel with a typewriter pass.
+      if(streamed)md.innerHTML=mdToHtml(reply); else typewriter(md,reply);
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
