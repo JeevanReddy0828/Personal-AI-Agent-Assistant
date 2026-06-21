@@ -377,6 +377,19 @@ PAGE = r"""<!doctype html>
   .schedcard .meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:5px;display:flex;gap:9px;align-items:center}
   .schedcard .meta button{background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;text-transform:uppercase;letter-spacing:.5px}
   .schedcard .meta button:hover{color:var(--amber-b)}
+  /* map panel */
+  .mapform{display:flex;gap:6px;margin:6px}
+  .mapform input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 8px;outline:none}
+  .mapform input:focus{border-color:var(--ice)}
+  .mapform button{background:var(--ice);border:none;border-radius:7px;color:#04181d;font-family:var(--display);font-size:11px;letter-spacing:1px;padding:8px 11px;cursor:pointer}
+  .mapform button:hover{filter:brightness(1.12)}
+  .mapmsg{font-family:var(--mono);font-size:10px;color:var(--muted);min-height:12px;margin:0 6px}
+  .mapmsg.err{color:var(--amber-b)}
+  .mapframe{width:calc(100% - 12px);height:210px;margin:6px;border:1px solid var(--line);border-radius:8px;background:#0a0e15}
+  .mappt{font-size:11px;color:var(--text);margin:3px 6px;line-height:1.3}
+  .mappt b{color:var(--ice-b);text-transform:uppercase;font-size:9px;font-family:var(--mono);letter-spacing:.5px;margin-right:6px}
+  .maplink{display:block;margin:7px 6px 4px;font-size:11px;color:var(--ice-b);text-decoration:none}
+  .maplink:hover{text-decoration:underline}
   .runcard{margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
   .runcard[open]{border-color:rgba(255,176,0,.28)}
   .runcard summary{list-style:none;cursor:pointer}
@@ -488,6 +501,15 @@ PAGE = r"""<!doctype html>
     <details class="conn" id="runsPanel">
       <summary>Agent runs</summary>
       <div id="runsList"></div>
+    </details>
+    <details class="conn" id="mapPanel">
+      <summary>Map</summary>
+      <div class="mapform">
+        <input id="mapQuery" type="text" placeholder="place — or  origin to destination" autocomplete="off">
+        <button id="mapGo" type="button">Show</button>
+      </div>
+      <div class="mapmsg" id="mapMsg"></div>
+      <div id="mapView"></div>
     </details>
   </aside>
 
@@ -901,6 +923,25 @@ PAGE = r"""<!doctype html>
   document.getElementById('runsPanel').addEventListener('toggle',function(){if(this.open)loadAgentRuns();});
   setInterval(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
 
+  /* map */
+  async function loadMap(query){
+    const msg=document.getElementById('mapMsg'),view=document.getElementById('mapView');
+    msg.className='mapmsg';msg.textContent='Locating…';
+    try{
+      const r=await fetch('/api/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})});
+      const d=await r.json();
+      if(!d.ok){msg.textContent=d.message||'Not found.';msg.className='mapmsg err';view.innerHTML='';return;}
+      msg.textContent=d.message||'';
+      let h='';
+      if(d.embed)h+='<iframe class="mapframe" src="'+esc(d.embed)+'" loading="lazy" title="map"></iframe>';
+      (d.points||[]).forEach(p=>{h+='<div class="mappt"><b>'+esc(String(p.role||'place'))+'</b>'+esc(String(p.label||''))+'</div>';});
+      if(d.directions)h+='<a class="maplink" href="'+esc(d.directions)+'" target="_blank" rel="noopener">Open route on OpenStreetMap &#8599;</a>';
+      view.innerHTML=h;
+    }catch(e){msg.textContent='Could not reach the map service.';msg.className='mapmsg err';}
+  }
+  document.getElementById('mapGo').onclick=()=>{const q=document.getElementById('mapQuery').value.trim();if(q)loadMap(q);};
+  document.getElementById('mapQuery').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('mapGo').click();}});
+
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
@@ -1156,6 +1197,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/map":
+            self._handle_map()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1364,6 +1407,29 @@ class Handler(BaseHTTPRequestHandler):
 
         snapshot = _schedule_snapshot()
         self._json(200, {"ok": ok, "message": message, "jobs": snapshot["jobs"]})
+
+    def _handle_map(self) -> None:
+        """Resolve a place or 'A to B' route to map coordinates for the Map panel.
+
+        Routes through the same 'map …' orchestrator command the CLI uses, so the
+        geocoding/approval semantics stay identical; the structured data (OSM embed
+        URL, bbox, points, directions link) is folded into the JSON response.
+        """
+        try:
+            payload = self._read_json()
+            query = str(payload.get("query", "")).strip()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        if not query:
+            self._json(200, {"ok": False, "message": "Enter a place, or 'origin to destination'."})
+            return
+        try:
+            result = asyncio.run(_orchestrator.handle(f"map {query}"))
+        except ApprovalDenied:
+            self._json(200, {"ok": False, "message": "Map lookup was blocked."})
+            return
+        self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
     def _handle_command(self) -> None:
         try:

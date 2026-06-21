@@ -44,12 +44,12 @@ approval gate.
 - Stop a running generation mid-stream (Esc or the stop button) and keyboard shortcuts (Ctrl+K new chat).
 - Universal file processor: `process file <path>` auto-detects the type and runs the best action (spreadsheet → stats, doc → summary, image → OCR, audio/video → transcript); plus `analyze spreadsheet <path>` for per-column CSV/TSV stats.
 - Real weather: `weather <location>` returns actual current conditions + a 3-day forecast from Open-Meteo (free, no API key) — not a web-search link.
-- Travel & maps (free, no key): `distance <a> to <b>` gives real driving miles + ETA (OSRM), and `hotels near <place>` / `nearby <category> near <place>` list real places with distances (OpenStreetMap). Flight queries route through web search.
+- Travel & maps (free, no key): `distance <a> to <b>` gives real driving miles + ETA (OSRM); `trip <a> to <b> to <c> …` chains a multi-stop route with per-leg + total miles/time; `around <category>` and `<category> near me` find real places around your IP-derived location; `hotels near <place>` / `nearby <category> near <place>` list real places with distances (OpenStreetMap); `where am i` returns your approximate location. The web app's **Map panel** plots any place or `A to B` route on an embedded OpenStreetMap with a directions link. Flight queries route through web search.
 - YouTube summarizer: `summarize youtube <url>` fetches the transcript, summarizes it (TL;DR + key points), and indexes it so you can ask follow-up questions about the video (`youtube` extra).
 - Real-time voice loop in the web app: speaks each sentence as it streams (low latency), with a violet "listening" theme shift instead of a written overlay.
 - Native desktop app: a true window (pywebview, no browser chrome) packaged into a standalone `JARVIS.exe` via PyInstaller. In the native window, speech is handled server-side (`/api/transcribe` + `/api/tts`).
 - Lightweight or accurate speech-to-text: choose **Vosk** (~50 MB, no PyTorch/ffmpeg) for a tiny download or **Whisper** for accuracy, via `LAPTOP_AGENT_STT` (`auto` by default).
-- Web-UI panels: a Scheduled-jobs panel (view/add/remove/enable) and an Agent-runs history panel, alongside the control room and live metrics.
+- Web-UI panels: a Scheduled-jobs panel (view/add/remove/enable), an Agent-runs history panel, and a Map panel (plot a place or `A to B` route on OpenStreetMap), alongside the control room and live metrics.
 - Holographic HUD redesign: a reactive 3D particle-sphere core that energizes, expands, and runs a scanning sweep while the agent works.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.

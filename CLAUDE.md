@@ -49,7 +49,9 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
-        travel (maps: OSRM driving distance/ETA + OpenStreetMap hotels/places — no key),
+        travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
+            totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
+            web Map panel, + OpenStreetMap hotels/places — no key),
         youtube (transcript -> summary, indexed for Q&A; `youtube` extra),
         transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
@@ -106,7 +108,9 @@ the first sentence before generation finishes — streams autonomous-agent trace
 via `/api/agent`, exposes `/api/health`, serves a
 Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
 disable, routed through the same `schedule …` orchestrator commands), exposes
-read-only autonomous-agent run history via `/api/agent-runs`, serves server-side
+read-only autonomous-agent run history via `/api/agent-runs`, serves a Map panel
+via `/api/map` (POST a place or `A to B` -> OpenStreetMap embed/bbox/directions,
+routed through the `map …` orchestrator command), serves server-side
 voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
 avoid cold-start latency.
@@ -135,7 +139,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (370+ passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (386 passing).
 
 ## Working alongside another agent (Codex)
 

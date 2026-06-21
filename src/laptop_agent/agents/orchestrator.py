@@ -426,6 +426,21 @@ class AgentOrchestrator:
                 return ToolResult.failure("Use: distance <origin> to <destination>")
             return self._travel_tool().distance(rest[: match.start()].strip(), rest[match.end() :].strip())
 
+        if lowered.startswith("trip "):
+            rest = command[len("trip ") :].strip()
+            stops = ([s.strip() for s in rest.split("|")] if "|" in rest
+                     else re.split(r"\s+(?:to|->|→|then)\s+", rest, flags=re.IGNORECASE))
+            return self._travel_tool().trip([s for s in stops if s.strip()])
+
+        if lowered.startswith("around "):
+            return self._travel_tool().around(command[len("around ") :].strip())
+
+        if lowered in {"where am i", "where am i?", "my location", "locate me", "what's my location"}:
+            return self._travel_tool().here()
+
+        if lowered.startswith("map "):
+            return self._travel_tool().map_query(command[len("map ") :].strip())
+
         if lowered.startswith("hotels near ") or lowered.startswith("hotels in "):
             place = command.split(None, 2)[2] if len(command.split(None, 2)) > 2 else ""
             return self._travel_tool().nearby("hotel", place.strip())
@@ -797,7 +812,9 @@ class AgentOrchestrator:
                 "  web search <query>",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
+                "  trip <stop1> to <stop2> to <stop3> …  (multi-stop route + totals)",
                 "  hotels near <place>  ·  nearby <category> near <place>",
+                "  around <category>  ·  where am i  (IP location)  ·  map <place|A to B>",
                 "  summarize youtube <url>  (transcript -> summary, asks indexed too)",
                 "  research <topic>",
                 "  research report <topic>",
@@ -1052,6 +1069,9 @@ class AgentOrchestrator:
         "web search <query>",
         "weather <location>",
         "distance <origin> to <destination>",
+        "trip <stop1> to <stop2> to <stop3>",
+        "around <category>",
+        "map <place|origin to destination>",
         "hotels near <place>",
         "summarize youtube <url>",
         "research <topic>",

@@ -79,9 +79,17 @@ class HeuristicPlannerProvider:
         if file_search:
             return file_search
 
+        trip = self._trip(raw)
+        if trip:
+            return trip
+
         distance = self._distance(raw)
         if distance:
             return distance
+
+        around = self._around(raw)
+        if around:
+            return around
 
         hotels = self._hotels(raw)
         if hotels:
@@ -321,6 +329,37 @@ class HeuristicPlannerProvider:
             return None
         query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
+
+    def _trip(self, text: str) -> PlanDecision | None:
+        """Multi-stop trip (3+ stops): 'plan a road trip from A to B to C'. A plain
+        two-point 'A to B' is left to _distance."""
+        if not re.search(r"\b(?:road ?trip|trip|itinerary|multi-?stop)\b", text, re.IGNORECASE):
+            return None
+        m = re.search(r"\bfrom\s+(.+)$", text, re.IGNORECASE)
+        if not m:
+            m = re.search(r"\b(?:road ?trip|trip|itinerary|multi-?stop)\b(?:\s+(?:through|via|across))?[:\s]+(.+)$",
+                          text, re.IGNORECASE)
+        if not m:
+            return None
+        segment = m.group(1)
+        stops = [s.strip(" ?.!") for s in re.split(r"\s+(?:to|then|->|→)\s+|\s*,\s*", segment) if s.strip(" ?.!")]
+        if len(stops) < 3:
+            return None
+        return self._command("trip " + " | ".join(stops), "User wants a multi-stop trip plan.", 0.85)
+
+    def _around(self, text: str) -> PlanDecision | None:
+        """Places around the user's current (IP-derived) location: 'restaurants near
+        me', 'gas around me'. Needs a known category, else fall through to search."""
+        if not re.search(r"\b(?:near|around|by|close to)\s+me\b|\baround here\b", text, re.IGNORECASE):
+            return None
+        m = re.search(
+            r"\b(hotels?|motels?|hostels?|restaurants?|food|cafes?|coffee|bars?|pubs?|gas|fuel|petrol|"
+            r"pharmac(?:y|ies)|hospitals?|atms?|banks?|parking|supermarkets?|grocery|gyms?)\b",
+            text, re.IGNORECASE,
+        )
+        if not m:
+            return None
+        return self._command(f"around {m.group(1).lower()}", "User wants places around their current location.", 0.83)
 
     def _distance(self, text: str) -> PlanDecision | None:
         """Driving distance + time between two places (free OSRM routing)."""
