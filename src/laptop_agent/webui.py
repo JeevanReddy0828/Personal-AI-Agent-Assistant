@@ -945,9 +945,12 @@ PAGE = r"""<!doctype html>
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
-    const label={ok:'online',degraded:'AI unreachable',setup:'setup needed'}[h.overall]||'online';
-    pill.className='pill '+h.overall; txt.textContent=label;
-    pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':'connected'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}`;
+    let label={ok:'online',degraded:'AI unreachable',setup:'setup needed'}[h.overall]||'online';
+    const busy=Object.entries((h.llm&&h.llm.tiers)||{}).filter(([k,v])=>v==='degraded').map(([k])=>k);
+    if(h.overall==='ok'&&busy.length){label=busy.join('/')+' model busy';}
+    pill.className='pill '+h.overall+(h.overall==='ok'&&busy.length?' busy':''); txt.textContent=label;
+    const tierNote=busy.length?` · busy: ${busy.join(', ')} (using a faster model)`:'';
+    pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':'connected'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}${tierNote}`;
     const card=document.getElementById('setupCard');
     if(card){
       if(h.overall==='setup'){card.style.display='';card.innerHTML='<b>Connect your AI</b>No language model is configured, so I can only use offline routing. Add an OpenAI-compatible key to your <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>OPENAI_BASE_URL</code>) and restart. File, search, and memory commands still work without it.';}

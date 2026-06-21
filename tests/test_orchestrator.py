@@ -1012,6 +1012,100 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(result.message, "smart")
             self.assertEqual(smart.history, history)
 
+    def test_chat_falls_back_when_smart_tier_busy(self) -> None:
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRouting:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed answer")
+
+        class CongestedSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return None  # tier busy / unreachable
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRouting())
+            o.smart_planner = Planner(CongestedSmart())
+            o.ultra_planner = None
+            res = asyncio.run(o.handle("explain the tradeoffs of this design in depth"))
+            self.assertTrue(res.ok)
+            self.assertIn("fast routed answer", res.message)
+            self.assertIn("smart model was busy", res.message)
+            self.assertTrue(res.data["degraded"])
+            self.assertEqual(res.data["planner"]["model"], "fast")
+            self.assertEqual(res.data["planner"]["requested_model"], "smart")
+            self.assertEqual(o.model_status.status("smart"), "degraded")
+
+    def test_chat_streams_fallback_when_smart_tier_busy(self) -> None:
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRoutingStream:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed")
+
+            def stream_answer(self, text, profile, model=None, history=None):
+                yield "fast "
+                yield "stream"
+
+        class CongestedSmartStream:
+            def stream_answer(self, text, profile, model=None, history=None):
+                return iter(())  # yields nothing -> tier busy
+
+            def answer(self, text, profile, model=None, history=None):
+                return None
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRoutingStream())
+            o.smart_planner = Planner(CongestedSmartStream())
+            o.ultra_planner = None
+            tokens: list[str] = []
+            res = asyncio.run(o.handle("explain this design in depth", on_token=tokens.append))
+            self.assertTrue(res.ok)
+            self.assertIn("fast stream", res.message)
+            self.assertIn("fast stream", "".join(tokens))
+            self.assertTrue(res.data["degraded"])
+            self.assertEqual(res.data["planner"]["model"], "fast")
+
+    def test_chat_ultra_falls_back_to_smart(self) -> None:
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRouting:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed")
+
+        class CongestedUltra:
+            def answer(self, text, profile, model=None, history=None):
+                return None
+
+        class WorkingSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return "smart deep answer"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRouting())
+            o.ultra_planner = Planner(CongestedUltra())
+            o.smart_planner = Planner(WorkingSmart())
+            res = asyncio.run(o.handle("design a system architecture from scratch in depth"))
+            self.assertTrue(res.ok)
+            self.assertIn("smart deep answer", res.message)
+            self.assertIn("ultra model was busy", res.message)
+            self.assertEqual(res.data["planner"]["model"], "smart")
+            self.assertEqual(res.data["planner"]["requested_model"], "ultra")
+            self.assertEqual(o.model_status.status("ultra"), "degraded")
+            self.assertEqual(o.model_status.status("smart"), "ok")
+
     def test_around_command_only_for_known_category(self) -> None:
         from laptop_agent.tools.travel import TravelTool
 

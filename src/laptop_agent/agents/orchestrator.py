@@ -13,6 +13,7 @@ from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTra
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.metrics import system_metrics
+from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
@@ -81,6 +82,9 @@ class AgentOrchestrator:
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
         self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
+        # Tracks per-tier model reachability so chat can fall back fast<-smart<-ultra
+        # when a tier is congested, and health can show "the advanced model is busy".
+        self.model_status = ModelStatus()
         self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
@@ -120,6 +124,37 @@ class AgentOrchestrator:
         if level >= 2 and self.smart_planner is not None:
             return self.smart_planner, "smart"
         return None, "fast"
+
+    def _higher_chat_tiers(self, level: int) -> list[tuple[Planner, str]]:
+        """The above-fast tiers to attempt for this complexity, strongest first.
+
+        Lets a congested top tier degrade gracefully: try ultra, then smart, then
+        the caller falls back to the fast tier. Empty for simple (level 0) chat."""
+        ladder: list[tuple[Planner, str]] = []
+        if level >= 2 and self.ultra_planner is not None:
+            ladder.append((self.ultra_planner, "ultra"))
+        if level >= 1 and self.smart_planner is not None:
+            ladder.append((self.smart_planner, "smart"))
+        return ladder
+
+    @staticmethod
+    def _tier_reply(provider, command, profile, history, on_token) -> str:
+        """One tier's conversational reply: stream when a sink is given (and stream
+        is supported), else a plain answer. Returns '' if the tier produced nothing
+        (e.g. it was unreachable/congested), which signals the caller to fall back."""
+        if provider is None:
+            return ""
+        streamer = getattr(provider, "stream_answer", None)
+        if on_token is not None and streamer is not None:
+            chunks: list[str] = []
+            for token in streamer(command, profile, None, history):
+                chunks.append(token)
+                on_token(token)
+            return "".join(chunks).strip()
+        answer_fn = getattr(provider, "answer", None)
+        if answer_fn is not None:
+            return (answer_fn(command, profile, None, history) or "").strip()
+        return ""
 
     def _route(
         self,
@@ -629,28 +664,36 @@ class AgentOrchestrator:
                     if grounded is not None:
                         return grounded
                 response = planned.response
-                # Escalate by task complexity: fast -> smart -> ultra.
-                tier_planner, tier_label = self._pick_chat_model(self._complexity(command))
-                answer_planner = tier_planner or self.planner
-                model_used = tier_label if tier_planner is not None else "fast"
-                provider = answer_planner.provider if answer_planner else None
                 profile = self.context.memory.get_profile()
-                streamer = getattr(provider, "stream_answer", None) if provider else None
-                if on_token is not None and streamer is not None:
-                    # Stream the reply token-by-token so it appears live.
-                    chunks: list[str] = []
-                    for token in streamer(command, profile, None, history_turns):
-                        chunks.append(token)
-                        on_token(token)
-                    streamed = "".join(chunks).strip()
-                    if streamed:
-                        response = streamed
-                elif tier_planner is not None:
-                    answer = getattr(provider, "answer", None)
-                    if answer is not None:
-                        better = answer(command, profile, None, history_turns)
-                        if better:
-                            response = better
+                level = self._complexity(command)
+                _, requested_label = self._pick_chat_model(level)
+                model_used = "fast"
+                # Escalate by complexity (fast -> smart -> ultra), but degrade
+                # gracefully: if a higher tier is congested/unreachable it returns
+                # nothing, so we try the next tier down rather than failing.
+                answered = False
+                for tier_planner, tier_label in self._higher_chat_tiers(level):
+                    reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
+                    self.model_status.record(tier_label, bool(reply))
+                    if reply:
+                        response, model_used, answered = reply, tier_label, True
+                        break
+                if not answered:
+                    # Fall back to the fast tier. When streaming, generate a fresh
+                    # reply; otherwise planned.response is already the fast model's.
+                    if on_token is not None and self.planner is not None:
+                        reply = self._tier_reply(self.planner.provider, command, profile, history_turns, on_token)
+                        if reply:
+                            response, model_used = reply, "fast"
+                            self.model_status.record("fast", True)
+                degraded = requested_label != "fast" and model_used != requested_label
+                if degraded:
+                    # Be honest that the requested tier was busy rather than passing
+                    # off the faster model's answer as the stronger one's.
+                    note = f"\n\n_(My {requested_label} model was busy, so I answered with my faster model.)_"
+                    response = response + note
+                    if on_token is not None:
+                        on_token(note)
                 if needs_fresh:
                     # We wanted live data but couldn't get it (no results / search down) — be
                     # honest that this answer may be stale rather than sounding confident.
@@ -661,11 +704,13 @@ class AgentOrchestrator:
                 return ToolResult.success(
                     response,
                     stale_warning=needs_fresh,
+                    degraded=degraded,
                     planner={
                         "source_text": command,
                         "confidence": planned.confidence,
                         "explanation": planned.explanation,
                         "model": model_used,
+                        "requested_model": requested_label,
                     },
                 )
 

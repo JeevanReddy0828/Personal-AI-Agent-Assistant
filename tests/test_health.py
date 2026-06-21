@@ -53,6 +53,24 @@ class HealthTests(unittest.TestCase):
         h = system_health(_orchestrator("OpenAICompatiblePlannerProvider", True), True, cfg)
         self.assertTrue(h["email"]["configured"])
 
+    def test_degraded_tier_surfaced_while_overall_ok(self) -> None:
+        from laptop_agent.model_status import ModelStatus
+
+        orch = _orchestrator("OpenAICompatiblePlannerProvider", True)
+        status = ModelStatus()
+        status.record("fast", True)
+        status.record("smart", False)  # advanced tier busy, fast still healthy
+        orch.model_status = status
+        h = system_health(orch, True, _config())
+        self.assertEqual(h["overall"], "ok")  # fast tier reachable -> overall ok
+        self.assertTrue(h["llm"]["degraded_tier"])
+        self.assertEqual(h["llm"]["tiers"]["smart"], "degraded")
+
+    def test_missing_model_status_defaults_safely(self) -> None:
+        h = system_health(_orchestrator("OpenAICompatiblePlannerProvider", True), True, _config())
+        self.assertEqual(h["llm"]["tiers"], {})
+        self.assertFalse(h["llm"]["degraded_tier"])
+
 
 if __name__ == "__main__":
     unittest.main()

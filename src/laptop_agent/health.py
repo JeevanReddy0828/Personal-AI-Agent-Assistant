@@ -30,12 +30,19 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
     else:
         overall = "ok"
 
+    # Per-tier reachability from real chat turns (fast/smart/ultra), so the UI can
+    # show "the advanced model is busy" even while the fast tier is healthy.
+    status = getattr(orchestrator, "model_status", None)
+    tier_status = status.snapshot() if status is not None else {"tiers": {}, "degraded": False}
+
     return {
         "overall": overall,
         "llm": {
             "configured": llm_configured,
             "reachable": llm_reachable,
             "provider": "openai-compatible" if llm_configured else "heuristic",
+            "tiers": tier_status["tiers"],
+            "degraded_tier": tier_status["degraded"],
         },
         "models": {
             "fast": getattr(config, "llm_model", None),
