@@ -246,6 +246,10 @@ class TravelTool:
             embed=_embed_url(box, spot["latitude"], spot["longitude"]), directions=None,
         )
 
+    @staticmethod
+    def knows_category(category: str) -> bool:
+        return (category or "").strip().lower() in _CATEGORY_TAGS
+
     def _unknown_category(self) -> ToolResult:
         return ToolResult.failure(
             f"I can find: {', '.join(sorted({v.split('=')[1] for v in _CATEGORY_TAGS.values()}))}.",

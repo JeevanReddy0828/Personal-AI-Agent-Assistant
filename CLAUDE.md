@@ -139,7 +139,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (386 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (389 passing).
 
 ## Working alongside another agent (Codex)
 

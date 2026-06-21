@@ -54,6 +54,14 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "trip Austin | Dallas | Houston")
 
+    def test_trip_preserves_city_state(self) -> None:
+        decision = self.plan("plan a road trip from Austin, TX to Dallas, TX to Houston, TX")
+        self.assertEqual(decision.command, "trip Austin, TX | Dallas, TX | Houston, TX")
+
+    def test_trip_comma_only_list(self) -> None:
+        decision = self.plan("plan a trip: Austin, Dallas, Houston")
+        self.assertEqual(decision.command, "trip Austin | Dallas | Houston")
+
     def test_youtube_summary_routes_to_summarizer(self) -> None:
         decision = self.plan("summarize this youtube video https://youtu.be/dQw4w9WgXcQ")
         self.assertTrue(decision.is_command)

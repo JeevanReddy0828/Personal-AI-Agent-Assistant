@@ -433,7 +433,12 @@ class AgentOrchestrator:
             return self._travel_tool().trip([s for s in stops if s.strip()])
 
         if lowered.startswith("around "):
-            return self._travel_tool().around(command[len("around ") :].strip())
+            # Only claim "around <category>" for a known place category, so ordinary
+            # messages that merely start with "around" (e.g. "around 3pm, remind me…")
+            # fall through to normal routing instead of a stray places lookup.
+            first = command[len("around ") :].strip().split(None, 1)[0] if command[len("around ") :].strip() else ""
+            if TravelTool.knows_category(first):
+                return self._travel_tool().around(first)
 
         if lowered in {"where am i", "where am i?", "my location", "locate me", "what's my location"}:
             return self._travel_tool().here()

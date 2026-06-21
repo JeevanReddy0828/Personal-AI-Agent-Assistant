@@ -1012,6 +1012,28 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(result.message, "smart")
             self.assertEqual(smart.history, history)
 
+    def test_around_command_only_for_known_category(self) -> None:
+        from laptop_agent.tools.travel import TravelTool
+
+        def transport(url: str):
+            if "ip-api" in url:
+                return {"status": "success", "lat": 30.27, "lon": -97.74,
+                        "city": "Austin", "regionName": "Texas", "country": "US"}
+            if "overpass" in url:
+                return {"elements": [{"tags": {"name": "Cafe X"}, "lat": 30.28, "lon": -97.74}]}
+            return {}
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator._travel_tool_cache = TravelTool(transport=transport)
+            # A known category routes to the real around-me places lookup.
+            hit = asyncio.run(orchestrator.handle("around coffee"))
+            self.assertTrue(hit.ok)
+            self.assertIn("Cafe X", hit.message)
+            # "around 3pm…" must not be hijacked into a stray category lookup.
+            miss = asyncio.run(orchestrator.handle("around 3pm and remind me to call mom"))
+            self.assertFalse(miss.message.startswith("I can find:"))
+
 
 if __name__ == "__main__":
     unittest.main()

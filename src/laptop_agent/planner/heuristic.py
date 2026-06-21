@@ -342,7 +342,11 @@ class HeuristicPlannerProvider:
         if not m:
             return None
         segment = m.group(1)
-        stops = [s.strip(" ?.!") for s in re.split(r"\s+(?:to|then|->|→)\s+|\s*,\s*", segment) if s.strip(" ?.!")]
+        # Split on the verb separators only, so "City, State" stays one stop (matches
+        # _distance). Fall back to commas only for a plain "A, B, C" list with no verbs.
+        stops = [s.strip(" ?.!") for s in re.split(r"\s+(?:to|then|->|→)\s+", segment) if s.strip(" ?.!")]
+        if len(stops) < 2 and "," in segment:
+            stops = [s.strip(" ?.!") for s in segment.split(",") if s.strip(" ?.!")]
         if len(stops) < 3:
             return None
         return self._command("trip " + " | ".join(stops), "User wants a multi-stop trip plan.", 0.85)
