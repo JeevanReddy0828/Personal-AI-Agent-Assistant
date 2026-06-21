@@ -30,8 +30,8 @@ _SYSTEM_PROMPT = (
     '  "confidence": a number from 0 to 1\n'
     '  "explanation": a short reason\n'
     "Use action=command ONLY when the user clearly wants an action the command list covers, and copy the command "
-    "syntax exactly. For greetings, simple factual questions, or quick chit-chat, use action=chat and put your "
-    "helpful reply in response. Never invent commands or shell commands. For risky external actions, prefer a "
+    "syntax exactly. For greetings, simple factual questions, opinions, or quick chit-chat, use action=chat and put "
+    "your helpful reply in response. Never invent commands or shell commands. For risky external actions, prefer a "
     "draft/preview/plan command over a final send/submit one.\n"
     "When the user faces a DECISION, dilemma, trade-off, or open-ended problem that is better served by weighing "
     "options and a concrete plan than by a one-off reply (e.g. 'should I X or Y', 'how should I approach…', "
