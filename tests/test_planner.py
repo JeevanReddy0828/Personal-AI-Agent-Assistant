@@ -52,6 +52,19 @@ class HeuristicPlannerTests(unittest.TestCase):
         decision = self.plan("play lofi beats on youtube")
         self.assertTrue(decision.command.startswith("play music"))
 
+    def test_distance_routes_to_travel(self) -> None:
+        self.assertEqual(self.plan("driving distance from Austin to Dallas").command, "distance Austin to Dallas")
+        self.assertEqual(self.plan("how far is Dallas from Austin").command, "distance Austin to Dallas")
+
+    def test_hotels_routes_to_travel_not_websearch(self) -> None:
+        self.assertEqual(self.plan("find hotels near Austin, TX").command, "hotels near Austin, TX")
+        self.assertEqual(self.plan("where to stay in Kyoto").command, "hotels near Kyoto")
+
+    def test_flights_route_to_web_search(self) -> None:
+        self.assertEqual(
+            self.plan("flights from Austin to Tokyo").command, "web search flights from Austin to Tokyo"
+        )
+
     def test_weather_routes_to_weather_tool(self) -> None:
         decision = self.plan("what's the weather in Austin, TX")
         self.assertTrue(decision.is_command)

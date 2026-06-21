@@ -79,6 +79,18 @@ class HeuristicPlannerProvider:
         if file_search:
             return file_search
 
+        distance = self._distance(raw)
+        if distance:
+            return distance
+
+        hotels = self._hotels(raw)
+        if hotels:
+            return hotels
+
+        flights = self._flights(raw)
+        if flights:
+            return flights
+
         weather = self._weather(raw)
         if weather:
             return weather
@@ -309,6 +321,46 @@ class HeuristicPlannerProvider:
             return None
         query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
+
+    def _distance(self, text: str) -> PlanDecision | None:
+        """Driving distance + time between two places (free OSRM routing)."""
+        m = re.search(
+            r"\b(?:distance|how far|driving (?:distance|time)|how long (?:to drive|is the drive))\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$",
+            text, re.IGNORECASE,
+        )
+        if m:
+            return self._command(f"distance {m.group(1).strip()} to {m.group(2).strip()}", "User wants distance/route.", 0.86)
+        m = re.search(r"\bhow far is\s+(.+?)\s+from\s+(.+)$", text, re.IGNORECASE)
+        if m:
+            return self._command(f"distance {m.group(2).strip()} to {m.group(1).strip()}", "User wants distance.", 0.86)
+        m = re.search(r"\b(?:distance|how far)\b.*?\bbetween\s+(.+?)\s+and\s+(.+)$", text, re.IGNORECASE)
+        if m:
+            return self._command(f"distance {m.group(1).strip()} to {m.group(2).strip()}", "User wants distance.", 0.86)
+        return None
+
+    def _hotels(self, text: str) -> PlanDecision | None:
+        """Real hotel listings near a place (free OpenStreetMap), not a web search."""
+        m = re.search(
+            r"\b(?:hotels?|motels?|hostels?|places? to stay|where (?:to|can i) stay)\b.*?\b(?:near|in|around|at)\s+(.+)$",
+            text, re.IGNORECASE,
+        )
+        if not m:
+            return None
+        place = m.group(1).strip().strip("?.!,'\"")
+        return self._command(f"hotels near {place}", "User wants hotels near a place.", 0.84) if place else None
+
+    def _flights(self, text: str) -> PlanDecision | None:
+        """No free no-key fare API exists, so route flights through web search."""
+        m = re.search(r"\bflights?\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$", text, re.IGNORECASE)
+        if m:
+            return self._command(
+                f"web search flights from {m.group(1).strip()} to {m.group(2).strip()}", "User wants flights.", 0.8
+            )
+        m = re.search(r"\b(?:flights?|airfare|fly)\b.*?\bto\s+(.+)$", text, re.IGNORECASE)
+        if m:
+            dest = m.group(1).strip().strip("?.!,'\"")
+            return self._command(f"web search flights to {dest}", "User wants flights.", 0.78) if dest else None
+        return None
 
     def _weather(self, text: str) -> PlanDecision | None:
         """Real forecast (Open-Meteo) instead of opening a web search for weather."""

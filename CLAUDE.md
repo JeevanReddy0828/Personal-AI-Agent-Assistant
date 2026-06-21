@@ -49,6 +49,7 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
+        travel (maps: OSRM driving distance/ETA + OpenStreetMap hotels/places — no key),
         youtube (transcript -> summary, indexed for Q&A; `youtube` extra),
         transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
@@ -134,7 +135,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (362+ passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (370+ passing).
 
 ## Working alongside another agent (Codex)
 
