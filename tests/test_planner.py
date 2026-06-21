@@ -37,10 +37,30 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "web search Indian restaurants in kyle, Tx")
 
-    def test_near_me_goes_to_web_search(self) -> None:
+    def test_known_category_near_me_uses_geolocation(self) -> None:
+        # A recognised place category routes to the IP-geolocated 'around' tool
+        # (real nearby listings) rather than a generic web search.
         decision = self.plan("best coffee near me")
         self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "around coffee")
+
+    def test_unknown_thing_near_me_falls_back_to_web_search(self) -> None:
+        decision = self.plan("best tattoo artist near me")
+        self.assertTrue(decision.is_command)
         self.assertTrue(decision.command.startswith("web search"))
+
+    def test_multi_stop_trip_routes_to_trip(self) -> None:
+        decision = self.plan("plan a road trip from Austin to Dallas to Houston")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "trip Austin | Dallas | Houston")
+
+    def test_trip_preserves_city_state(self) -> None:
+        decision = self.plan("plan a road trip from Austin, TX to Dallas, TX to Houston, TX")
+        self.assertEqual(decision.command, "trip Austin, TX | Dallas, TX | Houston, TX")
+
+    def test_trip_comma_only_list(self) -> None:
+        decision = self.plan("plan a trip: Austin, Dallas, Houston")
+        self.assertEqual(decision.command, "trip Austin | Dallas | Houston")
 
     def test_youtube_summary_routes_to_summarizer(self) -> None:
         decision = self.plan("summarize this youtube video https://youtu.be/dQw4w9WgXcQ")
