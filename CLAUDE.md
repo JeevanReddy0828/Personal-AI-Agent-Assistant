@@ -100,6 +100,15 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
 - `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
 
+Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a
+higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing)
+the orchestrator falls back to the next tier down, tags the reply
+(`degraded=True` in data, plus `planner.requested_model` vs `planner.model`) with a
+short "_my smart model was busy_" note, and records the outcome in
+`orchestrator.model_status` (`model_status.py`, thread-safe per-tier ok/degraded).
+`health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the
+web pill shows "smart/ultra model busy" while the fast tier stays healthy.
+
 Routing uses few-shot **message turns** for reliability. The 8B alone won't route
 without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE) —
 which, when the request sets `voice:true`, also emits incremental `tts` sentence
@@ -139,7 +148,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (389 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (397 passing).
 
 ## Working alongside another agent (Codex)
 
