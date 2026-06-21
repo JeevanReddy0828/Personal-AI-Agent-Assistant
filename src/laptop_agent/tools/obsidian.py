@@ -74,6 +74,38 @@ class ObsidianVault:
         text = note.read_text(encoding="utf-8", errors="replace")
         return ToolResult.success(f"Read note '{note.stem}'.", name=note.stem, text=text[:max_chars])
 
+    def note_detail(self, name: str, max_chars: int = 20000) -> ToolResult:
+        """Read a note plus its wiki-links: ``outlinks`` (notes it references) and
+        ``backlinks`` (notes that reference it). Powers the vault browser."""
+        base = self.read_note(name, max_chars=max_chars)
+        if not base.ok:
+            return base
+        outlinks = sorted({link for link in _wikilinks(str(base.data.get("text", ""))) if link})
+        back = self.backlinks(name)
+        base.data["outlinks"] = outlinks
+        base.data["backlinks"] = back.data.get("backlinks", []) if back.ok else []
+        return base
+
+    def backlinks(self, name: str) -> ToolResult:
+        """Notes whose text contains a ``[[name]]`` wiki-link to this note."""
+        if not self.available():
+            return self.status()
+        note = self._resolve(name)
+        target = (note.stem if note else name).strip().lower()
+        hits: list[str] = []
+        for candidate in self._notes():
+            if note is not None and candidate == note:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if any(link.lower() == target for link in _wikilinks(text)):
+                hits.append(candidate.stem)
+        return ToolResult.success(
+            f"{len(hits)} note(s) link here.", name=(note.stem if note else name), backlinks=sorted(set(hits))
+        )
+
     def save_note(self, title: str, content: str, folder: str = "Agent Memory") -> ToolResult:
         if not self.vault_path:
             return ToolResult.failure("No Obsidian vault configured. Set OBSIDIAN_VAULT to your vault folder.")
@@ -113,3 +145,13 @@ class ObsidianVault:
             if note.stem.lower() == stem:
                 return note
         return None
+
+
+def _wikilinks(text: str) -> list[str]:
+    """Note names referenced by ``[[Name]]`` / ``[[Name|alias]]`` / ``[[Name#heading]]``."""
+    links = []
+    for raw in re.findall(r"\[\[([^\]]+)\]\]", text):
+        name = raw.split("|", 1)[0].split("#", 1)[0].strip()
+        if name:
+            links.append(name)
+    return links
