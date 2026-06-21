@@ -29,6 +29,7 @@ from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
+from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
@@ -87,6 +88,7 @@ class AgentOrchestrator:
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
+        self._travel_tool_cache: TravelTool | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -416,6 +418,24 @@ class AgentOrchestrator:
 
         if lowered.startswith("weather "):
             return self._weather_tool().forecast(command[len("weather ") :].strip())
+
+        if lowered.startswith("distance "):
+            rest = command[len("distance ") :].strip()
+            match = re.search(r"\s+(?:to|and|->|→)\s+", rest, re.IGNORECASE)
+            if not match:
+                return ToolResult.failure("Use: distance <origin> to <destination>")
+            return self._travel_tool().distance(rest[: match.start()].strip(), rest[match.end() :].strip())
+
+        if lowered.startswith("hotels near ") or lowered.startswith("hotels in "):
+            place = command.split(None, 2)[2] if len(command.split(None, 2)) > 2 else ""
+            return self._travel_tool().nearby("hotel", place.strip())
+
+        if lowered.startswith("nearby "):
+            rest = command[len("nearby ") :].strip()
+            match = re.search(r"\s+(?:near|in|around)\s+", rest, re.IGNORECASE)
+            if not match:
+                return ToolResult.failure("Use: nearby <category> near <place>")
+            return self._travel_tool().nearby(rest[: match.start()].strip(), rest[match.end() :].strip())
 
         if lowered.startswith("summarize youtube "):
             return self._youtube_summary(command[len("summarize youtube ") :].strip())
@@ -776,6 +796,8 @@ class AgentOrchestrator:
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  weather <location>  (real current + 3-day forecast)",
+                "  distance <origin> to <destination>  (driving miles + ETA)",
+                "  hotels near <place>  ·  nearby <category> near <place>",
                 "  summarize youtube <url>  (transcript -> summary, asks indexed too)",
                 "  research <topic>",
                 "  research report <topic>",
@@ -1029,6 +1051,8 @@ class AgentOrchestrator:
         # web & research
         "web search <query>",
         "weather <location>",
+        "distance <origin> to <destination>",
+        "hotels near <place>",
         "summarize youtube <url>",
         "research <topic>",
         "research report <topic>",
@@ -1200,6 +1224,11 @@ class AgentOrchestrator:
         if self._youtube_tool_cache is None:
             self._youtube_tool_cache = YouTubeTool()
         return self._youtube_tool_cache
+
+    def _travel_tool(self) -> TravelTool:
+        if self._travel_tool_cache is None:
+            self._travel_tool_cache = TravelTool(approval_gate=self.context.web.approval_gate)
+        return self._travel_tool_cache
 
     def _youtube_summary(self, url: str) -> ToolResult:
         cleaned = url.strip().strip("'\"")
