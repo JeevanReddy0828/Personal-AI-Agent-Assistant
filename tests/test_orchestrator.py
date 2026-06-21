@@ -1175,6 +1175,25 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
 
+    def test_solve_command_produces_indexed_advice(self) -> None:
+        analysis = "## Problem\nChoose a DB.\n## Recommendation\nPostgres."
+
+        class Brain:
+            def answer(self, prompt, profile, model=None, history=None):
+                return analysis
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.smart_planner = Planner(Brain())  # backs _build_agent_brain
+            res = asyncio.run(o.handle("solve should I use Postgres or MySQL"))
+            self.assertTrue(res.ok)
+            self.assertIn("Recommendation", res.message)
+            self.assertEqual(res.data["problem"], "should I use Postgres or MySQL")
+            self.assertTrue(res.data["used_research"])  # the test research backend grounds it
+            self.assertTrue(res.data["indexed"]["ok"])
+            recalled = asyncio.run(o.handle("recall Postgres"))
+            self.assertTrue(recalled.data["results"])
+
     def test_around_command_only_for_known_category(self) -> None:
         from laptop_agent.tools.travel import TravelTool
 

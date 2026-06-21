@@ -56,7 +56,10 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
         transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra), obsidian
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
-        agent loop — plan/act/observe/replan over any tool), scheduler.py
+        agent loop — plan/act/observe/replan over any tool),
+        advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
+        analysis: framing, options w/ trade-offs, committed recommendation, action
+        plan; injected decide+research, indexed for recall), scheduler.py
         (recurring jobs), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
         memory.py, token_vault.py (DPAPI), config.py
@@ -166,7 +169,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (408 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (419 passing).
 
 ## Working alongside another agent (Codex)
 
