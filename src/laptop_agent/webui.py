@@ -217,7 +217,7 @@ PAGE = r"""<!doctype html>
   .bracket::before{top:-1px;left:-1px;border-top:1.5px solid var(--ice);border-left:1.5px solid var(--ice);opacity:.55}
   .bracket::after{bottom:-1px;right:-1px;border-bottom:1.5px solid var(--ice);border-right:1.5px solid var(--ice);opacity:.55}
 
-  header{grid-column:1/-1;display:flex;align-items:center;gap:13px;padding:0 18px;background:linear-gradient(180deg,rgba(9,13,20,.85),rgba(6,9,14,.6));
+  header{grid-column:1/-1;position:relative;z-index:60;display:flex;align-items:center;gap:13px;padding:0 18px;background:linear-gradient(180deg,rgba(9,13,20,.85),rgba(6,9,14,.6));
     border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(95,208,230,.12),0 10px 30px -18px rgba(95,208,230,.4);backdrop-filter:blur(8px)}
   .reactor{width:30px;height:30px;filter:drop-shadow(0 0 6px rgba(95,208,230,.55))}
   .brand .n{font-family:var(--display);font-weight:700;letter-spacing:5px;font-size:15px;color:#eaf6fb}
