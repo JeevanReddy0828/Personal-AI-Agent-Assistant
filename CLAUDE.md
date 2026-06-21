@@ -53,7 +53,10 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),
         youtube (transcript -> summary, indexed for Q&A; `youtube` extra),
-        transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra), obsidian
+        transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra),
+        obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
+            alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
+            for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
 Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool),
@@ -177,7 +180,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (430 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (436 passing).
 
 ## Working alongside another agent (Codex)
 

@@ -1175,6 +1175,27 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
 
+    def test_ask_vault_uses_link_aware_context(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            (Path(raw) / "vault").mkdir(parents=True, exist_ok=True)
+            o = self.build(Path(raw))
+            asyncio.run(o.handle("save note Routing : Routing overview. See [[Latency]] for the numbers."))
+            asyncio.run(o.handle("save note Latency : The ultra 550B model takes about 45 to 60 seconds."))
+            res = asyncio.run(o.handle("ask vault how slow is routing"))
+            self.assertTrue(res.ok)
+            self.assertIn("Latency", res.data["notes"])  # neighbour pulled via link
+            self.assertIn("45 to 60 seconds", res.message)  # no LLM in test -> assembled context
+
+    def test_notes_audit_command(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            (Path(raw) / "vault").mkdir(parents=True, exist_ok=True)
+            o = self.build(Path(raw))
+            asyncio.run(o.handle("save note Hub : Links to [[Ghost]]."))
+            res = asyncio.run(o.handle("notes audit"))
+            self.assertTrue(res.ok)
+            self.assertEqual(res.data["broken_links"], [{"note": "Hub", "link": "Ghost"}])
+            self.assertIn("Hub", res.data["missing_summary"])
+
     def test_solve_command_produces_indexed_advice(self) -> None:
         analysis = "## Problem\nChoose a DB.\n## Recommendation\nPostgres."
 

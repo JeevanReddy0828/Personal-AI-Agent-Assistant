@@ -44,9 +44,12 @@ class ObsidianVault:
         )
 
     def search(self, query: str, limit: int = 8) -> ToolResult:
+        """Rank notes for a query. A match in the title, an alias, or the frontmatter
+        ``summary`` is weighted far above a body match — a "tiered retrieval" signal
+        (title/summary first) that mirrors how a strong second-brain is searched."""
         if not self.available():
             return self.status()
-        terms = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 1]
+        terms = _query_terms(query)
         if not terms:
             return ToolResult.failure("Give something to search for in the vault.")
         hits: list[dict[str, object]] = []
@@ -55,15 +58,102 @@ class ObsidianVault:
                 text = note.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            lowered = text.lower()
-            score = sum(lowered.count(term) for term in terms)
+            meta = _frontmatter(text)
+            aliases = " ".join(meta["aliases"]).lower()
+            summary = meta["summary"].lower()
+            name_l = note.stem.lower()
+            body = text.lower()
+            score = 0
+            for term in terms:
+                score += body.count(term)  # body weight 1
+                score += 6 if term in name_l else 0  # title is the strongest signal
+                score += 4 if term in aliases else 0  # aliases catch synonyms the title misses
+                score += 3 if term in summary else 0  # the AI-search summary signal
             if score <= 0:
                 continue
-            index = min((lowered.find(term) for term in terms if term in lowered), default=0)
-            snippet = " ".join(text[max(0, index - 60): index + 180].split())
-            hits.append({"name": note.stem, "rel": str(note.relative_to(self.vault_path)), "score": score, "snippet": snippet})
+            snippet = meta["summary"] or self._snippet(text, terms)
+            hits.append({
+                "name": note.stem, "rel": str(note.relative_to(self.vault_path)),
+                "score": score, "snippet": snippet, "summary": meta["summary"],
+            })
         hits.sort(key=lambda item: -int(item["score"]))
         return ToolResult.success(f"Found {len(hits)} matching note(s).", query=query, results=hits[:limit])
+
+    def context_for(self, query: str, max_chars: int = 4000, seeds: int = 2, max_notes: int = 6) -> ToolResult:
+        """Link-aware retrieval: take the top matching notes, then pull in their 1-hop
+        neighbours (out- and back-links) so the agent answers from connected context,
+        not a single note. Links are the retrieval substrate of a second brain.
+
+        Seeds from the top ``seeds`` matches (not just #1) so a near-tie in ranking
+        still reaches the right neighbourhood."""
+        if not self.available():
+            return self.status()
+        found = self.search(query, limit=max(seeds, 1))
+        if not found.ok:
+            return found
+        results = found.data.get("results", [])
+        if not results:
+            return ToolResult.failure(f"No vault note matches '{query}'.", query=query)
+        seed_names = [str(r["name"]) for r in results[:seeds]]
+        order = list(seed_names)
+        for name in seed_names:  # append each seed's neighbours after the seeds
+            detail = self.note_detail(name)
+            for neighbour in list(detail.data.get("outlinks", [])) + list(detail.data.get("backlinks", [])):
+                if neighbour not in order:
+                    order.append(neighbour)
+        used: list[str] = []
+        parts: list[str] = []
+        for name in order:
+            if len(used) >= max_notes:
+                break
+            note = self.read_note(name)
+            if note.ok:
+                used.append(name)
+                parts.append(f"## {name}\n{note.data.get('text', '')}")
+        context = "\n\n".join(parts)[:max_chars]
+        return ToolResult.success(
+            f"Assembled context from {len(used)} linked note(s).",
+            query=query, primary=seed_names[0], notes=used, context=context,
+        )
+
+    def audit(self) -> ToolResult:
+        """Vault health for a memory that an agent relies on: orphans (no links in or
+        out), broken wiki-links (point at a missing note), and notes missing a
+        frontmatter ``summary`` (the strong AI-search signal)."""
+        if not self.available():
+            return self.status()
+        notes = self._notes()
+        resolvable = {n.stem.lower() for n in notes}
+        for note in notes:
+            for alias in _frontmatter(note.read_text(encoding="utf-8", errors="replace"))["aliases"]:
+                resolvable.add(alias.lower())
+        out_links: dict[str, list[str]] = {}
+        referenced: set[str] = set()
+        broken: list[dict[str, str]] = []
+        missing_summary: list[str] = []
+        for note in notes:
+            text = note.read_text(encoding="utf-8", errors="replace")
+            links = _wikilinks(text)
+            out_links[note.stem] = links
+            for link in links:
+                referenced.add(link.lower())
+                if link.lower() not in resolvable:
+                    broken.append({"note": note.stem, "link": link})
+            if not _frontmatter(text)["summary"]:
+                missing_summary.append(note.stem)
+        orphans = [n.stem for n in notes if not out_links[n.stem] and n.stem.lower() not in referenced]
+        return ToolResult.success(
+            f"Audited {len(notes)} note(s): {len(orphans)} orphan(s), {len(broken)} broken link(s), "
+            f"{len(missing_summary)} without a summary.",
+            note_count=len(notes), orphans=sorted(orphans), broken_links=broken,
+            missing_summary=sorted(missing_summary),
+        )
+
+    @staticmethod
+    def _snippet(text: str, terms: list[str]) -> str:
+        lowered = text.lower()
+        index = min((lowered.find(term) for term in terms if term in lowered), default=0)
+        return " ".join(text[max(0, index - 60): index + 180].split())
 
     def read_note(self, name: str, max_chars: int = 8000) -> ToolResult:
         if not self.available():
@@ -141,10 +231,64 @@ class ObsidianVault:
 
     def _resolve(self, name: str) -> Path | None:
         stem = name.strip().removesuffix(".md").lower()
-        for note in self._notes():
+        notes = self._notes()
+        for note in notes:
             if note.stem.lower() == stem:
                 return note
+        # Fall back to frontmatter aliases so links/recall by a synonym still resolve.
+        for note in notes:
+            try:
+                aliases = _frontmatter(note.read_text(encoding="utf-8", errors="replace"))["aliases"]
+            except OSError:
+                continue
+            if any(alias.strip().lower() == stem for alias in aliases):
+                return note
         return None
+
+
+def _frontmatter(text: str) -> dict:
+    """Parse the leading ``--- ... ---`` YAML block (no yaml dep). Always returns a
+    dict with 'tags', 'aliases' (lists) and 'summary' (str), empty if absent."""
+    meta: dict = {"tags": [], "aliases": [], "summary": ""}
+    if not text.startswith("---"):
+        return meta
+    end = text.find("\n---", 3)
+    if end == -1:
+        return meta
+    for line in text[3:end].splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key, value = key.strip().lower(), value.strip()
+        if key in {"tags", "aliases"}:
+            meta[key] = _parse_list(value)
+        elif key == "summary":
+            meta["summary"] = value.strip().strip("\"'")
+    return meta
+
+
+def _parse_list(value: str) -> list[str]:
+    value = value.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    return [item.strip().strip("\"'") for item in value.split(",") if item.strip()]
+
+
+# Common words carry no retrieval signal and (as substrings) pollute ranking —
+# e.g. "is" inside "disconnected". Dropped from query terms.
+_STOPWORDS = frozenset(
+    "the a an and or of to in on at by for with from about into over is it its are was were be been "
+    "this that these those what when where why who how do does did can could will would should i me my "
+    "we our you your they them their he she his her as so if then than out up down off no not".split()
+)
+
+
+def _query_terms(query: str) -> list[str]:
+    """Meaningful search terms: drop stopwords and very short tokens. Falls back to
+    any 2+ char token if a query is all stopwords (e.g. a bare 'who')."""
+    tokens = re.findall(r"[a-z0-9]+", query.lower())
+    terms = [t for t in tokens if len(t) >= 3 and t not in _STOPWORDS]
+    return terms or [t for t in tokens if len(t) >= 2]
 
 
 def _wikilinks(text: str) -> list[str]:
