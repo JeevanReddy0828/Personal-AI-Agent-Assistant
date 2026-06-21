@@ -411,6 +411,19 @@ PAGE = r"""<!doctype html>
   .mappt b{color:var(--ice-b);text-transform:uppercase;font-size:9px;font-family:var(--mono);letter-spacing:.5px;margin-right:6px}
   .maplink{display:block;margin:7px 6px 4px;font-size:11px;color:var(--ice-b);text-decoration:none}
   .maplink:hover{text-decoration:underline}
+  /* trip planner panel */
+  .tripstop{display:flex;align-items:center;gap:6px;margin:4px 6px;font-family:var(--mono);font-size:11px;color:var(--text)}
+  .tripstop .seq{width:16px;height:16px;flex-shrink:0;border-radius:50%;background:var(--ice);color:#04181d;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .tripstop .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tripstop button{background:none;border:none;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:11px;padding:0 3px}
+  .tripstop button:hover{color:var(--ice-b)}
+  .tripsvg{width:calc(100% - 12px);height:150px;margin:6px;border:1px solid var(--line);border-radius:8px;background:#0a0e15}
+  .tripsvg .route{fill:none;stroke:var(--ice);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+  .tripsvg .stopdot{fill:var(--amber)}
+  .tripsvg .stopnum{fill:#04181d;font-size:8px;font-weight:700;font-family:var(--mono)}
+  .tripleg{font-size:11px;color:var(--text);margin:3px 6px;line-height:1.35}
+  .tripleg .d{color:var(--muted);font-family:var(--mono);font-size:10px}
+  .triptotal{font-size:12px;color:var(--ice-b);margin:7px 6px 2px;font-weight:600}
   .runcard{margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
   .runcard[open]{border-color:rgba(255,176,0,.28)}
   .runcard summary{list-style:none;cursor:pointer}
@@ -567,6 +580,19 @@ PAGE = r"""<!doctype html>
       </div>
       <div class="mapmsg" id="mapMsg"></div>
       <div id="mapView"></div>
+    </details>
+    <details class="conn" id="tripPanel">
+      <summary>Trip planner</summary>
+      <div class="mapform">
+        <input id="tripStop" type="text" placeholder="add a stop — e.g. Austin, TX" autocomplete="off">
+        <button id="tripAdd" type="button">Add</button>
+      </div>
+      <div id="tripStops"></div>
+      <div class="mapform" style="margin-top:2px">
+        <button id="tripGo" type="button" style="flex:1">Plan trip</button>
+      </div>
+      <div class="mapmsg" id="tripMsg"></div>
+      <div id="tripView"></div>
     </details>
   </aside>
 
@@ -1040,6 +1066,50 @@ PAGE = r"""<!doctype html>
   document.getElementById('mapGo').onclick=()=>{const q=document.getElementById('mapQuery').value.trim();if(q)loadMap(q);};
   document.getElementById('mapQuery').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('mapGo').click();}});
 
+  /* trip planner */
+  let tripStops=[];
+  function renderTripStops(){
+    const box=document.getElementById('tripStops');box.innerHTML='';
+    tripStops.forEach((s,i)=>{
+      const row=document.createElement('div');row.className='tripstop';
+      row.innerHTML='<span class="seq">'+(i+1)+'</span><span class="nm">'+esc(s)+'</span>';
+      const up=document.createElement('button');up.textContent='↑';up.title='move up';up.onclick=()=>{if(i>0){[tripStops[i-1],tripStops[i]]=[tripStops[i],tripStops[i-1]];renderTripStops();}};
+      const dn=document.createElement('button');dn.textContent='↓';dn.title='move down';dn.onclick=()=>{if(i<tripStops.length-1){[tripStops[i+1],tripStops[i]]=[tripStops[i],tripStops[i+1]];renderTripStops();}};
+      const rm=document.createElement('button');rm.textContent='✕';rm.title='remove';rm.onclick=()=>{tripStops.splice(i,1);renderTripStops();};
+      row.appendChild(up);row.appendChild(dn);row.appendChild(rm);box.appendChild(row);
+    });
+  }
+  function addTripStop(){const inp=document.getElementById('tripStop');const v=inp.value.trim();if(v){tripStops.push(v);inp.value='';renderTripStops();inp.focus();}}
+  document.getElementById('tripAdd').onclick=addTripStop;
+  document.getElementById('tripStop').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addTripStop();}});
+  function tripSvg(d){
+    const box=d.bbox; if(!box||box.length!==4)return '';
+    const W=300,H=150,pad=14;
+    const lon2x=lon=>pad+(box[2]===box[0]?W/2:(lon-box[0])/(box[2]-box[0])*(W-2*pad));
+    const lat2y=lat=>pad+(box[3]===box[1]?H/2:(box[3]-lat)/(box[3]-box[1])*(H-2*pad)); // lat inverted for screen
+    const line=(d.geometry&&d.geometry.length>1)?d.geometry:(d.points||[]).map(p=>[p.longitude,p.latitude]);
+    let path='';line.forEach((c,i)=>{path+=(i?'L':'M')+lon2x(c[0]).toFixed(1)+' '+lat2y(c[1]).toFixed(1)+' ';});
+    let dots='';(d.points||[]).forEach((p,i)=>{const x=lon2x(p.longitude),y=lat2y(p.latitude);dots+='<circle class="stopdot" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="7"/><text class="stopnum" x="'+x.toFixed(1)+'" y="'+(y+3).toFixed(1)+'" text-anchor="middle">'+(i+1)+'</text>';});
+    return '<svg class="tripsvg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet"><path class="route" d="'+path+'"/>'+dots+'</svg>';
+  }
+  function fmtDur(sec){if(sec==null)return '';const m=Math.round(sec/60);if(m<60)return m+' min';return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m';}
+  document.getElementById('tripGo').onclick=async()=>{
+    const msg=document.getElementById('tripMsg'),view=document.getElementById('tripView');
+    if(tripStops.length<2){msg.className='mapmsg err';msg.textContent='Add at least two stops.';return;}
+    msg.className='mapmsg';msg.textContent='Planning…';view.innerHTML='';
+    try{
+      const r=await fetch('/api/trip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stops:tripStops})});
+      const d=await r.json();
+      if(!d.ok){msg.className='mapmsg err';msg.textContent=d.message||'Could not plan the trip.';return;}
+      msg.textContent='';
+      let h=tripSvg(d);
+      (d.legs||[]).forEach(l=>{h+='<div class="tripleg">'+esc(l.from)+' → '+esc(l.to)+' <span class="d">'+(l.miles!=null?Math.round(l.miles)+' mi':'')+(l.seconds!=null?' · ~'+fmtDur(l.seconds):'')+'</span></div>';});
+      if(d.total_mi!=null)h+='<div class="triptotal">Total: '+Math.round(d.total_mi)+' mi'+(d.total_seconds!=null?' · ~'+fmtDur(d.total_seconds):'')+'</div>';
+      if(d.directions)h+='<a class="maplink" href="'+esc(d.directions)+'" target="_blank" rel="noopener">Open full route on OpenStreetMap ↗</a>';
+      view.innerHTML=h;
+    }catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the trip service.';}
+  };
+
   /* adaptive HUD: transparency, compact layout, always-on-top */
   const hudPop=document.getElementById('hudPop'),hudBtn=document.getElementById('hudBtn');
   const opRange=document.getElementById('opacityRange'),opVal=document.getElementById('opacityVal');
@@ -1329,6 +1399,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_window()
         elif self.path == "/api/notes":
             self._handle_notes()
+        elif self.path == "/api/trip":
+            self._handle_trip()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1558,6 +1630,27 @@ class Handler(BaseHTTPRequestHandler):
             result = asyncio.run(_orchestrator.handle(f"map {query}"))
         except ApprovalDenied:
             self._json(200, {"ok": False, "message": "Map lookup was blocked."})
+            return
+        self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _handle_trip(self) -> None:
+        """Multi-stop trip planner for the Trip panel: chains driving legs through the
+        given stops (routed via the `trip …` orchestrator command) and returns the
+        per-leg breakdown, totals, route geometry, bbox, and a directions link."""
+        try:
+            payload = self._read_json()
+            raw_stops = payload.get("stops") or []
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        stops = [str(s).strip() for s in raw_stops if str(s).strip()]
+        if len(stops) < 2:
+            self._json(200, {"ok": False, "message": "Add at least two stops."})
+            return
+        try:
+            result = asyncio.run(_orchestrator.handle("trip " + " | ".join(stops)))
+        except ApprovalDenied:
+            self._json(200, {"ok": False, "message": "Trip lookup was blocked."})
             return
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 

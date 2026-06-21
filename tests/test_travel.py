@@ -13,10 +13,12 @@ HOUSTON = {"results": [{"name": "Houston", "admin1": "Texas", "country": "United
                        "latitude": 29.76, "longitude": -95.37}]}
 OSRM = {"routes": [{"distance": 312000.0, "duration": 17400.0}]}  # ~194 mi, ~4h50m
 # 3-stop route: two legs, with a total distance/duration.
-OSRM_TRIP = {"routes": [{"distance": 480000.0, "duration": 28800.0, "legs": [
-    {"distance": 312000.0, "duration": 17400.0},
-    {"distance": 168000.0, "duration": 11400.0},
-]}]}
+OSRM_TRIP = {"routes": [{"distance": 480000.0, "duration": 28800.0,
+    "geometry": {"coordinates": [[-97.74, 30.27], [-97.0, 31.5], [-96.80, 32.78], [-95.37, 29.76]]},
+    "legs": [
+        {"distance": 312000.0, "duration": 17400.0},
+        {"distance": 168000.0, "duration": 11400.0},
+    ]}]}
 GEOLOCATE = {"status": "success", "lat": 30.27, "lon": -97.74,
              "city": "Austin", "regionName": "Texas", "country": "United States"}
 OVERPASS = {"elements": [
@@ -79,6 +81,21 @@ class TripTests(unittest.TestCase):
         self.assertEqual(result.data["legs"][1]["to"], "Houston, Texas, United States")
         self.assertEqual(result.data["total_mi"], round(480000 / 1609.34, 1))
         self.assertIn("over 2 legs", result.message)
+        # Map-ready extras for the Trip panel.
+        self.assertEqual(len(result.data["points"]), 3)
+        self.assertEqual(len(result.data["bbox"]), 4)
+        self.assertTrue(result.data["geometry"])  # route polyline present
+        self.assertIn("openstreetmap.org/directions", result.data["directions"])
+        self.assertEqual(result.data["directions"].count("%3B"), 2)  # 3 waypoints -> 2 separators
+
+    def test_trip_geometry_downsampled(self) -> None:
+        from laptop_agent.tools.travel import _downsample
+
+        coords = [[i * 0.01, i * 0.02] for i in range(1000)]
+        thinned = _downsample(coords, 50)
+        self.assertEqual(len(thinned), 50)
+        self.assertEqual(thinned[0], [0.0, 0.0])
+        self.assertEqual(thinned[-1], coords[-1])
 
     def test_needs_two_stops(self) -> None:
         self.assertFalse(TravelTool(transport=transport()).trip(["Austin"]).ok)
