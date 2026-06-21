@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from laptop_agent.planner.core import PlanDecision, Planner
-from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
+from laptop_agent.planner.openai_compatible import _FEWSHOT, _SYSTEM_PROMPT, OpenAICompatiblePlannerProvider
 
 
 def provider(content: str) -> OpenAICompatiblePlannerProvider:
@@ -87,6 +87,13 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertIn("Recent conversation", system)
         self.assertIn("User: summarize the README", system)
         self.assertIn("J.A.R.V.I.S: Done.", system)
+
+    def test_solve_routing_is_taught_to_the_model(self) -> None:
+        # The brain must be told it can route decisions/problems to `solve`, both in
+        # the system prompt and via a worked few-shot example — so it auto-routes
+        # without the user typing the command.
+        self.assertIn("solve", _SYSTEM_PROMPT)
+        self.assertTrue(any('"command":"solve' in example_json for _user, example_json in _FEWSHOT))
 
     def test_planner_accepts_legacy_provider_without_history(self) -> None:
         class LegacyProvider:

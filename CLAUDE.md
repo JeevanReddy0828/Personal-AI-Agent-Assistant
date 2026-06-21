@@ -59,7 +59,10 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         agent loop — plan/act/observe/replan over any tool),
         advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
         analysis: framing, options w/ trade-offs, committed recommendation, action
-        plan; injected decide+research, indexed for recall), scheduler.py
+        plan; injected decide+research, indexed for recall. The LLM planner
+        auto-routes decision/problem questions here — no manual command needed —
+        via system-prompt guidance + a few-shot turn in planner/openai_compatible.py),
+        scheduler.py
         (recurring jobs), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
         memory.py, token_vault.py (DPAPI), config.py

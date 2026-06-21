@@ -30,9 +30,14 @@ _SYSTEM_PROMPT = (
     '  "confidence": a number from 0 to 1\n'
     '  "explanation": a short reason\n'
     "Use action=command ONLY when the user clearly wants an action the command list covers, and copy the command "
-    "syntax exactly. For greetings, questions, opinions, or anything conversational, use action=chat and put your "
+    "syntax exactly. For greetings, simple factual questions, or quick chit-chat, use action=chat and put your "
     "helpful reply in response. Never invent commands or shell commands. For risky external actions, prefer a "
     "draft/preview/plan command over a final send/submit one.\n"
+    "When the user faces a DECISION, dilemma, trade-off, or open-ended problem that is better served by weighing "
+    "options and a concrete plan than by a one-off reply (e.g. 'should I X or Y', 'how should I approach…', "
+    "'help me decide…', 'what's the best way to…', 'is it worth…', 'how do I fix/solve…'), route to the command "
+    "`solve <the user's full problem>` — it researches the question and returns options, a recommendation, and an "
+    "action plan. Use solve for genuine problem-solving, not for trivial questions.\n"
     "Act on sensible defaults instead of asking for clarification: 'here', 'this folder', or 'the current "
     "directory' mean '.'; a well-known file named without a path (like 'the readme') is in the current directory "
     "(e.g. README.md). Only ask a clarifying question when no reasonable default exists. Never claim you are doing "
@@ -46,6 +51,8 @@ _FEWSHOT: list[tuple[str, str]] = [
     ("summarize the readme", '{"action":"command","command":"summarize file README.md","response":null}'),
     ("look up the weather in tokyo", '{"action":"command","command":"web search tokyo weather","response":null}'),
     ("research local-first ai", '{"action":"command","command":"research local-first ai","response":null}'),
+    ("should I switch my project from React to Vue", '{"action":"command","command":"solve should I switch my project from React to Vue","response":null}'),
+    ("what's the best way to migrate my database with zero downtime", '{"action":"command","command":"solve what is the best way to migrate my database with zero downtime","response":null}'),
     ("how are you?", '{"action":"chat","command":null,"response":"Doing well and ready to help. What do you need?"}'),
 ]
 
