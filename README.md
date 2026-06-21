@@ -42,6 +42,15 @@ approval gate.
 - Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
 - Live health/status: a self-check (`/api/health`) surfaces whether the AI, vault, and email are connected and reachable, with first-run setup guidance when the AI is not configured.
 - Stop a running generation mid-stream (Esc or the stop button) and keyboard shortcuts (Ctrl+K new chat).
+- Universal file processor: `process file <path>` auto-detects the type and runs the best action (spreadsheet → stats, doc → summary, image → OCR, audio/video → transcript); plus `analyze spreadsheet <path>` for per-column CSV/TSV stats.
+- Real weather: `weather <location>` returns actual current conditions + a 3-day forecast from Open-Meteo (free, no API key) — not a web-search link.
+- Travel & maps (free, no key): `distance <a> to <b>` gives real driving miles + ETA (OSRM), and `hotels near <place>` / `nearby <category> near <place>` list real places with distances (OpenStreetMap). Flight queries route through web search.
+- YouTube summarizer: `summarize youtube <url>` fetches the transcript, summarizes it (TL;DR + key points), and indexes it so you can ask follow-up questions about the video (`youtube` extra).
+- Real-time voice loop in the web app: speaks each sentence as it streams (low latency), with a violet "listening" theme shift instead of a written overlay.
+- Native desktop app: a true window (pywebview, no browser chrome) packaged into a standalone `JARVIS.exe` via PyInstaller. In the native window, speech is handled server-side (`/api/transcribe` + `/api/tts`).
+- Lightweight or accurate speech-to-text: choose **Vosk** (~50 MB, no PyTorch/ffmpeg) for a tiny download or **Whisper** for accuracy, via `LAPTOP_AGENT_STT` (`auto` by default).
+- Web-UI panels: a Scheduled-jobs panel (view/add/remove/enable) and an Agent-runs history panel, alongside the control room and live metrics.
+- Holographic HUD redesign: a reactive 3D particle-sphere core that energizes, expands, and runs a scanning sweep while the agent works.
 - Obsidian vault integration used as durable, human-readable memory: search/read/save notes, and remembered facts are mirrored into the vault.
 - Approval-gated web search (DuckDuckGo, dependency-free) returning titles, URLs, and snippets.
 - Autonomous `research` workflow: searches the web, fetches and reads the top pages, summarizes, and indexes the findings into the knowledge base.
@@ -459,7 +468,8 @@ Audit events are written to `.agent_data/audit.jsonl` by default.
 ```text
 src/laptop_agent/
   agents/          Task router and specialist agent orchestration.
-  tools/           File, web, web-search, research, browser, desktop, email, music, transcribe, and webcam tools.
+  tools/           File, file_processor, web, web-search, research, browser, desktop, email, music,
+                   weather, travel (maps), youtube, transcribe (OCR + Vosk/Whisper STT), and webcam tools.
   app.py           Shared app factory used by CLI and GUI.
   audit.py         JSONL audit logger.
   cli.py           Interactive command-line interface.
