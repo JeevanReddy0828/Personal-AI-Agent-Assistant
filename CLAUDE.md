@@ -133,7 +133,9 @@ Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable
 disable, routed through the same `schedule …` orchestrator commands), exposes
 read-only autonomous-agent run history via `/api/agent-runs`, serves a Map panel
 via `/api/map` (POST a place or `A to B` -> OpenStreetMap embed/bbox/directions,
-routed through the `map …` orchestrator command), serves server-side
+routed through the `map …` orchestrator command), serves a memory-vault browser
+via `/api/notes` (POST `read` -> Markdown + outlinks/backlinks, or `search`;
+rendered in a click-through note-viewer overlay with wiki-link chips), serves server-side
 voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
 avoid cold-start latency.
@@ -172,7 +174,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (420 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (426 passing).
 
 ## Working alongside another agent (Codex)
 

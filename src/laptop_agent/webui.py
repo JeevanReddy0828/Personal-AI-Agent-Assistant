@@ -350,6 +350,23 @@ PAGE = r"""<!doctype html>
   .vstat .d{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)} .vstat .d.off{background:var(--danger);box-shadow:0 0 8px var(--danger)}
   .note{font-family:var(--mono);font-size:11px;color:var(--muted);padding:6px 8px;border-bottom:1px dashed #141a26;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .note::before{content:'\25C8  ';color:var(--amber-soft)}
+  .note.clk{cursor:pointer;transition:.14s}
+  .note.clk:hover{color:var(--ice-b);background:rgba(95,208,230,.05)}
+  .vaultsearch{width:calc(100% - 12px);margin:6px;background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 8px;outline:none}
+  .vaultsearch:focus{border-color:var(--ice)}
+  /* note viewer overlay (memory vault browser) */
+  .noteviewer{position:absolute;inset:18px;z-index:8;display:none;flex-direction:column;background:rgba(8,12,19,.93);border:1px solid var(--line2);
+    border-radius:14px;backdrop-filter:blur(12px);box-shadow:0 30px 80px -30px rgba(0,0,0,.9);overflow:hidden}
+  .noteviewer.open{display:flex}
+  .nv-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(95,208,230,.06),transparent)}
+  .nv-title{font-family:var(--display);letter-spacing:1.5px;font-size:14px;color:#eaf6fb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nv-close{background:none;border:1px solid var(--line);border-radius:7px;color:var(--muted);width:28px;height:28px;cursor:pointer;font-size:16px;line-height:1}
+  .nv-close:hover{color:var(--ice-b);border-color:var(--line2)}
+  .nv-body{flex:1;overflow:auto;padding:16px 20px;font-size:13.5px;line-height:1.6;color:var(--text)}
+  .nv-links{padding:10px 16px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:7px;align-items:center;max-height:40%;overflow:auto}
+  .nv-links .lk{font-family:var(--mono);font-size:10.5px;color:var(--ice-b);background:rgba(95,208,230,.07);border:1px solid var(--line2);border-radius:999px;padding:5px 10px;cursor:pointer}
+  .nv-links .lk:hover{background:rgba(95,208,230,.16)}
+  .nv-links .lbl{font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-right:2px}
   .agentSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 6px 10px}
   .agentStat{background:#090c12;border:1px solid var(--line);border-radius:8px;padding:7px 6px;text-align:center}
   .agentStat b{display:block;color:var(--text);font-family:var(--display);font-size:15px}
@@ -519,6 +536,7 @@ PAGE = r"""<!doctype html>
       <div id="metrics"></div>
       <div class="seclbl">Memory vault</div>
       <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
+      <input id="vaultSearch" class="vaultsearch" type="text" placeholder="search notes…" autocomplete="off">
       <div id="notes"></div>
     </details>
     <details class="conn" open>
@@ -562,6 +580,14 @@ PAGE = r"""<!doctype html>
       <div class="vtrans" id="vtrans">Say something…</div>
       <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
       <button class="vend" id="vend">End voice</button>
+    </div>
+    <div class="noteviewer" id="noteViewer">
+      <div class="nv-head">
+        <span class="nv-title" id="nvTitle">Note</span>
+        <button class="nv-close" id="nvClose" title="Close">&times;</button>
+      </div>
+      <div class="nv-body md" id="nvBody"></div>
+      <div class="nv-links" id="nvLinks"></div>
     </div>
   </section>
 
@@ -894,8 +920,41 @@ PAGE = r"""<!doctype html>
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['warn','run as admin'];}renderConn();}catch(e){}}
   setInterval(loadMetrics,5000);loadMetrics();
 
-  /* vault */
-  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();const notes=document.getElementById('notes');notes.innerHTML='';(v.notes||[]).slice(0,8).forEach(n=>{const e=document.createElement('div');e.className='note';e.textContent=n.name;notes.appendChild(e);});}catch(e){}}
+  /* vault + note browser */
+  function renderNoteList(names){
+    const notes=document.getElementById('notes');notes.innerHTML='';
+    if(!names.length){const e=document.createElement('div');e.className='note';e.textContent='no notes';notes.appendChild(e);return;}
+    names.forEach(name=>{const e=document.createElement('div');e.className='note clk';e.textContent=name;e.title=name;e.onclick=()=>openNote(name);notes.appendChild(e);});
+  }
+  let allNotes=[];
+  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
+  async function openNote(name){
+    const nv=document.getElementById('noteViewer');
+    document.getElementById('nvTitle').textContent=name;
+    document.getElementById('nvBody').innerHTML='<div style="color:var(--muted)">Loading…</div>';
+    document.getElementById('nvLinks').innerHTML='';
+    nv.classList.add('open');
+    try{
+      const r=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',name})});
+      const d=await r.json();
+      if(!d.ok){document.getElementById('nvBody').innerHTML='<div style="color:var(--amber-b)">'+esc(d.message||'Could not open note.')+'</div>';return;}
+      document.getElementById('nvTitle').textContent=d.name||name;
+      document.getElementById('nvBody').innerHTML=mdToHtml(d.text||'');
+      const links=document.getElementById('nvLinks');links.innerHTML='';
+      const group=(label,arr)=>{if(!arr||!arr.length)return;const l=document.createElement('span');l.className='lbl';l.textContent=label;links.appendChild(l);arr.forEach(nm=>{const c=document.createElement('span');c.className='lk';c.textContent=nm;c.onclick=()=>openNote(nm);links.appendChild(c);});};
+      group('links to',d.outlinks);group('linked from',d.backlinks);
+    }catch(e){document.getElementById('nvBody').innerHTML='<div style="color:var(--amber-b)">Could not reach the vault.</div>';}
+  }
+  document.getElementById('nvClose').onclick=()=>document.getElementById('noteViewer').classList.remove('open');
+  let vaultSearchTimer=null;
+  document.getElementById('vaultSearch').addEventListener('input',function(){
+    clearTimeout(vaultSearchTimer);const q=this.value.trim();
+    vaultSearchTimer=setTimeout(async()=>{
+      if(!q){renderNoteList(allNotes.slice(0,12));return;}
+      try{const r=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'search',query:q})});
+        const d=await r.json();renderNoteList((d.results||[]).map(h=>h.name));}catch(e){}
+    },220);
+  });
   loadVault();
 
   /* agent control room */
@@ -1268,6 +1327,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_map()
         elif self.path == "/api/window":
             self._handle_window()
+        elif self.path == "/api/notes":
+            self._handle_notes()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1498,6 +1559,22 @@ class Handler(BaseHTTPRequestHandler):
         except ApprovalDenied:
             self._json(200, {"ok": False, "message": "Map lookup was blocked."})
             return
+        self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _handle_notes(self) -> None:
+        """Vault browser backend: read a note (with backlinks/outlinks) or search.
+        Reads local Markdown only — not approval gated, like the rest of the vault."""
+        try:
+            payload = self._read_json()
+            action = str(payload.get("action", "read")).strip().lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        vault = _orchestrator.context.obsidian
+        if action == "search":
+            result = vault.search(str(payload.get("query", "")))
+        else:
+            result = vault.note_detail(str(payload.get("name", "")))
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
     def _handle_window(self) -> None:

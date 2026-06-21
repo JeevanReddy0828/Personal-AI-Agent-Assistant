@@ -41,6 +41,25 @@ class ObsidianTests(unittest.TestCase):
         self.assertFalse(vault.status().ok)
         self.assertFalse(vault.search("x").ok)
 
+    def test_backlinks_and_note_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            vault = ObsidianVault(raw)
+            vault.save_note("Hub", "See [[Spoke A]] and [[Spoke B|the second]].")
+            vault.save_note("Spoke A", "Back to [[Hub]] and over to [[Spoke B#section]].")
+            vault.save_note("Spoke B", "Standalone note.")
+
+            back = vault.backlinks("Spoke B")
+            self.assertCountEqual(back.data["backlinks"], ["Hub", "Spoke A"])  # alias + heading forms count
+
+            detail = vault.note_detail("Hub")
+            self.assertTrue(detail.ok)
+            self.assertCountEqual(detail.data["outlinks"], ["Spoke A", "Spoke B"])
+            self.assertEqual(detail.data["backlinks"], ["Spoke A"])  # Spoke A links back to Hub
+
+    def test_note_detail_missing_note(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            self.assertFalse(ObsidianVault(raw).note_detail("Nope").ok)
+
 
 class MetricsTests(unittest.TestCase):
     def test_metrics_shape(self) -> None:
