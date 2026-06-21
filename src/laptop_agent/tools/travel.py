@@ -119,12 +119,14 @@ class TravelTool:
             driving_seconds=round(drive_dur) if drive_dur is not None else None,
         )
 
-    def _route(self, coords: list[tuple[float, float]]) -> dict | None:
+    def _route(self, coords: list[tuple[float, float]], geometry: bool = False) -> dict | None:
         """Driving route through (lon, lat) waypoints via OSRM. Returns the first
-        route (with per-leg ``legs``) or None on failure."""
+        route (with per-leg ``legs``) or None on failure. With ``geometry=True`` the
+        route also carries a GeoJSON ``geometry`` (for drawing the line on a map)."""
         path = ";".join(f"{lon},{lat}" for lon, lat in coords)
+        query = "overview=full&geometries=geojson" if geometry else "overview=false"
         try:
-            data = self._get(f"{self.OSRM}/{path}?overview=false")
+            data = self._get(f"{self.OSRM}/{path}?{query}")
         except Exception:  # pragma: no cover - network failure path.
             return None
         routes = data.get("routes") or []
@@ -144,9 +146,15 @@ class TravelTool:
                 return ToolResult.failure(f"I couldn't find '{stop}'.")
             spots.append(spot)
         labels = [s["label"] for s in spots]
+        points = [{"label": s["label"], "latitude": s["latitude"], "longitude": s["longitude"]} for s in spots]
+        box = _bbox([(s["latitude"], s["longitude"]) for s in spots])
+        directions = (
+            "https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route="
+            + "%3B".join(f"{s['latitude']}%2C{s['longitude']}" for s in spots)
+        )
         lines = ["**Trip plan:** " + " → ".join(labels)]
         legs_data: list[dict] = []
-        route = self._route([(s["longitude"], s["latitude"]) for s in spots])
+        route = self._route([(s["longitude"], s["latitude"]) for s in spots], geometry=True)
         if route and route.get("legs"):
             for i, leg in enumerate(route["legs"]):
                 mi, dur = leg["distance"] / 1609.34, leg["duration"]
@@ -155,7 +163,9 @@ class TravelTool:
                                   "miles": round(mi, 1), "seconds": round(dur)})
             total_mi, total_dur = route["distance"] / 1609.34, route["duration"]
             lines.append(f"**Total: {round(total_mi)} mi, ~{_human_duration(total_dur)}** over {len(route['legs'])} legs")
-            return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data,
+            geometry = _downsample(((route.get("geometry") or {}).get("coordinates") or []), 240)
+            return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data, points=points,
+                                      bbox=box, geometry=geometry, directions=directions,
                                       total_mi=round(total_mi, 1), total_seconds=round(total_dur))
         total = 0.0
         for i in range(len(spots) - 1):
@@ -165,7 +175,8 @@ class TravelTool:
             lines.append(f"- {labels[i]} → {labels[i + 1]}: {round(mi)} mi straight-line")
             legs_data.append({"from": labels[i], "to": labels[i + 1], "miles": round(mi, 1), "seconds": None})
         lines.append(f"**Total: {round(total)} mi straight-line** (no driving route found)")
-        return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data,
+        return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data, points=points,
+                                  bbox=box, geometry=[], directions=directions,
                                   total_mi=round(total, 1), total_seconds=None)
 
     def nearby(self, category: str, near: str, limit: int = 8, radius_m: int = 8000) -> ToolResult:
@@ -339,6 +350,15 @@ def _bbox(points: list[tuple[float, float]], pad: float = 0.08) -> list[float]:
     dlat, dlon = (max_lat - min_lat) * 0.15, (max_lon - min_lon) * 0.15
     return [round(min_lon - dlon, 5), round(min_lat - dlat, 5),
             round(max_lon + dlon, 5), round(max_lat + dlat, 5)]
+
+
+def _downsample(coords: list, max_points: int) -> list:
+    """Thin a polyline to at most max_points, always keeping the first and last."""
+    if len(coords) <= max_points or max_points < 2:
+        return [[round(float(c[0]), 5), round(float(c[1]), 5)] for c in coords]
+    step = (len(coords) - 1) / (max_points - 1)
+    picked = [coords[round(i * step)] for i in range(max_points)]
+    return [[round(float(c[0]), 5), round(float(c[1]), 5)] for c in picked]
 
 
 def _embed_url(box: list[float], marker_lat: float, marker_lon: float) -> str:
