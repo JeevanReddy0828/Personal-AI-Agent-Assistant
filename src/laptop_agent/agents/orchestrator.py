@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
@@ -17,6 +18,7 @@ from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
@@ -97,6 +99,7 @@ class AgentOrchestrator:
         self._weather_tool_cache: WeatherTool | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
+        self._problem_solver_cache: ProblemSolver | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -448,6 +451,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("save research report "):
             return self._save_research_report(command[len("save research report ") :].strip())
+
+        for verb in ("solve ", "advise me on ", "advise ", "strategize ", "strategise "):
+            if lowered.startswith(verb):
+                return self._solve(command[len(verb) :].strip())
 
         if lowered.startswith("research report "):
             return self._research_report(command[len("research report ") :].strip())
@@ -893,6 +900,7 @@ class AgentOrchestrator:
                 "  research <topic>",
                 "  research report <topic>",
                 "  save research report <topic> to <path|obsidian>",
+                "  solve <problem or decision>  (researches, weighs options, recommends a plan)",
                 "  open url <url>",
                 "  download <url>",
                 "  inspect page <url>",
@@ -1150,6 +1158,7 @@ class AgentOrchestrator:
         "summarize youtube <url>",
         "research <topic>",
         "research report <topic>",
+        "solve <problem or decision>",
         "open url <https url>",
         "download <url>",
         "inspect page <url>",
@@ -1181,19 +1190,29 @@ class AgentOrchestrator:
     def _build_agent_brain(self):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
-        Prefers the smart tier for reasoning, then the fast planner. Returns a brain that
-        yields '' when no LLM is configured, so the loop ends with a clear message instead
-        of looping blindly on the heuristic router.
+        Tries the smart tier, then the fast planner, then the cross-provider fallback
+        (OpenRouter), using the first that returns text — so reasoning (the autonomous
+        agent and the advisor) keeps working when a tier is congested. Yields '' when no
+        LLM is configured, so callers end with a clear message instead of looping.
         """
-        planner = self.smart_planner or self.planner
-        provider = planner.provider if planner else None
-        answer = getattr(provider, "answer", None)
-        if answer is None:
+        answerers = []
+        for planner in (self.smart_planner, self.planner, self.fallback_planner):
+            answer = getattr(planner.provider, "answer", None) if planner else None
+            if answer is not None:
+                answerers.append(answer)
+        if not answerers:
             return lambda _prompt: ""
         profile = self.context.memory.get_profile()
 
         def decide(prompt: str) -> str:
-            return answer(prompt, profile, None, None) or ""
+            for answer in answerers:
+                try:
+                    reply = answer(prompt, profile, None, None)
+                except Exception:
+                    reply = None
+                if reply:
+                    return reply
+            return ""
 
         return decide
 
@@ -1396,6 +1415,45 @@ class AgentOrchestrator:
         return ToolResult.success(
             f"Indexed {target} into the knowledge base (#{outcome['id']}).",
             document=outcome,
+        )
+
+    def _problem_solver(self) -> ProblemSolver:
+        if self._problem_solver_cache is None:
+            self._problem_solver_cache = ProblemSolver(
+                decide=self._build_agent_brain(),
+                research=self._advice_research,
+            )
+        return self._problem_solver_cache
+
+    def _advice_research(self, query: str) -> tuple[str, list]:
+        """Best-effort web grounding for the advisor: returns (context_text, sources).
+        Empty when research is unavailable or the approval gate blocks the lookup."""
+        if self.context.research is None:
+            return "", []
+        try:
+            gathered = self.context.research.gather(query)
+        except ApprovalDenied:
+            return "", []
+        if not gathered.ok:
+            return "", []
+        return str(gathered.data.get("text", "")), list(gathered.data.get("sources", []))
+
+    def _solve(self, problem: str) -> ToolResult:
+        cleaned = problem.strip().strip("'\"")
+        if not cleaned:
+            return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
+        agent_id = self.control_room.start(f"advisor: {cleaned}")
+        result = self._problem_solver().solve(cleaned)
+        self.control_room.finish(agent_id, result.analysis[:200], ok=result.ok)
+        if not result.ok:
+            return ToolResult.failure(result.analysis, problem=cleaned)
+        indexed = self.context.knowledge.add(f"advice: {cleaned}", result.analysis)
+        return ToolResult.success(
+            result.analysis,
+            problem=cleaned,
+            used_research=result.used_research,
+            sources=result.sources,
+            indexed=indexed,
         )
 
     def _research(self, topic: str) -> ToolResult:

@@ -49,6 +49,20 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertTrue(decision.command.startswith("web search"))
 
+    def test_help_me_decide_routes_to_solve(self) -> None:
+        decision = self.plan("help me decide between Postgres and MySQL for my app")
+        self.assertTrue(decision.is_command)
+        self.assertTrue(decision.command.startswith("solve "))
+
+    def test_should_i_x_or_y_routes_to_solve(self) -> None:
+        decision = self.plan("should I rewrite the auth layer now or later")
+        self.assertTrue(decision.is_command)
+        self.assertTrue(decision.command.startswith("solve "))
+
+    def test_plain_question_does_not_route_to_solve(self) -> None:
+        decision = self.plan("what is python")
+        self.assertFalse(decision.is_command and decision.command.startswith("solve"))
+
     def test_multi_stop_trip_routes_to_trip(self) -> None:
         decision = self.plan("plan a road trip from Austin to Dallas to Houston")
         self.assertTrue(decision.is_command)

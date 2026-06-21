@@ -143,6 +143,10 @@ class HeuristicPlannerProvider:
         if read_file:
             return read_file
 
+        advise = self._advise(raw)
+        if advise:
+            return advise
+
         research_report = self._research_report(raw)
         if research_report:
             return research_report
@@ -593,6 +597,25 @@ class HeuristicPlannerProvider:
         if not path or not question:
             return None
         return self._command(f"ask file {path} about {question}", "User wants a focused answer from a file.", 0.82)
+
+    def _advise(self, text: str) -> PlanDecision | None:
+        """Decision/problem-solving requests go to the structured advisor (research +
+        options + recommendation + plan), not a plain chat reply or web search."""
+        match = re.search(
+            r"\b(?:help me (?:decide|choose|figure out|solve)|weigh (?:my|the|up) options|"
+            r"what(?:'?s| is) the best (?:way|approach|option|strategy) (?:to|for)|"
+            r"how should i (?:approach|tackle|handle|solve)|figure out (?:how|whether)|"
+            r"should i\b.+?\bor\b)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        problem = re.sub(r"^\s*(?:hey\s+jarvis[,\s]*)?(?:can you|could you|please|would you)?\s*", "", text, flags=re.IGNORECASE)
+        problem = problem.strip().strip("?.!")
+        if len(problem.split()) < 3:
+            return None
+        return self._command(f"solve {problem}", "User wants a reasoned recommendation, not just chat.", 0.78)
 
     def _research(self, text: str) -> PlanDecision | None:
         match = re.search(
