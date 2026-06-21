@@ -74,6 +74,7 @@ def build_orchestrator(
         _build_smart_planner(config),
         _build_vision_planner(config),
         _build_ultra_planner(config),
+        _build_openrouter_planner(config),
     )
 
 
@@ -110,3 +111,16 @@ def _build_vision_planner(config: AppConfig) -> Planner | None:
     if not _has_llm(config) or not config.llm_vision_model:
         return None
     return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url))
+
+
+def _build_openrouter_planner(config: AppConfig) -> Planner | None:
+    # Cross-provider fallback (OpenRouter, OpenAI-compatible). Independent of the
+    # primary provider so it can answer even when NVIDIA's tiers are all congested.
+    # Opt-in via OPENROUTER_API_KEY; needs a model (defaulted in config).
+    if not config.openrouter_api_key or not config.openrouter_model:
+        return None
+    return Planner(
+        OpenAICompatiblePlannerProvider(
+            config.openrouter_api_key, config.openrouter_model, config.openrouter_base_url, timeout=90
+        )
+    )

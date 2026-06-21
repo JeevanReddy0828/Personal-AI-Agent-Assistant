@@ -109,6 +109,14 @@ short "_my smart model was busy_" note, and records the outcome in
 `health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the
 web pill shows "smart/ultra model busy" while the fast tier stays healthy.
 
+After all primary (e.g. NVIDIA) tiers, an optional **cross-provider fallback** is
+tried: `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`, default a free model;
+`OPENROUTER_BASE_URL`) builds an OpenRouter planner (`app._build_openrouter_planner`,
+passed as `AgentOrchestrator(..., fallback_planner=…)`). Since OpenRouter is a
+different backend, it can answer when NVIDIA is throttled; its reply is tagged
+`model="openrouter"` / degraded with a "_backup model_" note and tracked as the
+`openrouter` tier in `model_status`/health. Absent the key it's simply skipped.
+
 Routing uses few-shot **message turns** for reliability. The 8B alone won't route
 without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE) —
 which, when the request sets `voice:true`, also emits incremental `tts` sentence
@@ -148,7 +156,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (397 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (402 passing).
 
 ## Working alongside another agent (Codex)
 

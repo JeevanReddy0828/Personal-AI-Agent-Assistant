@@ -39,6 +39,11 @@ class AppConfig:
     obsidian_vault: str | None
     search_provider: str = ""
     search_api_key: str | None = None
+    # Optional cross-provider fallback: when the primary (e.g. NVIDIA) tiers are
+    # congested, chat falls over to OpenRouter's free models to keep answering.
+    openrouter_api_key: str | None = None
+    openrouter_model: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -127,4 +132,8 @@ def load_config() -> AppConfig:
         obsidian_vault=os.environ.get("OBSIDIAN_VAULT"),
         search_provider=search_provider,
         search_api_key=search_api_key,
+        openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+        # A widely-available free model by default; override with OPENROUTER_MODEL.
+        openrouter_model=os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
     )

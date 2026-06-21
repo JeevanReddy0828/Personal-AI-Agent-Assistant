@@ -49,6 +49,7 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
             "smart": getattr(config, "llm_smart_model", None),
             "ultra": getattr(config, "llm_ultra_model", None),
             "vision": getattr(config, "llm_vision_model", None),
+            "openrouter": getattr(config, "openrouter_model", None) if getattr(config, "openrouter_api_key", None) else None,
         },
         "vault": {"connected": vault_connected, "path": getattr(config, "obsidian_vault", None)},
         "email": {"configured": email_configured},

@@ -1106,6 +1106,75 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(o.model_status.status("ultra"), "degraded")
             self.assertEqual(o.model_status.status("smart"), "ok")
 
+    def test_chat_falls_over_to_openrouter_when_all_primary_tiers_busy(self) -> None:
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class DownFast:  # primary fast: routing returned a failure, answer fails too
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="failed", response="(no model)")
+
+            def answer(self, text, profile, model=None, history=None):
+                return None
+
+        class DownSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return None
+
+        class OpenRouter:
+            def answer(self, text, profile, model=None, history=None):
+                return "openrouter backup answer"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(DownFast())
+            o.smart_planner = Planner(DownSmart())
+            o.ultra_planner = None
+            o.fallback_planner = Planner(OpenRouter())
+            res = asyncio.run(o.handle("explain the tradeoffs of this design in depth"))
+            self.assertTrue(res.ok)
+            self.assertIn("openrouter backup answer", res.message)
+            self.assertIn("backup model", res.message)
+            self.assertEqual(res.data["planner"]["model"], "openrouter")
+            self.assertTrue(res.data["degraded"])
+            self.assertEqual(o.model_status.status("openrouter"), "ok")
+            self.assertEqual(o.model_status.status("smart"), "degraded")
+            self.assertEqual(o.model_status.status("fast"), "degraded")
+
+    def test_openrouter_not_consulted_when_a_primary_tier_answers(self) -> None:
+        calls: list[int] = []
+
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRouting:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="routed")
+
+        class WorkingSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return "smart ok"
+
+        class OpenRouterSpy:
+            def answer(self, text, profile, model=None, history=None):
+                calls.append(1)
+                return "should not be used"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRouting())
+            o.smart_planner = Planner(WorkingSmart())
+            o.ultra_planner = None
+            o.fallback_planner = Planner(OpenRouterSpy())
+            res = asyncio.run(o.handle("explain this design in depth"))
+            self.assertIn("smart ok", res.message)
+            self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
+            self.assertFalse(res.data["degraded"])
+
     def test_around_command_only_for_known_category(self) -> None:
         from laptop_agent.tools.travel import TravelTool
 

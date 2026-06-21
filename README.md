@@ -38,7 +38,7 @@ approval gate.
 - ChatGPT-style desktop chat app (`run_desktop`) with Markdown-rendered replies, chat sessions, file upload of any type, drag-and-drop, and a browser voice mode (speech in, speech out) with animated mic states.
 - Live system metrics in the app (CPU, RAM, and GPU when available).
 - Vision: "look at my screen", "describe image", and "look at webcam" use a vision model (OCR is the fallback). Webcam capture is an optional extra (`pip install laptop-agent[vision]`, OpenCV) with a graceful install hint when absent.
-- Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity. If a higher tier is busy or unreachable, it falls back to the next tier down, tells you it answered with the faster model, and flags the busy tier in the health pill.
+- Three-tier model routing: simple turns use a fast model, complex questions a stronger one, and the hardest a top-tier model — chosen automatically by task complexity. If a higher tier is busy or unreachable, it falls back to the next tier down (and, with an optional OpenRouter key, to a free cross-provider model when the whole primary provider is throttled), tells you it answered with the faster/backup model, and flags the busy tier in the health pill.
 - Streaming replies in the app: conversational answers appear token-by-token instead of after a long wait, and the model is kept warm to avoid cold-start latency.
 - Live health/status: a self-check (`/api/health`) surfaces whether the AI, vault, and email are connected and reachable, with first-run setup guidance when the AI is not configured.
 - Stop a running generation mid-stream (Esc or the stop button) and keyboard shortcuts (Ctrl+K new chat).
@@ -390,13 +390,17 @@ OPENAI_MODEL=meta/llama-3.1-8b-instruct                  # simple turns + routin
 OPENAI_SMART_MODEL=nvidia/llama-3.3-nemotron-super-49b-v1 # complex questions
 OPENAI_ULTRA_MODEL=nvidia/nemotron-3-ultra-550b-a55b      # very complex / deep
 OPENAI_VISION_MODEL=meta/llama-3.2-11b-vision-instruct    # images + screen
+OPENROUTER_API_KEY=                                       # optional cross-provider fallback
 ```
 
 Each tier is optional and falls back to the next one down — both by configuration
 (a missing tier is skipped) and at runtime: if the chosen tier is congested or
 unreachable for a given turn, the answer comes from the next tier down, is tagged
 as degraded (a brief "answered with my faster model" note), and the busy tier shows
-up in `/api/health` (`llm.tiers`) and the web status pill. Bigger models get a
+up in `/api/health` (`llm.tiers`) and the web status pill. If you add a free
+[OpenRouter](https://openrouter.ai/keys) key (`OPENROUTER_API_KEY`), it's used as a
+last-resort **cross-provider** fallback when every primary tier is throttled, so
+chat keeps answering (tagged "answered with a backup model"). Bigger models get a
 longer request timeout (the 550B can take ~45-60s). With `OPENAI_VISION_MODEL`
 set, `look at my screen` and `describe image <path>` use the vision model;
 otherwise they fall back to OCR (needs the Tesseract binary).
