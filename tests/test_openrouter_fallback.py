@@ -9,7 +9,7 @@ from laptop_agent.app import _build_openrouter_planner
 def _cfg(**kw):
     base = dict(
         openrouter_api_key=None,
-        openrouter_model="meta-llama/llama-3.3-70b-instruct:free",
+        openrouter_model="openai/gpt-oss-120b:free",
         openrouter_base_url="https://openrouter.ai/api/v1",
     )
     base.update(kw)
@@ -28,7 +28,7 @@ class OpenRouterPlannerBuildTests(unittest.TestCase):
         self.assertIsNotNone(planner)
         provider = planner.provider
         self.assertEqual(provider.base_url, "https://openrouter.ai/api/v1")
-        self.assertEqual(provider.model, "meta-llama/llama-3.3-70b-instruct:free")
+        self.assertEqual(provider.model, "openai/gpt-oss-120b:free")
         self.assertEqual(provider.api_key, "sk-x")
 
 
