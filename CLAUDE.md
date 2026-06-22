@@ -183,6 +183,12 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
+The web app is now **multi-page**: a header nav + hash router (`#/chat`, `#/overview`,
+`#/jobs`) toggles `body[data-view]` to swap full-width routed pages (Chat stays default).
+The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG charts**
+(funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
+`/api/metrics`; the Job Tracker page adds/edits applications and changes stage inline.
+
 Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (446 passing).
 
 ## Working alongside another agent (Codex)

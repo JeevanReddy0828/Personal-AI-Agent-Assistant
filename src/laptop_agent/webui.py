@@ -522,9 +522,46 @@ PAGE = r"""<!doctype html>
   body.compact .app{grid-template-columns:minmax(0,1fr)}
   body.compact .left,body.compact .stage{display:none}
   body.compact main.chatcol{grid-column:1/-1;border-left:none}
+
+  /* multi-page nav + routed pages */
+  .nav{display:flex;gap:3px;margin-left:14px}
+  .navbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;color:var(--muted);
+    background:none;border:1px solid transparent;border-radius:8px;padding:6px 11px;cursor:pointer;transition:.15s}
+  .navbtn:hover{color:var(--ice-b)}
+  .navbtn.on{color:var(--ice-b);background:rgba(95,208,230,.08);border-color:var(--line2)}
+  .navbtn .dico{font-style:normal;font-size:12px}
+  .page{grid-column:1/-1;grid-row:2;display:none;overflow:auto;padding:20px 26px;background:linear-gradient(180deg,rgba(8,11,18,.5),rgba(6,8,13,.35))}
+  body[data-view="overview"] .left,body[data-view="overview"] .stage,body[data-view="overview"] main.chatcol,
+  body[data-view="jobs"] .left,body[data-view="jobs"] .stage,body[data-view="jobs"] main.chatcol{display:none}
+  body[data-view="overview"] #page-overview{display:block}
+  body[data-view="jobs"] #page-jobs{display:block}
+  .pagehead{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .pagehead h2{font-family:var(--display);font-weight:600;letter-spacing:1px;font-size:18px;color:#eaf6fb;margin:0}
+  .pagehead .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
+  .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+  .statcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px}
+  .statcard .k{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  .statcard .v{font-family:var(--display);font-size:26px;color:#eaf6fb;margin-top:4px}
+  .statcard .v small{font-size:13px;color:var(--muted)}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  .chartcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px}
+  .chartcard .t{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .jobform{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .jobform input,.jobform select{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;outline:none}
+  .jobform input:focus,.jobform select:focus{border-color:var(--ice)}
+  .jobform input.company{flex:1;min-width:150px}
+  .jobform button{background:var(--ice);border:none;border-radius:8px;color:#04181d;font-family:var(--display);font-size:12px;letter-spacing:1px;padding:8px 16px;cursor:pointer}
+  .jobrow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-bottom:7px}
+  .jobrow .co{font-size:13px;color:#eaf6fb;min-width:130px}
+  .jobrow .co small{display:block;color:var(--muted);font-size:11px}
+  .jobrow select{background:var(--bg2);border:1px solid var(--line2);border-radius:7px;color:var(--ice-b);font-family:var(--mono);font-size:11px;padding:5px 7px;outline:none}
+  .jobrow .nd{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .jobrow .rm{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
+  .jobrow .rm:hover{color:var(--amber-b)}
+  .stbar{height:16px;border-radius:4px;background:var(--ice);min-width:2px}
 </style>
 </head>
-<body>
+<body data-view="chat">
 <div class="scan"></div>
 <div class="voicewash"></div>
 <div class="app">
@@ -535,6 +572,11 @@ PAGE = r"""<!doctype html>
       <circle class="r-core" cx="50" cy="50" r="6" fill="#5fd0e6"/>
     </svg>
     <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">your local assistant</div></div>
+    <nav class="nav" id="nav">
+      <button class="navbtn on" data-view="chat"><i class="dico">&#128172;</i>Chat</button>
+      <button class="navbtn" data-view="overview"><i class="dico">&#9783;</i>Overview</button>
+      <button class="navbtn" data-view="jobs"><i class="dico">&#128188;</i>Jobs</button>
+    </nav>
     <div class="sp"></div>
     <div class="hud">
       <button class="hudbtn" id="compactBtn" title="Compact layout — chat only">&#9707;</button>
@@ -659,6 +701,31 @@ PAGE = r"""<!doctype html>
     <input type="file" id="file" multiple style="display:none" />
     <div class="drop" id="drop">Drop files to attach</div>
   </main>
+
+  <section class="page" id="page-overview">
+    <div class="pagehead"><h2>Overview</h2><span class="sub" id="ovSub"></span></div>
+    <div class="statcards" id="ovCards"></div>
+    <div class="charts">
+      <div class="chartcard"><div class="t">System usage</div><div id="ovMetrics"></div></div>
+      <div class="chartcard"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="page-jobs">
+    <div class="pagehead"><h2>Job tracker</h2><span class="sub" id="jobSub"></span></div>
+    <div class="statcards" id="jobStats"></div>
+    <div class="charts">
+      <div class="chartcard"><div class="t">Pipeline funnel</div><div id="jobFunnel"></div></div>
+      <div class="chartcard"><div class="t">Applications / week</div><div id="jobTrend"></div></div>
+    </div>
+    <div class="jobform">
+      <input class="company" id="jobCompany" type="text" placeholder="Company" autocomplete="off">
+      <input id="jobRole" type="text" placeholder="Role (optional)" autocomplete="off">
+      <select id="jobStage"></select>
+      <button id="jobAdd" type="button">Add</button>
+    </div>
+    <div id="jobList"></div>
+  </section>
 </div>
 
 <script>
@@ -1167,6 +1234,102 @@ PAGE = r"""<!doctype html>
     if(localStorage.getItem('hudCompact')==='1')setCompact(true);
     if(localStorage.getItem('hudOnTop')==='1')setOnTop(true,true);
   })();
+
+  /* multi-page router */
+  const VIEWS=['chat','overview','jobs'];
+  function setView(v){
+    if(VIEWS.indexOf(v)<0)v='chat';
+    document.body.dataset.view=v;
+    document.querySelectorAll('#nav .navbtn').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+    if(v==='jobs')loadJobs();
+    if(v==='overview')loadOverview();
+  }
+  document.querySelectorAll('#nav .navbtn').forEach(b=>{b.onclick=()=>{location.hash='#/'+b.dataset.view;};});
+  window.addEventListener('hashchange',()=>setView(location.hash.replace('#/','')));
+
+  /* inline SVG charts (no CDN — works offline) */
+  const STAGES=['applied','screen','interview','final','offer','rejected'];
+  function svgFunnel(funnel){
+    const max=Math.max(1,...funnel.map(f=>f.count));
+    const rowH=26, W=300, padL=78, barW=W-padL-30;
+    let h=funnel.length*rowH+8, y=4, out='<svg width="100%" viewBox="0 0 '+W+' '+h+'" preserveAspectRatio="xMidYMid meet" style="font-family:var(--mono)">';
+    funnel.forEach(f=>{
+      const w=Math.max(2,Math.round(f.count/max*barW));
+      out+='<text x="0" y="'+(y+12)+'" fill="#7f93a6" font-size="10">'+esc(f.stage)+'</text>';
+      out+='<rect x="'+padL+'" y="'+y+'" width="'+w+'" height="16" rx="4" fill="#5fd0e6"/>';
+      out+='<text x="'+(padL+w+5)+'" y="'+(y+12)+'" fill="#cfe9f2" font-size="10">'+f.count+'</text>';
+      y+=rowH;
+    });
+    return out+'</svg>';
+  }
+  function svgTrend(byWeek){
+    if(!byWeek||!byWeek.length)return '<div style="color:var(--muted);font-size:11px">No applications yet.</div>';
+    const max=Math.max(1,...byWeek.map(w=>w.count));
+    const W=300,H=120,padB=22,n=byWeek.length,bw=Math.min(34,(W-20)/n-6);
+    let out='<svg width="100%" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="font-family:var(--mono)">';
+    byWeek.forEach((wk,i)=>{
+      const x=12+i*((W-20)/n), bh=Math.round(wk.count/max*(H-padB-10));
+      out+='<rect x="'+x+'" y="'+(H-padB-bh)+'" width="'+bw+'" height="'+Math.max(2,bh)+'" rx="3" fill="#1d9e75"/>';
+      out+='<text x="'+(x+bw/2)+'" y="'+(H-padB-bh-4)+'" fill="#cfe9f2" font-size="9" text-anchor="middle">'+wk.count+'</text>';
+      out+='<text x="'+(x+bw/2)+'" y="'+(H-7)+'" fill="#7f93a6" font-size="8" text-anchor="middle">'+esc(wk.week.split('-W')[1]||'')+'</text>';
+    });
+    return out+'</svg>';
+  }
+  function statCard(k,v,sub){return '<div class="statcard"><div class="k">'+esc(k)+'</div><div class="v">'+v+(sub?' <small>'+esc(sub)+'</small>':'')+'</div></div>';}
+
+  /* job tracker page */
+  function fillStageSelect(sel,current){sel.innerHTML='';STAGES.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;if(s===current)o.selected=true;sel.appendChild(o);});}
+  async function loadJobs(){
+    try{const d=await (await fetch('/api/jobs')).json();renderJobs(d);}catch(e){document.getElementById('jobList').innerHTML='<div style="color:var(--amber-b)">Could not load jobs.</div>';}
+  }
+  function renderJobs(d){
+    const s=d.stats||{funnel:[],by_week:[]};
+    document.getElementById('jobSub').textContent=(s.total||0)+' application(s)';
+    document.getElementById('jobStats').innerHTML=
+      statCard('Applications',s.total||0)+statCard('Interviews',s.interviews||0)+statCard('Offers',s.offers||0)+statCard('Response rate',Math.round((s.response_rate||0)*100)+'%');
+    document.getElementById('jobFunnel').innerHTML=svgFunnel(s.funnel||[]);
+    document.getElementById('jobTrend').innerHTML=svgTrend(s.by_week||[]);
+    const list=document.getElementById('jobList');list.innerHTML='';
+    if(!(d.jobs||[]).length){list.innerHTML='<div style="color:var(--muted);font-size:12px">No applications yet — add one above.</div>';return;}
+    d.jobs.forEach(j=>{
+      const row=document.createElement('div');row.className='jobrow';
+      row.innerHTML='<div class="co">'+esc(j.company)+(j.role?'<small>'+esc(j.role)+'</small>':'')+'</div>';
+      const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.onchange=()=>postJob({action:'update',id:j.id,stage:sel.value});
+      row.appendChild(sel);
+      const nd=document.createElement('span');nd.className='nd';nd.textContent=j.next_date||'';row.appendChild(nd);
+      const rm=document.createElement('button');rm.className='rm';rm.innerHTML='&times;';rm.title='remove';rm.onclick=()=>postJob({action:'remove',id:j.id});
+      row.appendChild(rm);list.appendChild(row);
+    });
+  }
+  async function postJob(body){try{const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();renderJobs(d);}catch(e){}}
+  (function initJobForm(){
+    fillStageSelect(document.getElementById('jobStage'),'applied');
+    document.getElementById('jobAdd').onclick=()=>{
+      const c=document.getElementById('jobCompany'),r=document.getElementById('jobRole'),s=document.getElementById('jobStage');
+      if(!c.value.trim())return;
+      postJob({action:'add',company:c.value.trim(),role:r.value.trim(),stage:s.value});c.value='';r.value='';c.focus();
+    };
+    document.getElementById('jobCompany').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('jobAdd').click();});
+  })();
+
+  /* overview page */
+  async function loadOverview(){
+    try{
+      const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),fetch('/api/jobs').then(r=>r.json())]);
+      const tiers=(h.llm&&h.llm.tiers)||{};
+      const busy=Object.values(tiers).filter(v=>v==='degraded').length;
+      document.getElementById('ovSub').textContent=new Date().toLocaleString();
+      document.getElementById('ovCards').innerHTML=
+        statCard('AI status',{ok:'online',degraded:'unreachable',setup:'setup'}[h.overall]||'online',busy?busy+' tier busy':'')+
+        statCard('Applications',(j.stats&&j.stats.total)||0,((j.stats&&j.stats.offers)||0)+' offers')+
+        statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
+        statCard('Memory',Math.round(m.ram_percent||0)+'%');
+      let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar('GPU',g.util_percent,'%','g');});
+      document.getElementById('ovMetrics').innerHTML=mh;
+      document.getElementById('ovFunnel').innerHTML=svgFunnel((j.stats&&j.stats.funnel)||[]);
+    }catch(e){}
+  }
+  setView(location.hash.replace('#/','')||'chat');
 
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
