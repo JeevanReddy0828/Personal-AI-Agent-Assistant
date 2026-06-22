@@ -11,6 +11,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
+from laptop_agent.copilot import JobCopilot
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
@@ -102,6 +103,7 @@ class AgentOrchestrator:
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
+        self._copilot_cache: JobCopilot | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -1501,6 +1503,23 @@ class AgentOrchestrator:
                 research=self._advice_research,
             )
         return self._problem_solver_cache
+
+    def _copilot(self) -> JobCopilot:
+        if self._copilot_cache is None:
+            self._copilot_cache = JobCopilot(decide=self._build_agent_brain())
+        return self._copilot_cache
+
+    def tailor_application(self, resume_text: str, job_text: str, company: str = "", role: str = "") -> ToolResult:
+        """Tailor a resume to a job description (ATS score + missing keywords + grounded
+        bullets/cover letter/interview pack). Public entry for the web Job Tracker page."""
+        result = self._copilot().tailor(resume_text, job_text, company=company, role=role)
+        if not result.ok:
+            return ToolResult.failure(result.package)
+        return ToolResult.success(
+            result.package,
+            ats=result.ats, keywords=result.keywords, missing=result.missing,
+            grounding=result.grounding, used_llm=result.used_llm, company=company, role=role,
+        )
 
     def _advice_research(self, query: str) -> tuple[str, list]:
         """Best-effort web grounding for the advisor: returns (context_text, sources).

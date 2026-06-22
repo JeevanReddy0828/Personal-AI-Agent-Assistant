@@ -65,7 +65,10 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         auto-routes decision/problem questions here — no manual command needed —
         via system-prompt guidance + a few-shot turn in planner/openai_compatible.py),
         scheduler.py
-        (recurring jobs), jobs.py (JobTracker: job-application pipeline — stages,
+        (recurring jobs), copilot.py (JobCopilot: ports the Agentic-AI-JOB-CoPilot
+        logic — ATS scoring, keyword/claims extraction, grounding — onto our LLM
+        provider; `tailor_application()` → grounded bullets/cover letter/interview pack
+        via `/api/copilot`), jobs.py (JobTracker: job-application pipeline — stages,
         funnel/response-rate stats, JSON-persisted; `job add/list/stage/remove` +
         `/api/jobs`; powers the Job Tracker dashboard), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
@@ -189,7 +192,7 @@ The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG char
 (funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
 `/api/metrics`; the Job Tracker page adds/edits applications and changes stage inline.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (446 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (456 passing).
 
 ## Working alongside another agent (Codex)
 

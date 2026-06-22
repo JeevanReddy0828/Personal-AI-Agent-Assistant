@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+# Logic ported from the Agentic-AI-JOB-CoPilot project (ATS scoring, keyword/claims
+# extraction, grounding) — all stdlib — reused here against this app's own LLM
+# provider instead of the openai SDK, so it inherits tiered fallback + zero deps.
+
+Decide = Callable[[str], str]
+
+_STOPWORDS = {
+    "the", "and", "with", "for", "you", "our", "are", "will", "have", "this", "that",
+    "from", "to", "in", "on", "of", "as", "by", "or", "we", "is", "be", "at", "an", "a",
+}
+
+
+def extract_keywords(job_text: str, limit: int = 60) -> list[str]:
+    """ATS-style keyword candidates from a job description (dedup, stopword-filtered)."""
+    terms = re.findall(r"[A-Za-z][A-Za-z\+\#\.]{1,30}", job_text or "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for term in terms:
+        # Strip stray leading/trailing dots ("aws." / "kubernetes.") but keep
+        # internal/suffix forms like node.js, c++, c#.
+        key = term.strip(".").lower()
+        if not key or key in _STOPWORDS or len(key) < 3 or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out[:limit]
+
+
+def ats_score(job_keywords: list[str], resume_text: str) -> dict:
+    """Share of JD keywords present (whole-word) in the resume."""
+    resume = (resume_text or "").lower()
+    hits, misses = [], []
+    for keyword in job_keywords:
+        clean = (keyword or "").strip().lower()
+        if not clean:
+            continue
+        if re.search(r"\b" + re.escape(clean) + r"\b", resume):
+            hits.append(keyword)
+        else:
+            misses.append(keyword)
+    coverage = len(hits) / max(1, len(job_keywords))
+    return {
+        "score": round(100 * coverage),
+        "coverage": round(coverage, 3),
+        "hit_count": len(hits),
+        "miss_count": len(misses),
+        "hits": hits[:50],
+        "misses": misses[:50],
+    }
+
+
+def extract_resume_claims(resume_text: str) -> list[str]:
+    """Bullet-like evidence lines from the resume, used to ground generated content."""
+    lines = [line.strip() for line in (resume_text or "").splitlines()]
+    return [line for line in lines if line[:1] in {"-", "•", "*"} and len(line) > 20][:120]
+
+
+def check_grounding(generated_points: list[str], resume_claims: list[str]) -> dict:
+    """Flag generated bullets with little lexical overlap with the resume — a cheap
+    hallucination guard (the CoPilot's core idea)."""
+    blob = " ".join(resume_claims).lower()
+    flagged = []
+    for point in generated_points:
+        tokens = {t for t in re.findall(r"[a-z]{4,}", point.lower())}
+        if sum(1 for t in tokens if t in blob) < 2:
+            flagged.append(point.strip())
+    return {"flagged": flagged[:20], "ok_count": len(generated_points) - len(flagged)}
+
+
+@dataclass
+class TailorResult:
+    company: str
+    role: str
+    ats: dict
+    keywords: list = field(default_factory=list)
+    missing: list = field(default_factory=list)
+    package: str = ""  # Markdown: tailored bullets + cover letter + interview pack
+    grounding: dict = field(default_factory=lambda: {"flagged": [], "ok_count": 0})
+    used_llm: bool = False
+    ok: bool = True
+
+
+class JobCopilot:
+    """Tailor a resume to a job description: a deterministic ATS score + missing
+    keywords, plus (with a model) grounded resume bullets, a cover letter, and an
+    interview pack. The model is injected as ``decide`` so it's unit-tested offline."""
+
+    def __init__(self, decide: Decide | None = None, max_resume_chars: int = 6000, max_jd_chars: int = 6000) -> None:
+        self._decide = decide
+        self._max_resume = max_resume_chars
+        self._max_jd = max_jd_chars
+
+    def tailor(self, resume_text: str, job_text: str, company: str = "", role: str = "") -> TailorResult:
+        resume_text = (resume_text or "").strip()
+        job_text = (job_text or "").strip()
+        if not resume_text or not job_text:
+            return TailorResult(company, role, ats={}, ok=False,
+                                package="Provide both your resume text and the job description.")
+        keywords = extract_keywords(job_text)
+        claims = extract_resume_claims(resume_text)
+        ats = ats_score(keywords, resume_text)
+        missing = ats["misses"][:20]
+        header = (
+            f"**ATS match: {ats['score']}%** — {ats['hit_count']}/{len(keywords)} keywords covered.\n\n"
+            + (f"**Missing keywords to weave in:** {', '.join(missing)}\n" if missing else "Great keyword coverage.\n")
+        )
+        if self._decide is None:
+            return TailorResult(company, role, ats, keywords[:40], missing,
+                                package=header + "\n_Connect a language model for tailored bullets, a cover letter, and an interview pack._",
+                                used_llm=False)
+        try:
+            reply = (self._decide(self._build_prompt(resume_text, job_text, company, role, keywords, missing, claims)) or "").strip()
+        except Exception as exc:  # injected brain — surface, don't crash
+            return TailorResult(company, role, ats, keywords[:40], missing,
+                                package=header + f"\n_Model error: {exc}_", used_llm=False)
+        if not reply:
+            return TailorResult(company, role, ats, keywords[:40], missing,
+                                package=header + "\n_No language model available for the written sections._", used_llm=False)
+        bullets = [ln.strip() for ln in reply.splitlines() if ln.strip()[:1] in {"-", "*", "•"}]
+        grounding = check_grounding(bullets, claims)
+        return TailorResult(company, role, ats, keywords[:40], missing,
+                            package=header + "\n" + reply, grounding=grounding, used_llm=True)
+
+    def _build_prompt(self, resume_text, job_text, company, role, keywords, missing, claims) -> str:
+        target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
+        return (
+            f"You are J.A.R.V.I.S helping Jeevan tailor an application for {target}. Work ONLY from the resume "
+            "evidence below — never invent employers, titles, metrics, or skills he doesn't show. If the resume "
+            "lacks something the job wants, suggest honest framing, not fabrication.\n\n"
+            "Produce GitHub-flavored Markdown with these sections:\n"
+            "## Tailored resume bullets\n"
+            "6-8 strong bullets (each starting with '- '), rephrasing his real experience toward the job and "
+            f"naturally working in the missing keywords where truthful: {', '.join(missing) or '(none)'}\n"
+            "## Cover letter\n"
+            "A concise, specific 150-200 word letter — no fluff, grounded in the resume and the job.\n"
+            "## Interview pack\n"
+            "3 STAR stories drawn from his resume + 5 likely interview questions for this role.\n\n"
+            f"RESUME:\n{resume_text[: self._max_resume]}\n\nJOB DESCRIPTION:\n{job_text[: self._max_jd]}\n\nYour tailored package:"
+        )

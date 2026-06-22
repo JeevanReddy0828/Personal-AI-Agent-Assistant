@@ -559,6 +559,8 @@ PAGE = r"""<!doctype html>
   .jobrow .rm{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
   .jobrow .rm:hover{color:var(--amber-b)}
   .stbar{height:16px;border-radius:4px;background:var(--ice);min-width:2px}
+  .tlarea{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:9px;min-height:84px;resize:vertical;outline:none;margin-bottom:8px;box-sizing:border-box}
+  .tlarea:focus{border-color:var(--ice)}
 </style>
 </head>
 <body data-view="chat">
@@ -725,6 +727,18 @@ PAGE = r"""<!doctype html>
       <button id="jobAdd" type="button">Add</button>
     </div>
     <div id="jobList"></div>
+    <div class="chartcard" id="tailorCard" style="margin-top:18px">
+      <div class="t">Tailor an application — paste your resume + the job description</div>
+      <textarea id="tlResume" class="tlarea" placeholder="Paste your resume text…"></textarea>
+      <textarea id="tlJD" class="tlarea" placeholder="Paste the job description…"></textarea>
+      <div class="jobform" style="margin:8px 0 0">
+        <input id="tlCompany" type="text" placeholder="Company (optional)">
+        <input id="tlRole" type="text" placeholder="Role (optional)">
+        <button id="tlGo" type="button">Tailor</button>
+      </div>
+      <div class="mapmsg" id="tlMsg"></div>
+      <div class="md" id="tlResult" style="margin-top:10px;font-size:13px"></div>
+    </div>
   </section>
 </div>
 
@@ -1312,6 +1326,21 @@ PAGE = r"""<!doctype html>
     document.getElementById('jobCompany').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('jobAdd').click();});
   })();
 
+  /* CoPilot — tailor a resume to a JD (ATS score + grounded bullets/cover letter) */
+  document.getElementById('tlGo').onclick=async()=>{
+    const resume=document.getElementById('tlResume').value.trim(),jd=document.getElementById('tlJD').value.trim();
+    const msg=document.getElementById('tlMsg'),res=document.getElementById('tlResult');
+    if(!resume||!jd){msg.className='mapmsg err';msg.textContent='Paste both your resume and the job description.';return;}
+    msg.className='mapmsg';msg.textContent='Tailoring… this can take a moment.';res.innerHTML='';
+    try{
+      const r=await fetch('/api/copilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resume_text:resume,job_text:jd,company:document.getElementById('tlCompany').value.trim(),role:document.getElementById('tlRole').value.trim()})});
+      const d=await r.json();
+      if(!d.ok){msg.className='mapmsg err';msg.textContent=d.message||'Could not tailor.';return;}
+      msg.textContent=(d.ats&&typeof d.ats.score==='number')?('ATS match '+d.ats.score+'%'+(d.used_llm?'':' · add a model key for the written sections')):'';
+      res.innerHTML=mdToHtml(d.message||'');
+    }catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the copilot.';}
+  };
+
   /* overview page */
   async function loadOverview(){
     try{
@@ -1593,6 +1622,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_schedule()
         elif self.path == "/api/jobs":
             self._handle_jobs()
+        elif self.path == "/api/copilot":
+            self._handle_copilot()
         elif self.path == "/api/map":
             self._handle_map()
         elif self.path == "/api/window":
@@ -1759,6 +1790,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {"ok": False, "message": "Text-to-speech needs: pip install pyttsx3"})
             return
         self._send(200, wav, "audio/wav")
+
+    def _handle_copilot(self) -> None:
+        """Tailor a resume to a job description (ATS score + grounded bullets / cover
+        letter / interview pack). Ported Job-CoPilot logic on this app's LLM provider."""
+        try:
+            payload = self._read_json()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        result = _orchestrator.tailor_application(
+            str(payload.get("resume_text", "")), str(payload.get("job_text", "")),
+            company=str(payload.get("company", "")), role=str(payload.get("role", "")),
+        )
+        self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
     def _handle_jobs(self) -> None:
         """Add / update-stage / edit / remove a tracked job application, then return the
