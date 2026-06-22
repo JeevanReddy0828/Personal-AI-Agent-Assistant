@@ -19,6 +19,7 @@ from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
@@ -69,6 +70,12 @@ def build_orchestrator(
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
         obsidian=ObsidianVault(config.obsidian_vault),
         jobs=JobTracker(config.data_dir / "jobs.json"),
+        jobright=JobrightTool(
+            approval_gate,
+            email=config.jobright_email or "",
+            password=config.jobright_password or "",
+            session_path=config.data_dir / "jobright_session.json",
+        ),
     )
     return AgentOrchestrator(
         context,

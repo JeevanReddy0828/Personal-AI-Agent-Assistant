@@ -4,14 +4,16 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Pipeline stages, in funnel order. "rejected" is a terminal off-ramp tracked
-# separately from the forward funnel.
-STAGES = ["applied", "screen", "interview", "final", "offer", "rejected"]
+# Pipeline stages, in funnel order. "lead" is a sourced-but-not-yet-applied state
+# (e.g. a Jobright pull) that sits before the funnel; "rejected" is a terminal
+# off-ramp tracked separately from the forward funnel.
+STAGES = ["lead", "applied", "screen", "interview", "final", "offer", "rejected"]
 FUNNEL = ["applied", "screen", "interview", "final", "offer"]
 # A response = the application advanced past the initial "applied" cold state.
 _RESPONDED = {"screen", "interview", "final", "offer"}
 
 _STAGE_ALIASES = {
+    "lead": "lead", "leads": "lead", "sourced": "lead", "discovered": "lead", "new": "lead",
     "apply": "applied", "applied": "applied", "submitted": "applied",
     "screen": "screen", "screening": "screen", "phone": "screen", "recruiter": "screen", "oa": "screen",
     "interview": "interview", "onsite": "interview", "technical": "interview",
@@ -37,7 +39,8 @@ class JobTracker:
         self._load()
 
     def add(self, company: str, role: str = "", stage: str = "applied", recruiter: str = "",
-            next_date: str = "", notes: str = "", source: str = "manual") -> dict:
+            next_date: str = "", notes: str = "", source: str = "manual",
+            url: str = "", external_id: str = "", description: str = "") -> dict:
         company = (company or "").strip()
         if not company:
             raise ValueError("A job needs a company name.")
@@ -51,6 +54,9 @@ class JobTracker:
             "next_date": (next_date or "").strip(),
             "notes": (notes or "").strip(),
             "source": source,
+            "url": (url or "").strip(),
+            "external_id": (external_id or "").strip(),
+            "description": (description or "").strip(),
             "created_at": now,
             "updated_at": now,
         }
@@ -58,6 +64,43 @@ class JobTracker:
         self._jobs.append(job)
         self._save()
         return job
+
+    @staticmethod
+    def _lead_key(company: str, role: str) -> str:
+        return f"{company.strip().lower()}|{role.strip().lower()}"
+
+    def import_leads(self, leads: list[dict]) -> dict:
+        """Add scraped job leads (e.g. from a Jobright pull) at the 'lead' stage, skipping
+        any that duplicate an existing tracked job by external id or (company, role)."""
+        seen_keys = {self._lead_key(j.get("company", ""), j.get("role", "")) for j in self._jobs}
+        seen_ext = {j.get("external_id") for j in self._jobs if j.get("external_id")}
+        added: list[dict] = []
+        skipped = 0
+        for lead in leads:
+            company = (lead.get("company") or "").strip()
+            role = (lead.get("title") or lead.get("role") or "").strip()
+            if not company or not role:
+                skipped += 1
+                continue
+            ext = (lead.get("job_id_ext") or lead.get("external_id") or "").strip()
+            key = self._lead_key(company, role)
+            if (ext and ext in seen_ext) or key in seen_keys:
+                skipped += 1
+                continue
+            job = self.add(
+                company,
+                role=role,
+                stage="lead",
+                source=(lead.get("source") or "jobright"),
+                url=(lead.get("job_url") or lead.get("url") or ""),
+                external_id=ext,
+                description=(lead.get("description") or ""),
+            )
+            seen_keys.add(key)
+            if ext:
+                seen_ext.add(ext)
+            added.append(job)
+        return {"added": len(added), "skipped": skipped, "added_jobs": added}
 
     def list(self) -> list[dict]:
         # Most recently touched first.
@@ -94,16 +137,21 @@ class JobTracker:
         for job in self._jobs:
             funnel[job.get("stage", "applied")] = funnel.get(job.get("stage", "applied"), 0) + 1
         total = len(self._jobs)
+        leads = funnel.get("lead", 0)
+        # Sourced leads aren't applications, so the response rate is measured against
+        # everything that actually reached "applied" or beyond.
+        applications = total - leads
         responded = sum(1 for j in self._jobs if j.get("stage") in _RESPONDED)
         interviews = sum(1 for j in self._jobs if j.get("stage") in {"interview", "final", "offer"})
         offers = funnel.get("offer", 0)
         return {
             "total": total,
+            "leads": leads,
             "funnel": [{"stage": s, "count": funnel[s]} for s in FUNNEL],
             "rejected": funnel.get("rejected", 0),
             "interviews": interviews,
             "offers": offers,
-            "response_rate": round(responded / total, 3) if total else 0.0,
+            "response_rate": round(responded / applications, 3) if applications else 0.0,
             "by_week": self._by_week(),
         }
 

@@ -44,6 +44,10 @@ class AppConfig:
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Optional Jobright.ai credentials for the daily lead pull. Prefer a saved browser
+    # session (stored under data_dir); these are the fallback when no session exists.
+    jobright_email: str | None = None
+    jobright_password: str | None = None
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -136,4 +140,6 @@ def load_config() -> AppConfig:
         # A capable, clean-output free model by default; override with OPENROUTER_MODEL.
         openrouter_model=os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free"),
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        jobright_email=os.environ.get("JOBRIGHT_EMAIL"),
+        jobright_password=os.environ.get("JOBRIGHT_PASSWORD"),
     )

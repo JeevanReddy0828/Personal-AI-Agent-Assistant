@@ -29,6 +29,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
@@ -67,6 +68,7 @@ class AgentContext:
     knowledge: KnowledgeBase
     obsidian: ObsidianVault
     jobs: JobTracker
+    jobright: JobrightTool
 
 
 class AgentOrchestrator:
@@ -217,6 +219,9 @@ class AgentOrchestrator:
 
         if lowered in {"jobs", "job list", "list jobs", "job tracker"}:
             return self._jobs_list()
+
+        if lowered in {"jobright", "jobright pull", "pull jobs", "pull jobright", "jobright sync"}:
+            return await self._jobright_pull()
 
         if lowered.startswith("job add "):
             return self._job_add(command[len("job add ") :].strip())
@@ -1058,6 +1063,22 @@ class AgentOrchestrator:
         if job is None:
             return ToolResult.failure(f"No tracked job #{parts[0].lstrip('#')}.")
         return ToolResult.success(f"#{job['id']} {job['company']} → {job['stage']}.", job=job)
+
+    async def _jobright_pull(self) -> ToolResult:
+        result = await self.context.jobright.pull()
+        if not result.ok:
+            return result
+        leads = result.data.get("leads", [])
+        summary = self.context.jobs.import_leads(leads)
+        return ToolResult.success(
+            f"Pulled {len(leads)} Jobright lead(s); added {summary['added']} new, "
+            f"skipped {summary['skipped']} already tracked.",
+            scraped=result.data.get("scraped", len(leads)),
+            relevant=len(leads),
+            added=summary["added"],
+            skipped=summary["skipped"],
+            added_jobs=summary["added_jobs"],
+        )
 
     def _job_remove(self, raw: str) -> ToolResult:
         if not raw.lstrip("#").isdigit():

@@ -20,6 +20,7 @@ from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.autopilot import AutopilotTracker
@@ -119,6 +120,7 @@ class OrchestratorTests(unittest.TestCase):
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
                 obsidian=ObsidianVault(config.obsidian_vault),
                 jobs=JobTracker(config.data_dir / "jobs.json"),
+                jobright=JobrightTool(gate, session_path=config.data_dir / "jobright_session.json"),
                 autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
                 agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
                 scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
