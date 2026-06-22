@@ -12,8 +12,7 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
 - **Python 3.11+**, **zero required runtime dependencies** (`dependencies = []`).
   Heavy features live behind optional extras (`browser`, `desktop`, `docs`,
   `voice`, `app`, `ocr`, `transcribe`, `stt`, `youtube`, `metrics`, `vision`).
-- GitHub: `JeevanReddy0828/Personal-AI-Agent-Assistant`. Owner: Jeevan
-  (Bala Showri Jeev An Reddy Arlagadda), Austin TX.
+- GitHub: `JeevanReddy0828/Personal-AI-Agent-Assistant`. Owner: Jeevan (@JeevanReddy0828).
 
 ## Non-negotiable conventions
 

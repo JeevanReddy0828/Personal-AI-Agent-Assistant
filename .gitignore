@@ -11,6 +11,15 @@ dist/
 *.egg-info/
 .agent_data/
 .env
+.env.local
+
+# Speech models (Vosk/Whisper) — large binaries downloaded locally
+models/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
 
 # Local git worktrees used for parallel agent work
 .worktrees/

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from laptop_agent.safety import ApprovalGate
-from laptop_agent.tools.research import ResearchTool, _TextExtractor, fetch_page_text
+from laptop_agent.tools.research import ResearchTool, _TextExtractor
 
 
 def approve() -> ApprovalGate:
