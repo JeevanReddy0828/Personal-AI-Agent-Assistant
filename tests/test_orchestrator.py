@@ -9,6 +9,7 @@ from pathlib import Path
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig
+from laptop_agent.jobs import JobTracker
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
@@ -117,6 +118,7 @@ class OrchestratorTests(unittest.TestCase):
                 reminders=ReminderStore(config.data_dir / "reminders.json"),
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
                 obsidian=ObsidianVault(config.obsidian_vault),
+                jobs=JobTracker(config.data_dir / "jobs.json"),
                 autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
                 agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
                 scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
@@ -1174,6 +1176,22 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("smart ok", res.message)
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
+
+    def test_job_tracker_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            add = asyncio.run(o.handle("job add Stripe interview"))
+            self.assertTrue(add.ok)
+            self.assertEqual(add.data["job"]["stage"], "interview")
+            job_id = add.data["job"]["id"]
+            listing = asyncio.run(o.handle("jobs"))
+            self.assertEqual(listing.data["stats"]["total"], 1)
+            self.assertIn("Stripe", listing.message)
+            staged = asyncio.run(o.handle(f"job stage {job_id} offer"))
+            self.assertEqual(staged.data["job"]["stage"], "offer")
+            removed = asyncio.run(o.handle(f"job remove {job_id}"))
+            self.assertTrue(removed.data["removed"])
+            self.assertEqual(asyncio.run(o.handle("jobs")).data["stats"]["total"], 0)
 
     def test_ask_vault_uses_link_aware_context(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

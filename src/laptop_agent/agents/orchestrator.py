@@ -11,6 +11,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
+from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.metrics import system_metrics
@@ -64,6 +65,7 @@ class AgentContext:
     reminders: ReminderStore
     knowledge: KnowledgeBase
     obsidian: ObsidianVault
+    jobs: JobTracker
 
 
 class AgentOrchestrator:
@@ -210,6 +212,18 @@ class AgentOrchestrator:
 
         if lowered in {"briefing", "daily briefing", "status briefing", "morning briefing"}:
             return self._briefing()
+
+        if lowered in {"jobs", "job list", "list jobs", "job tracker"}:
+            return self._jobs_list()
+
+        if lowered.startswith("job add "):
+            return self._job_add(command[len("job add ") :].strip())
+
+        if lowered.startswith("job stage "):
+            return self._job_stage(command[len("job stage ") :].strip())
+
+        if lowered.startswith("job remove ") or lowered.startswith("job delete "):
+            return self._job_remove(command.split(None, 2)[2].strip() if len(command.split(None, 2)) > 2 else "")
 
         if lowered in {"autopilot status", "autonomous status"}:
             return self._autopilot_status()
@@ -858,6 +872,7 @@ class AgentOrchestrator:
                 "  memory",
                 "  audit",
                 "  briefing",
+                "  jobs  ·  job add <company> [stage]  ·  job stage <id> <stage>  ·  job remove <id>",
                 "  autopilot <goal>",
                 "  autopilot workflow <safe command 1> ;; <safe command 2>",
                 "  autopilot status",
@@ -997,6 +1012,56 @@ class AgentOrchestrator:
             id=reminder_id,
             completed=completed,
         )
+
+    def _jobs_list(self) -> ToolResult:
+        jobs = self.context.jobs.list()
+        stats = self.context.jobs.stats()
+        if not jobs:
+            return ToolResult.success(
+                "No tracked applications yet. Add one with: job add <company> [stage]", jobs=[], stats=stats
+            )
+        lines = [
+            f"**Job pipeline — {stats['total']} application(s), "
+            f"{stats['interviews']} interview(s), {stats['offers']} offer(s), "
+            f"{round(stats['response_rate'] * 100)}% response rate**"
+        ]
+        for job in jobs[:20]:
+            role = f" — {job['role']}" if job["role"] else ""
+            when = f" · {job['next_date']}" if job["next_date"] else ""
+            lines.append(f"- #{job['id']} **{job['company']}**{role} · _{job['stage']}_{when}")
+        return ToolResult.success("\n".join(lines), jobs=jobs, stats=stats)
+
+    def _job_add(self, text: str) -> ToolResult:
+        text = text.strip()
+        if not text:
+            return ToolResult.failure("Use: job add <company> [stage]")
+        # A trailing recognized stage word becomes the stage; the rest is the company.
+        parts = text.rsplit(None, 1)
+        company, stage = text, "applied"
+        if len(parts) == 2 and normalize_stage(parts[1]) != "applied":
+            company, stage = parts[0], parts[1]
+        elif len(parts) == 2 and parts[1].lower() in {"applied", "apply"}:
+            company, stage = parts[0], "applied"
+        try:
+            job = self.context.jobs.add(company.strip(), stage=stage)
+        except ValueError as exc:
+            return ToolResult.failure(str(exc))
+        return ToolResult.success(f"Tracking #{job['id']} {job['company']} at stage '{job['stage']}'.", job=job)
+
+    def _job_stage(self, text: str) -> ToolResult:
+        parts = text.split(None, 1)
+        if len(parts) < 2 or not parts[0].lstrip("#").isdigit():
+            return ToolResult.failure("Use: job stage <id> <stage>")
+        job = self.context.jobs.update(int(parts[0].lstrip("#")), stage=parts[1].strip())
+        if job is None:
+            return ToolResult.failure(f"No tracked job #{parts[0].lstrip('#')}.")
+        return ToolResult.success(f"#{job['id']} {job['company']} → {job['stage']}.", job=job)
+
+    def _job_remove(self, raw: str) -> ToolResult:
+        if not raw.lstrip("#").isdigit():
+            return ToolResult.failure("Use: job remove <id>")
+        removed = self.context.jobs.remove(int(raw.lstrip("#")))
+        return ToolResult.success("Removed." if removed else f"No tracked job #{raw.lstrip('#')}.", removed=removed)
 
     def _briefing(self) -> ToolResult:
         due_reminders = self.context.reminders.due()
@@ -1186,6 +1251,8 @@ class AgentOrchestrator:
         "email api send gmail to <addr> subject <subject> body <body>",
         # tasks, reminders, status
         "briefing",
+        "jobs",
+        "job add <company> [stage]",
         "tasks",
         "reminders due",
         "reminder add <YYYY-MM-DD> <text>",

@@ -95,6 +95,12 @@ def _agent_runs_snapshot() -> dict:
     return {"ok": result.ok, "runs": _json_safe(result.data.get("agent_runs", []))}
 
 
+def _jobs_snapshot() -> dict:
+    """Job pipeline (records + chart-ready stats) as plain JSON for the dashboard."""
+    jobs = _orchestrator.context.jobs
+    return {"ok": True, "jobs": _json_safe(jobs.list()), "stats": _json_safe(jobs.stats())}
+
+
 def _model_label(provider) -> str:
     model = getattr(provider, "model", "") or ""
     return model.split("/")[-1][:20] if model else "llm"
@@ -1400,6 +1406,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, _schedule_snapshot())
         elif path == "/api/agent-runs":
             self._json(200, _agent_runs_snapshot())
+        elif path == "/api/jobs":
+            self._json(200, _jobs_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1420,6 +1428,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/jobs":
+            self._handle_jobs()
         elif self.path == "/api/map":
             self._handle_map()
         elif self.path == "/api/window":
@@ -1586,6 +1596,43 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {"ok": False, "message": "Text-to-speech needs: pip install pyttsx3"})
             return
         self._send(200, wav, "audio/wav")
+
+    def _handle_jobs(self) -> None:
+        """Add / update-stage / edit / remove a tracked job application, then return the
+        refreshed pipeline + stats so the dashboard re-renders from one round-trip.
+        Local JSON only (not approval gated), like reminders/tasks."""
+        try:
+            payload = self._read_json()
+            action = str(payload.get("action", "")).strip().lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        jobs = _orchestrator.context.jobs
+        ok, message = True, ""
+        try:
+            if action == "add":
+                job = jobs.add(
+                    str(payload.get("company", "")), role=str(payload.get("role", "")),
+                    stage=str(payload.get("stage", "applied")), recruiter=str(payload.get("recruiter", "")),
+                    next_date=str(payload.get("next_date", "")), notes=str(payload.get("notes", "")),
+                )
+                message = f"Added {job['company']}."
+            elif action == "update":
+                job_id = int(str(payload.get("id", "0")).lstrip("#") or 0)
+                fields = {k: payload[k] for k in ("company", "role", "stage", "recruiter", "next_date", "notes") if k in payload}
+                ok = jobs.update(job_id, **fields) is not None
+                message = "Updated." if ok else f"No job #{job_id}."
+            elif action == "remove":
+                job_id = int(str(payload.get("id", "0")).lstrip("#") or 0)
+                ok = jobs.remove(job_id)
+                message = "Removed." if ok else f"No job #{job_id}."
+            else:
+                self._json(400, {"ok": False, "message": "Unknown action."})
+                return
+        except (ValueError, TypeError) as exc:
+            ok, message = False, str(exc)
+        snap = _jobs_snapshot()
+        self._json(200, {"ok": ok, "message": message, "jobs": snap["jobs"], "stats": snap["stats"]})
 
     def _handle_schedule(self) -> None:
         """Add / remove / toggle a scheduled job, then return the refreshed list.
