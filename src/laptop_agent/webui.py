@@ -506,8 +506,11 @@ PAGE = r"""<!doctype html>
   .hudpop .toggle.on .sw::after{left:18px;background:#04181d}
   .hudpop .hint2{font-family:var(--mono);font-size:8.5px;color:var(--muted);line-height:1.4}
   /* compact layout: collapse the left rail + center stage to a focused chat HUD */
-  body.compact .app{grid-template-columns:0 0 minmax(0,1fr)}
+  /* collapse to a single full-width track; chat spans it (auto-place would otherwise
+     drop the chat column into a leftover 0-width track once .left/.stage are hidden) */
+  body.compact .app{grid-template-columns:minmax(0,1fr)}
   body.compact .left,body.compact .stage{display:none}
+  body.compact main.chatcol{grid-column:1/-1;border-left:none}
 </style>
 </head>
 <body>
