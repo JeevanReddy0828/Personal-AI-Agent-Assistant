@@ -9,7 +9,6 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui
-from laptop_agent.safety import ApprovalGate
 from laptop_agent.tools.transcribe import TranscribeTool
 
 

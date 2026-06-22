@@ -36,8 +36,13 @@ from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 from laptop_agent.window_fx import apply_window_effects
 
-HOST = "127.0.0.1"
-PORT = 8770
+# Bind to loopback by default (the app has no auth — keep it local). Both are
+# overridable for advanced setups; only change HOST if you understand the exposure.
+HOST = os.environ.get("LAPTOP_AGENT_HOST", "127.0.0.1")
+try:
+    PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
+except ValueError:
+    PORT = 8770
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "laptop_agent_uploads"
 MAX_UPLOAD_BYTES = 35 * 1024 * 1024
 _CONFIG = load_config()

@@ -474,6 +474,13 @@ visible modal dialog before continuing.
 
 Audit events are written to `.agent_data/audit.jsonl` by default.
 
+**Deployment posture.** This is a local-first, single-user app. The web server
+binds to loopback (`127.0.0.1`) and has no authentication — it is meant to run on
+your own machine. `LAPTOP_AGENT_HOST` / `LAPTOP_AGENT_PORT` can override the bind
+address, but only expose it beyond loopback if you put your own auth in front of
+it. Secrets live only in a gitignored `.env` (copy from `.env.example`); never
+commit real keys.
+
 ## Project layout
 
 ```text
@@ -507,3 +514,7 @@ tests/             Dependency-free unit tests.
 3. Wire user-facing CLI/browser syntax for email attachments.
 4. Persist control-room dashboard history across app restarts.
 5. Add richer knowledge snippets with highlighted matched terms and source context.
+
+## License
+
+Released under the [MIT License](LICENSE).

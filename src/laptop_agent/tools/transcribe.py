@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from collections.abc import Callable
@@ -130,9 +131,7 @@ def _load_whisper_model(model_name: str):
 def warm_whisper() -> bool:
     """Pre-load the speech model so the first voice turn isn't slow. Returns False
     (no-op) when Whisper isn't installed, so callers can warm it best-effort."""
-    try:
-        import whisper  # type: ignore  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("whisper") is None:
         return False
     try:
         _load_whisper_model(os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base"))
@@ -176,9 +175,7 @@ def _load_vosk_model(path: str):
 
 
 def _vosk_available() -> bool:
-    try:
-        import vosk  # type: ignore  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("vosk") is None:
         return False
     return _resolve_vosk_model_path() is not None
 
@@ -249,12 +246,10 @@ def warm_stt() -> bool:
 
 
 def _builtin_asr_backend(target: Path) -> dict[str, object]:
-    try:
-        import whisper  # type: ignore  # noqa: F401
-    except ImportError as exc:
+    if importlib.util.find_spec("whisper") is None:
         raise MissingDependencyError(
             "Media transcription requires: pip install openai-whisper (and ffmpeg on PATH)."
-        ) from exc
+        )
     model_name = os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base")
     model = _load_whisper_model(model_name)
     # Pin the language (default English). Without this, Whisper auto-detects per clip
