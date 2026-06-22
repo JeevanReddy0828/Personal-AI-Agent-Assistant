@@ -1177,6 +1177,18 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
 
+    def test_tailor_application_scores_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))  # heuristic planner -> no LLM, deterministic ATS only
+            res = o.tailor_application(
+                "- Built a Python FastAPI service with Redis.", "Need Python, FastAPI, and AWS.",
+                company="Acme", role="Backend",
+            )
+            self.assertTrue(res.ok)
+            self.assertIn("ATS match", res.message)
+            self.assertIn("aws", [m.lower() for m in res.data["missing"]])
+            self.assertFalse(res.data["used_llm"])
+
     def test_job_tracker_commands(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
