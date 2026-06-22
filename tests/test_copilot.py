@@ -71,5 +71,45 @@ class TailorTests(unittest.TestCase):
         self.assertIn("ATS match", result.package)
 
 
+class TailorResumeTests(unittest.TestCase):
+    LATEX = (
+        "\\documentclass{article}\n\\begin{document}\n"
+        "Built a Python FastAPI service with Redis and Kubernetes. "
+        "\\href{https://github.com/u/proj}{Project}\n\\end{document}"
+    )
+
+    def test_resume_requires_llm(self) -> None:
+        result = JobCopilot().tailor_resume(RESUME, JD, company="Acme", role="Backend")
+        self.assertFalse(result.ok)
+        self.assertIn("language model", result.package.lower())
+
+    def test_resume_builds_latex_and_grounds_links(self) -> None:
+        seen = {}
+
+        def decide(prompt: str) -> str:
+            seen["prompt"] = prompt
+            return self.LATEX
+
+        repos = [{"name": "proj", "url": "https://github.com/u/proj"}]
+        contact = "\\href{https://x/}{LinkedIn}"
+        result = JobCopilot(decide=decide).tailor_resume(
+            RESUME, JD, company="Acme", role="Backend", repos=repos, contact=contact)
+        self.assertTrue(result.ok)
+        self.assertIn("\\begin{document}", result.package)
+        self.assertIn("proj: https://github.com/u/proj", seen["prompt"])  # repo handed in for grounding
+        self.assertIn(contact, seen["prompt"])  # contact block handed in
+        self.assertIn("score", result.ats)
+
+    def test_resume_rejects_non_latex_reply(self) -> None:
+        result = JobCopilot(decide=lambda p: "Sorry, here are some bullet points instead.").tailor_resume(RESUME, JD)
+        self.assertFalse(result.ok)
+
+    def test_resume_strips_code_fences(self) -> None:
+        fenced = "```latex\n" + self.LATEX + "\n```"
+        result = JobCopilot(decide=lambda p: fenced).tailor_resume(RESUME, JD)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.package.startswith("\\documentclass"))
+
+
 if __name__ == "__main__":
     unittest.main()

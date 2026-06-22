@@ -124,13 +124,23 @@ class JobTracker:
         self._save()
         return job
 
-    def set_resume(self, text: str, source: str = "") -> dict:
-        """Store the base resume text used for ATS scoring and tailoring."""
+    def set_resume(self, text: str, source: str = "", profile: dict | None = None) -> dict:
+        """Store the base resume text used for ATS scoring and tailoring. ``profile`` carries
+        optional fixed tailoring data (contact links, certifications) preserved across updates."""
+        kept_profile = profile if profile is not None else self._resume.get("profile", {})
         self._resume = {
             "text": (text or "").strip(),
             "source": (source or "").strip(),
+            "profile": kept_profile or {},
             "updated_at": datetime.now(UTC).isoformat(),
         }
+        self._save()
+        return self._resume
+
+    def set_resume_profile(self, profile: dict) -> dict:
+        """Update just the tailoring profile (contact links / certifications), keeping the text."""
+        self._resume = {**self._resume, "profile": profile or {}}
+        self._resume.setdefault("text", "")
         self._save()
         return self._resume
 

@@ -73,6 +73,31 @@ def check_grounding(generated_points: list[str], resume_claims: list[str]) -> di
     return {"flagged": flagged[:20], "ok_count": len(generated_points) - len(flagged)}
 
 
+# Style rules for the one-page LaTeX resume generator. Instructions only — no personal
+# data (contact links / certs live in the stored resume profile and are injected per call).
+RESUME_RULES = (
+    "Act as a senior technical recruiter who screens 200 resumes a day. Rewrite the resume into a "
+    "single-page, ATS-optimized LaTeX resume targeting the role and company below.\n"
+    "Hard rules:\n"
+    "- Replace every duty/responsibility with a specific, measurable achievement; cut all generic filler.\n"
+    "- Do NOT use dashes or hyphens in your prose (rephrase to avoid them). Keep proper nouns and technology "
+    "names spelled exactly as they appear (e.g. Scikit-learn, GPT-3.5).\n"
+    "- Open with a 1 to 2 line professional summary/bio tailored to the target role.\n"
+    "- Weave in ATS keywords pulled from the job description, only where they are truthful.\n"
+    "- Pick ONLY the projects most relevant to the job description from the candidate's project list. "
+    "For each chosen project, embed the matching GitHub repository link using \\href, choosing from the "
+    "provided repository list. Never invent a URL; if no clear repo match exists, omit the link.\n"
+    "- Include the candidate's internship. Do NOT include GPA anywhere.\n"
+    "- Embed the provided contact links and certification links verbatim using \\href.\n"
+    "- ANTI-FABRICATION (critical): never state a total years-of-experience figure that is not in the resume; "
+    "never add skills, frameworks, tools, employers, titles, dates, or metrics that are not present in the base "
+    "resume. If the job wants 'senior' or skills the candidate lacks, reframe real experience honestly rather "
+    "than inventing seniority or technologies. Every line must trace to the base resume.\n"
+    "- Keep it to ONE page. Output a complete, compilable LaTeX document and nothing else (no commentary, "
+    "no markdown fences)."
+)
+
+
 @dataclass
 class TailorResult:
     company: str
@@ -91,7 +116,7 @@ class JobCopilot:
     keywords, plus (with a model) grounded resume bullets, a cover letter, and an
     interview pack. The model is injected as ``decide`` so it's unit-tested offline."""
 
-    def __init__(self, decide: Decide | None = None, max_resume_chars: int = 6000, max_jd_chars: int = 6000) -> None:
+    def __init__(self, decide: Decide | None = None, max_resume_chars: int = 12000, max_jd_chars: int = 8000) -> None:
         self._decide = decide
         self._max_resume = max_resume_chars
         self._max_jd = max_jd_chars
@@ -143,3 +168,60 @@ class JobCopilot:
             "3 STAR stories drawn from his resume + 5 likely interview questions for this role.\n\n"
             f"RESUME:\n{resume_text[: self._max_resume]}\n\nJOB DESCRIPTION:\n{job_text[: self._max_jd]}\n\nYour tailored package:"
         )
+
+    def tailor_resume(
+        self,
+        resume_text: str,
+        job_text: str,
+        company: str = "",
+        role: str = "",
+        repos: list[dict] | None = None,
+        contact: str = "",
+    ) -> TailorResult:
+        """Generate a one-page, JD-tailored LaTeX resume (see RESUME_RULES). Project GitHub
+        links are grounded in ``repos`` (only real matches are embedded); ``contact`` is the
+        fixed contact + certification LaTeX block injected verbatim."""
+        resume_text = (resume_text or "").strip()
+        job_text = (job_text or "").strip()
+        if not resume_text or not job_text:
+            return TailorResult(company, role, ats={}, ok=False,
+                                package="Provide both the base resume and the job description.")
+        keywords = extract_keywords(job_text)
+        ats = ats_score(keywords, resume_text)
+        if self._decide is None:
+            return TailorResult(company, role, ats, ok=False,
+                                package="A language model is required to generate a tailored resume.")
+        try:
+            latex = (self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [], contact)) or "").strip()
+        except Exception as exc:
+            return TailorResult(company, role, ats, ok=False, package=f"Model error: {exc}")
+        latex = self._unfence(latex)
+        if "\\begin{document}" not in latex:
+            return TailorResult(company, role, ats, ok=False,
+                                package="The model did not return a LaTeX document. Try again.")
+        grounding = check_grounding([latex], extract_resume_claims(resume_text))
+        return TailorResult(company, role, ats, keywords[:40], ats["misses"][:20],
+                            package=latex, grounding=grounding, used_llm=True)
+
+    def _build_resume_prompt(self, resume_text, job_text, company, role, repos, contact) -> str:
+        target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
+        repo_lines = "\n".join(f"  {r.get('name','')}: {r.get('url','')}" for r in repos if r.get("url")) or "  (none provided)"
+        contact_block = contact.strip() or "(no contact block provided — use the links in the resume text)"
+        return (
+            f"{RESUME_RULES}\n\n"
+            f"TARGET ROLE: {target}\n\n"
+            f"CONTACT AND CERTIFICATION LINKS (embed verbatim with \\href):\n{contact_block}\n\n"
+            f"CANDIDATE GITHUB REPOSITORIES (match projects to these for \\href links; never invent URLs):\n{repo_lines}\n\n"
+            f"BASE RESUME (ground everything in this; do not fabricate):\n{resume_text[: self._max_resume]}\n\n"
+            f"JOB DESCRIPTION:\n{job_text[: self._max_jd]}\n\n"
+            "Return ONLY the complete one-page LaTeX document:"
+        )
+
+    @staticmethod
+    def _unfence(text: str) -> str:
+        """Strip a leading/trailing ```latex fence if the model wrapped its output."""
+        stripped = text.strip()
+        if stripped.startswith("```"):
+            stripped = re.sub(r"^```[a-zA-Z]*\s*", "", stripped)
+            stripped = re.sub(r"\s*```$", "", stripped)
+        return stripped.strip()

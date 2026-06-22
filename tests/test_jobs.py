@@ -73,6 +73,15 @@ class JobTrackerTests(unittest.TestCase):
             reloaded = self._tracker(raw)
             self.assertIn("Python", reloaded.get_resume()["text"])
 
+    def test_resume_profile_persists_and_survives_text_update(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            jt.set_resume_profile({"contact": "links", "github_user": "u"})
+            jt.set_resume("- did things", source="r.pdf")  # update text, keep profile
+            self.assertEqual(jt.get_resume()["profile"]["github_user"], "u")
+            self.assertIn("things", jt.get_resume()["text"])
+            self.assertEqual(self._tracker(raw).get_resume()["profile"]["contact"], "links")  # reloaded
+
     def test_set_tailoring_marks_job(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             jt = self._tracker(raw)

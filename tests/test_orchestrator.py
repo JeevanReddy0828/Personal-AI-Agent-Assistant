@@ -1296,17 +1296,23 @@ class OrchestratorTests(unittest.TestCase):
             orch.set_resume_text("- Built X with Python", source="paste")
             self.assertFalse(orch.tailor_job(job["id"]).ok)  # no JD to tailor against
 
-    def test_tailor_job_persists_result(self) -> None:
+    def test_tailor_job_persists_latex_resume(self) -> None:
+        from laptop_agent.copilot import JobCopilot
+
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
             orch.set_resume_text("- Built data pipelines in Python", source="paste")
+            # Inject a copilot with a deterministic LaTeX-returning brain (no network).
+            orch._copilot_cache = JobCopilot(
+                decide=lambda prompt: "\\documentclass{article}\\begin{document}Python pipelines\\end{document}"
+            )
             job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
                                         description="Python data pipelines and SQL.")
             result = orch.tailor_job(job["id"])
             self.assertTrue(result.ok)
             stored = orch.context.jobs.get(job["id"])
             self.assertTrue(stored["tailored"])
-            self.assertIn("ATS match", stored["tailored_package"])
+            self.assertIn("\\begin{document}", stored["tailored_package"])
 
 
 if __name__ == "__main__":

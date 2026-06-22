@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -106,6 +109,7 @@ class AgentOrchestrator:
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._copilot_cache: JobCopilot | None = None
+        self._repo_cache: dict[str, list[dict]] | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -1605,7 +1609,12 @@ class AgentOrchestrator:
         jd = job.get("description", "")
         if not jd:
             return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
-        result = self._copilot().tailor(resume, jd, company=job.get("company", ""), role=job.get("role", ""))
+        profile = self.context.jobs.get_resume().get("profile", {}) or {}
+        repos = self._github_repos(profile.get("github_user", ""))
+        result = self._copilot().tailor_resume(
+            resume, jd, company=job.get("company", ""), role=job.get("role", ""),
+            repos=repos, contact=profile.get("contact", ""),
+        )
         if not result.ok:
             return ToolResult.failure(result.package, job_id=job_id)
         self.context.jobs.set_tailoring(
@@ -1613,6 +1622,32 @@ class AgentOrchestrator:
             grounding=result.grounding, ats=result.ats,
         )
         return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
+
+    def _github_repos(self, user: str) -> list[dict]:
+        """Public repo list (name + url) for grounding project links in tailored resumes.
+        Cached per process; best-effort — returns [] if unset or unreachable."""
+        user = (user or "").strip()
+        if not user:
+            return []
+        if getattr(self, "_repo_cache", None) is None:
+            self._repo_cache = {}
+        if user in self._repo_cache:
+            return self._repo_cache[user]
+        repos: list[dict] = []
+        try:
+            request = urllib.request.Request(
+                f"https://api.github.com/users/{user}/repos?per_page=100&sort=updated",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "jarvis-resume"},
+            )
+            with urllib.request.urlopen(request, timeout=15) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            if isinstance(data, list):
+                repos = [{"name": r.get("name", ""), "url": r.get("html_url", "")}
+                         for r in data if isinstance(r, dict) and r.get("html_url")]
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+            repos = []
+        self._repo_cache[user] = repos
+        return repos
 
     def _advice_research(self, query: str) -> tuple[str, list]:
         """Best-effort web grounding for the advisor: returns (context_text, sources).
