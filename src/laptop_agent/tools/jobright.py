@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -40,6 +41,20 @@ def is_relevant(title: str) -> bool:
     if not any(kw in t for kw in TARGET_KEYWORDS):
         return False
     return not any(kw in t for kw in EXCLUDE_KEYWORDS)
+
+
+_REL_TIME = re.compile(
+    r"(?:posted\s+)?\d+\s*(?:second|minute|hour|day|week|month)s?\s+ago|just\s+now", re.IGNORECASE
+)
+
+
+def clean_title(text: str) -> str:
+    """Remove relative-time noise ('5 minutes ago', 'just now') that DOM-scraped cards
+    splice into the title or company text, then tidy separators/whitespace. Named for its
+    main use (titles) but applied to the company field too."""
+    out = _REL_TIME.sub(" ", text or "")
+    out = re.sub(r"\s+", " ", out).strip(" -–—•|·\t")
+    return out
 
 
 def parse_jobright_item(item: dict) -> dict | None:
@@ -247,6 +262,9 @@ class JobrightTool:
             )
         )
 
+        listings: list[dict] = []
+        leads: list[dict] = []
+        login_ok = False
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
@@ -255,21 +273,34 @@ class JobrightTool:
             try:
                 context = await self._make_context(browser)
                 page = await context.new_page()
-                if not await self._login(page, context):
-                    return ToolResult.failure(
-                        "Jobright login failed. Check JOBRIGHT_EMAIL / JOBRIGHT_PASSWORD or refresh the saved session."
-                    )
-                listings = await self._scrape_with_interception(page, max_scrolls)
-                if not listings:
-                    listings = await self._scrape_via_dom(page)
+                login_ok = await self._login(page, context)
+                if login_ok:
+                    listings = await self._scrape_with_interception(page, max_scrolls)
+                    if not listings:
+                        listings = await self._scrape_via_dom(page)
+                    for item in listings:
+                        item["title"] = clean_title(item.get("title", ""))
+                        item["company"] = clean_title(item.get("company", ""))
+                    leads = [
+                        j for j in deduplicate(listings)
+                        if j.get("title") and j.get("company") and is_relevant(j["title"])
+                    ]
+                    # API interception carries jobSummary; DOM-only leads don't — visit each
+                    # job page to fetch the JD so scoring/tailoring have something to work on.
+                    await self._enrich_descriptions(page, leads)
             finally:
                 await browser.close()
 
-        leads = [j for j in deduplicate(listings) if j.get("title") and j.get("company") and is_relevant(j["title"])]
+        if not login_ok:
+            return ToolResult.failure(
+                "Jobright login failed. Check JOBRIGHT_EMAIL / JOBRIGHT_PASSWORD or refresh the saved session."
+            )
+        with_jd = sum(1 for j in leads if j.get("description"))
         return ToolResult.success(
-            f"Scraped {len(leads)} relevant Jobright lead(s).",
+            f"Scraped {len(leads)} relevant Jobright lead(s); {with_jd} with a job description.",
             leads=leads,
             scraped=len(listings),
+            with_description=with_jd,
         )
 
     # --- browser drive (live; not unit-tested) -------------------------------
@@ -413,6 +444,31 @@ class JobrightTool:
             except Exception:
                 pass
         return deduplicate(captured)
+
+    async def _enrich_descriptions(self, page, leads: list[dict], cap: int = 40) -> None:  # pragma: no cover - needs a live browser
+        """Visit each lead's URL and scrape the job description for the ones missing it."""
+        need = [j for j in leads if not j.get("description") and j.get("job_url")][:cap]
+        for lead in need:
+            try:
+                lead["description"] = await self._scrape_description(page, lead["job_url"])
+            except Exception as exc:
+                logger.warning("Jobright description fetch failed for %s: %s", lead.get("job_url"), exc)
+
+    async def _scrape_description(self, page, job_url: str) -> str:  # pragma: no cover - needs a live browser
+        await page.goto(job_url, wait_until="domcontentloaded", timeout=20000)
+        await page.wait_for_timeout(1500)
+        text = await page.evaluate(
+            """() => {
+                const sels = ['[class*="description"]','[class*="Description"]','[class*="job-detail"]',
+                    '[class*="JobDetail"]','[class*="content"]','article','main'];
+                for (const s of sels) {
+                    const el = document.querySelector(s);
+                    if (el && el.textContent.trim().length > 200) return el.textContent.trim().substring(0, 8000);
+                }
+                return document.body.innerText.substring(0, 6000);
+            }"""
+        )
+        return (text or "").strip()
 
     async def _scrape_via_dom(self, page) -> list[dict]:  # pragma: no cover - needs a live browser
         try:

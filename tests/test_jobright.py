@@ -6,6 +6,7 @@ from pathlib import Path
 
 from laptop_agent.jobs import JobTracker
 from laptop_agent.tools.jobright import (
+    clean_title,
     deduplicate,
     extract_jobs_from_api_data,
     is_relevant,
@@ -76,6 +77,13 @@ class JobrightParsingTests(unittest.TestCase):
         self.assertTrue(is_relevant("Backend Software Engineer"))
         self.assertFalse(is_relevant("Director of Engineering"))  # excluded
         self.assertFalse(is_relevant("Barista"))  # no target keyword
+
+    def test_clean_title_strips_relative_time(self) -> None:
+        self.assertEqual(clean_title("5 minutes ago Senior Software Engineer"), "Senior Software Engineer")
+        self.assertEqual(clean_title("just now — Data Engineer"), "Data Engineer")
+        self.assertEqual(clean_title("Posted 3 days ago Backend Developer"), "Backend Developer")
+        self.assertEqual(clean_title("Software Engineer"), "Software Engineer")  # untouched
+        self.assertEqual(clean_title("Airtable • 5 minutes ago"), "Airtable")  # trailing time in company
 
     def test_deduplicate_by_title_company(self) -> None:
         rows = [
