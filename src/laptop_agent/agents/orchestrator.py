@@ -11,7 +11,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
-from laptop_agent.copilot import JobCopilot
+from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
@@ -222,6 +222,13 @@ class AgentOrchestrator:
 
         if lowered in {"jobright", "jobright pull", "pull jobs", "pull jobright", "jobright sync"}:
             return await self._jobright_pull()
+
+        if lowered.startswith("tailor job "):
+            raw = command[len("tailor job ") :].strip().lstrip("#")
+            return self.tailor_job(int(raw)) if raw.isdigit() else ToolResult.failure("Use: tailor job <id>")
+
+        if lowered.startswith("resume file "):
+            return self.set_resume_from_file(command[len("resume file ") :].strip())
 
         if lowered.startswith("job add "):
             return self._job_add(command[len("job add ") :].strip())
@@ -1541,6 +1548,71 @@ class AgentOrchestrator:
             ats=result.ats, keywords=result.keywords, missing=result.missing,
             grounding=result.grounding, used_llm=result.used_llm, company=company, role=role,
         )
+
+    def pipeline_snapshot(self) -> dict:
+        """The job pipeline for the live dashboard: every tracked job, each annotated with a
+        live (local, no-LLM) ATS score when a base resume and a job description are present,
+        plus the funnel stats and base-resume metadata."""
+        jobs = self.context.jobs
+        resume = jobs.get_resume()
+        resume_text = resume.get("text", "")
+        enriched = []
+        for job in jobs.list():
+            item = dict(job)
+            jd = job.get("description", "")
+            if resume_text and jd:
+                item["ats"] = ats_score(extract_keywords(jd), resume_text)
+            enriched.append(item)
+        return {
+            "ok": True,
+            "jobs": enriched,
+            "stats": jobs.stats(),
+            "resume": {
+                "present": bool(resume_text),
+                "chars": len(resume_text),
+                "source": resume.get("source", ""),
+                "updated_at": resume.get("updated_at", ""),
+            },
+        }
+
+    def set_resume_text(self, text: str, source: str = "pasted") -> ToolResult:
+        text = (text or "").strip()
+        if not text:
+            return ToolResult.failure("Resume text is empty.")
+        self.context.jobs.set_resume(text, source=source)
+        return ToolResult.success(f"Saved base resume ({len(text)} chars).", chars=len(text), source=source)
+
+    def set_resume_from_file(self, path: str) -> ToolResult:
+        extracted = self.context.files.extract_document_text(path)
+        if not extracted.ok:
+            return extracted
+        text = str(extracted.data.get("text", "")).strip()
+        if not text:
+            return ToolResult.failure("No text could be extracted from that file.")
+        name = Path(path.strip().strip("'\"")).name
+        self.context.jobs.set_resume(text, source=name)
+        return ToolResult.success(f"Loaded base resume from {name} ({len(text)} chars).", chars=len(text), source=name)
+
+    def tailor_job(self, job_id: int) -> ToolResult:
+        """Tailor the stored base resume to a tracked job's description, persisting the
+        result on the job. The LLM call is on-demand (one job at a time)."""
+        job = self.context.jobs.get(job_id)
+        if job is None:
+            return ToolResult.failure(f"No tracked job #{job_id}.")
+        resume = self.context.jobs.get_resume().get("text", "")
+        if not resume:
+            return ToolResult.failure("Set a base resume first — paste it or load it from a file.")
+        jd = job.get("description", "")
+        if not jd:
+            return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
+        result = self._copilot().tailor(resume, jd, company=job.get("company", ""), role=job.get("role", ""))
+        if not result.ok:
+            return ToolResult.failure(result.package, job_id=job_id)
+        self.context.jobs.set_tailoring(
+            job_id, package=result.package, used_llm=result.used_llm,
+            grounding=result.grounding, ats=result.ats,
+        )
+        return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
 
     def _advice_research(self, query: str) -> tuple[str, list]:
         """Best-effort web grounding for the advisor: returns (context_text, sources).

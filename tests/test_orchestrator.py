@@ -1270,5 +1270,44 @@ class OrchestratorTests(unittest.TestCase):
             self.assertFalse(miss.message.startswith("I can find:"))
 
 
+    def test_pipeline_snapshot_scores_leads_with_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            orch.context.jobs.add("Acme", role="ML Engineer", stage="lead",
+                                  description="We need Python, Kubernetes and machine learning.")
+            # No resume yet -> no ATS score.
+            snap = orch.pipeline_snapshot()
+            self.assertFalse(snap["resume"]["present"])
+            self.assertNotIn("ats", snap["jobs"][0])
+            # Once a resume is set, leads with a description get a live ATS score.
+            orch.set_resume_text("- Built systems with Python and machine learning", source="paste")
+            snap = orch.pipeline_snapshot()
+            self.assertTrue(snap["resume"]["present"])
+            self.assertIn("ats", snap["jobs"][0])
+            self.assertGreater(snap["jobs"][0]["ats"]["score"], 0)
+            self.assertEqual(snap["stats"]["leads"], 1)
+
+    def test_tailor_job_requires_resume_and_description(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            job = orch.context.jobs.add("Acme", role="SWE", stage="lead")  # no description
+            self.assertFalse(orch.tailor_job(999).ok)  # no such job
+            self.assertFalse(orch.tailor_job(job["id"]).ok)  # no resume set
+            orch.set_resume_text("- Built X with Python", source="paste")
+            self.assertFalse(orch.tailor_job(job["id"]).ok)  # no JD to tailor against
+
+    def test_tailor_job_persists_result(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            orch.set_resume_text("- Built data pipelines in Python", source="paste")
+            job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
+                                        description="Python data pipelines and SQL.")
+            result = orch.tailor_job(job["id"])
+            self.assertTrue(result.ok)
+            stored = orch.context.jobs.get(job["id"])
+            self.assertTrue(stored["tailored"])
+            self.assertIn("ATS match", stored["tailored_package"])
+
+
 if __name__ == "__main__":
     unittest.main()

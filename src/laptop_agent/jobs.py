@@ -36,6 +36,8 @@ class JobTracker:
         self.path = path
         self._jobs: list[dict] = []
         self._next_id = 1
+        # The base resume used for ATS scoring + tailoring, persisted alongside the jobs.
+        self._resume: dict = {}
         self._load()
 
     def add(self, company: str, role: str = "", stage: str = "applied", recruiter: str = "",
@@ -122,6 +124,36 @@ class JobTracker:
         self._save()
         return job
 
+    def set_resume(self, text: str, source: str = "") -> dict:
+        """Store the base resume text used for ATS scoring and tailoring."""
+        self._resume = {
+            "text": (text or "").strip(),
+            "source": (source or "").strip(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        self._save()
+        return self._resume
+
+    def get_resume(self) -> dict:
+        return dict(self._resume)
+
+    def set_tailoring(self, job_id: int, *, package: str, used_llm: bool,
+                      grounding: dict | None = None, ats: dict | None = None) -> dict | None:
+        """Persist a tailoring result (package + grounding + ATS) onto a tracked job."""
+        job = self.get(job_id)
+        if job is None:
+            return None
+        job["tailored"] = True
+        job["tailored_at"] = datetime.now(UTC).isoformat()
+        job["tailored_package"] = package
+        job["tailored_used_llm"] = bool(used_llm)
+        job["tailored_grounding"] = grounding or {}
+        if ats:
+            job["ats"] = ats
+        job["updated_at"] = job["tailored_at"]
+        self._save()
+        return job
+
     def remove(self, job_id: int) -> bool:
         before = len(self._jobs)
         self._jobs = [j for j in self._jobs if j["id"] != job_id]
@@ -180,11 +212,14 @@ class JobTracker:
         jobs = data.get("jobs")
         if isinstance(jobs, list):
             self._jobs = [j for j in jobs if isinstance(j, dict) and "id" in j]
+        if isinstance(data.get("resume"), dict):
+            self._resume = data["resume"]
         existing = [int(j["id"]) for j in self._jobs if str(j.get("id", "")).isdigit()]
         self._next_id = max([int(data.get("next_id", 1)), *(n + 1 for n in existing)] or [1])
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
-            json.dumps({"next_id": self._next_id, "jobs": self._jobs}, indent=2), encoding="utf-8"
+            json.dumps({"next_id": self._next_id, "jobs": self._jobs, "resume": self._resume}, indent=2),
+            encoding="utf-8",
         )

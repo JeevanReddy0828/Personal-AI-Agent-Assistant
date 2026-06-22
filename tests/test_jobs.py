@@ -63,6 +63,25 @@ class JobTrackerTests(unittest.TestCase):
         self.assertEqual(normalize_stage("Phone Screen"), "applied")  # unknown phrase -> default
         self.assertEqual(normalize_stage("onsite"), "interview")
         self.assertEqual(normalize_stage("declined"), "rejected")
+        self.assertEqual(normalize_stage("sourced"), "lead")
+
+    def test_resume_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            jt.set_resume("- Built X with Python", source="resume.pdf")
+            self.assertEqual(jt.get_resume()["source"], "resume.pdf")
+            reloaded = self._tracker(raw)
+            self.assertIn("Python", reloaded.get_resume()["text"])
+
+    def test_set_tailoring_marks_job(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            job = jt.add("Acme", role="SWE", stage="lead")
+            saved = jt.set_tailoring(job["id"], package="## bullets", used_llm=True,
+                                     grounding={"flagged": []}, ats={"score": 80})
+            self.assertTrue(saved["tailored"])
+            self.assertEqual(saved["ats"]["score"], 80)
+            self.assertIsNone(jt.set_tailoring(999, package="x", used_llm=False))
 
 
 if __name__ == "__main__":

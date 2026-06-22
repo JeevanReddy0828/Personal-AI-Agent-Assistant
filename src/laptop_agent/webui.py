@@ -101,6 +101,11 @@ def _jobs_snapshot() -> dict:
     return {"ok": True, "jobs": _json_safe(jobs.list()), "stats": _json_safe(jobs.stats())}
 
 
+def _pipeline_snapshot() -> dict:
+    """Pipeline view: jobs annotated with live ATS scores + base-resume status."""
+    return _json_safe(_orchestrator.pipeline_snapshot())
+
+
 def _model_label(provider) -> str:
     model = getattr(provider, "model", "") or ""
     return model.split("/")[-1][:20] if model else "llm"
@@ -532,9 +537,39 @@ PAGE = r"""<!doctype html>
   .navbtn .dico{font-style:normal;font-size:12px}
   .page{grid-column:1/-1;grid-row:2;display:none;overflow:auto;padding:20px 26px;background:linear-gradient(180deg,rgba(8,11,18,.5),rgba(6,8,13,.35))}
   body[data-view="overview"] .left,body[data-view="overview"] .stage,body[data-view="overview"] main.chatcol,
-  body[data-view="jobs"] .left,body[data-view="jobs"] .stage,body[data-view="jobs"] main.chatcol{display:none}
+  body[data-view="jobs"] .left,body[data-view="jobs"] .stage,body[data-view="jobs"] main.chatcol,
+  body[data-view="pipeline"] .left,body[data-view="pipeline"] .stage,body[data-view="pipeline"] main.chatcol{display:none}
   body[data-view="overview"] #page-overview{display:block}
   body[data-view="jobs"] #page-jobs{display:block}
+  body[data-view="pipeline"] #page-pipeline{display:block}
+  /* live pipeline board */
+  .pipebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+  .pipebar .grow{flex:1}
+  .resumebox{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
+  .resumebox textarea{width:100%;min-height:84px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:8px;font-family:var(--mono);font-size:12px;resize:vertical}
+  .resumebox .rrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .resumebox input{flex:1;min-width:160px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:7px 9px;font-family:var(--mono);font-size:12px}
+  .rstat{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .board{display:flex;gap:10px;overflow-x:auto;padding:2px 0 10px;align-items:flex-start}
+  .col{flex:0 0 220px;background:rgba(95,208,230,.03);border:1px solid var(--line,#16222e);border-radius:10px;padding:8px}
+  .col h4{margin:0 0 8px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;color:var(--muted);
+    display:flex;justify-content:space-between;text-transform:uppercase}
+  .col h4 b{color:var(--ice-b,#cfe9f2)}
+  .pcard{background:var(--panel2,#0e1620);border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:8px;margin-bottom:8px}
+  .pcard .pco{font-size:12px;color:var(--ice-b,#cfe9f2);font-weight:600;line-height:1.25}
+  .pcard .prole{font-size:11px;color:var(--muted);margin:1px 0 6px}
+  .pcard .prow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .score{font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;color:#04121a}
+  .score.s-hi{background:#54e0a0}.score.s-mid{background:#ffb000}.score.s-lo{background:#ff7a8a}.score.s-na{background:#41505e;color:#cfe9f2}
+  .badge{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:10px;border:1px solid var(--line2,#1d2b38);color:var(--muted)}
+  .badge.t-on{color:#54e0a0;border-color:#1d6b4e}
+  .pcard button{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:7px;cursor:pointer;
+    background:rgba(95,208,230,.08);color:var(--ice-b,#cfe9f2);border:1px solid var(--line2,#1d2b38)}
+  .pcard button:hover{border-color:var(--ice-b,#5fd0e6)}
+  .pcard select{font-family:var(--mono);font-size:10px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:6px;padding:2px}
   .pagehead{display:flex;align-items:center;gap:10px;margin-bottom:16px}
   .pagehead h2{font-family:var(--display);font-weight:600;letter-spacing:1px;font-size:18px;color:#eaf6fb;margin:0}
   .pagehead .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
@@ -578,6 +613,7 @@ PAGE = r"""<!doctype html>
       <button class="navbtn on" data-view="chat"><i class="dico">&#128172;</i>Chat</button>
       <button class="navbtn" data-view="overview"><i class="dico">&#9783;</i>Overview</button>
       <button class="navbtn" data-view="jobs"><i class="dico">&#128188;</i>Jobs</button>
+      <button class="navbtn" data-view="pipeline"><i class="dico">&#9776;</i>Pipeline</button>
     </nav>
     <div class="sp"></div>
     <div class="hud">
@@ -738,6 +774,32 @@ PAGE = r"""<!doctype html>
       </div>
       <div class="mapmsg" id="tlMsg"></div>
       <div class="md" id="tlResult" style="margin-top:10px;font-size:13px"></div>
+    </div>
+  </section>
+
+  <section class="page" id="page-pipeline">
+    <div class="pagehead"><h2>Pipeline</h2><span class="sub" id="pipeSub"></span></div>
+    <div class="statcards" id="pipeStats"></div>
+    <div class="chartcard resumebox" id="resumeCard">
+      <div class="t">Base resume — used for live ATS scoring &amp; tailoring</div>
+      <textarea id="rsText" placeholder="Paste your resume text here, then Save…"></textarea>
+      <div class="rrow">
+        <button id="rsSave" type="button">Save resume</button>
+        <input id="rsPath" type="text" placeholder="…or an absolute path to a PDF / DOCX / TXT">
+        <button id="rsLoad" type="button">Load file</button>
+        <span class="rstat" id="rsStat"></span>
+      </div>
+    </div>
+    <div class="pipebar">
+      <button id="pullBtn" type="button">⟳ Pull from Jobright</button>
+      <label class="rstat"><input type="checkbox" id="autoRef" checked> auto-refresh</label>
+      <span class="grow"></span>
+      <span class="mapmsg" id="pipeMsg"></span>
+    </div>
+    <div class="board" id="pipeBoard"></div>
+    <div class="chartcard" id="pkgCard" style="display:none;margin-top:14px">
+      <div class="t" id="pkgTitle">Tailored package</div>
+      <div class="md" id="pkgBody" style="font-size:13px"></div>
     </div>
   </section>
 </div>
@@ -1250,19 +1312,21 @@ PAGE = r"""<!doctype html>
   })();
 
   /* multi-page router */
-  const VIEWS=['chat','overview','jobs'];
+  const VIEWS=['chat','overview','jobs','pipeline'];
   function setView(v){
     if(VIEWS.indexOf(v)<0)v='chat';
     document.body.dataset.view=v;
     document.querySelectorAll('#nav .navbtn').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
     if(v==='jobs')loadJobs();
     if(v==='overview')loadOverview();
+    if(v==='pipeline')loadPipeline();
+    pipeAutoRefresh(v==='pipeline');
   }
   document.querySelectorAll('#nav .navbtn').forEach(b=>{b.onclick=()=>{location.hash='#/'+b.dataset.view;};});
   window.addEventListener('hashchange',()=>setView(location.hash.replace('#/','')));
 
   /* inline SVG charts (no CDN — works offline) */
-  const STAGES=['applied','screen','interview','final','offer','rejected'];
+  const STAGES=['lead','applied','screen','interview','final','offer','rejected'];
   function svgFunnel(funnel){
     const max=Math.max(1,...funnel.map(f=>f.count));
     const rowH=26, W=300, padL=78, barW=W-padL-30;
@@ -1340,6 +1404,91 @@ PAGE = r"""<!doctype html>
       res.innerHTML=mdToHtml(d.message||'');
     }catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the copilot.';}
   };
+
+  /* live pipeline page */
+  const PIPE_STAGES=['lead','applied','screen','interview','final','offer','rejected'];
+  let pipeTimer=null, pipeBusy=false;
+  function scoreBadge(ats){
+    if(!ats||typeof ats.score!=='number')return '<span class="score s-na">no score</span>';
+    const c=ats.score>=70?'s-hi':(ats.score>=45?'s-mid':'s-lo');
+    return '<span class="score '+c+'" title="'+(ats.hit_count||0)+'/'+((ats.hit_count||0)+(ats.miss_count||0))+' keywords">ATS '+ats.score+'%</span>';
+  }
+  async function loadPipeline(){
+    try{const d=await (await fetch('/api/pipeline')).json();renderPipeline(d);}
+    catch(e){document.getElementById('pipeBoard').innerHTML='<div style="color:var(--amber-b)">Could not load pipeline.</div>';}
+  }
+  function renderPipeline(d){
+    const s=d.stats||{}, r=d.resume||{};
+    document.getElementById('pipeSub').textContent=(s.leads||0)+' lead(s) · '+(s.total||0)+' tracked';
+    document.getElementById('pipeStats').innerHTML=
+      statCard('Leads',s.leads||0)+statCard('Applications',(s.total||0)-(s.leads||0))+statCard('Interviews',s.interviews||0)+statCard('Offers',s.offers||0);
+    document.getElementById('rsStat').textContent=r.present?('resume set · '+(r.chars||0)+' chars'+(r.source?(' · '+r.source):'')):'no base resume yet — paste or load a file to enable scoring';
+    const byStage={};PIPE_STAGES.forEach(st=>byStage[st]=[]);
+    (d.jobs||[]).forEach(j=>{(byStage[j.stage]||(byStage[j.stage]=[])).push(j);});
+    const board=document.getElementById('pipeBoard');board.innerHTML='';
+    PIPE_STAGES.forEach(st=>{
+      const col=document.createElement('div');col.className='col';
+      col.innerHTML='<h4>'+esc(st)+' <b>'+byStage[st].length+'</b></h4>';
+      byStage[st].forEach(j=>col.appendChild(pipeCard(j)));
+      board.appendChild(col);
+    });
+  }
+  function pipeCard(j){
+    const card=document.createElement('div');card.className='pcard';
+    let h='<div class="pco">'+esc(j.company||'')+'</div>';
+    if(j.role)h+='<div class="prole">'+esc(j.role)+'</div>';
+    h+='<div class="prow">'+scoreBadge(j.ats)+(j.tailored?'<span class="badge t-on">tailored</span>':'<span class="badge">not tailored</span>')+'</div>';
+    card.innerHTML=h;
+    const row=document.createElement('div');row.className='prow';row.style.marginTop='7px';
+    const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.onchange=()=>postPipe({action:'stage',id:j.id,stage:sel.value});row.appendChild(sel);
+    const tb=document.createElement('button');tb.textContent=j.tailored?'Re-tailor':'Tailor';tb.onclick=()=>tailorJob(j.id,tb);row.appendChild(tb);
+    if(j.tailored&&j.tailored_package){const vb=document.createElement('button');vb.textContent='View';vb.onclick=()=>showPackage(j);row.appendChild(vb);}
+    if(j.url){const lb=document.createElement('button');lb.textContent='Open';lb.onclick=()=>window.open(j.url,'_blank','noopener');row.appendChild(lb);}
+    card.appendChild(row);
+    return card;
+  }
+  function showPackage(j){
+    document.getElementById('pkgTitle').textContent='Tailored — '+(j.company||'')+(j.role?(' · '+j.role):'');
+    document.getElementById('pkgBody').innerHTML=mdToHtml(j.tailored_package||'');
+    document.getElementById('pkgCard').style.display='block';
+    document.getElementById('pkgCard').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+  async function postPipe(body){
+    const msg=document.getElementById('pipeMsg');
+    try{pipeBusy=true;const r=await fetch('/api/pipeline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();if(d.message){msg.className='mapmsg'+(d.ok?'':' err');msg.textContent=d.message;}renderPipeline(d);return d;}
+    catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the server.';}
+    finally{pipeBusy=false;}
+  }
+  async function tailorJob(id,btn){
+    const msg=document.getElementById('pipeMsg');msg.className='mapmsg';msg.textContent='Tailoring #'+id+'… this can take a moment.';
+    if(btn){btn.disabled=true;btn.textContent='…';}
+    const d=await postPipe({action:'tailor',id:id});
+    if(btn)btn.disabled=false;
+    if(d&&d.ok){const j=(d.jobs||[]).find(x=>x.id===id);if(j)showPackage(j);}
+  }
+  (function initPipe(){
+    document.getElementById('pullBtn').onclick=async()=>{
+      const b=document.getElementById('pullBtn'),msg=document.getElementById('pipeMsg');
+      b.disabled=true;b.textContent='⟳ Pulling…';msg.className='mapmsg';msg.textContent='Pulling leads from Jobright…';
+      await postPipe({action:'pull'});b.disabled=false;b.textContent='⟳ Pull from Jobright';
+    };
+    document.getElementById('rsSave').onclick=async()=>{
+      const t=document.getElementById('rsText').value.trim();if(!t)return;
+      await postPipe({action:'resume',text:t});
+    };
+    document.getElementById('rsLoad').onclick=async()=>{
+      const p=document.getElementById('rsPath').value.trim();if(!p)return;
+      await postPipe({action:'resume_file',path:p});
+    };
+    document.getElementById('autoRef').onchange=e=>pipeAutoRefresh(document.body.dataset.view==='pipeline');
+  })();
+  function pipeAutoRefresh(on){
+    if(pipeTimer){clearInterval(pipeTimer);pipeTimer=null;}
+    if(on&&document.getElementById('autoRef').checked){
+      pipeTimer=setInterval(()=>{if(!pipeBusy&&document.body.dataset.view==='pipeline')loadPipeline();},20000);
+    }
+  }
 
   /* overview page */
   async function loadOverview(){
@@ -1600,6 +1749,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, _agent_runs_snapshot())
         elif path == "/api/jobs":
             self._json(200, _jobs_snapshot())
+        elif path == "/api/pipeline":
+            self._json(200, _pipeline_snapshot())
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1624,6 +1775,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_jobs()
         elif self.path == "/api/copilot":
             self._handle_copilot()
+        elif self.path == "/api/pipeline":
+            self._handle_pipeline()
         elif self.path == "/api/map":
             self._handle_map()
         elif self.path == "/api/window":
@@ -1804,6 +1957,49 @@ class Handler(BaseHTTPRequestHandler):
             company=str(payload.get("company", "")), role=str(payload.get("role", "")),
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _handle_pipeline(self) -> None:
+        """Drive the live pipeline page: pull Jobright leads, set the base resume (pasted or
+        from a file), tailor a job on demand, or change a job's stage. Each action returns the
+        refreshed pipeline snapshot so the board re-renders from one round-trip."""
+        try:
+            payload = self._read_json()
+            action = str(payload.get("action", "")).strip().lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        ok, message = True, ""
+        try:
+            if action == "pull":
+                result = asyncio.run(_orchestrator.handle("jobright pull"))
+                ok, message = result.ok, result.message
+            elif action == "tailor":
+                result = _orchestrator.tailor_job(int(str(payload.get("id", "0")).lstrip("#") or 0))
+                ok, message = result.ok, (result.message if not result.ok else "Tailored.")
+            elif action == "resume":
+                result = _orchestrator.set_resume_text(str(payload.get("text", "")), source="pasted")
+                ok, message = result.ok, result.message
+            elif action == "resume_file":
+                result = _orchestrator.set_resume_from_file(str(payload.get("path", "")))
+                ok, message = result.ok, result.message
+            elif action == "stage":
+                updated = _orchestrator.context.jobs.update(
+                    int(str(payload.get("id", "0")).lstrip("#") or 0), stage=str(payload.get("stage", "")))
+                ok = updated is not None
+                message = "Updated." if ok else "No such job."
+            elif action == "remove":
+                ok = _orchestrator.context.jobs.remove(int(str(payload.get("id", "0")).lstrip("#") or 0))
+                message = "Removed." if ok else "No such job."
+            else:
+                self._json(400, {"ok": False, "message": "Unknown action."})
+                return
+        except ApprovalDenied as exc:
+            ok, message = False, f"Blocked — that action needs the desktop app: {exc}"
+        except (ValueError, TypeError) as exc:
+            ok, message = False, str(exc)
+        snap = _pipeline_snapshot()
+        snap["ok"], snap["message"] = ok, message
+        self._json(200, snap)
 
     def _handle_jobs(self) -> None:
         """Add / update-stage / edit / remove a tracked job application, then return the

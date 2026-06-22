@@ -239,10 +239,10 @@ class JobrightTool:
         self.approval_gate.require(
             ApprovalRequest(
                 action="Pull job leads from Jobright.ai",
-                risk=RiskLevel.HIGH,
+                risk=RiskLevel.MEDIUM,
                 reason=(
-                    "Logs into a third-party site with a stored session/credential and scrapes "
-                    "recommendations. Subject to Jobright's terms of service."
+                    "Read-only scrape: logs into a third-party site with a stored session/credential "
+                    "and reads recommendations (no data is submitted). Subject to Jobright's terms of service."
                 ),
             )
         )
