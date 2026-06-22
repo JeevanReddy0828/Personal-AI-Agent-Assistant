@@ -153,7 +153,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Browser form inspect / preview / fill (gated) | `inspect forms <url>` · `fill form <url>` |
 
 ### 🎨 Interfaces & UX
-CLI · Tkinter GUI · web app · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
+CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker**, with funnel/trend charts) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
 Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS) ·
 holographic particle-core HUD · adaptive HUD controls (transparency / compact / always-on-top) ·
 web panels: **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs**, **Agent runs**, live metrics & health pill.
