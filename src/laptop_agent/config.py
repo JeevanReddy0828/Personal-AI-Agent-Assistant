@@ -48,6 +48,8 @@ class AppConfig:
     # session (stored under data_dir); these are the fallback when no session exists.
     jobright_email: str | None = None
     jobright_password: str | None = None
+    # Chain-of-thought token budget for reasoning models (NVIDIA Nemotron ultra tier).
+    llm_reasoning_budget: int = 16384
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -68,6 +70,13 @@ def _load_dotenv(path: str = ".env") -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def load_config() -> AppConfig:
@@ -142,4 +151,5 @@ def load_config() -> AppConfig:
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         jobright_email=os.environ.get("JOBRIGHT_EMAIL"),
         jobright_password=os.environ.get("JOBRIGHT_PASSWORD"),
+        llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
     )

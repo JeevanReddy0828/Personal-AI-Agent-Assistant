@@ -65,12 +65,40 @@ class OpenAICompatiblePlannerProvider:
         base_url: str = "https://api.openai.com/v1",
         transport: Transport | None = None,
         timeout: int = 45,
+        reasoning: bool = False,
+        reasoning_budget: int = 16384,
+        top_p: float = 0.95,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        # NVIDIA reasoning models (e.g. Nemotron) think before answering. Enable it only
+        # on the tier that benefits (the ultra model); routing/narration stay thinking-off
+        # for speed and clean JSON. See _apply_provider_params.
+        self.reasoning = reasoning
+        self.reasoning_budget = reasoning_budget
+        self.top_p = top_p
         self._transport = transport or self._http_transport
+
+    def _apply_provider_params(self, payload: dict, *, think: bool) -> None:
+        """Apply NVIDIA chat-template / reasoning options in place.
+
+        Nemotron-style models stream chain-of-thought in a separate ``reasoning_content``
+        field, gated by ``chat_template_kwargs.enable_thinking``. Routing and narration pass
+        ``think=False`` (fast, parse-clean). Deep answers pass ``think=True``; thinking only
+        actually turns on when this provider was built with ``reasoning=True`` (the ultra
+        tier), and then we also send NVIDIA's ``reasoning_budget`` and recommended sampling,
+        widening ``max_tokens`` so the budget can't crowd out the final answer."""
+        if "nvidia" not in self.base_url:
+            return
+        enable = bool(think and self.reasoning)
+        payload["chat_template_kwargs"] = {"enable_thinking": enable}
+        if enable:
+            payload["reasoning_budget"] = self.reasoning_budget
+            payload["top_p"] = self.top_p
+            payload["temperature"] = 1.0
+            payload["max_tokens"] = max(int(payload.get("max_tokens", 0) or 0), self.reasoning_budget)
 
     def plan(
         self,
@@ -93,10 +121,8 @@ class OpenAICompatiblePlannerProvider:
             messages.append({"role": "assistant", "content": example_json})
         messages.append({"role": "user", "content": text})
         payload: dict[str, object] = {"model": self.model, "temperature": 0, "max_tokens": 320, "messages": messages}
-        # Nemotron and other reasoning models stream chain-of-thought separately;
-        # disabling it keeps responses fast and the content clean for parsing.
-        if "nvidia" in self.base_url:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        # Routing must stay fast and emit clean JSON, so never let the model think here.
+        self._apply_provider_params(payload, think=False)
 
         try:
             content = self._transport(payload)
@@ -136,8 +162,7 @@ class OpenAICompatiblePlannerProvider:
                 },
             ],
         }
-        if "nvidia" in self.base_url:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        self._apply_provider_params(payload, think=False)
         try:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
@@ -169,8 +194,7 @@ class OpenAICompatiblePlannerProvider:
                 {"role": "user", "content": text},
             ],
         }
-        if "nvidia" in self.base_url:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        self._apply_provider_params(payload, think=True)
         try:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
@@ -202,8 +226,7 @@ class OpenAICompatiblePlannerProvider:
                 {"role": "user", "content": text},
             ],
         }
-        if "nvidia" in self.base_url:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        self._apply_provider_params(payload, think=True)
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -223,12 +246,14 @@ class OpenAICompatiblePlannerProvider:
                 if chunk == "[DONE]":
                     break
                 try:
-                    obj = json.loads(chunk)
-                    delta = obj["choices"][0]["delta"].get("content")
+                    delta = json.loads(chunk)["choices"][0]["delta"]
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                     continue
-                if delta:
-                    yield delta
+                # Reasoning models emit a separate `reasoning_content` stream first; we keep
+                # the chain-of-thought internal and surface only the final answer tokens.
+                content = delta.get("content") if isinstance(delta, dict) else None
+                if content:
+                    yield content
 
     def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
         """Send an image to a vision model and return a plain-language description."""
@@ -252,6 +277,7 @@ class OpenAICompatiblePlannerProvider:
                 }
             ],
         }
+        self._apply_provider_params(payload, think=False)
         try:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
@@ -264,10 +290,12 @@ class OpenAICompatiblePlannerProvider:
 
     def ping(self) -> bool:
         """Tiny request to check the endpoint is reachable. Returns True on success."""
+        payload: dict[str, object] = {
+            "model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]
+        }
+        self._apply_provider_params(payload, think=False)
         try:
-            self._transport(
-                {"model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
-            )
+            self._transport(payload)
             return True
         except Exception:
             return False

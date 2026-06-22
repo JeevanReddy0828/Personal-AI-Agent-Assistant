@@ -69,6 +69,50 @@ class LlmPlannerParsingTests(unittest.TestCase):
         ).plan("hi", "help", {})
         self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": False})
 
+    def test_reasoning_tier_enables_thinking_for_answers(self) -> None:
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return "the answer"
+
+        prov = OpenAICompatiblePlannerProvider(
+            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture, reasoning=True, reasoning_budget=16384,
+        )
+        out = prov.answer("explain transformers", {})
+        self.assertEqual(out, "the answer")
+        self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": True})
+        self.assertEqual(captured.get("reasoning_budget"), 16384)
+        self.assertEqual(captured.get("top_p"), 0.95)
+        self.assertEqual(captured.get("temperature"), 1.0)
+        self.assertGreaterEqual(captured.get("max_tokens"), 16384)
+
+    def test_reasoning_tier_still_routes_without_thinking(self) -> None:
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return '{"action":"chat","response":"ok"}'
+
+        OpenAICompatiblePlannerProvider(
+            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture, reasoning=True,
+        ).plan("hi", "help", {})
+        self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": False})
+        self.assertNotIn("reasoning_budget", captured)
+
+    def test_reasoning_ignored_for_non_nvidia(self) -> None:
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return "ok"
+
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture, reasoning=True).answer("hi", {})
+        self.assertNotIn("chat_template_kwargs", captured)
+        self.assertNotIn("reasoning_budget", captured)
+
     def test_plan_includes_recent_history(self) -> None:
         captured: dict = {}
 

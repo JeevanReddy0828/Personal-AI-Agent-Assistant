@@ -110,8 +110,13 @@ def _build_ultra_planner(config: AppConfig) -> Planner | None:
     # it gets a long timeout. Requires an explicit ultra model.
     if not _has_llm(config) or not config.llm_ultra_model:
         return None
+    # The ultra model (e.g. NVIDIA Nemotron) is a reasoning model: let it think, with a
+    # token budget for the chain-of-thought it streams in `reasoning_content`.
     return Planner(
-        OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=180)
+        OpenAICompatiblePlannerProvider(
+            config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=180,
+            reasoning=True, reasoning_budget=config.llm_reasoning_budget,
+        )
     )
 
 
