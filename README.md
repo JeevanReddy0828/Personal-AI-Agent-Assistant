@@ -144,6 +144,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### ⏰ Productivity & system
 | Capability | How |
 |---|---|
+| Job application tracker | `job add <company> [stage]` · `jobs` · `job stage <id> <stage>` |
 | Reminders | `remind me to <x> at <when>` · `reminders` |
 | Recurring jobs (commands or agent goals) | `schedule <when> :: <command>` · `schedule list` |
 | Daily briefing | `briefing` |

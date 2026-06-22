@@ -6,6 +6,7 @@ from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
+from laptop_agent.jobs import JobTracker
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
@@ -67,6 +68,7 @@ def build_orchestrator(
         reminders=ReminderStore(config.data_dir / "reminders.json"),
         knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
         obsidian=ObsidianVault(config.obsidian_vault),
+        jobs=JobTracker(config.data_dir / "jobs.json"),
     )
     return AgentOrchestrator(
         context,

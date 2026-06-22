@@ -65,7 +65,9 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         auto-routes decision/problem questions here — no manual command needed —
         via system-prompt guidance + a few-shot turn in planner/openai_compatible.py),
         scheduler.py
-        (recurring jobs), reminders.py, metrics.py, health.py,
+        (recurring jobs), jobs.py (JobTracker: job-application pipeline — stages,
+        funnel/response-rate stats, JSON-persisted; `job add/list/stage/remove` +
+        `/api/jobs`; powers the Job Tracker dashboard), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
         memory.py, token_vault.py (DPAPI), config.py
 ```
@@ -181,7 +183,7 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (436 passing).
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (446 passing).
 
 ## Working alongside another agent (Codex)
 
