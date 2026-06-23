@@ -173,6 +173,15 @@ class JobTracker:
         self._save()
         return job
 
+    def clear_leads(self) -> int:
+        """Remove all sourced (stage='lead') jobs, keeping real applications. Returns count."""
+        before = len(self._jobs)
+        self._jobs = [j for j in self._jobs if j.get("stage") != "lead"]
+        removed = before - len(self._jobs)
+        if removed:
+            self._save()
+        return removed
+
     def remove(self, job_id: int) -> bool:
         before = len(self._jobs)
         self._jobs = [j for j in self._jobs if j["id"] != job_id]

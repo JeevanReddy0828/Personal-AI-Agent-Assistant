@@ -792,6 +792,7 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="pipebar">
       <button id="pullBtn" type="button">⟳ Pull from Jobright</button>
+      <button id="clearBtn" type="button">Clear leads</button>
       <label class="rstat"><input type="checkbox" id="autoRef" checked> auto-refresh</label>
       <span class="grow"></span>
       <span class="mapmsg" id="pipeMsg"></span>
@@ -1485,6 +1486,10 @@ PAGE = r"""<!doctype html>
       const p=document.getElementById('rsPath').value.trim();if(!p)return;
       await postPipe({action:'resume_file',path:p});
     };
+    document.getElementById('clearBtn').onclick=async()=>{
+      if(!confirm('Remove all sourced leads? Your tracked applications are kept.'))return;
+      await postPipe({action:'clear_leads'});
+    };
     document.getElementById('autoRef').onchange=e=>pipeAutoRefresh(document.body.dataset.view==='pipeline');
   })();
   function pipeAutoRefresh(on){
@@ -2017,6 +2022,9 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "resume_file":
                 result = _orchestrator.set_resume_from_file(str(payload.get("path", "")))
                 ok, message = result.ok, result.message
+            elif action == "clear_leads":
+                removed = _orchestrator.context.jobs.clear_leads()
+                ok, message = True, f"Cleared {removed} lead(s)."
             elif action == "stage":
                 updated = _orchestrator.context.jobs.update(
                     int(str(payload.get("id", "0")).lstrip("#") or 0), stage=str(payload.get("stage", "")))

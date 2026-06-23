@@ -82,6 +82,17 @@ class JobTrackerTests(unittest.TestCase):
             self.assertIn("things", jt.get_resume()["text"])
             self.assertEqual(self._tracker(raw).get_resume()["profile"]["contact"], "links")  # reloaded
 
+    def test_clear_leads_keeps_applications(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            jt.import_leads([{"title": "SWE", "company": "Acme", "job_id_ext": "a1"}])
+            jt.add("Globex", stage="applied")
+            self.assertEqual(jt.clear_leads(), 1)
+            remaining = jt.list()
+            self.assertEqual(len(remaining), 1)
+            self.assertEqual(remaining[0]["company"], "Globex")
+            self.assertEqual(jt.clear_leads(), 0)  # nothing left to clear
+
     def test_set_tailoring_marks_job(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             jt = self._tracker(raw)
