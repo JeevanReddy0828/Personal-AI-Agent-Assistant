@@ -1300,14 +1300,15 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
 
-    def _build_agent_brain(self, planners=None):
+    def _build_agent_brain(self, planners=None, answer_max_tokens: int = 900):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
         By default tries the smart tier, then the fast planner, then the cross-provider
         fallback (OpenRouter), using the first that returns text — so reasoning (the
         autonomous agent and the advisor) keeps working when a tier is congested. Pass an
-        explicit ``planners`` tuple to change the order (e.g. ultra-first for resumes).
-        Yields '' when no LLM is configured, so callers end with a clear message.
+        explicit ``planners`` tuple to change the order, and ``answer_max_tokens`` to allow
+        long outputs (e.g. a full resume) instead of a concise chat reply. Yields '' when no
+        LLM is configured, so callers end with a clear message.
         """
         if planners is None:
             planners = (self.smart_planner, self.planner, self.fallback_planner)
@@ -1323,7 +1324,9 @@ class AgentOrchestrator:
         def decide(prompt: str) -> str:
             for answer in answerers:
                 try:
-                    reply = answer(prompt, profile, None, None)
+                    reply = answer(prompt, profile, None, None, max_tokens=answer_max_tokens)
+                except TypeError:
+                    reply = answer(prompt, profile, None, None)  # older provider without max_tokens
                 except Exception:
                     reply = None
                 if reply:
@@ -1333,11 +1336,14 @@ class AgentOrchestrator:
         return decide
 
     def _resume_copilot(self) -> JobCopilot:
-        """CoPilot whose brain prefers the ultra reasoning tier (Nemotron, thinking on) for
-        stricter, less-fabricating resume generation, falling back to smart/fast/OpenRouter."""
+        """CoPilot for full-resume generation. Uses a large output budget so the whole resume
+        (every experience + projects + education) is never truncated. The smart tier leads
+        because it reliably emits the complete document; the ultra reasoning tier (which tends
+        to stop a long structured output early) and OpenRouter are fallbacks."""
         if self._resume_copilot_cache is None:
             brain = self._build_agent_brain(
-                (self.ultra_planner, self.smart_planner, self.planner, self.fallback_planner)
+                (self.smart_planner, self.ultra_planner, self.planner, self.fallback_planner),
+                answer_max_tokens=8000,
             )
             self._resume_copilot_cache = JobCopilot(decide=brain)
         return self._resume_copilot_cache

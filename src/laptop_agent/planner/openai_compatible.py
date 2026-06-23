@@ -178,13 +178,16 @@ class OpenAICompatiblePlannerProvider:
         memory_profile: dict[str, object],
         model: str | None = None,
         history: list[dict[str, str]] | None = None,
+        max_tokens: int = 900,
     ) -> str | None:
-        """Plain conversational reply (no routing JSON). Used for complex questions."""
+        """Plain conversational reply (no routing JSON). Used for complex questions.
+        ``max_tokens`` defaults to a concise chat reply; long outputs (e.g. a full resume)
+        pass a larger value so the response is not truncated mid-document."""
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
         payload: dict[str, object] = {
             "model": model or self.model,
             "temperature": 0.6,
-            "max_tokens": 900,
+            "max_tokens": max_tokens,
             "messages": [
                 {
                     "role": "system",
