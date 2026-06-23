@@ -1304,7 +1304,7 @@ class OrchestratorTests(unittest.TestCase):
             orch.set_resume_text("- Built data pipelines in Python", source="paste")
             # Inject a copilot with a deterministic LaTeX-returning brain (no network).
             orch._copilot_cache = JobCopilot(
-                decide=lambda prompt: "\\documentclass{article}\\begin{document}Python pipelines\\end{document}"
+                decide=lambda prompt: "<!DOCTYPE html><html><body>Python pipelines</body></html>"
             )
             job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
                                         description="Python data pipelines and SQL.")
@@ -1312,7 +1312,7 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             stored = orch.context.jobs.get(job["id"])
             self.assertTrue(stored["tailored"])
-            self.assertIn("\\begin{document}", stored["tailored_package"])
+            self.assertIn("<html", stored["tailored_package"].lower())
 
 
 if __name__ == "__main__":

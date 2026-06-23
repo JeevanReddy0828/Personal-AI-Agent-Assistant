@@ -1076,7 +1076,8 @@ class AgentOrchestrator:
         return ToolResult.success(f"#{job['id']} {job['company']} → {job['stage']}.", job=job)
 
     async def _jobright_pull(self) -> ToolResult:
-        result = await self.context.jobright.pull()
+        resume_text = self.context.jobs.get_resume().get("text", "")
+        result = await self.context.jobright.pull(resume_text=resume_text)
         if not result.ok:
             return result
         leads = result.data.get("leads", [])
@@ -1622,6 +1623,19 @@ class AgentOrchestrator:
             grounding=result.grounding, ats=result.ats,
         )
         return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
+
+    async def render_job_pdf(self, job_id: int) -> ToolResult:
+        """Render a job's tailored HTML resume to a downloadable PDF under data_dir/resumes."""
+        job = self.context.jobs.get(job_id)
+        if job is None or not job.get("tailored_package"):
+            return ToolResult.failure("Tailor the job first, then export to PDF.")
+        from laptop_agent.tools.resume_pdf import render_html_to_pdf
+
+        out = self.context.jobs.path.parent / "resumes" / f"job_{job_id}.pdf"
+        result = await render_html_to_pdf(job["tailored_package"], out)
+        if result.ok:
+            self.context.jobs.set_tailored_pdf(job_id, str(out))
+        return result
 
     def _github_repos(self, user: str) -> list[dict]:
         """Public repo list (name + url) for grounding project links in tailored resumes.

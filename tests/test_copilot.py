@@ -72,10 +72,10 @@ class TailorTests(unittest.TestCase):
 
 
 class TailorResumeTests(unittest.TestCase):
-    LATEX = (
-        "\\documentclass{article}\n\\begin{document}\n"
+    HTML = (
+        "<!DOCTYPE html><html><head><style>body{font-family:sans-serif}</style></head><body>"
         "Built a Python FastAPI service with Redis and Kubernetes. "
-        "\\href{https://github.com/u/proj}{Project}\n\\end{document}"
+        "<a href=\"https://github.com/u/proj\">Project</a></body></html>"
     )
 
     def test_resume_requires_llm(self) -> None:
@@ -83,32 +83,32 @@ class TailorResumeTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("language model", result.package.lower())
 
-    def test_resume_builds_latex_and_grounds_links(self) -> None:
+    def test_resume_builds_html_and_grounds_links(self) -> None:
         seen = {}
 
         def decide(prompt: str) -> str:
             seen["prompt"] = prompt
-            return self.LATEX
+            return self.HTML
 
         repos = [{"name": "proj", "url": "https://github.com/u/proj"}]
-        contact = "\\href{https://x/}{LinkedIn}"
+        contact = "<a href=\"https://x/\">LinkedIn</a>"
         result = JobCopilot(decide=decide).tailor_resume(
             RESUME, JD, company="Acme", role="Backend", repos=repos, contact=contact)
         self.assertTrue(result.ok)
-        self.assertIn("\\begin{document}", result.package)
+        self.assertIn("<html", result.package.lower())
         self.assertIn("proj: https://github.com/u/proj", seen["prompt"])  # repo handed in for grounding
         self.assertIn(contact, seen["prompt"])  # contact block handed in
         self.assertIn("score", result.ats)
 
-    def test_resume_rejects_non_latex_reply(self) -> None:
+    def test_resume_rejects_non_html_reply(self) -> None:
         result = JobCopilot(decide=lambda p: "Sorry, here are some bullet points instead.").tailor_resume(RESUME, JD)
         self.assertFalse(result.ok)
 
     def test_resume_strips_code_fences(self) -> None:
-        fenced = "```latex\n" + self.LATEX + "\n```"
+        fenced = "```html\n" + self.HTML + "\n```"
         result = JobCopilot(decide=lambda p: fenced).tailor_resume(RESUME, JD)
         self.assertTrue(result.ok)
-        self.assertTrue(result.package.startswith("\\documentclass"))
+        self.assertTrue(result.package.startswith("<!DOCTYPE"))
 
 
 if __name__ == "__main__":

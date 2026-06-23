@@ -1442,14 +1442,18 @@ PAGE = r"""<!doctype html>
     const row=document.createElement('div');row.className='prow';row.style.marginTop='7px';
     const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.onchange=()=>postPipe({action:'stage',id:j.id,stage:sel.value});row.appendChild(sel);
     const tb=document.createElement('button');tb.textContent=j.tailored?'Re-tailor':'Tailor';tb.onclick=()=>tailorJob(j.id,tb);row.appendChild(tb);
-    if(j.tailored&&j.tailored_package){const vb=document.createElement('button');vb.textContent='View';vb.onclick=()=>showPackage(j);row.appendChild(vb);}
+    if(j.tailored_pdf){const pb=document.createElement('button');pb.textContent='PDF';pb.title='Download tailored resume PDF';pb.onclick=()=>window.open('/api/resume-pdf?id='+j.id,'_blank');row.appendChild(pb);}
+    if(j.tailored&&j.tailored_package){const vb=document.createElement('button');vb.textContent='Preview';vb.onclick=()=>showPackage(j);row.appendChild(vb);}
     if(j.url){const lb=document.createElement('button');lb.textContent='Open';lb.onclick=()=>window.open(j.url,'_blank','noopener');row.appendChild(lb);}
     card.appendChild(row);
     return card;
   }
   function showPackage(j){
-    document.getElementById('pkgTitle').textContent='Tailored — '+(j.company||'')+(j.role?(' · '+j.role):'');
-    document.getElementById('pkgBody').innerHTML=mdToHtml(j.tailored_package||'');
+    document.getElementById('pkgTitle').textContent='Tailored resume — '+(j.company||'')+(j.role?(' · '+j.role):'');
+    const frame=document.createElement('iframe');
+    frame.style.cssText='width:100%;height:760px;border:1px solid var(--line2);border-radius:8px;background:#fff';
+    frame.srcdoc=j.tailored_package||'';
+    const body=document.getElementById('pkgBody');body.innerHTML='';body.appendChild(frame);
     document.getElementById('pkgCard').style.display='block';
     document.getElementById('pkgCard').scrollIntoView({behavior:'smooth',block:'nearest'});
   }
@@ -1751,6 +1755,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, _jobs_snapshot())
         elif path == "/api/pipeline":
             self._json(200, _pipeline_snapshot())
+        elif path == "/api/resume-pdf":
+            self._serve_resume_pdf()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1958,6 +1964,29 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
+    def _serve_resume_pdf(self) -> None:
+        """Stream a job's tailored resume PDF as a download."""
+        from urllib.parse import parse_qs, urlparse
+
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            job_id = int((qs.get("id", ["0"])[0]).lstrip("#") or 0)
+        except ValueError:
+            self._send(400, b"bad id", "text/plain")
+            return
+        job = _orchestrator.context.jobs.get(job_id)
+        pdf = (job or {}).get("tailored_pdf")
+        if not pdf or not Path(pdf).exists():
+            self._send(404, b"No PDF yet for this job. Tailor it first.", "text/plain")
+            return
+        data = Path(pdf).read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", f'attachment; filename="resume_{job_id}.pdf"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _handle_pipeline(self) -> None:
         """Drive the live pipeline page: pull Jobright leads, set the base resume (pasted or
         from a file), tailor a job on demand, or change a job's stage. Each action returns the
@@ -1974,8 +2003,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = asyncio.run(_orchestrator.handle("jobright pull"))
                 ok, message = result.ok, result.message
             elif action == "tailor":
-                result = _orchestrator.tailor_job(int(str(payload.get("id", "0")).lstrip("#") or 0))
-                ok, message = result.ok, (result.message if not result.ok else "Tailored.")
+                job_id = int(str(payload.get("id", "0")).lstrip("#") or 0)
+                result = _orchestrator.tailor_job(job_id)
+                if result.ok:
+                    pdf = asyncio.run(_orchestrator.render_job_pdf(job_id))
+                    ok = True
+                    message = "Tailored and exported to PDF." if pdf.ok else f"Tailored (PDF export failed: {pdf.message})"
+                else:
+                    ok, message = False, result.message
             elif action == "resume":
                 result = _orchestrator.set_resume_text(str(payload.get("text", "")), source="pasted")
                 ok, message = result.ok, result.message

@@ -73,11 +73,13 @@ def check_grounding(generated_points: list[str], resume_claims: list[str]) -> di
     return {"flagged": flagged[:20], "ok_count": len(generated_points) - len(flagged)}
 
 
-# Style rules for the one-page LaTeX resume generator. Instructions only — no personal
-# data (contact links / certs live in the stored resume profile and are injected per call).
+# Style rules for the one-page HTML resume generator (rendered to PDF via Chromium).
+# Instructions only — no personal data (contact links / certs live in the stored resume
+# profile and are injected per call).
 RESUME_RULES = (
     "Act as a senior technical recruiter who screens 200 resumes a day. Rewrite the resume into a "
-    "single-page, ATS-optimized LaTeX resume targeting the role and company below.\n"
+    "single-page, ATS-optimized resume targeting the role and company below, output as one self-contained "
+    "HTML document with embedded CSS.\n"
     "Hard rules:\n"
     "- Replace every duty/responsibility with a specific, measurable achievement; cut all generic filler.\n"
     "- Do NOT use dashes or hyphens in your prose (rephrase to avoid them). Keep proper nouns and technology "
@@ -85,16 +87,18 @@ RESUME_RULES = (
     "- Open with a 1 to 2 line professional summary/bio tailored to the target role.\n"
     "- Weave in ATS keywords pulled from the job description, only where they are truthful.\n"
     "- Pick ONLY the projects most relevant to the job description from the candidate's project list. "
-    "For each chosen project, embed the matching GitHub repository link using \\href, choosing from the "
-    "provided repository list. Never invent a URL; if no clear repo match exists, omit the link.\n"
+    "For each chosen project, link the matching GitHub repository with an <a href> from the provided "
+    "repository list. Never invent a URL; if no clear repo match exists, omit the link.\n"
     "- Include the candidate's internship. Do NOT include GPA anywhere.\n"
-    "- Embed the provided contact links and certification links verbatim using \\href.\n"
+    "- Embed the provided contact links and certification links as <a href> elements.\n"
     "- ANTI-FABRICATION (critical): never state a total years-of-experience figure that is not in the resume; "
     "never add skills, frameworks, tools, employers, titles, dates, or metrics that are not present in the base "
     "resume. If the job wants 'senior' or skills the candidate lacks, reframe real experience honestly rather "
     "than inventing seniority or technologies. Every line must trace to the base resume.\n"
-    "- Keep it to ONE page. Output a complete, compilable LaTeX document and nothing else (no commentary, "
-    "no markdown fences)."
+    "LAYOUT: must fit on ONE Letter page when printed. Use a compact, clean professional layout with embedded "
+    "<style>: about 0.5in @page margin, ~10.5pt body font, a system sans-serif stack, tight line spacing and "
+    "margins, clear section headings, and links colored a dark teal. Output a COMPLETE HTML document starting "
+    "with <!DOCTYPE html> and nothing else (no commentary, no markdown fences)."
 )
 
 
@@ -178,9 +182,9 @@ class JobCopilot:
         repos: list[dict] | None = None,
         contact: str = "",
     ) -> TailorResult:
-        """Generate a one-page, JD-tailored LaTeX resume (see RESUME_RULES). Project GitHub
-        links are grounded in ``repos`` (only real matches are embedded); ``contact`` is the
-        fixed contact + certification LaTeX block injected verbatim."""
+        """Generate a one-page, JD-tailored HTML resume (see RESUME_RULES) suitable for PDF
+        rendering. Project GitHub links are grounded in ``repos`` (only real matches embedded);
+        ``contact`` is the fixed contact + certification link block injected per call."""
         resume_text = (resume_text or "").strip()
         job_text = (job_text or "").strip()
         if not resume_text or not job_text:
@@ -192,16 +196,16 @@ class JobCopilot:
             return TailorResult(company, role, ats, ok=False,
                                 package="A language model is required to generate a tailored resume.")
         try:
-            latex = (self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [], contact)) or "").strip()
+            html = (self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [], contact)) or "").strip()
         except Exception as exc:
             return TailorResult(company, role, ats, ok=False, package=f"Model error: {exc}")
-        latex = self._unfence(latex)
-        if "\\begin{document}" not in latex:
+        html = self._unfence(html)
+        if "<" not in html or "html" not in html.lower():
             return TailorResult(company, role, ats, ok=False,
-                                package="The model did not return a LaTeX document. Try again.")
-        grounding = check_grounding([latex], extract_resume_claims(resume_text))
+                                package="The model did not return an HTML document. Try again.")
+        grounding = check_grounding([html], extract_resume_claims(resume_text))
         return TailorResult(company, role, ats, keywords[:40], ats["misses"][:20],
-                            package=latex, grounding=grounding, used_llm=True)
+                            package=html, grounding=grounding, used_llm=True)
 
     def _build_resume_prompt(self, resume_text, job_text, company, role, repos, contact) -> str:
         target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
@@ -210,16 +214,16 @@ class JobCopilot:
         return (
             f"{RESUME_RULES}\n\n"
             f"TARGET ROLE: {target}\n\n"
-            f"CONTACT AND CERTIFICATION LINKS (embed verbatim with \\href):\n{contact_block}\n\n"
-            f"CANDIDATE GITHUB REPOSITORIES (match projects to these for \\href links; never invent URLs):\n{repo_lines}\n\n"
+            f"CONTACT AND CERTIFICATION LINKS (render each as an <a href> element):\n{contact_block}\n\n"
+            f"CANDIDATE GITHUB REPOSITORIES (match projects to these for <a href> links; never invent URLs):\n{repo_lines}\n\n"
             f"BASE RESUME (ground everything in this; do not fabricate):\n{resume_text[: self._max_resume]}\n\n"
             f"JOB DESCRIPTION:\n{job_text[: self._max_jd]}\n\n"
-            "Return ONLY the complete one-page LaTeX document:"
+            "Return ONLY the complete one-page HTML document:"
         )
 
     @staticmethod
     def _unfence(text: str) -> str:
-        """Strip a leading/trailing ```latex fence if the model wrapped its output."""
+        """Strip a leading/trailing ``` fence if the model wrapped its output."""
         stripped = text.strip()
         if stripped.startswith("```"):
             stripped = re.sub(r"^```[a-zA-Z]*\s*", "", stripped)

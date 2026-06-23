@@ -73,6 +73,37 @@ def experience_fits(title: str, job_text: str, max_years: int) -> bool:
     return years is None or years <= max_years
 
 
+# Hard blockers for an early-career international candidate: PhD-track titles, roles needing a
+# security clearance, and postings that explicitly won't sponsor a visa.
+_PHD_TITLE = re.compile(r"\bph\.?\s?d\b|\bdoctoral\b|\bpostdoc", re.IGNORECASE)
+_CLEARANCE = re.compile(r"\b(security clearance|ts/sci|top secret|active clearance|polygraph)\b", re.IGNORECASE)
+_NO_SPONSOR = re.compile(
+    r"(no\s+(?:visa\s+)?sponsorship|without\s+sponsorship|"
+    r"not?\s+(?:able|eligible|willing)\s+to\s+sponsor|unable\s+to\s+sponsor|"
+    r"(?:do(?:es)?\s+not|cannot|can't|will\s+not|won't)\s+(?:provide|offer)\s+(?:visa\s+)?sponsorship|"
+    r"sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided))",
+    re.IGNORECASE,
+)
+
+
+def job_is_blocked(title: str, job_text: str) -> bool:
+    """True for roles a 2-year, MS, sponsorship-needing candidate cannot realistically take."""
+    if _PHD_TITLE.search(title or ""):
+        return True
+    blob = job_text or ""
+    return bool(_CLEARANCE.search(blob) or _NO_SPONSOR.search(blob))
+
+
+def resume_match(job_text: str, resume_text: str) -> float:
+    """Fraction of the JD's keywords the resume already covers (0..1). A cheap suited-ness
+    proxy: a JD asking mostly for skills the candidate lacks scores low."""
+    from laptop_agent.copilot import ats_score, extract_keywords
+
+    if not job_text or not resume_text:
+        return 0.0
+    return ats_score(extract_keywords(job_text), resume_text).get("coverage", 0.0)
+
+
 _REL_TIME = re.compile(
     r"(?:posted\s+)?\d+\s*(?:second|minute|hour|day|week|month)s?\s+ago|just\s+now", re.IGNORECASE
 )
@@ -261,6 +292,7 @@ class JobrightTool:
         session_path: Path | None = None,
         headless: bool = True,
         max_years_experience: int = 4,
+        min_match: float = 0.12,
     ) -> None:
         self.approval_gate = approval_gate
         self.email = email or ""
@@ -269,8 +301,10 @@ class JobrightTool:
         self.headless = headless
         # Drop roles that read as senior or demand more than this many years of experience.
         self.max_years_experience = max_years_experience
+        # Drop roles whose JD keyword coverage by the resume is below this (0..1). 0 disables.
+        self.min_match = min_match
 
-    async def pull(self, max_scrolls: int = 120) -> ToolResult:
+    async def pull(self, max_scrolls: int = 120, resume_text: str = "") -> ToolResult:
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
@@ -299,7 +333,7 @@ class JobrightTool:
         leads: list[dict] = []
         login_ok = False
         senior_titles_dropped = 0
-        years_dropped = 0
+        fit_dropped = 0
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
@@ -324,15 +358,20 @@ class JobrightTool:
                     leads = [j for j in relevant if not is_senior_title(j["title"])]
                     senior_titles_dropped = len(relevant) - len(leads)
                     # API interception carries jobSummary; DOM-only leads don't — visit each
-                    # job page to fetch the JD so scoring/tailoring (and the years filter) work.
+                    # job page to fetch the JD so the years/blocker/match filters can run.
                     await self._enrich_descriptions(page, leads)
-                    # Now that JDs are in, drop anything demanding more years than the cap.
-                    before_years = len(leads)
-                    leads = [
-                        j for j in leads
-                        if experience_fits(j["title"], j.get("description", ""), self.max_years_experience)
-                    ]
-                    years_dropped = before_years - len(leads)
+                    kept = []
+                    for j in leads:
+                        jd = j.get("description", "")
+                        if not experience_fits(j["title"], jd, self.max_years_experience):
+                            continue
+                        if job_is_blocked(j["title"], jd):
+                            continue
+                        if self.min_match and resume_text and jd and resume_match(jd, resume_text) < self.min_match:
+                            continue
+                        kept.append(j)
+                    fit_dropped = len(leads) - len(kept)
+                    leads = kept
             finally:
                 await browser.close()
 
@@ -341,17 +380,14 @@ class JobrightTool:
                 "Jobright login failed. Check JOBRIGHT_EMAIL / JOBRIGHT_PASSWORD or refresh the saved session."
             )
         with_jd = sum(1 for j in leads if j.get("description"))
-        filtered = senior_titles_dropped + years_dropped
-        suffix = (
-            f" Filtered out {filtered} senior/over-{self.max_years_experience}-year role(s)."
-            if filtered else ""
-        )
+        filtered = senior_titles_dropped + fit_dropped
+        suffix = f" Filtered out {filtered} senior/over-qualified/off-target role(s)." if filtered else ""
         return ToolResult.success(
-            f"Kept {len(leads)} early-career Jobright lead(s); {with_jd} with a job description.{suffix}",
+            f"Kept {len(leads)} suited Jobright lead(s); {with_jd} with a job description.{suffix}",
             leads=leads,
             scraped=len(listings),
             with_description=with_jd,
-            filtered_senior=filtered,
+            filtered_out=filtered,
         )
 
     # --- browser drive (live; not unit-tested) -------------------------------

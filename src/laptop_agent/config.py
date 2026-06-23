@@ -50,6 +50,8 @@ class AppConfig:
     jobright_password: str | None = None
     # Drop Jobright leads that read as senior or want more than this many years of experience.
     jobright_max_years: int = 4
+    # Drop Jobright leads whose JD keyword coverage by the resume is below this (0..1; 0 = off).
+    jobright_min_match: float = 0.12
     # Chain-of-thought token budget for reasoning models (NVIDIA Nemotron ultra tier).
     llm_reasoning_budget: int = 16384
 
@@ -77,6 +79,13 @@ def _load_dotenv(path: str = ".env") -> None:
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
     except (TypeError, ValueError):
         return default
 
@@ -154,5 +163,6 @@ def load_config() -> AppConfig:
         jobright_email=os.environ.get("JOBRIGHT_EMAIL"),
         jobright_password=os.environ.get("JOBRIGHT_PASSWORD"),
         jobright_max_years=_env_int("JOBRIGHT_MAX_YEARS", 4),
+        jobright_min_match=_env_float("JOBRIGHT_MIN_MATCH", 0.12),
         llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
     )

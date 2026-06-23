@@ -12,8 +12,10 @@ from laptop_agent.tools.jobright import (
     extract_jobs_from_api_data,
     is_relevant,
     is_senior_title,
+    job_is_blocked,
     min_required_years,
     parse_jobright_item,
+    resume_match,
     try_parse_job_object,
 )
 
@@ -108,6 +110,19 @@ class JobrightParsingTests(unittest.TestCase):
         self.assertTrue(experience_fits("Data Engineer", "no years mentioned", max_years=4))
         self.assertFalse(experience_fits("Senior Software Engineer", "2 years", max_years=4))  # title
         self.assertFalse(experience_fits("Software Engineer", "8+ years required", max_years=4))  # years
+
+    def test_job_is_blocked(self) -> None:
+        self.assertTrue(job_is_blocked("2026 PhD Graduate", "Radar research"))  # PhD title
+        self.assertTrue(job_is_blocked("Software Engineer", "Active security clearance required"))
+        self.assertTrue(job_is_blocked("Data Engineer", "We do not provide visa sponsorship"))
+        self.assertFalse(job_is_blocked("Software Engineer", "PhD preferred but not required"))  # MS-ok
+        self.assertFalse(job_is_blocked("Data Engineer", "Python and SQL required"))
+
+    def test_resume_match_coverage(self) -> None:
+        resume = "Python FastAPI SQL data pipelines"
+        self.assertGreater(resume_match("We need Python and SQL", resume), 0.0)
+        self.assertEqual(resume_match("", resume), 0.0)
+        self.assertEqual(resume_match("Python", ""), 0.0)
 
     def test_deduplicate_by_title_company(self) -> None:
         rows = [

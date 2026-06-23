@@ -164,6 +164,15 @@ class JobTracker:
         self._save()
         return job
 
+    def set_tailored_pdf(self, job_id: int, path: str) -> dict | None:
+        job = self.get(job_id)
+        if job is None:
+            return None
+        job["tailored_pdf"] = path
+        job["updated_at"] = datetime.now(UTC).isoformat()
+        self._save()
+        return job
+
     def remove(self, job_id: int) -> bool:
         before = len(self._jobs)
         self._jobs = [j for j in self._jobs if j["id"] != job_id]
