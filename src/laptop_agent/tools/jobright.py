@@ -43,6 +43,36 @@ def is_relevant(title: str) -> bool:
     return not any(kw in t for kw in EXCLUDE_KEYWORDS)
 
 
+# Title words that signal a role above an early-career level. Filtered out so a 2-year
+# candidate isn't fed senior/staff/lead postings. "ii"/"iii" catch "Engineer III" etc.
+_SENIOR_TITLE = re.compile(
+    r"\b(senior|sr\.?|staff|principal|lead|architect|director|head|vp|vice\s+president|chief|"
+    r"distinguished|fellow|manager|mgr|iii|iv)\b",
+    re.IGNORECASE,
+)
+# "7+ years", "5-7 years", "5 to 7 yrs" -> capture the lower bound (the entry bar).
+_YEARS_REQUIRED = re.compile(r"(\d{1,2})\s*(?:(?:-|–|to)\s*\d{1,2})?\s*\+?\s*(?:years|yrs)\b", re.IGNORECASE)
+
+
+def is_senior_title(title: str) -> bool:
+    return bool(_SENIOR_TITLE.search(title or ""))
+
+
+def min_required_years(job_text: str) -> int | None:
+    """Lowest 'N years' figure mentioned in a JD (the minimum experience bar), or None."""
+    nums = [int(m.group(1)) for m in _YEARS_REQUIRED.finditer(job_text or "")]
+    return min(nums) if nums else None
+
+
+def experience_fits(title: str, job_text: str, max_years: int) -> bool:
+    """Drop roles that read as senior by title or demand more than ``max_years`` of experience.
+    A JD with no stated years passes (can't tell), so the title check still guards it."""
+    if is_senior_title(title):
+        return False
+    years = min_required_years(job_text)
+    return years is None or years <= max_years
+
+
 _REL_TIME = re.compile(
     r"(?:posted\s+)?\d+\s*(?:second|minute|hour|day|week|month)s?\s+ago|just\s+now", re.IGNORECASE
 )
@@ -230,12 +260,15 @@ class JobrightTool:
         password: str = "",
         session_path: Path | None = None,
         headless: bool = True,
+        max_years_experience: int = 4,
     ) -> None:
         self.approval_gate = approval_gate
         self.email = email or ""
         self.password = password or ""
         self.session_path = session_path
         self.headless = headless
+        # Drop roles that read as senior or demand more than this many years of experience.
+        self.max_years_experience = max_years_experience
 
     async def pull(self, max_scrolls: int = 120) -> ToolResult:
         try:
@@ -265,6 +298,8 @@ class JobrightTool:
         listings: list[dict] = []
         leads: list[dict] = []
         login_ok = False
+        senior_titles_dropped = 0
+        years_dropped = 0
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
@@ -281,13 +316,23 @@ class JobrightTool:
                     for item in listings:
                         item["title"] = clean_title(item.get("title", ""))
                         item["company"] = clean_title(item.get("company", ""))
-                    leads = [
+                    relevant = [
                         j for j in deduplicate(listings)
                         if j.get("title") and j.get("company") and is_relevant(j["title"])
                     ]
+                    # Drop senior-by-title roles before the (costly) JD fetch.
+                    leads = [j for j in relevant if not is_senior_title(j["title"])]
+                    senior_titles_dropped = len(relevant) - len(leads)
                     # API interception carries jobSummary; DOM-only leads don't — visit each
-                    # job page to fetch the JD so scoring/tailoring have something to work on.
+                    # job page to fetch the JD so scoring/tailoring (and the years filter) work.
                     await self._enrich_descriptions(page, leads)
+                    # Now that JDs are in, drop anything demanding more years than the cap.
+                    before_years = len(leads)
+                    leads = [
+                        j for j in leads
+                        if experience_fits(j["title"], j.get("description", ""), self.max_years_experience)
+                    ]
+                    years_dropped = before_years - len(leads)
             finally:
                 await browser.close()
 
@@ -296,11 +341,17 @@ class JobrightTool:
                 "Jobright login failed. Check JOBRIGHT_EMAIL / JOBRIGHT_PASSWORD or refresh the saved session."
             )
         with_jd = sum(1 for j in leads if j.get("description"))
+        filtered = senior_titles_dropped + years_dropped
+        suffix = (
+            f" Filtered out {filtered} senior/over-{self.max_years_experience}-year role(s)."
+            if filtered else ""
+        )
         return ToolResult.success(
-            f"Scraped {len(leads)} relevant Jobright lead(s); {with_jd} with a job description.",
+            f"Kept {len(leads)} early-career Jobright lead(s); {with_jd} with a job description.{suffix}",
             leads=leads,
             scraped=len(listings),
             with_description=with_jd,
+            filtered_senior=filtered,
         )
 
     # --- browser drive (live; not unit-tested) -------------------------------

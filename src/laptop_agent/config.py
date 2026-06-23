@@ -48,6 +48,8 @@ class AppConfig:
     # session (stored under data_dir); these are the fallback when no session exists.
     jobright_email: str | None = None
     jobright_password: str | None = None
+    # Drop Jobright leads that read as senior or want more than this many years of experience.
+    jobright_max_years: int = 4
     # Chain-of-thought token budget for reasoning models (NVIDIA Nemotron ultra tier).
     llm_reasoning_budget: int = 16384
 
@@ -151,5 +153,6 @@ def load_config() -> AppConfig:
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         jobright_email=os.environ.get("JOBRIGHT_EMAIL"),
         jobright_password=os.environ.get("JOBRIGHT_PASSWORD"),
+        jobright_max_years=_env_int("JOBRIGHT_MAX_YEARS", 4),
         llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
     )

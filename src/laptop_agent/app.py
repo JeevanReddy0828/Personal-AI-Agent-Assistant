@@ -75,6 +75,7 @@ def build_orchestrator(
             email=config.jobright_email or "",
             password=config.jobright_password or "",
             session_path=config.data_dir / "jobright_session.json",
+            max_years_experience=config.jobright_max_years,
         ),
     )
     return AgentOrchestrator(

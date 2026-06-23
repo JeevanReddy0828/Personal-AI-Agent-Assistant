@@ -8,8 +8,11 @@ from laptop_agent.jobs import JobTracker
 from laptop_agent.tools.jobright import (
     clean_title,
     deduplicate,
+    experience_fits,
     extract_jobs_from_api_data,
     is_relevant,
+    is_senior_title,
+    min_required_years,
     parse_jobright_item,
     try_parse_job_object,
 )
@@ -84,6 +87,27 @@ class JobrightParsingTests(unittest.TestCase):
         self.assertEqual(clean_title("Posted 3 days ago Backend Developer"), "Backend Developer")
         self.assertEqual(clean_title("Software Engineer"), "Software Engineer")  # untouched
         self.assertEqual(clean_title("Airtable • 5 minutes ago"), "Airtable")  # trailing time in company
+
+    def test_is_senior_title(self) -> None:
+        for t in ["Senior Software Engineer", "Sr. Data Engineer", "Staff Engineer",
+                  "Principal ML Engineer", "Engineering Manager", "Software Engineer III",
+                  "Lead Backend Developer", "Solutions Architect"]:
+            self.assertTrue(is_senior_title(t), t)
+        for t in ["Software Engineer", "Data Engineer", "Junior Developer",
+                  "Software Engineer II", "Associate Data Scientist", "New Grad Software Engineer"]:
+            self.assertFalse(is_senior_title(t), t)
+
+    def test_min_required_years(self) -> None:
+        self.assertEqual(min_required_years("Requires 7+ years of experience"), 7)
+        self.assertEqual(min_required_years("5-7 years building systems"), 5)  # lower bound
+        self.assertEqual(min_required_years("2 to 4 years preferred"), 2)
+        self.assertIsNone(min_required_years("No experience requirement stated"))
+
+    def test_experience_fits(self) -> None:
+        self.assertTrue(experience_fits("Software Engineer", "2+ years required", max_years=4))
+        self.assertTrue(experience_fits("Data Engineer", "no years mentioned", max_years=4))
+        self.assertFalse(experience_fits("Senior Software Engineer", "2 years", max_years=4))  # title
+        self.assertFalse(experience_fits("Software Engineer", "8+ years required", max_years=4))  # years
 
     def test_deduplicate_by_title_company(self) -> None:
         rows = [
