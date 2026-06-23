@@ -116,7 +116,7 @@ def _build_ultra_planner(config: AppConfig) -> Planner | None:
     # token budget for the chain-of-thought it streams in `reasoning_content`.
     return Planner(
         OpenAICompatiblePlannerProvider(
-            config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=180,
+            config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=420,
             reasoning=True, reasoning_budget=config.llm_reasoning_budget,
         )
     )

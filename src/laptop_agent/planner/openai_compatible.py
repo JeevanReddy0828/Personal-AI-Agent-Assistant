@@ -98,7 +98,9 @@ class OpenAICompatiblePlannerProvider:
             payload["reasoning_budget"] = self.reasoning_budget
             payload["top_p"] = self.top_p
             payload["temperature"] = 1.0
-            payload["max_tokens"] = max(int(payload.get("max_tokens", 0) or 0), self.reasoning_budget)
+            # Leave room for the final answer above the chain-of-thought budget so a long
+            # reasoning pass can't truncate the output.
+            payload["max_tokens"] = max(int(payload.get("max_tokens", 0) or 0), self.reasoning_budget + 4096)
 
     def plan(
         self,

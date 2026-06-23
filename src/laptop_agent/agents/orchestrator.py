@@ -109,6 +109,7 @@ class AgentOrchestrator:
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._copilot_cache: JobCopilot | None = None
+        self._resume_copilot_cache: JobCopilot | None = None
         self._repo_cache: dict[str, list[dict]] | None = None
 
     @staticmethod
@@ -1299,16 +1300,19 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
 
-    def _build_agent_brain(self):
+    def _build_agent_brain(self, planners=None):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
-        Tries the smart tier, then the fast planner, then the cross-provider fallback
-        (OpenRouter), using the first that returns text — so reasoning (the autonomous
-        agent and the advisor) keeps working when a tier is congested. Yields '' when no
-        LLM is configured, so callers end with a clear message instead of looping.
+        By default tries the smart tier, then the fast planner, then the cross-provider
+        fallback (OpenRouter), using the first that returns text — so reasoning (the
+        autonomous agent and the advisor) keeps working when a tier is congested. Pass an
+        explicit ``planners`` tuple to change the order (e.g. ultra-first for resumes).
+        Yields '' when no LLM is configured, so callers end with a clear message.
         """
+        if planners is None:
+            planners = (self.smart_planner, self.planner, self.fallback_planner)
         answerers = []
-        for planner in (self.smart_planner, self.planner, self.fallback_planner):
+        for planner in planners:
             answer = getattr(planner.provider, "answer", None) if planner else None
             if answer is not None:
                 answerers.append(answer)
@@ -1327,6 +1331,16 @@ class AgentOrchestrator:
             return ""
 
         return decide
+
+    def _resume_copilot(self) -> JobCopilot:
+        """CoPilot whose brain prefers the ultra reasoning tier (Nemotron, thinking on) for
+        stricter, less-fabricating resume generation, falling back to smart/fast/OpenRouter."""
+        if self._resume_copilot_cache is None:
+            brain = self._build_agent_brain(
+                (self.ultra_planner, self.smart_planner, self.planner, self.fallback_planner)
+            )
+            self._resume_copilot_cache = JobCopilot(decide=brain)
+        return self._resume_copilot_cache
 
     async def run_agent(self, goal: str, on_step=None) -> ToolResult:
         """Public entry for autonomous runs with an optional per-step callback (used by the
@@ -1612,7 +1626,7 @@ class AgentOrchestrator:
             return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
         profile = self.context.jobs.get_resume().get("profile", {}) or {}
         repos = self._github_repos(profile.get("github_user", ""))
-        result = self._copilot().tailor_resume(
+        result = self._resume_copilot().tailor_resume(
             resume, jd, company=job.get("company", ""), role=job.get("role", ""),
             repos=repos, contact=profile.get("contact", ""),
         )

@@ -1302,8 +1302,8 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
             orch.set_resume_text("- Built data pipelines in Python", source="paste")
-            # Inject a copilot with a deterministic LaTeX-returning brain (no network).
-            orch._copilot_cache = JobCopilot(
+            # Inject the resume copilot with a deterministic HTML-returning brain (no network).
+            orch._resume_copilot_cache = JobCopilot(
                 decide=lambda prompt: "<!DOCTYPE html><html><body>Python pipelines</body></html>"
             )
             job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",

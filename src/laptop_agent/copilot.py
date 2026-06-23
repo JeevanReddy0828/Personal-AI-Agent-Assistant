@@ -95,10 +95,13 @@ RESUME_RULES = (
     "never add skills, frameworks, tools, employers, titles, dates, or metrics that are not present in the base "
     "resume. If the job wants 'senior' or skills the candidate lacks, reframe real experience honestly rather "
     "than inventing seniority or technologies. Every line must trace to the base resume.\n"
-    "LAYOUT: must fit on ONE Letter page when printed. Use a compact, clean professional layout with embedded "
-    "<style>: about 0.5in @page margin, ~10.5pt body font, a system sans-serif stack, tight line spacing and "
-    "margins, clear section headings, and links colored a dark teal. Output a COMPLETE HTML document starting "
-    "with <!DOCTYPE html> and nothing else (no commentary, no markdown fences)."
+    "LENGTH (must fit ONE Letter page — be ruthless): a 1 to 2 line summary; a compact skills line or two; at "
+    "most the 3 most recent experiences with at most 2 bullets each; at most the 4 most relevant projects with "
+    "1 bullet each; a one line education entry (no GPA); a single certifications line. When unsure, include less.\n"
+    "LAYOUT: compact, clean, professional, with embedded <style>: about 0.4in @page margin, ~10pt body font, a "
+    "system sans-serif stack, tight line spacing and small vertical margins, clear section headings, links in a "
+    "dark teal. The rendered result MUST be a single page. Output a COMPLETE HTML document starting with "
+    "<!DOCTYPE html> and nothing else (no commentary, no markdown fences)."
 )
 
 
