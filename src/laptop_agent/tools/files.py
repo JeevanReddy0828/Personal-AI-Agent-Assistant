@@ -480,10 +480,21 @@ class FileTool:
 
     @staticmethod
     def _load_pdf(target: Path) -> tuple[str, ToolResult | None, dict[str, object]]:
+        # Prefer pdfplumber: it preserves fi/fl ligatures and (with a tight x_tolerance)
+        # word spacing, which pypdf mangles ("filtering"->"ltering", "JEEVAN"->"JEEV AN").
+        # Fall back to pypdf when pdfplumber isn't installed.
+        try:
+            import pdfplumber  # type: ignore
+
+            with pdfplumber.open(str(target)) as pdf:
+                text = "\n".join(page.extract_text(x_tolerance=1) or "" for page in pdf.pages)
+                return text, None, {"kind": "PDF", "pages": len(pdf.pages)}
+        except ImportError:
+            pass
         try:
             from pypdf import PdfReader  # type: ignore
         except ImportError:
-            return "", ToolResult.failure("PDF support requires: pip install pypdf"), {}
+            return "", ToolResult.failure("PDF support requires: pip install pdfplumber (or pypdf)"), {}
         reader = PdfReader(str(target))
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         return text, None, {"kind": "PDF", "pages": len(reader.pages)}

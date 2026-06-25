@@ -331,9 +331,8 @@ class JobrightTool:
 
         listings: list[dict] = []
         leads: list[dict] = []
+        dropped: list[dict] = []
         login_ok = False
-        senior_titles_dropped = 0
-        fit_dropped = 0
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
@@ -355,23 +354,30 @@ class JobrightTool:
                         if j.get("title") and j.get("company") and is_relevant(j["title"])
                     ]
                     # Drop senior-by-title roles before the (costly) JD fetch.
-                    leads = [j for j in relevant if not is_senior_title(j["title"])]
-                    senior_titles_dropped = len(relevant) - len(leads)
+                    survivors = []
+                    for j in relevant:
+                        if is_senior_title(j["title"]):
+                            dropped.append({"title": j["title"], "reason": "senior title"})
+                        else:
+                            survivors.append(j)
                     # API interception carries jobSummary; DOM-only leads don't — visit each
                     # job page to fetch the JD so the years/blocker/match filters can run.
-                    await self._enrich_descriptions(page, leads)
-                    kept = []
-                    for j in leads:
+                    await self._enrich_descriptions(page, survivors)
+                    for j in survivors:
                         jd = j.get("description", "")
-                        if not experience_fits(j["title"], jd, self.max_years_experience):
+                        years = min_required_years(jd)
+                        if years is not None and years > self.max_years_experience:
+                            dropped.append({"title": j["title"], "reason": f"needs {years}+ years"})
                             continue
                         if job_is_blocked(j["title"], jd):
+                            dropped.append({"title": j["title"], "reason": "phd/clearance/no-sponsorship"})
                             continue
-                        if self.min_match and resume_text and jd and resume_match(jd, resume_text) < self.min_match:
-                            continue
-                        kept.append(j)
-                    fit_dropped = len(leads) - len(kept)
-                    leads = kept
+                        if self.min_match and resume_text and jd:
+                            match = resume_match(jd, resume_text)
+                            if match < self.min_match:
+                                dropped.append({"title": j["title"], "reason": f"off-target (match {match:.0%})"})
+                                continue
+                        leads.append(j)
             finally:
                 await browser.close()
 
@@ -380,14 +386,14 @@ class JobrightTool:
                 "Jobright login failed. Check JOBRIGHT_EMAIL / JOBRIGHT_PASSWORD or refresh the saved session."
             )
         with_jd = sum(1 for j in leads if j.get("description"))
-        filtered = senior_titles_dropped + fit_dropped
-        suffix = f" Filtered out {filtered} senior/over-qualified/off-target role(s)." if filtered else ""
+        suffix = f" Filtered out {len(dropped)} senior/over-qualified/off-target role(s)." if dropped else ""
         return ToolResult.success(
             f"Kept {len(leads)} suited Jobright lead(s); {with_jd} with a job description.{suffix}",
             leads=leads,
             scraped=len(listings),
             with_description=with_jd,
-            filtered_out=filtered,
+            filtered_out=len(dropped),
+            dropped=dropped[:40],
         )
 
     # --- browser drive (live; not unit-tested) -------------------------------
