@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from laptop_agent.copilot import JobCopilot, ats_score, check_grounding, extract_keywords, extract_resume_claims
@@ -72,43 +73,47 @@ class TailorTests(unittest.TestCase):
 
 
 class TailorResumeTests(unittest.TestCase):
-    HTML = (
-        "<!DOCTYPE html><html><head><style>body{font-family:sans-serif}</style></head><body>"
-        "Built a Python FastAPI service with Redis and Kubernetes. "
-        "<a href=\"https://github.com/u/proj\">Project</a></body></html>"
-    )
+    JSON = json.dumps({
+        "summary": "Backend engineer with Python and Kubernetes experience.",
+        "skills": [{"category": "Languages", "items": "Python, SQL"}],
+        "experiences": [{"company": "Acme", "dates": "2023", "title": "Engineer",
+                         "location": "NYC", "bullets": ["Built a Python FastAPI service with Redis"]}],
+        "projects": [{"name": "Proj", "stack": "Python", "repo_url": "https://github.com/u/proj", "bullet": "Did X"}],
+        "education": [{"school": "UF", "degree": "M.S. CS", "dates": "2024"}],
+    })
 
     def test_resume_requires_llm(self) -> None:
         result = JobCopilot().tailor_resume(RESUME, JD, company="Acme", role="Backend")
         self.assertFalse(result.ok)
         self.assertIn("language model", result.package.lower())
 
-    def test_resume_builds_html_and_grounds_links(self) -> None:
+    def test_resume_renders_template_from_json(self) -> None:
         seen = {}
 
         def decide(prompt: str) -> str:
             seen["prompt"] = prompt
-            return self.HTML
+            return self.JSON
 
         repos = [{"name": "proj", "url": "https://github.com/u/proj"}]
-        contact = "<a href=\"https://x/\">LinkedIn</a>"
         result = JobCopilot(decide=decide).tailor_resume(
-            RESUME, JD, company="Acme", role="Backend", repos=repos, contact=contact)
+            RESUME, JD, company="Acme", role="Backend", repos=repos,
+            contact="<a href='x'>LinkedIn</a>", certs="<a href='y'>AWS</a>", name="JEEVAN")
         self.assertTrue(result.ok)
-        self.assertIn("<html", result.package.lower())
-        self.assertIn("proj: https://github.com/u/proj", seen["prompt"])  # repo handed in for grounding
-        self.assertIn(contact, seen["prompt"])  # contact block handed in
-        self.assertIn("score", result.ats)
+        self.assertIn("<!DOCTYPE", result.package)
+        self.assertIn("JEEVAN", result.package)  # name from caller
+        self.assertIn("LinkedIn", result.package)  # contact injected verbatim
+        self.assertIn("AWS", result.package)  # certs injected verbatim
+        self.assertIn("https://github.com/u/proj", result.package)  # grounded repo link
+        self.assertIn("proj: https://github.com/u/proj", seen["prompt"])  # repo handed to model
 
-    def test_resume_rejects_non_html_reply(self) -> None:
-        result = JobCopilot(decide=lambda p: "Sorry, here are some bullet points instead.").tailor_resume(RESUME, JD)
-        self.assertFalse(result.ok)
+    def test_resume_rejects_invalid_content(self) -> None:
+        self.assertFalse(JobCopilot(decide=lambda p: "Sorry, no JSON here.").tailor_resume(RESUME, JD).ok)
+        self.assertFalse(JobCopilot(decide=lambda p: '{"summary":"x"}').tailor_resume(RESUME, JD).ok)  # no experiences
 
-    def test_resume_strips_code_fences(self) -> None:
-        fenced = "```html\n" + self.HTML + "\n```"
-        result = JobCopilot(decide=lambda p: fenced).tailor_resume(RESUME, JD)
+    def test_resume_parses_fenced_json(self) -> None:
+        result = JobCopilot(decide=lambda p: "```json\n" + self.JSON + "\n```").tailor_resume(RESUME, JD)
         self.assertTrue(result.ok)
-        self.assertTrue(result.package.startswith("<!DOCTYPE"))
+        self.assertIn("Technical Skills".upper(), result.package.upper())
 
 
 if __name__ == "__main__":

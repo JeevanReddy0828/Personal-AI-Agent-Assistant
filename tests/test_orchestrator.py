@@ -1302,10 +1302,16 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
             orch.set_resume_text("- Built data pipelines in Python", source="paste")
-            # Inject the resume copilot with a deterministic HTML-returning brain (no network).
-            orch._resume_copilot_cache = JobCopilot(
-                decide=lambda prompt: "<!DOCTYPE html><html><body>Python pipelines</body></html>"
-            )
+            # Inject the resume copilot with a deterministic JSON-returning brain (no network).
+            import json as _json
+            content = _json.dumps({
+                "summary": "Data engineer.",
+                "skills": [{"category": "Languages", "items": "Python"}],
+                "experiences": [{"company": "Acme", "dates": "2024", "title": "DE",
+                                 "location": "Remote", "bullets": ["Built Python pipelines"]}],
+                "projects": [], "education": [],
+            })
+            orch._resume_copilot_cache = JobCopilot(decide=lambda prompt: content)
             job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
                                         description="Python data pipelines and SQL.")
             result = orch.tailor_job(job["id"])

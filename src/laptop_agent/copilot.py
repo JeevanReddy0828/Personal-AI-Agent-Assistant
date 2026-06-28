@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html as _html
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -73,47 +75,135 @@ def check_grounding(generated_points: list[str], resume_claims: list[str]) -> di
     return {"flagged": flagged[:20], "ok_count": len(generated_points) - len(flagged)}
 
 
-# Style rules for the one-page HTML resume generator (rendered to PDF via Chromium).
-# Instructions only — no personal data (contact links / certs live in the stored resume
-# profile and are injected per call).
+# Content rules for the resume generator. The model returns grounded CONTENT as JSON; a
+# fixed template (render_resume_html) controls the exact layout, so the format never drifts.
 RESUME_RULES = (
-    "Act as a senior technical recruiter who screens 200 resumes a day. Rewrite the candidate's resume into "
-    "an ATS-optimized resume targeting the role and company below, output as ONE self-contained HTML document "
-    "with embedded CSS, following EXACTLY this structure and order:\n"
-    "1. HEADER: the candidate's full name in uppercase, bold, centered. Directly under it, one centered CONTACT "
-    "line with items separated by ' · ' (use the provided contact links plus the phone and city from the resume).\n"
-    "2. SUMMARY: a 2 to 3 line professional summary directly under the header (no section heading), tailored to "
-    "the target role, leading with the candidate's level and 2+ years and degree, then key strengths.\n"
-    "3. TECHNICAL SKILLS: heading, then several 'Category: comma list' lines, EACH category on its own line "
-    "(a separate <div>). Use ONLY the categories and skills that appear in the base resume (e.g. Generative AI "
-    "& LLMs, Python & APIs, Web & Frontend, Cloud, Data & ML). You may reorder and lightly trim to emphasize "
-    "what the JD wants, but NEVER add a new category or a skill the resume does not list.\n"
-    "4. EXPERIENCE: heading, then EVERY role from the base resume, newest first. For each role: a row with the "
-    "company in bold on the left and the dates on the right, a second row with the job title on the left and the "
-    "location on the right, then EXACTLY ONE concise achievement bullet (about 25 words, one or two lines).\n"
-    "5. KEY PROJECTS: heading, then the 4 projects most relevant to the JD. For each: the project name in bold "
-    "followed by its tech stack, a matching GitHub <a href> link from the provided repository list, then ONE "
-    "concise achievement bullet (about 25 words).\n"
-    "6. EDUCATION: heading, then each degree (school + dates, degree line). NEVER include GPA.\n"
-    "7. CERTIFICATIONS: heading, then one line of the provided certification links separated by ' · '.\n"
-    "Hard rules:\n"
-    "- INCLUDE EVERY EXPERIENCE from the base resume. Do not drop, merge, or omit any role.\n"
-    "- Replace duties with specific, measurable achievements; cut generic filler; weave in truthful ATS keywords "
-    "from the JD.\n"
-    "- Do NOT use dashes or hyphens in your prose (rephrase). Keep proper nouns and technology names exact.\n"
-    "- Use only the provided repository links for projects; never invent a URL; omit the link if no repo matches.\n"
-    "- ANTI-FABRICATION (critical): never add employers, titles, dates, degrees, metrics, OR SKILLS/TOOLS that "
-    "are not in the base resume, even when the job description asks for them. Do not invent a skills category. Do "
-    "not claim a years-of-experience figure beyond what the resume states. Emphasize real overlap; where the "
-    "candidate lacks something, stay silent rather than inventing it. Every word must trace to the base resume.\n"
-    "- Use the candidate's name exactly as written in the base resume.\n"
-    "LAYOUT: it MUST fit on ONE Letter page — be concise enough that everything fits. Compact, clean, "
-    "professional, with embedded <style>: about 0.4in @page margin, ~9pt body font, ~1.2 line-height, small "
-    "vertical margins between items, a system sans-serif stack, uppercase section headings with a thin bottom "
-    "border, company/title rows laid out with flexbox (justify-content: space-between) so dates and locations "
-    "align right, links in a dark teal. Output a COMPLETE HTML document starting with <!DOCTYPE html> and "
-    "nothing else (no commentary, no markdown fences)."
+    "Act as a senior technical recruiter who screens 200 resumes a day. Tailor the candidate's resume to the "
+    "target role and return ONLY a JSON object (no prose, no markdown fences) with EXACTLY this schema:\n"
+    "{\n"
+    '  "summary": "3 to 4 line professional summary tailored to the target role, grounded in the resume",\n'
+    '  "skills": [{"category": "Languages", "items": "comma separated list"}],\n'
+    '  "experiences": [{"company": "", "dates": "", "title": "", "location": "", "bullets": ["", ""]}],\n'
+    '  "projects": [{"name": "", "stack": "", "repo_url": "", "bullet": ""}],\n'
+    '  "education": [{"school": "", "degree": "", "dates": ""}]\n'
+    "}\n"
+    "Rules:\n"
+    "- experiences: include EVERY role from the base resume, newest first, with 1 to 2 concise measurable bullets "
+    "each (about 25 words per bullet). Do not drop, merge, or omit any role.\n"
+    "- skills: use ONLY the categories and skills present in the base resume; reorder and lightly trim to "
+    "emphasize what the JD wants, but NEVER add a category or a skill the resume does not list.\n"
+    "- projects: the 4 most relevant to the JD; set repo_url ONLY from the provided repository list (exact match) "
+    "or \"\" if none matches. Never invent a URL.\n"
+    "- education: each degree with school, degree, dates. NEVER include GPA.\n"
+    "- Replace duties with specific, measurable achievements; weave in truthful ATS keywords from the JD.\n"
+    "- Do NOT use dashes or hyphens in prose (rephrase). Keep proper nouns and technology names exact.\n"
+    "- ANTI-FABRICATION (critical): never add employers, titles, dates, degrees, metrics, or skills/tools not in "
+    "the base resume, even when the JD asks for them. Do not claim a years figure beyond what the resume states. "
+    "Every value must trace to the base resume.\n"
+    "Return ONLY the JSON object."
 )
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """Parse the first JSON object out of a model reply (tolerating fences / surrounding prose)."""
+    if not text:
+        return None
+    cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", text.strip())
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    # strict=False tolerates literal newlines/tabs inside string values, which models often
+    # emit in multi-line bullets and which the default decoder rejects as control chars.
+    try:
+        parsed = json.loads(cleaned, strict=False)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = cleaned.find("{")
+    depth = 0
+    for i in range(start, len(cleaned)) if start != -1 else []:
+        if cleaned[i] == "{":
+            depth += 1
+        elif cleaned[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    parsed = json.loads(cleaned[start : i + 1], strict=False)
+                    return parsed if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
+# Fixed layout matching the user's Caladea (Cambria-compatible) one-page format: centered
+# 15pt name, dot-separated contact, justified summary, uppercase section headings with a
+# full-width rule, flex rows so dates/locations align right. Format is OURS, not the model's.
+_RESUME_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Caladea:ital,wght@0,400;0,700;1,400&display=swap');
+@page { size: Letter; margin: 0.5in 0.7in; }
+* { box-sizing: border-box; }
+body { font-family: 'Caladea','Cambria','Georgia',serif; font-size: 9pt; line-height: 1.25; color: #000; margin: 0; }
+a { color: #000; }
+.name { text-align: center; font-size: 15pt; font-weight: bold; letter-spacing: 0.4px; }
+.contact { text-align: center; font-size: 8.5pt; margin: 2px 0 6px; }
+.summary { text-align: justify; margin: 0 0 4px; }
+h2 { font-size: 10.5pt; font-weight: bold; text-transform: uppercase; margin: 8px 0 3px;
+     border-bottom: 0.75pt solid #000; padding-bottom: 1px; letter-spacing: 0.3px; }
+.skill { margin: 1px 0; }
+.row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.row .r { white-space: nowrap; }
+.row .l { font-weight: bold; }
+.subrow { display: flex; justify-content: space-between; gap: 12px; font-style: italic; }
+.stack { font-style: italic; font-weight: normal; }
+ul { margin: 1px 0 2px; padding-left: 15px; }
+li { margin: 1px 0; }
+"""
+
+
+def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
+    """Render grounded resume CONTENT (the model's JSON) into the fixed one-page template.
+    ``contact`` and ``certs`` are trusted pre-built HTML; all model content is escaped."""
+    def esc(value: object) -> str:
+        return _html.escape(str(value or "").strip())
+
+    skills = "".join(
+        f'<div class="skill"><b>{esc(s.get("category"))}:</b> {esc(s.get("items"))}</div>'
+        for s in data.get("skills", []) if s.get("category")
+    )
+    experience = ""
+    for e in data.get("experiences", []):
+        bullets = "".join(f"<li>{esc(b)}</li>" for b in e.get("bullets", []) if str(b).strip())
+        experience += (
+            f'<div class="row"><span class="l">{esc(e.get("company"))}</span>'
+            f'<span class="r">{esc(e.get("dates"))}</span></div>'
+            f'<div class="subrow"><span>{esc(e.get("title"))}</span>'
+            f'<span>{esc(e.get("location"))}</span></div><ul>{bullets}</ul>'
+        )
+    projects = ""
+    for p in data.get("projects", []):
+        url = str(p.get("repo_url") or "").strip()
+        link = f'<a href="{esc(url)}">GitHub</a>' if url.startswith("http") else ""
+        projects += (
+            f'<div class="row"><span><span class="l">{esc(p.get("name"))}</span> '
+            f'<span class="stack">{esc(p.get("stack"))}</span></span>'
+            f'<span class="r">{link}</span></div><ul><li>{esc(p.get("bullet"))}</li></ul>'
+        )
+    education = ""
+    for ed in data.get("education", []):
+        education += (
+            f'<div class="row"><span><span class="l">{esc(ed.get("school"))}</span> '
+            f'{esc(ed.get("degree"))}</span><span class="r">{esc(ed.get("dates"))}</span></div>'
+        )
+    return (
+        f"<!DOCTYPE html><html><head><meta charset='utf-8'><style>{_RESUME_CSS}</style></head><body>"
+        f'<div class="name">{esc(name)}</div>'
+        f'<div class="contact">{contact}</div>'
+        f'<div class="summary">{esc(data.get("summary"))}</div>'
+        f"<h2>Technical Skills</h2>{skills}"
+        f"<h2>Experience</h2>{experience}"
+        f"<h2>Key Projects</h2>{projects}"
+        f"<h2>Education</h2>{education}"
+        f"<h2>Certifications</h2><div>{certs}</div>"
+        f"</body></html>"
+    )
 
 
 @dataclass
@@ -195,10 +285,12 @@ class JobCopilot:
         role: str = "",
         repos: list[dict] | None = None,
         contact: str = "",
+        certs: str = "",
+        name: str = "",
     ) -> TailorResult:
-        """Generate a one-page, JD-tailored HTML resume (see RESUME_RULES) suitable for PDF
-        rendering. Project GitHub links are grounded in ``repos`` (only real matches embedded);
-        ``contact`` is the fixed contact + certification link block injected per call."""
+        """Generate a JD-tailored one-page resume. The model returns grounded CONTENT as JSON;
+        render_resume_html() lays it out in the fixed template (so the format is exact). The
+        name, contact line and certifications come straight from the caller, never the model."""
         resume_text = (resume_text or "").strip()
         job_text = (job_text or "").strip()
         if not resume_text or not job_text:
@@ -210,36 +302,29 @@ class JobCopilot:
             return TailorResult(company, role, ats, ok=False,
                                 package="A language model is required to generate a tailored resume.")
         try:
-            html = (self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [], contact)) or "").strip()
+            raw = self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [])) or ""
         except Exception as exc:
             return TailorResult(company, role, ats, ok=False, package=f"Model error: {exc}")
-        html = self._unfence(html)
-        if "<" not in html or "html" not in html.lower():
+        data = _extract_json_object(raw)
+        if not data or not data.get("experiences"):
             return TailorResult(company, role, ats, ok=False,
-                                package="The model did not return an HTML document. Try again.")
-        grounding = check_grounding([html], extract_resume_claims(resume_text))
+                                package="The model did not return valid resume content. Try again.")
+        if not name:
+            name = next((ln.strip() for ln in resume_text.splitlines() if ln.strip()), "")
+        html = render_resume_html(name, contact, certs, data)
+        grounded_text = [data.get("summary", "")] + [b for e in data.get("experiences", []) for b in e.get("bullets", [])]
+        grounding = check_grounding(grounded_text, extract_resume_claims(resume_text))
         return TailorResult(company, role, ats, keywords[:40], ats["misses"][:20],
                             package=html, grounding=grounding, used_llm=True)
 
-    def _build_resume_prompt(self, resume_text, job_text, company, role, repos, contact) -> str:
+    def _build_resume_prompt(self, resume_text, job_text, company, role, repos) -> str:
         target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
         repo_lines = "\n".join(f"  {r.get('name','')}: {r.get('url','')}" for r in repos if r.get("url")) or "  (none provided)"
-        contact_block = contact.strip() or "(no contact block provided — use the links in the resume text)"
         return (
             f"{RESUME_RULES}\n\n"
             f"TARGET ROLE: {target}\n\n"
-            f"CONTACT AND CERTIFICATION LINKS (render each as an <a href> element):\n{contact_block}\n\n"
-            f"CANDIDATE GITHUB REPOSITORIES (match projects to these for <a href> links; never invent URLs):\n{repo_lines}\n\n"
+            f"CANDIDATE GITHUB REPOSITORIES (use these exact URLs for matching projects; never invent one):\n{repo_lines}\n\n"
             f"BASE RESUME (ground everything in this; do not fabricate):\n{resume_text[: self._max_resume]}\n\n"
             f"JOB DESCRIPTION:\n{job_text[: self._max_jd]}\n\n"
-            "Return ONLY the complete one-page HTML document:"
+            "Return ONLY the JSON object:"
         )
-
-    @staticmethod
-    def _unfence(text: str) -> str:
-        """Strip a leading/trailing ``` fence if the model wrapped its output."""
-        stripped = text.strip()
-        if stripped.startswith("```"):
-            stripped = re.sub(r"^```[a-zA-Z]*\s*", "", stripped)
-            stripped = re.sub(r"\s*```$", "", stripped)
-        return stripped.strip()

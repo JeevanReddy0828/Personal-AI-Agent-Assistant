@@ -1632,9 +1632,11 @@ class AgentOrchestrator:
             return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
         profile = self.context.jobs.get_resume().get("profile", {}) or {}
         repos = self._github_repos(profile.get("github_user", ""))
+        name = next((ln.strip() for ln in resume.splitlines() if ln.strip()), "")
         result = self._resume_copilot().tailor_resume(
             resume, jd, company=job.get("company", ""), role=job.get("role", ""),
-            repos=repos, contact=profile.get("contact", ""),
+            repos=repos, contact=profile.get("contact_links", ""),
+            certs=profile.get("cert_links", ""), name=name,
         )
         if not result.ok:
             return ToolResult.failure(result.package, job_id=job_id)
