@@ -145,7 +145,10 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Capability | How |
 |---|---|
 | Job application tracker | `job add <company> [stage]` · `jobs` · `job stage <id> <stage>` |
+| Daily Jobright lead pull | `jobright pull` (browser extra) — scrapes recommendations, filters to early-career fit (drops senior/PhD/clearance/no-sponsorship/off-target), imports at a `lead` stage. Schedule via `schedule command "jobright pull"` |
+| Live pipeline dashboard | Pipeline page (`#/pipeline`): stage board with live **ATS scores**, **Pull from Jobright** + **Clear leads**, and per-job **Tailor → PDF** |
 | Resume CoPilot (ATS + tailoring) | Job tracker page → "Tailor an application": ATS score, missing keywords, grounded bullets, cover letter, interview pack |
+| Grounded resume tailoring → PDF | Pipeline page → set base resume, then **Tailor** any lead: a one-page resume (template-driven exact format, grounded skills + real GitHub project links, no GPA), downloadable as **PDF** (rendered via Chromium, no LaTeX needed) |
 | Reminders | `remind me to <x> at <when>` · `reminders` |
 | Recurring jobs (commands or agent goals) | `schedule <when> :: <command>` · `schedule list` |
 | Daily briefing | `briefing` |
@@ -154,7 +157,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Browser form inspect / preview / fill (gated) | `inspect forms <url>` · `fill form <url>` |
 
 ### 🎨 Interfaces & UX
-CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker**, with funnel/trend charts) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
+CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
 Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS) ·
 holographic particle-core HUD · adaptive HUD controls (transparency / compact / always-on-top) ·
 web panels: **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs**, **Agent runs**, live metrics & health pill.
@@ -169,6 +172,8 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 |---|---|---|
 | **LLM brain** | `LAPTOP_AGENT_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` | Any OpenAI-compatible API (OpenAI, NVIDIA, …). Leave provider `heuristic` for offline. |
 | **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL` | Optional; picked automatically by task complexity. |
+| **Reasoning budget** | `OPENAI_REASONING_BUDGET` | Chain-of-thought token budget for an NVIDIA reasoning ultra tier (default 16384; kept internal). |
+| **Job search** | `JOBRIGHT_EMAIL`, `JOBRIGHT_PASSWORD`, `JOBRIGHT_MAX_YEARS`, `JOBRIGHT_MIN_MATCH` | Jobright login (session-cached after first login) + lead filtering (max experience years, min resume match). |
 | **Cross-provider fallback** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Free [OpenRouter](https://openrouter.ai/keys) safety net when the primary provider is throttled. |
 | **Web search** | `SEARCH_PROVIDER`, `SEARCH_API_KEY` (or `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) | No key → DuckDuckGo. Provider inferred from whichever key is set. |
 | **Email** | `SMTP_*`, `IMAP_*`, `GOOGLE_CLIENT_*`, `MICROSOFT_CLIENT_*` | Drafts work with no creds; SMTP/IMAP/OAuth unlock send/read. |
@@ -182,7 +187,7 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 |---|---|---|
 | fast | `OPENAI_MODEL` | routing + simple turns (kept warm) |
 | smart | `OPENAI_SMART_MODEL` | complex questions |
-| ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout) |
+| ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout); NVIDIA reasoning models think first (`OPENAI_REASONING_BUDGET`) |
 | vision | `OPENAI_VISION_MODEL` | screen + images |
 | backup | `OPENROUTER_API_KEY` | cross-provider last resort |
 
@@ -229,8 +234,8 @@ playwright install chromium    # for browser automation
 | `voice` | text-to-speech + speech recognition |
 | `ocr` | image OCR *(needs the Tesseract binary on PATH)* |
 | `transcribe` / `stt` | Whisper *(needs ffmpeg)* / lightweight Vosk |
-| `docs` | PDF/DOCX reading |
-| `browser` | Playwright form inspect/fill |
+| `docs` | PDF/DOCX reading (pdfplumber preferred for clean ligatures/spacing, pypdf fallback) |
+| `browser` | Playwright form inspect/fill · Jobright lead scraper · resume-to-PDF rendering |
 | `desktop` | screenshots, app/media-key control |
 | `youtube` · `metrics` · `vision` | transcripts · CPU/GPU stats · webcam |
 
@@ -243,7 +248,9 @@ src/laptop_agent/
   agents/orchestrator.py   Core router: text → one tool or a streamed chat reply
   planner/                 Heuristic (instant) + OpenAI-compatible (LLM) routers
   tools/                   files, web, research, email, travel, transcribe, webcam,
-                           music, weather, youtube, obsidian, browser, desktop, terminal
+                           music, weather, youtube, obsidian, browser, desktop, terminal,
+                           jobright (lead scraper), resume_pdf (HTML→PDF via Chromium)
+  copilot.py  jobs.py      Resume CoPilot (ATS + grounded template resume) + job pipeline
   advisor.py  reasoning.py Problem-solver + autonomous plan/act/observe loop
   knowledge.py  memory.py  TF-IDF index + JSON profile memory
   scheduler.py  tasks.py   Recurring jobs · parallel/sequential run history

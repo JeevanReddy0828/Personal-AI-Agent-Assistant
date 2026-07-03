@@ -152,9 +152,21 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         (recurring jobs), copilot.py (JobCopilot: ports the Agentic-AI-JOB-CoPilot
         logic — ATS scoring, keyword/claims extraction, grounding — onto our LLM
         provider; `tailor_application()` → grounded bullets/cover letter/interview pack
-        via `/api/copilot`), jobs.py (JobTracker: job-application pipeline — stages,
-        funnel/response-rate stats, JSON-persisted; `job add/list/stage/remove` +
-        `/api/jobs`; powers the Job Tracker dashboard), reminders.py, metrics.py, health.py,
+        via `/api/copilot`, PLUS `tailor_resume()` → a grounded one-page resume: the
+        model returns CONTENT as JSON, `render_resume_html()` lays it out in a FIXED
+        Caladea template so the format never drifts; name/contact/certs come from the
+        stored profile, project links are grounded in the candidate's real GitHub repos),
+        jobs.py (JobTracker: job pipeline — stages incl. a sourced `lead` stage,
+        funnel/response-rate stats, base-resume + tailoring persistence, JSON-persisted;
+        `job add/list/stage/remove` + `/api/jobs`),
+        tools/jobright.py (JobrightTool: Playwright scraper ported from job-agent--Jarvis,
+        behind the `browser` extra — session-first login, API-interception + DOM-fallback
+        scrape, JD enrichment, then filters to early-career fit: seniority/years/PhD/
+        clearance/no-sponsorship + resume-relevance; returns leads + a `dropped`-with-reasons
+        list. `jobright pull` command → `import_leads` at the `lead` stage; schedule daily
+        via `schedule command "jobright pull"`),
+        tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
+        `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
         memory.py, token_vault.py (DPAPI), config.py
 ```
@@ -196,6 +208,13 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
 - `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
 - `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
+
+The ultra tier is treated as an NVIDIA **reasoning** model: its provider is built with
+`reasoning=True` so `answer()`/`stream_answer()` send `chat_template_kwargs.enable_thinking`
++ `reasoning_budget` (`OPENAI_REASONING_BUDGET`, default 16384) and read the separate
+streamed `reasoning_content` (kept internal — only the final answer is surfaced). Routing
+and narration stay thinking-OFF for speed/clean JSON. `answer()` takes a `max_tokens` param
+so long outputs (a full resume, 8000) aren't truncated at the 900-token chat default.
 
 Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a
 higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing)
@@ -271,12 +290,19 @@ when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
 The web app is now **multi-page**: a header nav + hash router (`#/chat`, `#/overview`,
-`#/jobs`) toggles `body[data-view]` to swap full-width routed pages (Chat stays default).
-The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG charts**
-(funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
+`#/jobs`, `#/pipeline`) toggles `body[data-view]` to swap full-width routed pages (Chat
+stays default). The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG
+charts** (funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
 `/api/metrics`; the Job Tracker page adds/edits applications and changes stage inline.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (456 passing).
+The **Pipeline** page (`#/pipeline`, `/api/pipeline`) is the live job-search board: a
+base-resume panel (paste text or load a PDF/DOCX/TXT path), a **Pull from Jobright** button,
+a **Clear leads** button, a stage board (lead → applied → … → offer) whose cards show a
+live **ATS score** (local, no LLM) and per-job **Tailor** → grounded one-page resume, then
+**PDF** (download via `/api/resume-pdf?id=`) + **Preview** (inline iframe). Tailoring runs
+on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/resumes/`.
+
+Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (488 passing).
 
 ## Working alongside another agent (Codex)
 
