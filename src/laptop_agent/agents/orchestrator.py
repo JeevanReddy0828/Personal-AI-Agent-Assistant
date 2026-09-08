@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from laptop_agent.cancellation import check_cancelled, OperationCancelled
+
 import asyncio
+import html
+import hashlib
 import json
 import re
 import tempfile
@@ -160,18 +164,30 @@ class AgentOrchestrator:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
         (e.g. it was unreachable/congested), which signals the caller to fall back."""
+        check_cancelled()
         if provider is None:
             return ""
         streamer = getattr(provider, "stream_answer", None)
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
-            for token in streamer(command, profile, None, history):
-                chunks.append(token)
-                on_token(token)
+            try:
+                for token in streamer(command, profile, None, history):
+                    check_cancelled()
+                    chunks.append(token)
+                    on_token(token)
+            except (OSError, TimeoutError):
+                check_cancelled()
+                reset = getattr(on_token, "reset", None)
+                if reset:
+                    reset()
+                return ""
+            check_cancelled()
             return "".join(chunks).strip()
         answer_fn = getattr(provider, "answer", None)
         if answer_fn is not None:
-            return (answer_fn(command, profile, None, history) or "").strip()
+            reply = (answer_fn(command, profile, None, history) or "").strip()
+            check_cancelled()
+            return reply
         return ""
 
     def _route(
@@ -201,6 +217,7 @@ class AgentOrchestrator:
         history: list[dict[str, str]] | None = None,
         on_token=None,
     ) -> ToolResult:
+        check_cancelled()
         command = text.strip()
         lowered = command.lower()
         history_turns = history or []
@@ -859,11 +876,7 @@ class AgentOrchestrator:
         streamed_live = on_token is not None and streamer is not None
         text = ""
         if streamed_live:
-            chunks: list[str] = []
-            for token in streamer(prompt, profile, None, history_turns):
-                chunks.append(token)
-                on_token(token)
-            text = "".join(chunks).strip()
+            text = self._tier_reply(provider, prompt, profile, history_turns, on_token)
         if not text:
             text = (answer(prompt, profile, None, history_turns) or "").strip()
         if not text:
@@ -1322,6 +1335,7 @@ class AgentOrchestrator:
         profile = self.context.memory.get_profile()
 
         def decide(prompt: str) -> str:
+            check_cancelled()
             for answer in answerers:
                 try:
                     reply = answer(prompt, profile, None, None, max_tokens=answer_max_tokens)
@@ -1329,6 +1343,7 @@ class AgentOrchestrator:
                     reply = answer(prompt, profile, None, None)  # older provider without max_tokens
                 except Exception:
                     reply = None
+                check_cancelled()
                 if reply:
                     return reply
             return ""
@@ -1367,6 +1382,9 @@ class AgentOrchestrator:
         )
         try:
             result = await agent.run(goal, on_step=on_step)
+        except OperationCancelled:
+            self.control_room.finish(agent_id, "Stopped by user", ok=False)
+            raise
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
             return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)
@@ -1434,9 +1452,9 @@ class AgentOrchestrator:
         'schedule run due' command. Each job runs through handle()/run_agent so risky steps
         still hit the approval gate."""
         moment = now or datetime.now().astimezone()
-        due = self.context.scheduler.due_jobs(moment)
+        due = self.context.scheduler.claim_due_jobs(moment)
         ran = []
-        for job in due:
+        for index, job in enumerate(due):
             try:
                 if job.kind == "agent":
                     result = await self._run_agent(job.spec)
@@ -1444,6 +1462,10 @@ class AgentOrchestrator:
                     result = await self.handle(job.spec, _allow_planner=False)
                 status = "ok" if result.ok else "failed"
                 message = result.message
+            except OperationCancelled:
+                for pending in due[index:]:
+                    self.context.scheduler.mark_ran(pending.id, moment, "stopped")
+                raise
             except Exception as exc:
                 status, message = "failed", str(exc)
             self.context.scheduler.mark_ran(job.id, datetime.now().astimezone(), status)
@@ -1451,7 +1473,7 @@ class AgentOrchestrator:
         if not ran:
             return ToolResult.success("No scheduled jobs are due.", ran=[])
         ok = sum(1 for item in ran if item["status"] == "ok")
-        return ToolResult.success(f"Ran {len(ran)} due job(s): {ok} ok.", ran=ran)
+        return ToolResult(ok=ok == len(ran), message=f"Ran {len(ran)} due job(s): {ok} ok.", data={"ran": ran})
 
     def _file_processor(self) -> FileProcessor:
         # Built lazily from existing tools — no AgentContext field needed.
@@ -1594,6 +1616,7 @@ class AgentOrchestrator:
             "stats": jobs.stats(),
             "resume": {
                 "present": bool(resume_text),
+                "profile": resume.get("profile", {}),
                 "chars": len(resume_text),
                 "source": resume.get("source", ""),
                 "updated_at": resume.get("updated_at", ""),
@@ -1624,26 +1647,31 @@ class AgentOrchestrator:
         job = self.context.jobs.get(job_id)
         if job is None:
             return ToolResult.failure(f"No tracked job #{job_id}.")
-        resume = self.context.jobs.get_resume().get("text", "")
+        resume_record = self.context.jobs.get_resume()
+        resume = resume_record.get("text", "")
         if not resume:
             return ToolResult.failure("Set a base resume first — paste it or load it from a file.")
         jd = job.get("description", "")
         if not jd:
             return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
-        profile = self.context.jobs.get_resume().get("profile", {}) or {}
+        profile = resume_record.get("profile", {}) or {}
         repos = self._github_repos(profile.get("github_user", ""))
         name = next((ln.strip() for ln in resume.splitlines() if ln.strip()), "")
+        # Explicit profile overrides win; otherwise retain source contact details.
+        contact = profile.get("contact_links", "") or self._contact_from_resume(resume)
         result = self._resume_copilot().tailor_resume(
             resume, jd, company=job.get("company", ""), role=job.get("role", ""),
-            repos=repos, contact=profile.get("contact_links", ""),
+            repos=repos, contact=contact,
             certs=profile.get("cert_links", ""), name=name,
         )
         if not result.ok:
             return ToolResult.failure(result.package, job_id=job_id)
-        self.context.jobs.set_tailoring(
+        stored = self.context.jobs.set_tailoring(
             job_id, package=result.package, used_llm=result.used_llm,
-            grounding=result.grounding, ats=result.ats,
+            grounding=result.grounding, ats=result.ats, expected_resume=resume_record.get("updated_at", ""),
         )
+        if stored is None:
+            return ToolResult.failure("The base resume changed or the job was removed during tailoring. Retry with the current resume.")
         return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
 
     async def render_job_pdf(self, job_id: int) -> ToolResult:
@@ -1653,11 +1681,25 @@ class AgentOrchestrator:
             return ToolResult.failure("Tailor the job first, then export to PDF.")
         from laptop_agent.tools.resume_pdf import render_html_to_pdf
 
-        out = self.context.jobs.path.parent / "resumes" / f"job_{job_id}.pdf"
-        result = await render_html_to_pdf(job["tailored_package"], out)
+        package = job["tailored_package"]
+        digest = hashlib.sha256(package.encode("utf-8")).hexdigest()[:16]
+        out = self.context.jobs.path.parent / "resumes" / f"job_{job_id}_{digest}.pdf"
+        result = await render_html_to_pdf(package, out)
         if result.ok:
-            self.context.jobs.set_tailored_pdf(job_id, str(out))
+            if self.context.jobs.set_tailored_pdf(job_id, str(out), expected_package=package) is None:
+                return ToolResult.failure("The resume changed during export. Export the current version again.")
         return result
+
+    @staticmethod
+    def _contact_from_resume(resume: str) -> str:
+        """Recover a contact line (email · phone) from the top of the base resume, escaped
+        as safe HTML for the fixed template. Best-effort; returns '' if nothing is found."""
+        head = "\n".join(resume.splitlines()[:8])
+        email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", head)
+        phone = re.search(r"\+?\d[\d\s().-]{7,}\d", head)
+        parts = [m.group(0).strip() for m in (email, phone) if m]
+        parts.extend(re.findall(r"https?://[^\s<>]+", head))
+        return " · ".join(html.escape(p) for p in parts)
 
     def _github_repos(self, user: str) -> list[dict]:
         """Public repo list (name + url) for grounding project links in tailored resumes.
@@ -2185,11 +2227,19 @@ class AgentOrchestrator:
         commands = [item.strip() for item in expression.split(";;") if item.strip()]
         if not commands:
             return ToolResult.failure("Use: multi <command 1> ;; <command 2>")
-        results = await asyncio.gather(*(self._run_tracked_subtask(command) for command in commands), return_exceptions=True)
+        if len(commands) > 20:
+            return ToolResult.failure("Run at most 20 subtasks in one batch.")
+        slots = asyncio.Semaphore(4)
+        async def run(command):
+            async with slots:
+                check_cancelled()
+                return await asyncio.to_thread(lambda: asyncio.run(self._run_tracked_subtask(command)))
+        results = await asyncio.gather(*(run(command) for command in commands), return_exceptions=True)
+        check_cancelled()
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 payload.append({"command": command, "ok": False, "message": str(result), "data": {}})
                 records.append(TaskRecord(index=index, command=command, status="failed", message=str(result)))
             else:
@@ -2204,13 +2254,18 @@ class AgentOrchestrator:
                 )
         dashboard = self.context.tasks.record_run(records, retry_of=retry_of)
         verb = "Retried" if retry_of is not None else "Ran"
-        return ToolResult.success(f"{verb} {len(payload)} subtasks.", results=payload, dashboard=dashboard)
+        succeeded = sum(1 for item in payload if item["ok"])
+        return ToolResult(
+            ok=succeeded == len(payload),
+            message=f"{verb} {len(payload)} subtasks: {succeeded} succeeded.",
+            data={"results": payload, "dashboard": dashboard},
+        )
 
     async def _run_tracked_subtask(self, command: str) -> ToolResult:
         agent_id = self.control_room.start(command)
         try:
             result = await self.handle(command)
-        except Exception as exc:
+        except (Exception, OperationCancelled) as exc:
             self.control_room.finish(agent_id, str(exc), ok=False)
             raise
         self.control_room.finish(agent_id, result.message, ok=result.ok)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,8 +11,17 @@ from pathlib import Path
 # off-ramp tracked separately from the forward funnel.
 STAGES = ["lead", "applied", "screen", "interview", "final", "offer", "rejected"]
 FUNNEL = ["applied", "screen", "interview", "final", "offer"]
-# A response = the application advanced past the initial "applied" cold state.
-_RESPONDED = {"screen", "interview", "final", "offer"}
+# Forward progress order. "rejected" is a terminal off-ramp and is deliberately absent:
+# a rejection after an interview must not erase that the candidate reached "interview".
+_PROGRESS = {"lead": 0, "applied": 1, "screen": 2, "interview": 3, "final": 4, "offer": 5}
+
+
+def _reached_rank(job: dict) -> int:
+    """How far this job ever advanced (max stage reached), independent of a later
+    rejection. Falls back to the current stage for jobs stored before this was tracked;
+    unknown/rejected floors at 'applied' since a job must have applied to be rejected."""
+    reached = job.get("reached") or job.get("stage", "applied")
+    return _PROGRESS.get(reached, _PROGRESS["applied"])
 
 _STAGE_ALIASES = {
     "lead": "lead", "leads": "lead", "sourced": "lead", "discovered": "lead", "new": "lead",
@@ -40,6 +51,7 @@ class JobTracker:
         self._resume: dict = {}
         self._load()
 
+    @synchronized
     def add(self, company: str, role: str = "", stage: str = "applied", recruiter: str = "",
             next_date: str = "", notes: str = "", source: str = "manual",
             url: str = "", external_id: str = "", description: str = "") -> dict:
@@ -47,11 +59,13 @@ class JobTracker:
         if not company:
             raise ValueError("A job needs a company name.")
         now = datetime.now(UTC).isoformat()
+        normalized_stage = normalize_stage(stage)
         job = {
             "id": self._next_id,
             "company": company,
             "role": (role or "").strip(),
-            "stage": normalize_stage(stage),
+            "stage": normalized_stage,
+            "reached": normalized_stage if normalized_stage in _PROGRESS else "applied",
             "recruiter": (recruiter or "").strip(),
             "next_date": (next_date or "").strip(),
             "notes": (notes or "").strip(),
@@ -59,6 +73,7 @@ class JobTracker:
             "url": (url or "").strip(),
             "external_id": (external_id or "").strip(),
             "description": (description or "").strip(),
+            "applied_at": now if normalized_stage != "lead" else None,
             "created_at": now,
             "updated_at": now,
         }
@@ -71,6 +86,7 @@ class JobTracker:
     def _lead_key(company: str, role: str) -> str:
         return f"{company.strip().lower()}|{role.strip().lower()}"
 
+    @synchronized
     def import_leads(self, leads: list[dict]) -> dict:
         """Add scraped job leads (e.g. from a Jobright pull) at the 'lead' stage, skipping
         any that duplicate an existing tracked job by external id or (company, role)."""
@@ -104,13 +120,16 @@ class JobTracker:
             added.append(job)
         return {"added": len(added), "skipped": skipped, "added_jobs": added}
 
+    @synchronized
     def list(self) -> list[dict]:
         # Most recently touched first.
         return sorted(self._jobs, key=lambda j: j.get("updated_at", ""), reverse=True)
 
+    @synchronized
     def get(self, job_id: int) -> dict | None:
         return next((j for j in self._jobs if j["id"] == job_id), None)
 
+    @synchronized
     def update(self, job_id: int, **fields) -> dict | None:
         job = self.get(job_id)
         if job is None:
@@ -119,14 +138,27 @@ class JobTracker:
         for key, value in fields.items():
             if key not in allowed or value is None:
                 continue
-            job[key] = normalize_stage(value) if key == "stage" else str(value).strip()
+            if key == "stage":
+                new_stage = normalize_stage(value)
+                if new_stage != "lead" and not job.get("applied_at"):
+                    job["applied_at"] = datetime.now(UTC).isoformat()
+                job["stage"] = new_stage
+                if _PROGRESS.get(new_stage, -1) > _reached_rank(job):
+                    job["reached"] = new_stage
+            else:
+                job[key] = str(value).strip()
         job["updated_at"] = datetime.now(UTC).isoformat()
         self._save()
         return job
 
+    @synchronized
     def set_resume(self, text: str, source: str = "", profile: dict | None = None) -> dict:
         """Store the base resume text used for ATS scoring and tailoring. ``profile`` carries
         optional fixed tailoring data (contact links, certifications) preserved across updates."""
+        for job in self._jobs:
+            job.pop("tailored_pdf", None)
+            job["tailored"] = False
+            job.pop("tailored_package", None)
         kept_profile = profile if profile is not None else self._resume.get("profile", {})
         self._resume = {
             "text": (text or "").strip(),
@@ -137,42 +169,58 @@ class JobTracker:
         self._save()
         return self._resume
 
+    @synchronized
     def set_resume_profile(self, profile: dict) -> dict:
         """Update just the tailoring profile (contact links / certifications), keeping the text."""
-        self._resume = {**self._resume, "profile": profile or {}}
+        for job in self._jobs:
+            job.pop("tailored_pdf", None)
+            job["tailored"] = False
+            job.pop("tailored_package", None)
+        self._resume = {**self._resume, "profile": profile or {}, "updated_at": datetime.now(UTC).isoformat()}
         self._resume.setdefault("text", "")
         self._save()
         return self._resume
 
+    @synchronized
     def get_resume(self) -> dict:
         return dict(self._resume)
 
+    @synchronized
     def set_tailoring(self, job_id: int, *, package: str, used_llm: bool,
-                      grounding: dict | None = None, ats: dict | None = None) -> dict | None:
+                      grounding: dict | None = None, ats: dict | None = None, expected_resume: str | None = None) -> dict | None:
         """Persist a tailoring result (package + grounding + ATS) onto a tracked job."""
         job = self.get(job_id)
         if job is None:
+            return None
+        if expected_resume is not None and self._resume.get("updated_at", "") != expected_resume:
             return None
         job["tailored"] = True
         job["tailored_at"] = datetime.now(UTC).isoformat()
         job["tailored_package"] = package
         job["tailored_used_llm"] = bool(used_llm)
         job["tailored_grounding"] = grounding or {}
+        # Drop any prior PDF so a stale export is never served for freshly re-tailored
+        # content; render_job_pdf re-generates and re-sets this.
+        job.pop("tailored_pdf", None)
         if ats:
             job["ats"] = ats
         job["updated_at"] = job["tailored_at"]
         self._save()
         return job
 
-    def set_tailored_pdf(self, job_id: int, path: str) -> dict | None:
+    @synchronized
+    def set_tailored_pdf(self, job_id: int, path: str, expected_package: str | None = None) -> dict | None:
         job = self.get(job_id)
         if job is None:
+            return None
+        if expected_package is not None and job.get("tailored_package") != expected_package:
             return None
         job["tailored_pdf"] = path
         job["updated_at"] = datetime.now(UTC).isoformat()
         self._save()
         return job
 
+    @synchronized
     def clear_leads(self) -> int:
         """Remove all sourced (stage='lead') jobs, keeping real applications. Returns count."""
         before = len(self._jobs)
@@ -182,6 +230,7 @@ class JobTracker:
             self._save()
         return removed
 
+    @synchronized
     def remove(self, job_id: int) -> bool:
         before = len(self._jobs)
         self._jobs = [j for j in self._jobs if j["id"] != job_id]
@@ -190,6 +239,7 @@ class JobTracker:
             return True
         return False
 
+    @synchronized
     def stats(self) -> dict:
         """Chart-ready aggregates: funnel counts, applications per ISO week, totals,
         and a response rate (share of applications that advanced past 'applied')."""
@@ -198,15 +248,17 @@ class JobTracker:
             funnel[job.get("stage", "applied")] = funnel.get(job.get("stage", "applied"), 0) + 1
         total = len(self._jobs)
         leads = funnel.get("lead", 0)
-        # Sourced leads aren't applications, so the response rate is measured against
-        # everything that actually reached "applied" or beyond.
-        applications = total - leads
-        responded = sum(1 for j in self._jobs if j.get("stage") in _RESPONDED)
-        interviews = sum(1 for j in self._jobs if j.get("stage") in {"interview", "final", "offer"})
-        offers = funnel.get("offer", 0)
+        # Counts use the furthest stage each job ever reached, so a candidate who
+        # interviewed and was later rejected still counts as an application, a response,
+        # and an interview. Sourced leads (never applied) are excluded from applications.
+        applications = sum(1 for j in self._jobs if _reached_rank(j) >= _PROGRESS["applied"])
+        responded = sum(1 for j in self._jobs if _reached_rank(j) >= _PROGRESS["screen"])
+        interviews = sum(1 for j in self._jobs if _reached_rank(j) >= _PROGRESS["interview"])
+        offers = sum(1 for j in self._jobs if _reached_rank(j) >= _PROGRESS["offer"])
         return {
             "total": total,
             "leads": leads,
+            "applications": applications,
             "funnel": [{"stage": s, "count": funnel[s]} for s in FUNNEL],
             "rejected": funnel.get("rejected", 0),
             "interviews": interviews,
@@ -215,10 +267,13 @@ class JobTracker:
             "by_week": self._by_week(),
         }
 
+    @synchronized
     def _by_week(self, weeks: int = 8) -> list[dict]:
         counts: dict[str, int] = {}
         for job in self._jobs:
-            stamp = job.get("created_at", "")
+            if _reached_rank(job) < _PROGRESS["applied"]:
+                continue  # sourced leads aren't applications — keep them off the trend
+            stamp = job.get("applied_at") or job.get("created_at", "")
             try:
                 created = datetime.fromisoformat(stamp).date()
             except (ValueError, TypeError):
@@ -228,11 +283,12 @@ class JobTracker:
             counts[key] = counts.get(key, 0) + 1
         return [{"week": week, "count": counts[week]} for week in sorted(counts)][-weeks:]
 
+    @synchronized
     def _load(self) -> None:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
@@ -240,14 +296,16 @@ class JobTracker:
         jobs = data.get("jobs")
         if isinstance(jobs, list):
             self._jobs = [j for j in jobs if isinstance(j, dict) and "id" in j]
+        for job in self._jobs:
+            # Best-effort backfill for jobs saved before furthest-stage tracking; their
+            # true history is unknown, so seed 'reached' from the current stage.
+            job.setdefault("reached", job.get("stage", "applied"))
         if isinstance(data.get("resume"), dict):
             self._resume = data["resume"]
         existing = [int(j["id"]) for j in self._jobs if str(j.get("id", "")).isdigit()]
-        self._next_id = max([int(data.get("next_id", 1)), *(n + 1 for n in existing)] or [1])
+        self._next_id = max([positive_int(data.get("next_id")), *(n + 1 for n in existing)])
 
+    @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"next_id": self._next_id, "jobs": self._jobs, "resume": self._resume}, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.path, json.dumps({'next_id': self._next_id, 'jobs': self._jobs, 'resume': self._resume}, indent=2))

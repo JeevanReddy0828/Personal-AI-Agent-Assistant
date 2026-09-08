@@ -103,6 +103,38 @@ class JobTrackerTests(unittest.TestCase):
             self.assertEqual(saved["ats"]["score"], 80)
             self.assertIsNone(jt.set_tailoring(999, package="x", used_llm=False))
 
+    def test_retailoring_drops_stale_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            job = jt.add("Acme")
+            jt.set_tailoring(job["id"], package="v1", used_llm=True)
+            jt.set_tailored_pdf(job["id"], "/tmp/job_1.pdf")
+            refreshed = jt.set_tailoring(job["id"], package="v2", used_llm=True)
+            self.assertNotIn("tailored_pdf", refreshed)  # stale export cleared until re-render
+
+    def test_leads_excluded_from_applications_and_trend(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            jt.import_leads([{"title": "SWE", "company": "Acme", "job_id_ext": "a1"}])
+            jt.add("Globex", stage="applied")
+            stats = jt.stats()
+            self.assertEqual(stats["total"], 2)
+            self.assertEqual(stats["leads"], 1)
+            self.assertEqual(stats["applications"], 1)  # the lead is not an application
+            self.assertEqual(sum(w["count"] for w in stats["by_week"]), 1)  # trend excludes leads
+
+    def test_furthest_stage_survives_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            job = jt.add("Acme", stage="applied")
+            jt.update(job["id"], stage="interview")
+            jt.update(job["id"], stage="rejected")  # rejected after interviewing
+            stats = jt.stats()
+            self.assertEqual(jt.get(job["id"])["stage"], "rejected")
+            self.assertEqual(stats["interviews"], 1)      # still counts as an interview
+            self.assertEqual(stats["response_rate"], 1.0)  # a rejection is still a response
+            self.assertEqual(stats["rejected"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

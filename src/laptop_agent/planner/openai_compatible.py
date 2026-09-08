@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.cancellation import check_cancelled, interruptible_response
+
 import json
 import os
 import re
@@ -242,8 +244,9 @@ class OpenAICompatiblePlannerProvider:
             response = urllib.request.urlopen(request, timeout=self.timeout)
         except (urllib.error.URLError, TimeoutError):
             return
-        with response:
+        with response, interruptible_response(response):
             for raw in response:
+                check_cancelled()
                 line = raw.decode("utf-8", errors="replace").strip()
                 if not line.startswith("data:"):
                     continue

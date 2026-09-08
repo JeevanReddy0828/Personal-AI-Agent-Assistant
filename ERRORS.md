@@ -14,3 +14,11 @@ near-miss. Newest first.
   track. Fix: collapse to a single `minmax(0,1fr)` track and span the chat column.
 - **Ported keyword extractor kept trailing dots.** `"aws."`/`"kubernetes."` tokens broke
   whole-word ATS matching. Fix: strip stray leading/trailing dots, keep `c++`/`c#`/`node.js`.
+
+- **Review regressions (2026-09-08).** Unit-only coverage missed executable Markdown
+  attributes, cross-origin mutations, duplicate due jobs, chat ownership and mobile
+  overflow. Keep security/concurrency/browser tests in CI. Browser conditions use CDP
+  evaluation because string-based Playwright wait predicates can conflict with nonce CSP.
+- **False resume confidence.** Lexical overlap approved invented employers and metrics.
+  Export now requires exact source excerpts and grounded factual fields; generated
+  application drafts explicitly require user review.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
+
 import json
 import math
 import re
@@ -35,6 +37,7 @@ class KnowledgeBase:
         self.path = path
         self.max_text_chars = max_text_chars
 
+    @synchronized
     def add(self, source: str, text: str) -> dict[str, object]:
         cleaned = text.strip()
         if not cleaned:
@@ -54,6 +57,7 @@ class KnowledgeBase:
         self._save(store)
         return {"ok": True, "id": entry["id"], "source": source, "char_count": entry["char_count"]}
 
+    @synchronized
     def search(self, query: str, limit: int = 5) -> list[dict[str, object]]:
         terms = set(_content_terms(query))
         if not terms:
@@ -90,6 +94,7 @@ class KnowledgeBase:
         scored.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]["id"] or 0))
         return [item[3] for item in scored[: max(1, min(limit, 25))]]
 
+    @synchronized
     def answer(self, question: str, limit: int = 6) -> dict[str, object]:
         terms = set(_content_terms(question))
         if not terms:
@@ -139,6 +144,7 @@ class KnowledgeBase:
             "sources": sources,
         }
 
+    @synchronized
     def list_documents(self) -> list[dict[str, object]]:
         store = self._load()
         return [
@@ -146,6 +152,7 @@ class KnowledgeBase:
             for doc in store["documents"]
         ]
 
+    @synchronized
     def stats(self) -> dict[str, object]:
         documents = self.list_documents()
         total_chars = sum(int(doc.get("char_count") or 0) for doc in documents)
@@ -161,6 +168,7 @@ class KnowledgeBase:
             "sources_by_kind": dict(sorted(sources_by_kind.items())),
         }
 
+    @synchronized
     def export_markdown(self, title: str = "Knowledge Base Export") -> str:
         documents = self.list_documents()
         stats = self.stats()
@@ -188,6 +196,7 @@ class KnowledgeBase:
             )
         return "\n".join(lines).rstrip() + "\n"
 
+    @synchronized
     def forget(self, doc_id: int) -> bool:
         store = self._load()
         remaining = [doc for doc in store["documents"] if doc.get("id") != doc_id]
@@ -197,6 +206,7 @@ class KnowledgeBase:
             self._save(store)
         return existed
 
+    @synchronized
     def clear(self) -> int:
         store = self._load()
         count = len(store["documents"])
@@ -262,20 +272,23 @@ class KnowledgeBase:
         suffix = "…" if end < len(text) else ""
         return f"{prefix}{snippet}{suffix}"
 
+    @synchronized
     def _load(self) -> dict[str, object]:
         if not self.path.exists():
             return {"next_id": 1, "documents": []}
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return {"next_id": 1, "documents": []}
         if not isinstance(data, dict):
             return {"next_id": 1, "documents": []}
         data.setdefault("next_id", 1)
         documents = data.get("documents")
-        data["documents"] = documents if isinstance(documents, list) else []
+        data["documents"] = [d for d in documents if isinstance(d, dict) and isinstance(d.get("id"), int)] if isinstance(documents, list) else []
+        data["next_id"] = max([positive_int(data.get("next_id"))] + [d["id"] + 1 for d in data["documents"]])
         return data
 
+    @synchronized
     def _save(self, store: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(store, indent=2), encoding="utf-8")
+        atomic_write_text(self.path, json.dumps(store, indent=2))

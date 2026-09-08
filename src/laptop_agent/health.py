@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from laptop_agent.storage import storage_warnings
+
 
 def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) -> dict[str, object]:
     """A production self-check: is the brain, memory, and mail wired and reachable?
@@ -27,6 +29,8 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
         overall = "setup"  # no AI connected — first-run state
     elif llm_reachable is False:
         overall = "degraded"  # configured but the endpoint is unreachable
+    elif llm_reachable is None:
+        overall = "checking"
     else:
         overall = "ok"
 
@@ -37,6 +41,7 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
 
     return {
         "overall": overall,
+        "storage_warnings": storage_warnings(),
         "llm": {
             "configured": llm_configured,
             "reachable": llm_reachable,

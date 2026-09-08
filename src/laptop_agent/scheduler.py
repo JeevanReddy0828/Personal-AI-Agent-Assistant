@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
+
 import json
 import re
 import threading
@@ -158,9 +160,11 @@ class SchedulerStore:
         self._next_id = 1
         # The web UI runs a background ticker thread that calls due_jobs/mark_ran while
         # request threads may add/remove, so every read and mutation is serialized.
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._running: set[int] = set()
         self._load()
 
+    @synchronized
     def add(self, kind: str, spec: str, schedule_text: str, now: datetime) -> ScheduledJob:
         if kind not in {"command", "agent"}:
             raise ScheduleError("Job kind must be 'command' or 'agent'.")
@@ -180,6 +184,7 @@ class SchedulerStore:
             self._save()
             return job
 
+    @synchronized
     def remove(self, job_id: int) -> bool:
         with self._lock:
             before = len(self._jobs)
@@ -189,32 +194,50 @@ class SchedulerStore:
                 return True
             return False
 
+    @synchronized
     def set_enabled(self, job_id: int, enabled: bool) -> bool:
         with self._lock:
             for job in self._jobs:
                 if job.id == job_id:
                     job.enabled = enabled
+                    if enabled and job.last_status == "running" and job.id not in self._running:
+                        job.last_status = "interrupted"
                     self._save()
                     return True
             return False
 
+    @synchronized
     def list_jobs(self) -> list[ScheduledJob]:
         with self._lock:
             return list(self._jobs)
 
+    @synchronized
     def due_jobs(self, now: datetime) -> list[ScheduledJob]:
         with self._lock:
             due = []
             for job in self._jobs:
-                if not job.enabled:
+                if not job.enabled or job.last_status == "running":
                     continue
                 last = _parse_iso(job.last_run_at)
                 if job.schedule.is_due(now, last):
                     due.append(job)
             return due
 
+    @synchronized
+    def claim_due_jobs(self, now: datetime) -> list[ScheduledJob]:
+        with self._lock:
+            due = [job for job in self.due_jobs(now) if job.id not in self._running]
+            self._running.update(job.id for job in due)
+            for job in due:
+                job.last_status = "running"
+            if due:
+                self._save()
+            return due
+
+    @synchronized
     def mark_ran(self, job_id: int, now: datetime, status: str) -> None:
         with self._lock:
+            self._running.discard(job_id)
             for job in self._jobs:
                 if job.id == job_id:
                     job.last_run_at = now.isoformat()
@@ -223,15 +246,17 @@ class SchedulerStore:
                     self._save()
                     return
 
+    @synchronized
     def _load(self) -> None:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
             return
+        self._jobs = []
         jobs = data.get("jobs")
         if isinstance(jobs, list):
             for raw in jobs:
@@ -241,14 +266,12 @@ class SchedulerStore:
                     except (KeyError, ValueError, TypeError):
                         continue
         ids = [job.id for job in self._jobs]
-        self._next_id = max([int(data.get("next_id", 1))] + [i + 1 for i in ids])
+        self._next_id = max([positive_int(data.get("next_id"))] + [i + 1 for i in ids])
 
+    @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"next_id": self._next_id, "jobs": [job.to_dict() for job in self._jobs]}, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.path, json.dumps({'next_id': self._next_id, 'jobs': [job.to_dict() for job in self._jobs]}, indent=2))
 
 
 def _parse_iso(value: str | None) -> datetime | None:

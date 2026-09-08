@@ -36,6 +36,13 @@ from laptop_agent.workflows import WorkflowTracker
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_contact_from_resume_recovers_email_and_phone(self) -> None:
+        resume = "Jeevan Arlagadda\njeevan@example.com | +1 (555) 123-4567\n- Built things"
+        contact = AgentOrchestrator._contact_from_resume(resume)
+        self.assertIn("jeevan@example.com", contact)
+        self.assertIn("555", contact)
+        self.assertEqual(AgentOrchestrator._contact_from_resume(""), "")
+
     def build(self, tmp: Path) -> AgentOrchestrator:
         gate = ApprovalGate(lambda request: True)
         config = AppConfig(
@@ -285,7 +292,7 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
             result = asyncio.run(orchestrator.handle("multi help ;; memory ;; read file missing.txt"))
-            self.assertTrue(result.ok)
+            self.assertFalse(result.ok)
             self.assertEqual(result.data["dashboard"]["task_count"], 3)
             self.assertTrue(result.data["dashboard"]["retry_available"])
             dash = asyncio.run(orchestrator.handle("tasks"))
@@ -305,10 +312,10 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
             first = asyncio.run(orchestrator.handle("multi help ;; read file missing.txt"))
-            self.assertTrue(first.ok)
+            self.assertFalse(first.ok)
             self.assertEqual(first.data["dashboard"]["failed_commands"], ["read file missing.txt"])
             retry = asyncio.run(orchestrator.handle("multi retry failed"))
-            self.assertTrue(retry.ok)
+            self.assertFalse(retry.ok)
             self.assertEqual(retry.data["dashboard"]["retry_of"], 1)
             self.assertEqual(retry.data["dashboard"]["task_count"], 1)
             self.assertEqual(retry.data["results"][0]["command"], "read file missing.txt")
@@ -1301,7 +1308,7 @@ class OrchestratorTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
-            orch.set_resume_text("- Built data pipelines in Python", source="paste")
+            orch.set_resume_text("Candidate\nData engineer.\nLanguages: Python\nAcme 2024 DE Remote\n- Built Python pipelines", source="paste")
             # Inject the resume copilot with a deterministic JSON-returning brain (no network).
             import json as _json
             content = _json.dumps({

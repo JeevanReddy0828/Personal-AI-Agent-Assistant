@@ -302,7 +302,7 @@ live **ATS score** (local, no LLM) and per-job **Tailor** → grounded one-page 
 **PDF** (download via `/api/resume-pdf?id=`) + **Preview** (inline iframe). Tailoring runs
 on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/resumes/`.
 
-Tests: `$env:PYTHONPATH="src"; python -m pytest tests -q` (488 passing).
+Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
 
 ## Working alongside another agent (Codex)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -19,6 +21,7 @@ class AuditLogger:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @synchronized
     def record(self, event_type: str, **payload: Any) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         event = AuditEvent(
@@ -29,6 +32,7 @@ class AuditLogger:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(event), sort_keys=True, default=str) + "\n")
 
+    @synchronized
     def tail(self, limit: int = 50) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []

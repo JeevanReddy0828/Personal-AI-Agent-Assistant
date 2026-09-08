@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,7 @@ class TaskTracker:
     def __post_init__(self) -> None:
         self._load()
 
+    @synchronized
     def record_run(self, records: list[TaskRecord], retry_of: int | None = None) -> dict[str, object]:
         ok = sum(1 for record in records if record.status == "ok")
         failed = len(records) - ok
@@ -52,12 +55,15 @@ class TaskTracker:
         self._save()
         return run
 
+    @synchronized
     def latest(self) -> dict[str, object] | None:
         return self._runs[-1] if self._runs else None
 
+    @synchronized
     def all_runs(self) -> list[dict[str, object]]:
         return list(self._runs)
 
+    @synchronized
     def failed_commands(self, run_number: int | None = None) -> list[str]:
         run = self._find_run(run_number) if run_number is not None else self.latest()
         if run is None:
@@ -68,6 +74,7 @@ class TaskTracker:
             if isinstance(task, dict) and task.get("status") != "ok" and task.get("command")
         ]
 
+    @synchronized
     def retry_plan(self, run_number: int | None = None) -> dict[str, object]:
         run = self._find_run(run_number) if run_number is not None else self.latest()
         commands = self.failed_commands(run_number)
@@ -77,17 +84,19 @@ class TaskTracker:
             "count": len(commands),
         }
 
+    @synchronized
     def _find_run(self, run_number: int) -> dict[str, object] | None:
         for run in self._runs:
             if run.get("run") == run_number:
                 return run
         return None
 
+    @synchronized
     def _load(self) -> None:
         if self.storage_path is None or not self.storage_path.exists():
             return
         try:
-            data = json.loads(self.storage_path.read_text(encoding="utf-8"))
+            data = read_json(self.storage_path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
@@ -100,13 +109,15 @@ class TaskTracker:
         except (TypeError, ValueError):
             self._next_run = self._infer_next_run()
 
+    @synchronized
     def _save(self) -> None:
         if self.storage_path is None:
             return
         payload = {"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.storage_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        atomic_write_text(self.storage_path, json.dumps(payload, indent=2))
 
+    @synchronized
     def _infer_next_run(self) -> int:
         numbers = []
         for run in self._runs:

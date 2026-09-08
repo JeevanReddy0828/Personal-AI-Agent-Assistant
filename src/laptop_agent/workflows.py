@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,6 +26,7 @@ class WorkflowTracker:
         self._next_run = 1
         self._load()
 
+    @synchronized
     def record_run(self, steps: list[WorkflowStep], stopped_at: int | None = None) -> dict[str, object]:
         ok_count = sum(1 for step in steps if step.status == "ok")
         failed_count = sum(1 for step in steps if step.status != "ok")
@@ -44,12 +47,15 @@ class WorkflowTracker:
         self._save()
         return run
 
+    @synchronized
     def latest(self) -> dict[str, object] | None:
         return self._runs[-1] if self._runs else None
 
+    @synchronized
     def all_runs(self) -> list[dict[str, object]]:
         return list(self._runs)
 
+    @synchronized
     def retry_commands(self, run_number: int | None = None) -> list[str]:
         run = self._find_run(run_number) if run_number is not None else self.latest()
         if not run:
@@ -73,17 +79,19 @@ class WorkflowTracker:
                 commands.append(str(step["command"]))
         return commands
 
+    @synchronized
     def _find_run(self, run_number: int) -> dict[str, object] | None:
         for run in self._runs:
             if run.get("run") == run_number:
                 return run
         return None
 
+    @synchronized
     def _load(self) -> None:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
@@ -96,13 +104,12 @@ class WorkflowTracker:
         except (TypeError, ValueError):
             self._next_run = self._infer_next_run()
 
+    @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
 
+    @synchronized
     def _infer_next_run(self) -> int:
         numbers = []
         for run in self._runs:

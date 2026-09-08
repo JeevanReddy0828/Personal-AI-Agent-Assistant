@@ -76,7 +76,7 @@ python -m laptop_agent.cli       # interactive terminal
 | Native desktop app | `python -m laptop_agent.webui --desktop` *(or `laptop-agent-deck`)* |
 | Browser tab | `python -m laptop_agent.webui` → http://127.0.0.1:8770 |
 | Tkinter GUI | `python -m laptop_agent.gui` |
-| Tests | `python -m pytest tests -q` |
+| Tests | `python -B tests/run_tests.py` |
 
 Works offline out of the box (heuristic routing). Add an LLM key (below) to unlock
 conversation and natural-language routing.
@@ -145,7 +145,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Capability | How |
 |---|---|
 | Job application tracker | `job add <company> [stage]` · `jobs` · `job stage <id> <stage>` |
-| Daily Jobright lead pull | `jobright pull` (browser extra) — scrapes recommendations, filters to early-career fit (drops senior/PhD/clearance/no-sponsorship/off-target), imports at a `lead` stage. Schedule via `schedule command "jobright pull"` |
+| Daily Jobright lead pull | `jobright pull` (browser extra) — scrapes recommendations, filters to early-career fit (drops senior/PhD/clearance/no-sponsorship/off-target), imports at a `lead` stage. Schedule via `schedule daily at 09:00 :: jobright pull` |
 | Live pipeline dashboard | Pipeline page (`#/pipeline`): stage board with live **ATS scores**, **Pull from Jobright** + **Clear leads**, and per-job **Tailor → PDF** |
 | Resume CoPilot (ATS + tailoring) | Job tracker page → "Tailor an application": ATS score, missing keywords, grounded bullets, cover letter, interview pack |
 | Grounded resume tailoring → PDF | Pipeline page → set base resume, then **Tailor** any lead: a one-page resume (template-driven exact format, grounded skills + real GitHub project links, no GPA), downloadable as **PDF** (rendered via Chromium, no LaTeX needed) |
@@ -213,8 +213,9 @@ risky steps still hit the gate (and are auto-denied in the guarded web UI). Audi
 events are written to `.agent_data/audit.jsonl`.
 
 **Deployment posture.** Local-first, single-user. The web server binds to loopback
-(`127.0.0.1`) and has **no authentication** — run it on your own machine. Override
-`LAPTOP_AGENT_HOST` / `LAPTOP_AGENT_PORT` only if you put your own auth in front.
+(`127.0.0.1` or `localhost`) with origin checks and a per-process browser mutation
+token. It has no user accounts or remote-access support. Keep the configured
+`LAPTOP_AGENT_PORT` stable for browser history.
 Secrets live only in a gitignored `.env`; never commit real keys.
 
 ---
@@ -265,3 +266,51 @@ tests/                     Dependency-free unit tests (offline)
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+## Reliability and review
+
+See [REVIEW_REPORT.md](REVIEW_REPORT.md) for the feature inventory, baseline findings,
+remediation evidence, and remaining limits.
+
+- The web/native app is a single-user loopback service. Browser mutation requests
+  require its per-process token and matching origin. High-risk actions require an
+  interactive CLI/Tkinter approval; they are blocked in web/native guarded mode.
+- Native chat history uses a persistent webview profile and the configured port
+  (default 8770). Keep that port stable. If it is occupied, close the other local
+  instance before restarting. Old histories from random-port releases are not migrated.
+- Stop cancels the backend request and prevents subsequent steps. Active HTTP model
+  streams are interrupted where their socket is available. A tool already inside a
+  blocking external call may finish or time out first; completed actions are not undone.
+- JSON stores use atomic replacement, a previous-version `.bak`, and file locks.
+  Malformed JSON is preserved as `.corrupt-*`; health reports recovery warnings.
+  Review the preserved copy before deciding what to restore.
+- Schedules run only while the server is running. Due work is claimed durably before
+  execution. A crash leaves a `running` claim to avoid an uncertain duplicate action;
+  after checking its effects, disable/re-enable the schedule to recover it.
+- Application counts exclude unsubmitted leads and retain the furthest stage reached.
+  Pre-existing rejected records cannot recover history that was never stored.
+- Resume keyword scores are estimates, not employer ATS predictions. Export tailoring
+  selects exact source excerpts and rejects unsupported facts, malformed content and
+  unlisted repository links. Review excerpt grouping before use. General cover-letter
+  and interview drafts still require factual review.
+- The Pipeline page exposes contact/certification overrides. Changing the base resume,
+  profile, or tailoring invalidates old exports. PDF export requires Playwright and
+  publishes only verified single-page Letter output; shorten content if it overflows.
+- Reminders list local due times; they do not create OS notifications. Jobright, email,
+  model providers, microphone/camera hardware and packaged installers need their own
+  configured integration checks.
+
+The standard runner ignores personal `.env` configuration, uses temporary data and
+blocks external Python socket connections. Optional browser checks need Playwright,
+Chromium and pypdf:
+
+```powershell
+python -m pip install playwright pypdf
+python -m playwright install chromium
+$env:JARVIS_BROWSER_TESTS = "1"
+python -B tests/run_tests.py test_browser_regressions.py
+```
+
+On Linux/macOS, prefix the last command with `JARVIS_BROWSER_TESTS=1`.
+The CI workflow runs offline tests on Windows/Linux and a separate Chromium job.

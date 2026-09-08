@@ -13,7 +13,7 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 - LLM access uses the project's own OpenAI-compatible transport (`planner/openai_compatible.py`),
   **never** the `openai` SDK. Chat escalates fast→smart→ultra→OpenRouter with graceful fallback.
 - Persistence is JSON files under `data_dir` (no DB). Web app is one stdlib-served page,
-  binds loopback, no auth.
+  binds loopback, with per-process browser mutation tokens and origin checks.
 - `AgentContext` is a frozen dataclass; adding a field means updating `app.build_orchestrator`
   AND the test builder in `tests/test_orchestrator.py`.
 
@@ -27,14 +27,20 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   scoring, keyword/grounding) onto our LLM provider — not bolting on its FastAPI/Next/openai
   stack — to preserve the locked stack. (`copilot.py`)
 
-## Open / pending decisions
-- **jobright daily pull.** jobright.ai has no public API (auth-gated). The user's repo
-  `job-agent--Jarvis` has a Playwright jobright scraper with a persisted login session
-  (`outputs/session.json`) — this makes an unattended scheduled pull feasible. Decision
-  pending: **(A) port just that scraper** into JARVIS behind the `browser` extra, feeding
-  JobTracker + CoPilot, OR **(B) bridge** (run that repo standalone, JARVIS ingests its
-  output JSON). Do NOT fold in its full FastAPI/Next/anthropic/auth/DB stack (mismatch +
-  duplicates our tracker/CoPilot). Caveats: third-party ToS/fragility, on-disk session
-  credential, Playwright weight. Also need the user's resume file path to enable auto-tailor.
-- 6 jobright leads were added to the tracker manually (stage `applied`, `source: jobright`,
-  "not yet applied"). There is no "lead" stage yet — a small addition if accurate-funnel matters.
+## Review stabilization (2026-09-08)
+
+- User authorized the report's remediation queue. See REVIEW_REPORT.md for the baseline
+  and acceptance evidence. Preserve zero required runtime dependencies.
+- JSON persistence uses atomic replacement, previous-version backups and cross-process
+  file locks. Cached stores reload inside their mutation lock.
+- Cancellation is cooperative across request context, planner streams, approval gates
+  and autonomous steps. Ordinary exception fallback must not swallow OperationCancelled.
+- Exported resume prose consists of source excerpts. Do not restore lexical overlap as
+  a factual verification claim. Profile links are sanitized, exports version-checked,
+  and a PDF is published only after single-page verification.
+- Native webview uses the configured stable port and a persistent profile. Keep the
+  mobile composer and chat drawer functional and honor reduced-motion preferences.
+- Jobright scraping and the lead stage are already implemented; the old proposal to
+  add them was stale. Historical rejected records cannot reconstruct missing stage history.
+- Run tests through tests/run_tests.py to isolate personal configuration/data. Browser
+  checks are opt-in with JARVIS_BROWSER_TESTS=1 and use mocked external integrations.

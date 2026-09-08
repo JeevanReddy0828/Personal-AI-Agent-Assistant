@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import base64
 import ctypes
 import json
@@ -27,9 +29,11 @@ class TokenVault:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @synchronized
     def is_available(self) -> bool:
         return os.name == "nt"
 
+    @synchronized
     def store(self, provider: str, token_payload: dict[str, Any]) -> StoredTokenInfo:
         if not self.is_available():
             raise TokenVaultError("Encrypted token storage is currently implemented with Windows DPAPI only.")
@@ -38,9 +42,10 @@ class TokenVault:
         encrypted = self._encrypt(json.dumps(token_payload, sort_keys=True).encode("utf-8"))
         data[normalized] = base64.b64encode(encrypted).decode("ascii")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        atomic_write_text(self.path, json.dumps(data, indent=2, sort_keys=True))
         return self._info(normalized, token_payload)
 
+    @synchronized
     def load(self, provider: str) -> dict[str, Any] | None:
         if not self.is_available():
             raise TokenVaultError("Encrypted token storage is currently implemented with Windows DPAPI only.")
@@ -55,6 +60,7 @@ class TokenVault:
             raise TokenVaultError("Stored token payload was not a JSON object.")
         return loaded
 
+    @synchronized
     def forget(self, provider: str) -> bool:
         normalized = self._normalize_provider(provider)
         data = self._load()
@@ -62,9 +68,10 @@ class TokenVault:
         if existed:
             data.pop(normalized)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+            atomic_write_text(self.path, json.dumps(data, indent=2, sort_keys=True))
         return existed
 
+    @synchronized
     def status(self) -> dict[str, Any]:
         data = self._load()
         return {
@@ -73,10 +80,11 @@ class TokenVault:
             "providers": sorted(data.keys()),
         }
 
+    @synchronized
     def _load(self) -> dict[str, str]:
         if not self.path.exists():
             return {}
-        loaded = json.loads(self.path.read_text(encoding="utf-8"))
+        loaded = read_json(self.path, {})
         if not isinstance(loaded, dict):
             raise TokenVaultError("Token vault file was not a JSON object.")
         return {str(key): str(value) for key, value in loaded.items()}

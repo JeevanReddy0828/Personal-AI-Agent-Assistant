@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html as _html
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 import json
 import re
 from collections.abc import Callable
@@ -18,6 +20,23 @@ _STOPWORDS = {
 }
 
 
+# Chars that keep a skill token together. Used for boundary matching so "c++"/"c#"
+# match as standalone tokens (the stdlib ``\b`` fails after a trailing '+'/'#', which
+# are non-word chars). A trailing '.' is punctuation, not continuation, so it's excluded
+# — "aws" still matches "AWS." at a sentence end.
+_TOKEN_CHARS = "A-Za-z0-9+#"
+
+
+def _mentions(term: str, text: str) -> bool:
+    """True if ``term`` appears in ``text`` as a standalone token (case-insensitive),
+    tolerating skill names that end in punctuation like C++ and C#."""
+    clean = (term or "").strip().lower()
+    if not clean:
+        return False
+    pattern = rf"(?<![{_TOKEN_CHARS}]){re.escape(clean)}(?![{_TOKEN_CHARS}])"
+    return re.search(pattern, (text or "").lower()) is not None
+
+
 def extract_keywords(job_text: str, limit: int = 60) -> list[str]:
     """ATS-style keyword candidates from a job description (dedup, stopword-filtered)."""
     terms = re.findall(r"[A-Za-z][A-Za-z\+\#\.]{1,30}", job_text or "")
@@ -27,7 +46,10 @@ def extract_keywords(job_text: str, limit: int = 60) -> list[str]:
         # Strip stray leading/trailing dots ("aws." / "kubernetes.") but keep
         # internal/suffix forms like node.js, c++, c#.
         key = term.strip(".").lower()
-        if not key or key in _STOPWORDS or len(key) < 3 or key in seen:
+        if not key or key in _STOPWORDS or key in seen:
+            continue
+        # Drop short noise, but keep short skill names that carry a '+'/'#' (c++, c#).
+        if len(key) < 3 and key not in {"go", "ai", "ml", "ui", "ux"} and not any(c in key for c in "+#"):
             continue
         seen.add(key)
         out.append(key)
@@ -36,13 +58,12 @@ def extract_keywords(job_text: str, limit: int = 60) -> list[str]:
 
 def ats_score(job_keywords: list[str], resume_text: str) -> dict:
     """Share of JD keywords present (whole-word) in the resume."""
-    resume = (resume_text or "").lower()
     hits, misses = [], []
     for keyword in job_keywords:
         clean = (keyword or "").strip().lower()
         if not clean:
             continue
-        if re.search(r"\b" + re.escape(clean) + r"\b", resume):
+        if _mentions(clean, resume_text):
             hits.append(keyword)
         else:
             misses.append(keyword)
@@ -75,6 +96,64 @@ def check_grounding(generated_points: list[str], resume_claims: list[str]) -> di
     return {"flagged": flagged[:20], "ok_count": len(generated_points) - len(flagged)}
 
 
+def _normalize(text: str) -> str:
+    # Preserve numbers and skill punctuation; ignore case and PDF line wrapping.
+    return " ".join((text or "").casefold().split()).strip(" -•*")
+
+
+def check_resume_grounding(data: dict, resume_text: str, repos: list[dict] | None = None) -> list[str]:
+    """Fail closed: exported resumes select source excerpts, never unverified rewrites.
+
+    This establishes textual provenance, not semantic entailment. Users should still
+    review how excerpts have been grouped before sending an application.
+    """
+    if not isinstance(data, dict):
+        return ["Resume content must be an object."]
+    base = _normalize(resume_text)
+    flags: list[str] = []
+    def excerpt(value, label):
+        if not isinstance(value, str):
+            flags.append(f"Invalid {label}: expected text")
+        elif value.strip() and _normalize(value) not in base:
+            flags.append(f"Unsupported {label}: {value[:120]}")
+    excerpt(data.get("summary", ""), "summary")
+    schema = {
+        "skills": ("category", "items"),
+        "experiences": ("company", "dates", "title", "location", "bullets"),
+        "projects": ("name", "stack", "repo_url", "bullet"),
+        "education": ("school", "degree", "dates"),
+    }
+    urls = {r.get("url") for r in (repos or []) if isinstance(r, dict)}
+    urls.update(re.findall(r"https?://[^\s<>]+", resume_text))
+    for section, fields in schema.items():
+        rows = data.get(section, [])
+        if not isinstance(rows, list) or len(rows) > 40:
+            flags.append(f"Invalid {section}: expected up to 40 objects")
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                flags.append(f"Invalid {section} entry")
+                continue
+            for field in fields:
+                value = row.get(field, [] if field == "bullets" else "")
+                label = f"{section}.{field}"
+                if field == "bullets":
+                    if not isinstance(value, list) or not value or len(value) > 12:
+                        flags.append("Invalid experience bullets")
+                    else:
+                        for bullet in value:
+                            excerpt(bullet, label)
+                elif field == "repo_url":
+                    if not isinstance(value, str) or (value and (value not in urls or not value.startswith("https://"))):
+                        flags.append(f"Unsupported repository URL: {value}")
+                elif field in {"items", "stack"} and isinstance(value, str):
+                    for skill in re.split(r"[,;|]", value):
+                        excerpt(skill.strip(), label)
+                else:
+                    excerpt(value, label)
+    return list(dict.fromkeys(flags))[:30]
+
+
 # Content rules for the resume generator. The model returns grounded CONTENT as JSON; a
 # fixed template (render_resume_html) controls the exact layout, so the format never drifts.
 RESUME_RULES = (
@@ -95,8 +174,8 @@ RESUME_RULES = (
     "- projects: the 4 most relevant to the JD; set repo_url ONLY from the provided repository list (exact match) "
     "or \"\" if none matches. Never invent a URL.\n"
     "- education: each degree with school, degree, dates. NEVER include GPA.\n"
-    "- Replace duties with specific, measurable achievements; weave in truthful ATS keywords from the JD.\n"
-    "- Do NOT use dashes or hyphens in prose (rephrase). Keep proper nouns and technology names exact.\n"
+    "- Select and reorder EXACT source excerpts for summary and bullets. Do not rewrite achievements or add metrics.\n"
+    "- Copy factual fields exactly; preserve punctuation, dates, names and technology names.\n"
     "- ANTI-FABRICATION (critical): never add employers, titles, dates, degrees, metrics, or skills/tools not in "
     "the base resume, even when the JD asks for them. Do not claim a years figure beyond what the resume states. "
     "Every value must trace to the base resume.\n"
@@ -137,7 +216,6 @@ def _extract_json_object(text: str) -> dict | None:
 # 15pt name, dot-separated contact, justified summary, uppercase section headings with a
 # full-width rule, flex rows so dates/locations align right. Format is OURS, not the model's.
 _RESUME_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Caladea:ital,wght@0,400;0,700;1,400&display=swap');
 @page { size: Letter; margin: 0.5in 0.7in; }
 * { box-sizing: border-box; }
 body { font-family: 'Caladea','Cambria','Georgia',serif; font-size: 9pt; line-height: 1.25; color: #000; margin: 0; }
@@ -158,19 +236,58 @@ li { margin: 1px 0; }
 """
 
 
+def _dict_items(value: object) -> list[dict]:
+    """Only the dict entries of a list — models sometimes emit strings or nulls in a
+    list the schema says should hold objects; those would crash ``.get`` calls."""
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _str_items(value: object) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _safe_profile_html(value: str) -> str:
+    class ProfileHTML(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts = []
+            self.links = []
+        def handle_starttag(self, tag, attrs):
+            if tag != "a":
+                return
+            href = dict(attrs).get("href", "") or ""
+            allowed = urlsplit(href).scheme.lower() in {"https", "http", "mailto", "tel"}
+            self.links.append(allowed)
+            if allowed:
+                self.parts.append('<a rel="noopener noreferrer" href="' + _html.escape(href, quote=True) + '">')
+        def handle_endtag(self, tag):
+            if tag == "a" and self.links and self.links.pop():
+                self.parts.append("</a>")
+        def handle_data(self, data):
+            self.parts.append(_html.escape(data))
+    parser = ProfileHTML()
+    parser.feed(str(value or ""))
+    parser.close()
+    return "".join(parser.parts) + "</a>" * sum(parser.links)
+
+
 def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
     """Render grounded resume CONTENT (the model's JSON) into the fixed one-page template.
-    ``contact`` and ``certs`` are trusted pre-built HTML; all model content is escaped."""
+    Contact and certification markup retains only safe links; all model content is escaped.
+    Malformed entries (wrong types) are skipped rather than crashing the render."""
     def esc(value: object) -> str:
         return _html.escape(str(value or "").strip())
 
+    if not isinstance(data, dict):
+        data = {}
+    contact, certs = _safe_profile_html(contact), _safe_profile_html(certs)
     skills = "".join(
         f'<div class="skill"><b>{esc(s.get("category"))}:</b> {esc(s.get("items"))}</div>'
-        for s in data.get("skills", []) if s.get("category")
+        for s in _dict_items(data.get("skills")) if s.get("category")
     )
     experience = ""
-    for e in data.get("experiences", []):
-        bullets = "".join(f"<li>{esc(b)}</li>" for b in e.get("bullets", []) if str(b).strip())
+    for e in _dict_items(data.get("experiences")):
+        bullets = "".join(f"<li>{esc(b)}</li>" for b in _str_items(e.get("bullets")) if str(b).strip())
         experience += (
             f'<div class="row"><span class="l">{esc(e.get("company"))}</span>'
             f'<span class="r">{esc(e.get("dates"))}</span></div>'
@@ -178,16 +295,16 @@ def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
             f'<span>{esc(e.get("location"))}</span></div><ul>{bullets}</ul>'
         )
     projects = ""
-    for p in data.get("projects", []):
+    for p in _dict_items(data.get("projects")):
         url = str(p.get("repo_url") or "").strip()
-        link = f'<a href="{esc(url)}">GitHub</a>' if url.startswith("http") else ""
+        link = f'<a href="{esc(url)}">GitHub</a>' if urlsplit(url).scheme in {"http", "https"} else ""
         projects += (
             f'<div class="row"><span><span class="l">{esc(p.get("name"))}</span> '
             f'<span class="stack">{esc(p.get("stack"))}</span></span>'
             f'<span class="r">{link}</span></div><ul><li>{esc(p.get("bullet"))}</li></ul>'
         )
     education = ""
-    for ed in data.get("education", []):
+    for ed in _dict_items(data.get("education")):
         education += (
             f'<div class="row"><span><span class="l">{esc(ed.get("school"))}</span> '
             f'{esc(ed.get("degree"))}</span><span class="r">{esc(ed.get("dates"))}</span></div>'
@@ -240,7 +357,7 @@ class JobCopilot:
         ats = ats_score(keywords, resume_text)
         missing = ats["misses"][:20]
         header = (
-            f"**ATS match: {ats['score']}%** — {ats['hit_count']}/{len(keywords)} keywords covered.\n\n"
+            f"**ATS match: {ats['score']}%** — {ats['hit_count']}/{len(keywords)} keywords covered (keyword estimate, not an employer ATS prediction).\n\n"
             + (f"**Missing keywords to weave in:** {', '.join(missing)}\n" if missing else "Great keyword coverage.\n")
         )
         if self._decide is None:
@@ -258,7 +375,7 @@ class JobCopilot:
         bullets = [ln.strip() for ln in reply.splitlines() if ln.strip()[:1] in {"-", "*", "•"}]
         grounding = check_grounding(bullets, claims)
         return TailorResult(company, role, ats, keywords[:40], missing,
-                            package=header + "\n" + reply, grounding=grounding, used_llm=True)
+                            package=header + "\n_Review this generated draft against your resume before using it; overlap checks do not verify factual accuracy._\n\n" + reply, grounding={**grounding, "review_required": True}, used_llm=True)
 
     def _build_prompt(self, resume_text, job_text, company, role, keywords, missing, claims) -> str:
         target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
@@ -306,14 +423,19 @@ class JobCopilot:
         except Exception as exc:
             return TailorResult(company, role, ats, ok=False, package=f"Model error: {exc}")
         data = _extract_json_object(raw)
-        if not data or not data.get("experiences"):
+        if not data or not _dict_items(data.get("experiences")):
             return TailorResult(company, role, ats, ok=False,
                                 package="The model did not return valid resume content. Try again.")
         if not name:
             name = next((ln.strip() for ln in resume_text.splitlines() if ln.strip()), "")
+        flags = check_resume_grounding(data, resume_text, repos)
+        grounding = {"flagged": flags, "fabrications": flags,
+                     "method": "source excerpts", "review_required": True}
+        if flags:
+            return TailorResult(company, role, ats, ok=False, used_llm=True,
+                                grounding=grounding,
+                                package="Resume rejected: content must trace to the base resume. " + "; ".join(flags))
         html = render_resume_html(name, contact, certs, data)
-        grounded_text = [data.get("summary", "")] + [b for e in data.get("experiences", []) for b in e.get("bullets", [])]
-        grounding = check_grounding(grounded_text, extract_resume_claims(resume_text))
         return TailorResult(company, role, ats, keywords[:40], ats["misses"][:20],
                             package=html, grounding=grounding, used_llm=True)
 
