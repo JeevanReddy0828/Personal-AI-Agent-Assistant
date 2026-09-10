@@ -3,6 +3,37 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session context (2026-09-10)
+
+- **Follow-ups lost the conversation.** After the advisor produced a schema, "build a flow
+  chart for this schema" and "build erd for this" (agent mode) went hunting for `schema.json`
+  on disk. Four causes: `/api/agent` sent no history at all; the provider clipped every turn
+  to 300 chars and kept 8 turns, so the schema was gone even in chat; the advisor never saw
+  the conversation; the client sent only the last 12 messages. Fix: `context.py` chunks the
+  whole session and budgets a block for every prompt, with a note naming what "this" refers
+  to; history is threaded through agent, advisor, CLI and `/api/agent`. Rule: any new
+  model-facing path must take `history` and build its context with `context_block`.
+- **A chat decision with no text fell into the no-LLM fallback.** `PlanDecision.is_chat`
+  requires a response, so a router reply of `action=chat, response=null` returned the canned
+  "I do not have an LLM provider connected" message even with a model configured (and the
+  non-streaming path also recorded the fast tier as down). Fix: `is_chat` now means
+  `action == "chat"`, `_route`'s heuristic shortcut checks for text, and the fast tier is
+  asked for the reply.
+- **Grounded-news prompts looked like follow-ups.** The synthesized "use the web results
+  below… prefer this live information" prompt contains "this", so every fresh-news answer got
+  a note telling the model the question referred to the previous reply. Fix: rank the session
+  context on the user's own words (`context_query=`), and `refers_back` ignores long messages.
+- **Long fenced code was sawn in half; a `DONE:` YAML key posed as the FINAL header.** The
+  hard-split loop cut a 2.8k-char code block into two unbalanced pieces, and header detection
+  matched inside fenced blocks. Fix: long fences split at line boundaries with every piece
+  re-fenced; header candidates outside fenced spans only. Also: a hard-cut fallback marked a
+  whole chunk as shown when only its prefix was, hiding the rest from retrieval.
+- **A one-line FINAL dropped the diagram written before it.** The agent wrote the Mermaid
+  chart, then `FINAL: the chart is above`, and only the FINAL text reached the user. Fix: keep a
+  pre-FINAL body when it has deliverable structure (fence, heading, table, list, diagram) and
+  prefer an upper-case FINAL header over a prose `Answer:` line; the prompt asks for the whole
+  result after FINAL.
+
 ## Live-testing pass (2026-09-09)
 
 - **Chat brain pointed at retired models.** Every chat failed: `meta/llama-3.1-8b-instruct`

@@ -18,6 +18,14 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
+from laptop_agent.context import (
+    ADVISOR_BUDGET,
+    AGENT_BUDGET,
+    accepts_context_query,
+    build_context,
+    context_block,
+    register_summarizer,
+)
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
@@ -115,6 +123,9 @@ class AgentOrchestrator:
         self._copilot_cache: JobCopilot | None = None
         self._resume_copilot_cache: JobCopilot | None = None
         self._repo_cache: dict[str, list[dict]] | None = None
+        # The rolling summary of older turns is written by the fast tier in the background
+        # (see context.py); with no model configured it simply never appears.
+        register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -178,10 +189,19 @@ class AgentOrchestrator:
         ]
 
     @staticmethod
-    def _tier_reply(provider, command, profile, history, on_token) -> str:
+    def _call_with_query(fn, command, profile, history, query):
+        """Call a provider's answer/stream_answer, passing ``context_query`` only when the
+        provider accepts it (test doubles and older providers do not)."""
+        if query is not None and accepts_context_query(fn):
+            return fn(command, profile, None, history, context_query=query)
+        return fn(command, profile, None, history)
+
+    @classmethod
+    def _tier_reply(cls, provider, command, profile, history, on_token, query=None) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
-        (e.g. it was unreachable/congested), which signals the caller to fall back."""
+        (e.g. it was unreachable/congested), which signals the caller to fall back.
+        ``query`` ranks the session context when ``command`` is a synthesized prompt."""
         check_cancelled()
         if provider is None:
             return ""
@@ -189,7 +209,7 @@ class AgentOrchestrator:
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
             try:
-                for token in streamer(command, profile, None, history):
+                for token in cls._call_with_query(streamer, command, profile, history, query):
                     check_cancelled()
                     chunks.append(token)
                     on_token(token)
@@ -203,7 +223,7 @@ class AgentOrchestrator:
             return "".join(chunks).strip()
         answer_fn = getattr(provider, "answer", None)
         if answer_fn is not None:
-            reply = (answer_fn(command, profile, None, history) or "").strip()
+            reply = (cls._call_with_query(answer_fn, command, profile, history, query) or "").strip()
             check_cancelled()
             return reply
         return ""
@@ -232,7 +252,7 @@ class AgentOrchestrator:
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
         # chat" and then the chat path makes a second LLM call to actually answer.
         # Cutting the redundant classify call roughly halves latency for small talk.
-        if fast.is_chat and fast.confidence >= 0.6:
+        if fast.is_chat and fast.response and fast.confidence >= 0.6:
             return fast
         return self.planner.plan(command, help_text, profile, history)
 
@@ -337,7 +357,7 @@ class AgentOrchestrator:
             return self._agent_last()
 
         if lowered.startswith("agent run "):
-            return await self._run_agent(command[len("agent run ") :].strip())
+            return await self._run_agent(command[len("agent run ") :].strip(), history=history_turns)
 
         if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
             return self._agent_control_room()
@@ -536,7 +556,7 @@ class AgentOrchestrator:
 
         for verb in ("solve ", "advise me on ", "advise ", "strategize ", "strategise "):
             if lowered.startswith(verb):
-                return self._solve(command[len(verb) :].strip())
+                return self._solve(command[len(verb) :].strip(), history_turns)
 
         if lowered.startswith("research report "):
             return self._research_report(command[len("research report ") :].strip())
@@ -783,7 +803,11 @@ class AgentOrchestrator:
                     fast_available = self.model_status.should_attempt("fast")
                     if real_fast and fast_available:
                         attempted.add("fast")
-                    if on_token is not None and fast_provider is not None and fast_available:
+                    # A router that chose chat but left the text to the answerer (a
+                    # follow-up on the conversation) is asked for the reply too, rather
+                    # than being counted as a dead endpoint.
+                    deferred = real_fast and not planned.response and planned.confidence > 0
+                    if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
                         if real_fast:
                             self.model_status.record("fast", bool(reply))
@@ -924,10 +948,11 @@ class AgentOrchestrator:
         streamer = getattr(provider, "stream_answer", None)
         streamed_live = on_token is not None and streamer is not None
         text = ""
+        # The prompt is synthesized; the session context is ranked on the user's words.
         if streamed_live:
-            text = self._tier_reply(provider, prompt, profile, history_turns, on_token)
+            text = self._tier_reply(provider, prompt, profile, history_turns, on_token, query=command)
         if not text:
-            text = (answer(prompt, profile, None, history_turns) or "").strip()
+            text = (self._call_with_query(answer, prompt, profile, history_turns, command) or "").strip()
         if not text:
             return None
 
@@ -1412,12 +1437,13 @@ class AgentOrchestrator:
             self._resume_copilot_cache = JobCopilot(decide=brain)
         return self._resume_copilot_cache
 
-    async def run_agent(self, goal: str, on_step=None) -> ToolResult:
+    async def run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
         """Public entry for autonomous runs with an optional per-step callback (used by the
-        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path."""
-        return await self._run_agent(goal, on_step=on_step)
+        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path.
+        ``history`` is the session transcript so the goal can refer to earlier turns."""
+        return await self._run_agent(goal, on_step=on_step, history=history)
 
-    async def _run_agent(self, goal: str, on_step=None) -> ToolResult:
+    async def _run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
         goal = goal.strip()
         if not goal:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
@@ -1425,12 +1451,13 @@ class AgentOrchestrator:
         agent_id = self.control_room.start(f"agent: {goal}")
         agent = AutonomousAgent(
             decide=self._build_agent_brain(),
-            execute=lambda command: self.handle(command, _allow_planner=False),
+            execute=lambda command: self.handle(command, _allow_planner=False, history=history),
             command_reference=self._agent_reference(),
             max_steps=6,
         )
+        context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
-            result = await agent.run(goal, on_step=on_step)
+            result = await agent.run(goal, on_step=on_step, context=context)
         except OperationCancelled:
             self.control_room.finish(agent_id, "Stopped by user", ok=False)
             raise
@@ -1791,12 +1818,15 @@ class AgentOrchestrator:
             return "", []
         return str(gathered.data.get("text", "")), list(gathered.data.get("sources", []))
 
-    def _solve(self, problem: str) -> ToolResult:
+    def _solve(self, problem: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = problem.strip().strip("'\"")
         if not cleaned:
             return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
         agent_id = self.control_room.start(f"advisor: {cleaned}")
-        result = self._problem_solver().solve(cleaned)
+        session = build_context(history or [], cleaned, budget=ADVISOR_BUDGET)
+        # A follow-up ("is option B safer for this?") is researched in its standalone
+        # form ("… (referring to: Postgres vs MySQL)"), not as the bare fragment.
+        result = self._problem_solver().solve(cleaned, conversation=session.text, research_query=session.query)
         self.control_room.finish(agent_id, result.analysis[:200], ok=result.ok)
         if not result.ok:
             return ToolResult.failure(result.analysis, problem=cleaned)

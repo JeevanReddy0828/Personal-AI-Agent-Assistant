@@ -168,13 +168,37 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
         `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
-        memory.py, token_vault.py (DPAPI), config.py
+        memory.py, token_vault.py (DPAPI), config.py,
+        context.py (session context: chunks the chat transcript by Markdown structure, ranks
+            chunks against the new message, budgets one block for every model-facing prompt)
 ```
 
 - `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
   entry. It checks direct command prefixes, then routes via heuristic → LLM.
   Tool results are turned into plain language by `_humanize` (local, no extra
   LLM call). Chat replies stream via the `on_token` callback when provided.
+- **Session context.** `history` is the whole session transcript (the web client sends
+  up to 80 turns per request; the CLI keeps its own list). `context.build_context(history,
+  query, budget=…)` follows the standard chat-memory hierarchy: when the whole transcript
+  fits the budget it goes in verbatim; otherwise the recent turns are quoted verbatim, the
+  older turns become a **rolling summary** written by the fast tier in the background
+  (`register_summarizer`, cached per transcript prefix and folded incrementally; a
+  heading outline stands in until it exists), and the best earlier chunks are retrieved
+  with **contextual BM25** (each Markdown chunk — fenced code kept whole — is indexed with
+  its turn's title and section heading). A follow-up ("build an ERD for this") is rewritten
+  into a standalone query for retrieval and for the advisor's web research
+  (`resolve_reference`), and the block ends with a note naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
+  (`CHAT_BUDGET`), the autonomous agent (`AGENT_BUDGET`, via `AutonomousAgent.run(context=…)`)
+  and the advisor (`ADVISOR_BUDGET`, `ProblemSolver.solve(conversation=…)`). The router is
+  taught that a back-reference is a follow-up: resolve it from the transcript, emit a command
+  only when it names something actionable there, else `action=chat` with `response` possibly
+  null (`PlanDecision.is_chat` means `action == "chat"`; the fast tier answers a text-less
+  chat decision) — so "build an ERD for this" is answered from the schema in the conversation
+  instead of the agent scanning the filesystem. `/api/agent` takes `history` like
+  `/api/stream`; the web client stores a bounded digest of each reply's tool data (`extra`)
+  and the CLI appends one, so "summarize this" after `read file …` has the text. Results are
+  memoized per (history, query, budget), and a synthesized prompt (grounded news) passes
+  `context_query=` so the context is ranked on the user's own words.
 - **Freshness path.** Before answering a chat turn, `_needs_fresh_info` flags
   time-sensitive questions (keywords + patterns like "did X end", recent years);
   `_grounded_news_answer` then runs a web search (one retry for the flaky free

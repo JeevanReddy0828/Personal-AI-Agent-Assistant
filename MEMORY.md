@@ -45,6 +45,30 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 - Run tests through tests/run_tests.py to isolate personal configuration/data. Browser
   checks are opt-in with JARVIS_BROWSER_TESTS=1 and use mocked external integrations.
 
+## Session context (2026-09-10) — branch `claude/session-context`
+
+- The model never sees raw history any more: every prompt goes through
+  `context.build_context(history, query, budget)`. Design follows the documented chat-memory
+  hierarchy (recent verbatim → older summarized → rest retrieved): the summary buffer pattern
+  (LangChain/Mem0), Anthropic's contextual retrieval (chunks indexed with situating context,
+  BM25) and conversational query rewriting (resolve "this" before retrieval/research).
+  Small sessions go in verbatim (Anthropic: under ~200k tokens just include everything).
+  The rolling summary is an injected callable (`register_summarizer`, the orchestrator uses
+  the fast tier) and always runs in the background — a request never waits for it.
+  Budgets live in `context.py` (`ROUTE_BUDGET` 2.4k chars, `CHAT_BUDGET` 9k, `AGENT_BUDGET` 6k,
+  `ADVISOR_BUDGET` 5k). Raise them there, not per call site.
+- A router decision of `action=chat` with no `response` is legitimate (a follow-up deferred to
+  the answerer): `PlanDecision.is_chat` means `action == "chat"`, and `_route`'s heuristic
+  short-circuit checks `fast.response` explicitly. The fast tier answers a text-less chat turn.
+- Provider `answer`/`stream_answer` take `context_query=` for synthesized prompts (grounded
+  news) so the session context is ranked on the user's words; `_call_with_query` falls back
+  positionally for providers/test doubles without it. `refers_back` ignores messages over 60
+  words and short messages that start with a command verb; the advisor skips web research when
+  the problem refers back. `build_context` is memoized (16 entries) across the tier ladder.
+- Every entry point passes the session: `/api/stream`, `/api/agent` and `/api/command` accept
+  `history`; the web client sends up to 80 turns (server cap 100); the CLI keeps its own list.
+  Adding a new model-facing path means threading `history` through it.
+
 ## Live-testing pass (2026-09-09) — branch `codex/review-stabilization-final`
 
 - **NVIDIA models get retired.** IDs return HTTP 410 (Gone) at end-of-life and 404 ("not for

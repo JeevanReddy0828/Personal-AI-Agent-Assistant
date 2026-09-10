@@ -1066,10 +1066,24 @@ PAGE = r"""<!doctype html>
   try{const saved=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]');
     if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
   }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
-  function saveSessions(){sessions=sessions.slice(0,40);try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}catch(e){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}}
+  function saveSessions(){sessions=sessions.slice(0,40);
+    try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}
+    catch(e){
+      // Over quota: the tool-data digests are the expendable part — drop them and retry once.
+      sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
+      try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}
+      catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
+    }}
   function renderSessions(){sessionsEl.innerHTML='';sessions.forEach(s=>{const b=document.createElement('button');b.className='sess'+(s.id===current?' active':'');b.textContent=s.title||'New chat';b.onclick=()=>{loadSession(s.id);closeChats();};sessionsEl.appendChild(b);});}
   function newSession(){const s={id:crypto.randomUUID(),title:'',msgs:[]};sessions.unshift(s);current=s.id;saveSessions();renderSessions();chat.innerHTML='';chat.appendChild(emptyEl());}
   function curSession(){return sessions.find(s=>s.id===current);}
+  // The whole session goes to the server (it chunks and budgets the context), capped at
+  // the API's 100-turn limit and a sane per-message size so a pasted document can't
+  // balloon the request.
+  // A reply's `extra` is a bounded digest of the tool data behind it (the "details" pane),
+  // so "summarize this" after `read file …` has the file text, not just the status line.
+  function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
+  function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?JSON.stringify(d).slice(0,2000):'';}catch(e){return '';}}
   function loadSession(id){current=id;const s=curSession();chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
@@ -1165,7 +1179,7 @@ PAGE = r"""<!doctype html>
     if(!current)newSession();
     const sent=attachments.slice(), attNames=sent.map(a=>a.name);
     const s=curSession();
-    const history=s?s.msgs.slice(-12).map(m=>({role:m.role==='bot'?'assistant':'user',text:m.text||''})):[];
+    const history=sessionHistory(s);
     renderMsg('user',text||'(sent attachment)',attNames);
     if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
     const predicted=estimateTier(text); activeTier=predicted;
@@ -1208,7 +1222,7 @@ PAGE = r"""<!doctype html>
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data)});saveSessions();}
       loadVault();
     }catch(err){
       if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
@@ -1222,6 +1236,7 @@ PAGE = r"""<!doctype html>
   async function runAgent(goal){
     if(!current)newSession();
     const s=curSession();
+    const history=sessionHistory(s);   // captured before this goal is added, like send()
     renderMsg('user',goal); if(s){s.msgs.push({role:'user',text:goal});if(!s.title)s.title=goal.slice(0,32);saveSessions();renderSessions();}
     ta.value='';auto();setBusy(true,'smart');
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
@@ -1231,7 +1246,7 @@ PAGE = r"""<!doctype html>
     let reply='';
     currentAbort=new AbortController();currentRequest=crypto.randomUUID();
     try{
-      const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({goal})});
+      const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({goal,history})});
       if(!r.ok)throw new Error((await r.json()).message||'Request failed');
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
       while(true){
@@ -2199,9 +2214,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise OperationCancelled("Client disconnected")
 
         emit({"type": "start", "goal": goal})
+        history = payload.get("history") or []  # validated by _read_json
         try:
             result = asyncio.run(
-                _orchestrator.run_agent(goal, on_step=lambda step: emit({"type": "step", "step": step.__dict__}))
+                _orchestrator.run_agent(
+                    goal, on_step=lambda step: emit({"type": "step", "step": step.__dict__}), history=history
+                )
             )
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
         except Exception as exc:  # pragma: no cover - defensive for the preview server.

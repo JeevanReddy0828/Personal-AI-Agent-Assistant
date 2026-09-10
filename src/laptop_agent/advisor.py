@@ -52,7 +52,13 @@ class ProblemSolver:
         self._research = research
         self._max_context_chars = max_context_chars
 
-    def solve(self, problem: str, do_research: bool = True) -> AdviceResult:
+    def solve(
+        self, problem: str, do_research: bool = True, conversation: str = "", research_query: str | None = None
+    ) -> AdviceResult:
+        """``conversation`` is the session transcript block, so a problem phrased as a
+        follow-up ("is option B safer for this?") is judged against what was already said;
+        ``research_query`` is that follow-up rewritten to stand alone, which is what the
+        web search sees."""
         problem = (problem or "").strip()
         if not problem:
             return AdviceResult(problem="", analysis="Tell me the problem or decision you'd like help with.", ok=False)
@@ -60,13 +66,13 @@ class ProblemSolver:
         context, sources, used_research = "", [], False
         if do_research and self._research is not None:
             try:
-                context, sources = self._research(problem)
+                context, sources = self._research(research_query or problem)
             except Exception:  # grounding is best-effort; never block the advice on it
                 context, sources = "", []
             context = (context or "").strip()[: self._max_context_chars]
             used_research = bool(context)
 
-        prompt = self._build_prompt(problem, context)
+        prompt = self._build_prompt(problem, context, conversation=(conversation or "").strip())
         try:
             reply = (self._decide(prompt) or "").strip()
         except Exception as exc:  # the brain is injected; surface, don't crash
@@ -80,8 +86,10 @@ class ProblemSolver:
             )
         return AdviceResult(problem=problem, analysis=reply, ok=True, used_research=used_research, sources=sources)
 
-    def _build_prompt(self, problem: str, context: str) -> str:
+    def _build_prompt(self, problem: str, context: str, conversation: str = "") -> str:
         parts = [_SYSTEM]
+        if conversation:
+            parts += ["", "Conversation so far in this session (the problem may refer to it):", conversation]
         if context:
             parts += ["", "Recent web context you may use (cite it only where relevant):", context]
         parts += ["", f"PROBLEM: {problem}", "", "Your structured analysis:"]

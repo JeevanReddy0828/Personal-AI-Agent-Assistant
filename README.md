@@ -91,6 +91,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Capability | How |
 |---|---|
 | Conversational chat, tier-escalated by complexity | just talk |
+| Follow-ups that lean on the conversation ("build an ERD for this", "make it shorter") | automatic — the whole session is chunked, ranked and budgeted into every model prompt (chat, agent, advisor) |
 | Researched decision advisor | `solve <problem>` *(auto-routes from "should I…", "help me decide…")* |
 | Live-news grounding (cited, fresh) | auto on time-sensitive questions |
 | Autonomous goal loop (plan→act→observe) | `agent run <goal>` · `agent runs` / `agent last` |

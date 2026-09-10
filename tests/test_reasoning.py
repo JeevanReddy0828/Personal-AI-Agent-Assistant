@@ -59,6 +59,42 @@ class ParseTests(unittest.TestCase):
         d = parse_agent_decision("ACTION: none")
         self.assertTrue(d.is_final)
 
+    def test_deliverable_written_before_final_is_kept(self) -> None:
+        # A diagram/code block followed by a one-line FINAL that says "above" must not
+        # lose the diagram; a bare THOUGHT/ACTION preamble is still dropped.
+        d = parse_agent_decision("THOUGHT: easy\n```mermaid\nflowchart TD\n  A-->B\n```\nFINAL: The chart is above.")
+        self.assertTrue(d.is_final)
+        self.assertIn("flowchart TD", d.final_answer)
+        self.assertTrue(d.final_answer.endswith("The chart is above."))
+        self.assertNotIn("THOUGHT", d.final_answer)
+        d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
+        self.assertEqual(d.final_answer, "all set")
+        # Leftover reasoning prose (even a wrapped multi-line THOUGHT) is not a deliverable.
+        d = parse_agent_decision(
+            "THOUGHT: I need to think about this carefully because the schema needs several\n"
+            "considerations around normalization and refunds that I should mention first.\n"
+            "FINAL: Here's the ERD."
+        )
+        self.assertEqual(d.final_answer, "Here's the ERD.")
+        # A table is a deliverable.
+        d = parse_agent_decision("| table | rows |\n|---|---|\n| users | 3 |\nFINAL: Counts above.")
+        self.assertTrue(d.final_answer.startswith("| table |"))
+
+    def test_uppercase_final_header_wins_over_a_prose_answer_line(self) -> None:
+        raw = "Q: What is 2+2?\nAnswer: 4\nFINAL: The ERD is:\nerDiagram\n  USERS ||--o{ ORDERS : places"
+        d = parse_agent_decision(raw)
+        self.assertTrue(d.final_answer.startswith("The ERD is:"))
+        self.assertIn("erDiagram", d.final_answer)
+        self.assertNotIn("FINAL", d.final_answer)
+        # Lower-case headers still parse when nothing better exists.
+        self.assertEqual(parse_agent_decision("final: ok").final_answer, "ok")
+        # An upper-case DONE: key inside a fenced deliverable is not the header.
+        raw = "THOUGHT: config below\n```yaml\nTODO: pending\nDONE: complete\n```\nFINAL: The config is above."
+        d = parse_agent_decision(raw)
+        self.assertTrue(d.final_answer.startswith("```yaml\nTODO: pending\nDONE: complete\n```"))
+        self.assertTrue(d.final_answer.endswith("The config is above."))
+        self.assertNotIn("FINAL", d.final_answer)
+
     def test_thought_only_reply_drops_the_label(self) -> None:
         # A reply that is only a THOUGHT (no ACTION/FINAL) should surface the thought
         # text as the answer, without the literal 'THOUGHT:' prefix leaking to the user.
@@ -138,6 +174,17 @@ class AutonomousAgentTests(unittest.TestCase):
         agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
         result = asyncio.run(agent.run("one step", on_step=boom))  # must not raise
         self.assertEqual(result.status, "ok")
+
+    def test_conversation_context_reaches_the_model(self) -> None:
+        brain = _ScriptedBrain(["FINAL: erDiagram\n  USERS ||--o{ ORDERS : places"])
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")), command_reference="- scan files <path>")
+        context = "Recent conversation:\nUser: design a schema\nJ.A.R.V.I.S: users, orders, order_items tables"
+        result = asyncio.run(agent.run("build an ERD for this", context=context))
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.steps, [])                       # answered from context, no file hunting
+        self.assertIn("order_items tables", brain.prompts[0])
+        self.assertIn("CONVERSATION CONTEXT", brain.prompts[0])
+        self.assertIn("reply FINAL: immediately", brain.prompts[0])
 
     def test_no_brain_fails_cleanly(self) -> None:
         agent = AutonomousAgent(lambda _p: "", _executor(lambda c: ToolResult.success("x")))
