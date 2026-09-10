@@ -1638,9 +1638,9 @@ PAGE = r"""<!doctype html>
   let barge=null, barged=false;
   // Loop breaker. On open speakers the microphone hears the reply, and a mis-classified
   // echo starts a turn that speaks, is heard again, and starts another — which is how a
-  // single "draw a city" became four images. Two spoken interruptions inside 25s without
-  // a deliberate gesture means we are hearing ourselves, so spoken barge-in switches off
-  // for the rest of the session and the manual Interrupt stays available.
+  // single "draw a city" became four images. Two spoken interruptions inside 25s are
+  // allowed; a third means we are hearing ourselves, so spoken barge-in switches off for
+  // the rest of the session and the manual Interrupt stays available.
   let bargeOff=false, bargeCount=0, bargeWindow=0;
   function bargeAllowed(){
     const now=performance.now();
