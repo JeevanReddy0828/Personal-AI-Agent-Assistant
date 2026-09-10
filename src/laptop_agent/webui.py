@@ -27,9 +27,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable
 
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
@@ -190,6 +192,22 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
 _orchestrator = build_orchestrator(approval_callback=_guarded_approval)
 
 
+def _probe_llm(ping: Callable[[], bool], attempts: int = 2, delay: float = 1.5) -> bool:
+    """True if any ping succeeds. The free hosted endpoints refuse an occasional
+    request, and one refusal used to mark the model unreachable in the header for the
+    whole 200s until the next warm cycle — so give it a second chance, as the web
+    search path already does for its flaky endpoint."""
+    for attempt in range(attempts):
+        try:
+            if ping():
+                return True
+        except (OSError, TimeoutError):
+            pass
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return False
+
+
 def _refresh_llm_status() -> None:
     """Ping the model and cache reachability (also keeps it warm)."""
     provider = getattr(_orchestrator.planner, "provider", None)
@@ -197,10 +215,7 @@ def _refresh_llm_status() -> None:
     if ping is None:
         _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
         return
-    try:
-        reachable = bool(ping())
-    except (OSError, TimeoutError):
-        reachable = False
+    reachable = _probe_llm(ping)
     _LLM_STATUS["reachable"] = reachable
     _orchestrator.model_status.record("fast", reachable)
 
