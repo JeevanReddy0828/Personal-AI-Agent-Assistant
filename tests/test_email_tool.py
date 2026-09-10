@@ -222,6 +222,37 @@ class EmailToolTests(unittest.TestCase):
         self.assertEqual(summary["from"], "a@example.com")
         self.assertEqual(summary["is_read"], "False")
 
+    def test_imap_auth_failure_returns_friendly_message(self) -> None:
+        import dataclasses
+        import imaplib
+        from unittest import mock
+
+        cfg = dataclasses.replace(
+            self.build_config(),
+            imap_host="imap.gmail.com", imap_username="u@gmail.com", imap_password="stale",
+        )
+        tool = EmailTool(ApprovalGate(lambda request: True), cfg)
+
+        class _FakeIMAP:
+            def __init__(self, host, port):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def login(self, user, pw):
+                raise imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Invalid credentials (Failure)")
+
+        with mock.patch.object(imaplib, "IMAP4_SSL", _FakeIMAP):
+            result = tool.search_inbox("ALL")
+        self.assertFalse(result.ok)
+        self.assertNotIn("b'", result.message)  # no raw bytes repr leaks through
+        self.assertIn("app password", result.message.lower())
+        self.assertEqual(result.data.get("setup"), "gmail-app-password")
+
 
 if __name__ == "__main__":
     unittest.main()
