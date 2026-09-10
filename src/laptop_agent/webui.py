@@ -1266,7 +1266,7 @@ PAGE = r"""<!doctype html>
   function renderConn(){
     const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
     const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
-    document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v">'+v+'</span></div>').join('');
+    document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v" title="'+esc(String(v))+'">'+esc(String(v))+'</span></div>').join('');
   }
   renderConn();
 
@@ -1472,13 +1472,14 @@ PAGE = r"""<!doctype html>
   const sysDrawer=document.getElementById('sysDrawer'),scrim=document.getElementById('scrim'),healthPill=document.getElementById('healthPill'),
         healthText=document.getElementById('healthText'),railStatus=document.getElementById('railStatus'),railText=document.getElementById('railText');
   let drawerOpener=null;
+  const appRoot=document.querySelector('.app');
   function setDrawer(open,opener){
     if(open)drawerOpener=opener||document.activeElement;
-    else if(sysDrawer.contains(document.activeElement))(drawerOpener&&drawerOpener.focus?drawerOpener:healthPill).focus();   // move focus out before hiding
+    else{appRoot.inert=false;if(sysDrawer.contains(document.activeElement))(drawerOpener&&drawerOpener.focus?drawerOpener:healthPill).focus();}   // move focus out before hiding
     sysDrawer.classList.toggle('open',open);scrim.classList.toggle('open',open);
     sysDrawer.setAttribute('aria-hidden',String(!open));
     healthPill.setAttribute('aria-expanded',String(open));railStatus.setAttribute('aria-expanded',String(open));
-    if(open){loadMetrics();loadAgents();document.getElementById('drawerClose').focus();} else drawerOpener=null;
+    if(open){appRoot.inert=true;loadMetrics();loadAgents();document.getElementById('drawerClose').focus();} else drawerOpener=null;   // inert keeps Tab inside the drawer
   }
   function setStatus(cls,label){   // one health state painted on both drawer triggers
     healthPill.className='pill '+cls;healthText.textContent=label;
@@ -1712,6 +1713,7 @@ PAGE = r"""<!doctype html>
     setStatus(h.overall+(h.overall==='ok'&&busy.length?' busy':''),label);
     const tierNote=busy.length?` · busy: ${busy.join(', ')} (using a faster model)`:'';
     pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':h.llm.reachable===true?'connected':'configured, checking'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}${tierNote}`;
+    railStatus.title=pill.title;
     if(h.storage_warnings?.length){hint.textContent=h.storage_warnings.join(' ');}
     const card=document.getElementById('setupCard');
     if(card){
