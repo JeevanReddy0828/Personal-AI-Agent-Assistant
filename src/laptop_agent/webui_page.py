@@ -1578,9 +1578,9 @@ PAGE = r"""<!doctype html>
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
-  function startVoice(){voiceGeneration++;voiceActive=true;document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
+  function startVoice(){voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
   function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
-  let recognizing=false, speaking=false, lastSpoken='';
+  let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
   let ttsQueue=[], streamComplete=false, spokeAny=false;
@@ -1598,32 +1598,75 @@ PAGE = r"""<!doctype html>
     speakChunk(ttsQueue.shift());
   }
   function afterTurn(){if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay
+  // What is actually worth saying out loud. A picture, a link target or a code block has
+  // nothing speakable in it, and reading a URL aloud used to feed a garbled "slash api
+  // slash image question mark name equals…" back into the microphone — which the echo
+  // guard could not match, so the agent answered itself and drew again. Mirrors
+  // voice.clean_for_speech on the server.
+  function speakable(text){
+    let t=String(text||'');
+    t=t.replace(/```[\s\S]*?```/g,' ');
+    t=t.replace(/!\[[^\]]*\]\([^)]*\)/g,' ');       // an embedded picture
+    t=t.replace(/\[([^\]]+)\]\([^)]*\)/g,'$1');     // a link reads as its label
+    t=t.replace(/(?:https?:\/\/|www\.)\S+/gi,' ');
+    t=t.replace(/(^|\s)\/\S*\/\S+/g,' ');           // bare paths like /api/image?name=…
+    t=t.replace(/[`*#_>\[\]()|~]+/g,' ');
+    return t.replace(/\s+/g,' ').replace(/ ([.,!?;:])/g,'$1').trim();
+  }
+  // The last few things we actually said. Compared one at a time rather than as one
+  // long blob: the old accumulator grew to 600 characters, so its word set matched
+  // almost any real sentence and the user's own interruptions were rejected as echo.
+  let spokenRecent=[], speechEndedAt=0;
+  function rememberSpoken(t){spokenRecent.push(t);if(spokenRecent.length>6)spokenRecent.shift();}
   // reject recognized speech that is really the agent hearing its own voice
   function isEcho(q){
     const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
-    const a=norm(q), b=norm(lastSpoken); if(!a||!b)return false;
-    if(b.includes(a)||a.includes(b))return true;
-    const bw=new Set(b.split(' ')), aw=a.split(' ');
-    return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
+    const a=norm(q); if(!a)return false;
+    const aw=a.split(' ');
+    for(const spoken of spokenRecent){
+      const b=norm(spoken); if(!b)continue;
+      if(b.includes(a)||a.includes(b))return true;
+      const bw=new Set(b.split(' '));
+      if(aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.7)return true;
+    }
+    return false;
   }
   // --- barge-in: keep a recognizer alive while J.A.R.V.I.S speaks; if the user says a
   // real phrase (not the TTS echo) it stops talking and answers the new input with the
   // prior context. Best with headphones — open speakers can feed the voice back into
   // the mic. The Interrupt button / Space bar are the always-reliable manual fallback.
   let barge=null, barged=false;
+  // Loop breaker. On open speakers the microphone hears the reply, and a mis-classified
+  // echo starts a turn that speaks, is heard again, and starts another — which is how a
+  // single "draw a city" became four images. Two spoken interruptions inside 25s are
+  // allowed; a third means we are hearing ourselves, so spoken barge-in switches off for
+  // the rest of the session and the manual Interrupt stays available.
+  let bargeOff=false, bargeCount=0, bargeWindow=0;
+  function bargeAllowed(){
+    const now=performance.now();
+    if(now-bargeWindow>25000){bargeWindow=now;bargeCount=0;}
+    if(++bargeCount>2){
+      bargeOff=true; bargeStop();
+      vtrans.textContent='I kept hearing my own voice, so voice interruption is off. Press Space or Interrupt to cut in.';
+      return false;
+    }
+    return true;
+  }
+  function bargeReset(){bargeOff=false;bargeCount=0;bargeWindow=performance.now();}
   function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}}
   function bargeStart(){
-    if(!voiceActive||NATIVE||!SR)return; bargeStop(); barged=false;
+    if(!voiceActive||NATIVE||!SR||bargeOff)return; bargeStop(); barged=false;
     try{barge=new SR();}catch(e){return;}
     barge.lang='en-US';barge.interimResults=true;barge.continuous=true;
     barge.onresult=e=>{if(barged)return;let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
-      const q=t.trim(); if(q.split(/\s+/).filter(Boolean).length>=2 && !isEcho(q)){barged=true;userInterrupt(q);}};
+      // Three words, not two: "a city" is echo, "add a spaceship to it" is a person.
+      const q=t.trim(); if(q.split(/\s+/).filter(Boolean).length>=3 && !isEcho(q) && bargeAllowed()){barged=true;userInterrupt(q);}};
     barge.onerror=()=>{};
     barge.onend=()=>{if(barge&&voiceActive&&speaking&&!barged){try{barge.start();}catch(e){}}};
     try{barge.start();}catch(e){}
   }
   function stopSpeaking(){try{speechSynthesis.cancel();}catch(e){}ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
-  function interruptNow(){if(!voiceActive)return;stopSpeaking();vSet('listening','Listening');listen();}           // manual: stop speaking, listen
+  function interruptNow(){if(!voiceActive)return;bargeReset();stopSpeaking();vSet('listening','Listening');listen();}  // manual: stop speaking, listen (and trust the mic again)
   function userInterrupt(q){if(!voiceActive)return;stopSpeaking();if(busy)stopGen();vSet('thinking','Thinking');setTimeout(()=>{if(voiceActive)send(q);},200);}  // spoken barge-in: abort any in-flight turn, then answer with context
   // --- voice timing HUD: marks where each turn spends time so latency is visible ---
   let vT0=0, vMarks=[];
@@ -1646,6 +1689,9 @@ PAGE = r"""<!doctype html>
       try{rec.abort();}catch(e){}
       if(!voiceActive||speaking)return;
       const q=(raw||'').trim();
+      // The tail of an utterance is still in the air right after it ends; anything the
+      // recognizer reports in that window is ours, not the user's.
+      if(performance.now()-speechEndedAt<400){listen();return;}
       if(q.length<2||isEcho(q)){listen();return;}      // ignore noise, empty, or our own echo
       vSet('thinking','Thinking');
       await send(q);                                    // send() streams sentences back via voiceTurnDone; it drives speech, not us
@@ -1721,15 +1767,16 @@ PAGE = r"""<!doctype html>
   async function playTTS(text){
     const generation=voiceGeneration;
     speaking=true;
-    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    const clean=speakable(text);
     if(!clean){speaking=false;pumpTTS();return;}
+    rememberSpoken(clean);
     setCore('speaking');vSet('speaking','Speaking');if(voiceActive)vtrans.textContent=clean.slice(0,240);
     try{
       const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
       if(!r.ok)throw new Error('tts '+r.status);
       const bytes=await r.arrayBuffer();if(!voiceActive||generation!==voiceGeneration)return;
       releaseAudio();activeAudioURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));const a=activeAudio=new Audio(activeAudioURL);
-      a.onended=a.onerror=()=>{releaseAudio();speaking=false;pumpTTS();};
+      a.onended=a.onerror=()=>{releaseAudio();speechEndedAt=performance.now();speaking=false;pumpTTS();};
       vmark('speak');await a.play();
     }catch(e){speaking=false;pumpTTS();}
   }
@@ -1740,16 +1787,16 @@ PAGE = r"""<!doctype html>
     bargeStart();                                       // …but keep a barge recognizer alive so speech can be interrupted
     try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
     if(!ttsVoice)pickVoice();
-    const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
+    const clean=speakable(text);
     if(!clean){speaking=false;pumpTTS();return;}
-    lastSpoken=(lastSpoken?lastSpoken+' '+clean:clean).slice(-600);        // accumulate spoken text so we can reject the echo
+    rememberSpoken(clean);
     const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
     u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
-    u.onerror=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};
+    u.onend=()=>{if(barged)return;bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{if(barged)return;bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
   }catch(e){bargeStop();speaking=false;pumpTTS();}}
 

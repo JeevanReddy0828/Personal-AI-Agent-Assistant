@@ -54,5 +54,31 @@ class SpeechChunkerTests(unittest.TestCase):
         self.assertIsNone(chunker.flush())
 
 
+class SpeechEchoLoopTests(unittest.TestCase):
+    """Reading a URL aloud produced garbled speech the echo guard could not match, so
+    the microphone heard it, treated it as a new request, and drew the picture again."""
+
+    def test_an_embedded_picture_is_not_read_aloud(self) -> None:
+        spoken = clean_for_speech("![a futuristic city](/api/image?name=a-futuristic-city-1789.jpg)\n\nHere is *a futuristic city*.")
+        self.assertEqual(spoken, "Here is a futuristic city.")
+        self.assertNotIn("api", spoken)
+        self.assertNotIn("jpg", spoken)
+
+    def test_a_picture_on_its_own_is_silent(self) -> None:
+        self.assertEqual(clean_for_speech("![a fox](/api/image?name=fox-1.png)"), "")
+
+    def test_a_link_reads_as_its_label(self) -> None:
+        self.assertEqual(clean_for_speech("See [the docs](https://example.com/guide) for more."), "See the docs for more.")
+
+    def test_a_bare_url_is_dropped(self) -> None:
+        self.assertEqual(clean_for_speech("Visit https://build.nvidia.com to get a key."), "Visit to get a key.")
+
+    def test_a_code_block_is_not_speech(self) -> None:
+        self.assertEqual(clean_for_speech("Run:\n```bash\nnpm install\n```\nThen restart."), "Run: Then restart.")
+
+    def test_ordinary_prose_is_untouched(self) -> None:
+        self.assertEqual(clean_for_speech("Plain sentence with no markdown."), "Plain sentence with no markdown.")
+
+
 if __name__ == "__main__":
     unittest.main()
