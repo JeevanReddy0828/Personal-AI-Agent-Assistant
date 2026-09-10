@@ -273,9 +273,26 @@ Windows backend) ships no Web Speech API, the native window does voice
 pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
 `packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
 
-The header has an **adaptive-HUD** control (gear popover): a transparency slider, a
-compact-layout toggle (collapses the left rail + center stage to a chat-only HUD),
-and an always-on-top pin — all persisted in `localStorage`. Real window effects
+The web UI (the `PAGE` string in `webui.py`; the server reads it at import, so CSS/JS
+edits need a restart) is a calm dark workspace: a slim left rail (New chat, recent
+conversations, a status row), an assistant-presence panel holding the animated particle
+**orb** — the only glowing element; `setCore` stamps `body[data-core]` so the ambient
+glow behind it brightens while listening/thinking/speaking — and a wide, quiet
+conversation column with a rounded composer (attach · agent mode · text · dictate ·
+**Voice** pill · send). Models, GPU/CPU/memory, the memory-vault browser and the tool
+panels (tool activity, scheduled jobs, agent runs, map, trip planner) live in a
+right-hand **System status** drawer (`#sysDrawer`, opened from the header status pill or
+the rail footer; Esc closes). Design tokens are the CSS variables at the top of the
+`<style>` block: one cyan accent for interactive/active states, green only for healthy
+status, sans-serif body type (Segoe UI Variable → system stack; the CSP is
+`font-src 'self'`, so no web fonts), monospace reserved for model names, timings and
+diagnostics, 150–250 ms motion that honours `prefers-reduced-motion`. Browser
+regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,
+`#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`.
+
+The header gear popover holds the **adaptive-HUD** settings: a compact-layout toggle
+(chat only — hides the rail and the presence panel), an always-on-top switch and a
+transparency slider — all persisted in `localStorage`. Real window effects
 (alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`,
 targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S
 — so a same-named third-party app is never touched; graceful no-op elsewhere)

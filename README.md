@@ -21,7 +21,7 @@ runs fully offline with a heuristic router, smarter with an LLM key · MIT licen
 - 🤖 **Autonomy** — `solve` (researched advisor), `agent run` (plan→act→observe loop), `autopilot` (safe), scheduler.
 - 👁️ **Vision & media** — screen/webcam/image OCR, audio/video transcription, YouTube summaries.
 - 🌍 **Free tools, no keys** — real weather, driving distance/trips, maps, places near you.
-- 🎙️ **Polished UX** — native desktop window (`JARVIS.exe`), streaming + typewriter replies, real-time voice, a holographic HUD, and web panels (map, trip, vault browser, schedules, agent runs).
+- 🎙️ **Polished UX** — native desktop window (`JARVIS.exe`), streaming + typewriter replies, real-time voice, a calm dark workspace built around the animated orb, and a System-status drawer with panels (map, trip, vault browser, schedules, agent runs).
 
 ---
 
@@ -158,9 +158,8 @@ Talk naturally — most of these are reached by plain language; the explicit com
 
 ### 🎨 Interfaces & UX
 CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
-Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS) ·
-holographic particle-core HUD · adaptive HUD controls (transparency / compact / always-on-top) ·
-web panels: **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs**, **Agent runs**, live metrics & health pill.
+Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt) ·
+a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · settings popover (compact / always-on-top / transparency) · status pill + per-reply model/latency line.
 
 ---
 

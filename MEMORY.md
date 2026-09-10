@@ -64,3 +64,21 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   Interrupt button / Space bar are the reliable fallback. Works best with headphones.
 - Known model limits (not code bugs): can't reliably honor hard lexical constraints (e.g. "no
   letter e"); the decision-advisor injects assumptions on non-decision "compare X and Y" prompts.
+
+## UI redesign (2026-09-09) — branch `claude/ui-redesign`
+
+- Direction: a **calm, premium dark workspace** (not a sci-fi HUD). Kept: navy/black base, one
+  cyan accent, the J.A.R.V.I.S identity, the animated particle orb as the sole glowing focal point.
+  Dropped: scan sweep, HUD grid, corner brackets, liquid-glass/metallic buttons, amber/orange
+  action colours, all-caps letter-spaced labels, tiny monospaced UI text.
+- Layout: slim left rail (New chat + recent chats + status row) · presence panel (orb, soft
+  divider, `body[data-core]` drives its ambient glow) · wide quiet chat column · **System status
+  drawer** (`#sysDrawer`) for models/usage/vault + tool panels. Voice mode is a pill inside the
+  composer; the send button is cyan. Mobile (≤520px) composer is two rows.
+- Typography: sans-serif everywhere (Segoe UI Variable → system stack — the CSP is
+  `font-src 'self'` and the app is offline-first, so no web fonts); monospace only for model
+  names, timings and diagnostics. Green is reserved for healthy status.
+- The old CSS variable names (`--ice`, `--line2`, `--amber-b`, `--panel2`) survive as aliases
+  because a few inline styles in JS still use them.
+- `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
+  a hash-only navigation (`#/chat`) does not refetch the page.
