@@ -146,7 +146,16 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             Markdown itself. Saved under `data_dir/documents/`, downloaded via
             `/api/document?name=`. Note: the abandoned PyPI package named `docx` shadows
             python-docx and fails on import — the failure message says so),
-        imagegen (text-to-image via NVIDIA's hosted FLUX endpoint: `image <description>`
+        imagegen (text-to-image via NVIDIA's hosted FLUX endpoint. Two guards live in
+            `orchestrator._repair_image_command`, because the router does not resolve image
+            subjects reliably: it emitted a users/orders/products **ERD** for "create an
+            image for this" in a conversation about TCP congestion control — and again in
+            one about foxes, so it is copying its own few-shot example, not reading the
+            context. (1) A back-reference takes its subject from the latest assistant turn
+            (`context.topic_of`), never from the router. (2) A technical diagram
+            (`is_diagram_subject`) never reaches a diffusion model at all — it answers in
+            the reply as Mermaid or text, because FLUX renders diagram-shaped nonsense.
+            `image <description>`
             plus a heuristic route for "draw me a picture of …"; the trailing word
             square/landscape/portrait/wide/tall picks the resolution. Saves under
             `data_dir/images/`, returns Markdown that embeds the picture, and the chat

@@ -41,6 +41,23 @@ _TARGETY = re.compile(
 )
 
 
+# A diffusion model cannot draw an accurate technical diagram. Asked for one it returns
+# something that looks like a diagram from across the room and is nonsense up close —
+# invented boxes, unreadable labels. These belong in the reply as Mermaid or text.
+_DIAGRAM_SUBJECT = re.compile(
+    r"\b(?:erd|uml|entity[\s-]relationship|flow\s?chart|flow diagram"
+    r"|state\s(?:machine|diagram)|sequence diagram|class diagram|architecture diagram"
+    r"|network diagram|schema|wireframe|mind\s?map|org\s?chart|gantt|swimlane"
+    r"|block diagram|diagram)\b",
+    re.IGNORECASE,
+)
+
+
+def is_diagram_subject(text: str) -> bool:
+    """True when the request is for a technical diagram rather than a picture."""
+    return bool(_DIAGRAM_SUBJECT.search(text or ''))
+
+
 def is_plain_question(text: str) -> bool:
     """True when the text asks for knowledge and names nothing to act on.
 

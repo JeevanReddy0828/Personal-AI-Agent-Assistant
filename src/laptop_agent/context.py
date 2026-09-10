@@ -144,6 +144,11 @@ def resolve_reference(query: str, turns: list[tuple[str, str]]) -> tuple[str, in
     return f"{query} (referring to: {title})", referent
 
 
+def topic_of(text: str, limit: int = 90) -> str:
+    """A few words naming what a turn was about, for resolving a back-reference."""
+    return _summary_line(text, limit, detail=False)
+
+
 def _split_point(text: str, limit: int) -> int:
     window = text[:limit]
     for separator in ("\n\n", "\n", ". ", " "):
