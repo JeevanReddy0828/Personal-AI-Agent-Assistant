@@ -114,7 +114,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 |---|---|
 | Generate a picture | `image <description>`, or "draw me a picture of …"; **Save** it from the reply |
 | Image OCR | `ocr image <path>` |
-| Audio/video transcription (offline) | `transcribe <path>` |
+| Audio/video transcription | `transcribe <path>` — hosted Parakeet (~1s) or offline Vosk/Whisper |
 | Understand your screen | `read screen [question]` |
 | Webcam vision | `look at webcam [question]` |
 | YouTube transcript → summary (+ Q&A) | `summarize youtube <url>` |
