@@ -94,6 +94,18 @@ class AgentContext:
     jobright: JobrightTool
 
 
+# Marks a decision whose text is ours, not the model's, so the chat ladder cannot
+# replace it. The model, asked to answer this itself, claimed the app cannot generate
+# images at all — which is wrong, and worse than the nonsense it replaced.
+_VERBATIM = "verbatim-reply"
+
+
+def _short_topic(text: str, words: int = 8) -> str:
+    """A few words of a referent, for quoting back without repeating a paragraph."""
+    parts = (text or "").strip().rstrip(".").split()
+    return " ".join(parts[:words]) + ("..." if len(parts) > words else "")
+
+
 class AgentOrchestrator:
     def __init__(
         self,
@@ -252,6 +264,10 @@ class AgentOrchestrator:
         trace = current_trace()
 
         def decided(source: str, decision):
+            # Every route passes through the image repair, not just the LLM one: the
+            # instant router turns "draw me a picture of this" into `image this`, which is
+            # the same defect from the other direction.
+            decision = self._repair_image_command(command, decision, history)
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -289,8 +305,7 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        planned = self.planner.plan(command, help_text, profile, history)
-        return decided("llm", self._repair_image_command(command, planned, history))
+        return decided("llm", self.planner.plan(command, help_text, profile, history))
 
     @staticmethod
     def _referent_topic(history: list[dict[str, str]] | None) -> str:
@@ -333,13 +348,53 @@ class AgentOrchestrator:
                 explanation="A technical diagram belongs in the reply, not in a generated picture.",
             )
         if resolved:
+            # A referent is prose, not an image prompt. Handing the sentence "TCP congestion
+            # control is a fundamental mechanism that prevents network overload..." to a
+            # diffusion model produced a picture of unreadable text. Ask for a concrete
+            # prompt, and accept that some ideas simply cannot be drawn.
+            prompt = self._visual_prompt(subject)
+            if not prompt:
+                return PlanDecision(
+                    action="chat",
+                    confidence=0.6,
+                    explanation=_VERBATIM,
+                    response=(
+                        f"I read \"this\" as {_short_topic(subject)} — which is an idea rather than "
+                        "a scene, and a text-to-image model can only draw scenes. It would give you "
+                        "shapes that look like a diagram and say nothing.\n\nTell me a concrete "
+                        "scene and I will draw it, or ask for a diagram and I will write one out."
+                    ),
+                )
             return PlanDecision(
                 action="command",
-                command=f"image {subject}",
+                command=f"image {prompt}",
                 confidence=planned.confidence,
                 explanation="Back-reference resolved from the conversation, not the router.",
             )
         return planned
+
+    def _visual_prompt(self, topic: str) -> str | None:
+        """Turn a referent into a short, concrete image prompt, or None if nothing in it can
+        be drawn. Injectable through the planner like every other model call, so the
+        decision is unit-tested without the network."""
+        provider = getattr(self.planner, "provider", None)
+        answer = getattr(provider, "answer", None)
+        if answer is None:
+            return topic
+        request = (
+            "Rewrite this as a short, concrete prompt for a text-to-image model: a scene, "
+            "object or place someone could photograph or illustrate. Maximum 15 words, no "
+            "preamble. If it is an abstract idea, protocol, algorithm or process that a "
+            "picture cannot meaningfully show, reply with exactly NONE.\n\n" + topic
+        )
+        try:
+            reply = (answer(request, {}, max_tokens=60) or "").strip()
+        except Exception:
+            return topic
+        first = reply.splitlines()[0].strip().strip('"').strip() if reply else ""
+        if not first or first.upper().startswith("NONE"):
+            return None
+        return first[:200]
 
     async def handle(
         self,
@@ -898,6 +953,8 @@ class AgentOrchestrator:
 
         if _allow_planner:
             planned = self._route(command, self.context.memory.get_profile(), history_turns)
+            if planned.is_chat and planned.response and planned.explanation == _VERBATIM:
+                return ToolResult.success(planned.response)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
                 # _allow_planner=False stops a planned command from re-triggering
                 # the planner, which would let an LLM loop or double-call itself.

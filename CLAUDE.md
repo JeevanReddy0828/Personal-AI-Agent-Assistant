@@ -155,6 +155,14 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             (`context.topic_of`), never from the router. (2) A technical diagram
             (`is_diagram_subject`) never reaches a diffusion model at all — it answers in
             the reply as Mermaid or text, because FLUX renders diagram-shaped nonsense.
+            (3) A resolved referent is prose, not a prompt: handing the sentence "TCP
+            congestion control is a fundamental mechanism..." to FLUX produced a picture of
+            unreadable text, so `_visual_prompt` asks the fast tier to rewrite it as a
+            concrete scene, or to answer NONE when the idea cannot be drawn at all. A NONE
+            reply is returned **verbatim** (`_VERBATIM`), bypassing the chat ladder — asked
+            to phrase the refusal itself, the model claimed the app cannot generate images,
+            which is false. The repair runs on every route, not just the LLM one, because
+            the instant router turns "draw me a picture of this" into `image this`.
             `image <description>`
             plus a heuristic route for "draw me a picture of …"; the trailing word
             square/landscape/portrait/wide/tall picks the resolution. Saves under

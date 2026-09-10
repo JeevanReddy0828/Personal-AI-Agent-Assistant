@@ -35,6 +35,17 @@ from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowTracker
 
 
+class _StubRouter:
+    """A router that always emits one command, so a test can drive _repair_image_command
+    through the real handle() path."""
+
+    def __init__(self, command: str) -> None:
+        self.command = command
+
+    def plan(self, text, available_commands, memory_profile, history=None):
+        return PlanDecision(action="command", confidence=0.9, explanation="stub", command=self.command)
+
+
 class OrchestratorTests(unittest.TestCase):
     def test_contact_from_resume_recovers_email_and_phone(self) -> None:
         resume = "Jeevan Arlagadda\njeevan@example.com | +1 (555) 123-4567\n- Built things"
@@ -1075,6 +1086,79 @@ class OrchestratorTests(unittest.TestCase):
                 action="command", confidence=0.8, explanation="", command="image something imagined",
             )
             self.assertTrue(o._repair_image_command("create an image for this", invented, []).is_chat)
+
+    def test_an_idea_is_not_drawn_as_a_picture(self) -> None:
+        # Reported: "create an image for this" after a TCP explanation produced a picture of
+        # unreadable text, because the referent sentence was handed straight to the model.
+        class Refuses:
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                return "NONE"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(Refuses())
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="", command="image a serene mountain lake",
+            )
+            history = [{"role": "assistant", "text": "TCP congestion control prevents network overload."}]
+            fixed = o._repair_image_command("create an image for this", invented, history)
+            self.assertTrue(fixed.is_chat)
+            self.assertIn("idea rather than a scene", fixed.response)
+
+    def test_our_own_refusal_is_not_rewritten_by_the_model(self) -> None:
+        # The chat ladder replaced this text with the model's own answer, which told the
+        # user the app cannot generate images at all — false, and worse than the bug.
+        class Refuses:
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                return "NONE"
+
+        class Chatty:
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                return "I am a text-based assistant and cannot create images."
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(Refuses())
+            o.smart_planner = Planner(Chatty())
+            o.router = Planner(_StubRouter("image a serene mountain lake"))
+            history = [{"role": "assistant", "text": "TCP congestion control prevents network overload."}]
+            result = asyncio.run(o.handle("create an image for this", history=history))
+            self.assertTrue(result.ok)
+            self.assertIn("idea rather than a scene", result.message)
+            self.assertNotIn("cannot create images", result.message)
+
+    def test_a_visual_referent_becomes_a_concrete_prompt(self) -> None:
+        class Rewrites:
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                return "Red fox in deep snow, thick winter coat, ears alert"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(Rewrites())
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="", command="image something invented",
+            )
+            history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat for hunting in snow."}]
+            fixed = o._repair_image_command("create an image for this", invented, history)
+            self.assertTrue(fixed.is_command)
+            self.assertEqual(fixed.command, "image Red fox in deep snow, thick winter coat, ears alert")
+
+    def test_a_failing_rewriter_still_draws_the_referent(self) -> None:
+        # Losing the rewrite should cost prompt quality, not the feature.
+        class Broken:
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                raise RuntimeError("model offline")
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(Broken())
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="", command="image something invented",
+            )
+            history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat."}]
+            fixed = o._repair_image_command("create an image for this", invented, history)
+            self.assertTrue(fixed.is_command)
+            self.assertIn("fox", fixed.command.lower())
 
     def test_three_tier_model_selection(self) -> None:
         class ChatPlanner:
