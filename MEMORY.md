@@ -44,3 +44,23 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   add them was stale. Historical rejected records cannot reconstruct missing stage history.
 - Run tests through tests/run_tests.py to isolate personal configuration/data. Browser
   checks are opt-in with JARVIS_BROWSER_TESTS=1 and use mocked external integrations.
+
+## Live-testing pass (2026-09-09) — branch `codex/review-stabilization-final`
+
+- **NVIDIA models get retired.** IDs return HTTP 410 (Gone) at end-of-life and 404 ("not for
+  this account") when unprovisioned. The current key has the **nemotron-3 generation**
+  (`super-120b`, `nano-omni-30b`, `lightning-30b`), `llama-3.2-11b-vision`, and
+  `deepseek-v4-pro`. `deepseek-v4-pro` returns empty under the app's ultra **reasoning** params,
+  so the ultra tier must be a nemotron. All chat tiers are `nemotron-3-super-120b` for now (the
+  only reliably fast + reasoning-capable model on the key); ultra just runs it with reasoning on.
+  Model IDs live in `.env` (per-user); `.env` changes need a server restart (config reads at import).
+- The per-session **API token** rotates on restart; a stale tab self-heals by reloading once on a
+  same-origin 403. Keep the token per-process (security) rather than persisting it.
+- **Image attachments** route to the vision model (`describe image`, vision-first with OCR
+  fallback), not the OCR-only file processor.
+- **Complexity routing:** logic/puzzle/multi-step cues escalate to the reasoning (ultra) tier.
+  Reply budgets: advisor 4000 tokens, streaming chat 2048 (900 truncated long answers).
+- **Voice barge-in** keeps a recognizer alive while speaking (echo-filtered); the manual
+  Interrupt button / Space bar are the reliable fallback. Works best with headphones.
+- Known model limits (not code bugs): can't reliably honor hard lexical constraints (e.g. "no
+  letter e"); the decision-advisor injects assumptions on non-decision "compare X and Y" prompts.
