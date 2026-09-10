@@ -16,6 +16,20 @@ from laptop_agent.planner.core import PlanDecision
 # message content string. Injectable so plan() can be tested without a network.
 Transport = Callable[[dict], str]
 
+# A tool result reaches the next turn as part of the transcript, so the model can learn
+# the tool's own output shape and reproduce it. Observed: after one generated picture, it
+# answered the next question with "Here is a diagram..." plus an image link to the previous
+# turn's file and a fabricated JSON block — the user saw a broken image and a Save control
+# with nothing behind it. Only tools produce files; a chat reply is text.
+_NO_TOOL_CLAIMS = (
+    " You reply with text only. You cannot create images, files or documents yourself — tools "
+    "do that, and their results are shown to the user separately. Never say you have made, "
+    "generated or attached one, never write a Markdown image link, and never output the JSON "
+    "of a tool result. Earlier turns may quote tool data; that is context to use, not a format "
+    "to copy. If something needs a tool, say plainly what to ask for. To show a diagram, draw "
+    "it in a fenced code block."
+)
+
 _PERSONA = (
     "You are J.A.R.V.I.S — a calm, capable, loyal AI assistant in the spirit of Tony Stark's J.A.R.V.I.S. "
     "Your manner: warm but never sycophantic, quietly confident, with light dry wit. You are concise and favor "
@@ -204,7 +218,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
@@ -239,7 +253,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },

@@ -1053,7 +1053,7 @@ PAGE = r"""<!doctype html>
   // A reply's `extra` is a bounded digest of the tool data behind it (the "details" pane),
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
-  function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?JSON.stringify(d).slice(0,2000):'';}catch(e){return '';}}
+  function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
   function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}

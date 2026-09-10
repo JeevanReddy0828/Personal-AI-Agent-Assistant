@@ -186,5 +186,57 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertEqual(decision.response, "hello")
 
 
+
+class ChatGuardTests(unittest.TestCase):
+    """A tool result reaches the next turn as transcript, and the model learned to copy the
+    tool's shape: after one generated picture it answered with "Here is a diagram..." plus a
+    link to the previous turn's file, so the page showed a broken image and a Save control
+    with nothing behind it."""
+
+    def chat_system_prompt(self) -> str:
+        captured: list[dict] = []
+
+        def transport(payload):
+            captured.append(payload)
+            return "ok"
+
+        provider = OpenAICompatiblePlannerProvider(
+            api_key="k", model="m", base_url="https://example.invalid/v1", transport=transport
+        )
+        provider.answer("hello", {})
+        return captured[0]["messages"][0]["content"]
+
+    def test_chat_is_told_it_cannot_make_files(self) -> None:
+        system = self.chat_system_prompt()
+        self.assertIn("cannot create images", system)
+        self.assertIn("Markdown image link", system)
+        self.assertIn("JSON of a tool result", " ".join(system.split()))
+
+    def test_streaming_chat_carries_the_same_guard(self) -> None:
+        # stream_answer builds its own request, so assert it uses the same constant rather
+        # than letting the two prompts drift apart.
+        import inspect
+
+        source = inspect.getsource(OpenAICompatiblePlannerProvider.stream_answer)
+        self.assertIn("_NO_TOOL_CLAIMS", source)
+
+    def test_chat_is_told_quoted_tool_data_is_not_a_template(self) -> None:
+        self.assertIn("not a format", self.chat_system_prompt())
+
+    def test_the_routing_prompt_is_left_alone(self) -> None:
+        # Routing must keep emitting JSON; the guard is for conversational replies only.
+        captured: list[dict] = []
+
+        def transport(payload):
+            captured.append(payload)
+            return '{"action":"chat","command":null,"response":"hi"}'
+
+        provider = OpenAICompatiblePlannerProvider(
+            api_key="k", model="m", base_url="https://example.invalid/v1", transport=transport
+        )
+        provider.plan("hello", "commands", {})
+        self.assertNotIn("cannot create images", captured[0]["messages"][0]["content"])
+
+
 if __name__ == "__main__":
     unittest.main()

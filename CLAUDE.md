@@ -335,6 +335,18 @@ nothing model-authored is interpolated into HTML. Chats in the rail have a delet
 and **Incognito chat** creates a session `saveSessions()` filters out of `localStorage` on
 both the normal and the over-quota retry path.
 
+**Why the chat tier is told it cannot make files.** A tool result reaches the next turn as
+part of the transcript — the web client appends a bounded digest of `result.data` to the
+assistant turn it sends back — so the model learned the tool's own output shape and
+reproduced it. After one generated picture it answered the next question with "Here is a
+diagram..." plus a Markdown image link to the *previous* turn's file and a fabricated JSON
+block: the page then showed a broken image and a Save control with nothing behind it, and
+the traces proved no image command ever ran (`kind=chat`). `_NO_TOOL_CLAIMS` in the chat
+system prompt (both `answer` and `stream_answer`) forbids claiming a file was made, writing
+an image link, or emitting tool JSON, and says a diagram belongs in a fenced code block.
+The digest is labelled in `dataDigest` for the same reason. The **routing** prompt is
+deliberately left alone — it must keep emitting JSON.
+
 **Voice, and why it used to answer itself.** `clean_for_speech` (server) and `speakable()`
 (client, same rules) must drop embedded images, code fences and bare URLs *before* the
 punctuation strip breaks those constructs apart. Reading an image URL aloud produced
