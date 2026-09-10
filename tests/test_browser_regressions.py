@@ -210,6 +210,25 @@ class BrowserRegressions(unittest.TestCase):
         self.assertIn('"Mars, red",2', csv)
         self.assertTrue(csv.startswith("Planet,Moons"))
 
+    def test_a_document_reply_is_a_real_download_link(self):
+        self.page.evaluate("""() => {
+            renderMsg('bot', '[REST vs GraphQL](/api/document?name=rest-vs-graphql-1.pdf) — PDF ready.');
+        }""")
+        link = self.page.locator('.msg .md a.doclink')
+        self.assertEqual(link.count(), 1)
+        self.assertEqual(link.get_attribute('href'), '/api/document?name=rest-vs-graphql-1.pdf')
+        self.assertEqual(link.get_attribute('download'), 'rest-vs-graphql-1.pdf')
+        self.assertEqual(self.page.locator('.msg .md a.doclink .dockind').inner_text(), 'PDF')
+
+    def test_a_link_cannot_smuggle_a_javascript_url(self):
+        self.page.evaluate("""() => {
+            renderMsg('bot', '[click](javascript:alert(1)) and [x](/ok" onclick="window.__xss=1)');
+        }""")
+        hrefs = self.page.evaluate("[...document.querySelectorAll('.msg .md a')].map(a=>a.getAttribute('href'))")
+        self.assertTrue(all(h is None or h.startswith(('/', 'http')) for h in hrefs), hrefs)
+        self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
+        self.assertIsNone(self.page.evaluate("window.__xss"))
+
     def test_a_picture_reply_gets_a_save_action(self):
         self.page.evaluate("""() => {
             renderMsg('bot', '![a fox](/api/image?name=fox-1.png)\\n\\nHere is a fox.');

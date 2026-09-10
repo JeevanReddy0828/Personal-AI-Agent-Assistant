@@ -197,6 +197,13 @@ PAGE = r"""<!doctype html>
     border-radius:7px;padding:3px 9px;font:500 11.5px/1.5 var(--sans);letter-spacing:.02em;
     backdrop-filter:blur(6px);transition:color var(--fast),border-color var(--fast),background var(--fast)}
   .oact:hover{color:var(--text);border-color:var(--accent-line);background:var(--surface-3)}
+  /* a written document handed back as a download */
+  .md a.doclink{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--hair-2);
+    background:var(--surface-2);border-radius:9px;padding:7px 12px;margin:.3em 0;
+    color:var(--text);text-decoration:none;font-weight:500}
+  .md a.doclink:hover{border-color:var(--accent-line);background:var(--surface-3);text-decoration:none}
+  .md a.doclink .dockind{font:600 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--accent);
+    border:1px solid var(--accent-line);border-radius:5px;padding:3px 5px}
   .msg.err .md{color:var(--danger)}
   .att{display:inline-flex;align-items:center;gap:6px;margin:8px 6px 0 0;background:rgba(255,255,255,.04);border:1px solid var(--hair-2);border-radius:8px;padding:5px 10px;font:12.5px var(--sans);color:var(--text-2)}
   .att .ic{color:var(--muted)}
@@ -864,6 +871,9 @@ PAGE = r"""<!doctype html>
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
     s=s.replace(/!\[([^\]]*)\]\(((?:\/|data:image\/)[^)\s]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // Our own routes are links too — a generated document is handed back as one, and
+    // without this it rendered as literal "[Title](/api/document?name=…)" text.
+    s=s.replace(/\[([^\]]+)\]\((\/[^)\s"]*)\)/g,'<a href="$2">$1</a>');
     return s;}
   /* Actions on rendered output: save a generated picture, copy or export a table.
      Added as DOM nodes rather than markup so nothing user- or model-authored is ever
@@ -899,6 +909,18 @@ PAGE = r"""<!doctype html>
         catch(e){flash(b,'Failed');}
       }));
       wrap.appendChild(bar);
+    });
+    root.querySelectorAll('a[href^="/api/document"]:not([data-dec])').forEach(a=>{
+      a.dataset.dec='1';
+      // Name the saved file after the document, not "document", and mark it as a download.
+      const name=(/[?&]name=([^&]+)/.exec(a.getAttribute('href')||'')||[])[1];
+      if(name)a.setAttribute('download',decodeURIComponent(name));
+      a.classList.add('doclink');
+      const kind=(name||'').split('.').pop().toUpperCase();
+      if(kind&&!a.querySelector('.dockind')){
+        const tag=document.createElement('span');tag.className='dockind';tag.textContent=kind;
+        a.appendChild(tag);
+      }
     });
     root.querySelectorAll('table:not([data-dec])').forEach(table=>{
       table.dataset.dec='1';
