@@ -1186,6 +1186,41 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
 
+    def test_chat_skips_tier_in_failure_cooldown(self) -> None:
+        # A tier that failed moments ago is skipped for its cooldown instead of adding a
+        # wasted round-trip to every message; the turn promotes to the next healthy tier.
+        ultra_calls: list[int] = []
+
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRouting:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed")
+
+        class UltraSpy:
+            def answer(self, text, profile, model=None, history=None):
+                ultra_calls.append(1)
+                return "ultra answer"
+
+        class WorkingSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return "smart answer"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRouting())
+            o.ultra_planner = Planner(UltraSpy())
+            o.smart_planner = Planner(WorkingSmart())
+            o.model_status.record("ultra", False)  # just failed -> in cooldown
+            res = asyncio.run(o.handle("design a system architecture from scratch in depth"))
+            self.assertTrue(res.ok)
+            self.assertEqual(ultra_calls, [])  # ultra skipped without a call
+            self.assertIn("smart answer", res.message)
+            self.assertEqual(res.data["planner"]["model"], "smart")
+
     def test_tailor_application_scores_resume(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))  # heuristic planner -> no LLM, deterministic ATS only

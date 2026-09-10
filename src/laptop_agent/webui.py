@@ -164,7 +164,12 @@ def _refresh_llm_status() -> None:
     if ping is None:
         _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
         return
-    _LLM_STATUS["reachable"] = ping()
+    try:
+        reachable = bool(ping())
+    except (OSError, TimeoutError):
+        reachable = False
+    _LLM_STATUS["reachable"] = reachable
+    _orchestrator.model_status.record("fast", reachable)
 
 
 def _warmup() -> None:
@@ -205,9 +210,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>J.A.R.V.I.S</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+
 <style>
   :root{
     --bg:#05070b; --bg2:rgba(10,14,22,.72); --panel:rgba(14,19,28,.66); --panel2:rgba(8,12,19,.55);
@@ -215,7 +218,7 @@ PAGE = r"""<!doctype html>
     --amber:#ffb43a; --amber-b:#ffd27a; --amber-soft:#9a6a1e;
     --ice:#5fd0e6; --ice-b:#9bf0ff; --ice-deep:#1d8aa6;
     --text:#dfeaf2; --muted:#6f8497; --ok:#46e0b0; --danger:#ff5d6c; --purple:#a98bff;
-    --display:'Chakra Petch',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+    --display:'Segoe UI',system-ui,sans-serif; --body:'Segoe UI',system-ui,sans-serif; --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -1198,7 +1201,8 @@ PAGE = r"""<!doctype html>
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
-  setInterval(loadMetrics,5000);loadMetrics();
+  const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
+  pollWhenVisible(loadMetrics,5000);loadMetrics();
 
   /* vault + note browser */
   function renderNoteList(names){
@@ -1243,7 +1247,7 @@ PAGE = r"""<!doctype html>
     document.getElementById('agentList').innerHTML=d.control_room.agents.map(a=>{const done=(a.completed||0)>0?' · ✓'+a.completed:'';const fail=(a.failed||0)>0?' ✗'+a.failed:'';return '<button class="agentcard '+a.status+'" data-agent="'+esc(a.id)+'"><div class="top"><span class="dot"></span><b>'+esc(a.name)+'</b><span class="status">'+esc(a.status)+done+fail+'</span></div><div class="role">'+esc(a.role)+'</div><div class="task">'+esc(a.current_task||a.last_message||'Ready.')+'</div></button>';}).join('');
     document.querySelectorAll('.agentcard').forEach(btn=>{btn.onclick=()=>send('agent '+btn.dataset.agent);});
   }catch(e){document.getElementById('agentSummary').textContent='Could not refresh tool activity.';}}
-  setInterval(loadAgents,2500);loadAgents();
+  pollWhenVisible(loadAgents,5000);loadAgents();
 
   /* scheduled jobs */
   function renderSchedule(jobs){
@@ -1272,7 +1276,7 @@ PAGE = r"""<!doctype html>
     when:document.getElementById('schedWhen').value,spec:document.getElementById('schedSpec').value});
   document.getElementById('schedSpec').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('schedAdd').click();});
   document.getElementById('schedPanel').addEventListener('toggle',function(){if(this.open)loadSchedule();});
-  setInterval(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
+  pollWhenVisible(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
 
   /* agent runs */
   function renderAgentRuns(runs){
@@ -1299,7 +1303,7 @@ PAGE = r"""<!doctype html>
   }
   async function loadAgentRuns(){try{const d=await (await fetch('/api/agent-runs')).json();renderAgentRuns(d.runs);}catch(e){}}
   document.getElementById('runsPanel').addEventListener('toggle',function(){if(this.open)loadAgentRuns();});
-  setInterval(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
+  pollWhenVisible(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
 
   /* map */
   async function loadMap(query){
@@ -1577,7 +1581,7 @@ PAGE = r"""<!doctype html>
   function pipeAutoRefresh(on){
     if(pipeTimer){clearInterval(pipeTimer);pipeTimer=null;}
     if(on&&document.getElementById('autoRef').checked){
-      pipeTimer=setInterval(()=>{if(!pipeBusy&&document.body.dataset.view==='pipeline')loadPipeline();},20000);
+      pipeTimer=setInterval(()=>{if(!document.hidden&&!pipeBusy&&document.body.dataset.view==='pipeline')loadPipeline();},20000);
     }
   }
 
@@ -1618,7 +1622,8 @@ PAGE = r"""<!doctype html>
       else card.style.display='none';
     }
   }catch(e){}}
-  setInterval(loadHealth,12000);loadHealth();
+  pollWhenVisible(loadHealth,12000);loadHealth();
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;loadMetrics();loadAgents();loadHealth();if(document.getElementById('schedPanel').open)loadSchedule();if(document.getElementById('runsPanel').open)loadAgentRuns();if(document.body.dataset.view==='pipeline')loadPipeline();});
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
@@ -1813,8 +1818,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", (
             f"default-src 'self'; script-src 'nonce-{_SCRIPT_NONCE}'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
             "media-src 'self' blob:; connect-src 'self'; "
             "frame-src 'self' https://www.openstreetmap.org; "
             "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"

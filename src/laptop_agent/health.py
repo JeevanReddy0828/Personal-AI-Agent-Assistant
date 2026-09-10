@@ -49,14 +49,9 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
             "tiers": tier_status["tiers"],
             "degraded_tier": tier_status["degraded"],
         },
-        "models": {
-            "fast": getattr(config, "llm_model", None),
-            "smart": getattr(config, "llm_smart_model", None),
-            "ultra": getattr(config, "llm_ultra_model", None),
-            "vision": getattr(config, "llm_vision_model", None),
-            "openrouter": getattr(config, "openrouter_model", None) if getattr(config, "openrouter_api_key", None) else None,
-        },
-        "vault": {"connected": vault_connected, "path": getattr(config, "obsidian_vault", None)},
+        # Health is served without a chat token, so expose connection state only;
+        # model identifiers and local vault paths belong in local configuration.
+        "vault": {"connected": vault_connected},
         "email": {"configured": email_configured},
         "search": {
             "provider": getattr(config, "search_provider", "") or "duckduckgo",

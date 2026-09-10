@@ -159,6 +159,19 @@ class AgentOrchestrator:
             ladder.append((self.smart_planner, "smart"))
         return ladder
 
+    def _recovery_chat_tiers(self, attempted: set[str]) -> list[tuple[Planner, str]]:
+        """Usable primary tiers not already chosen by the complexity ladder.
+
+        This handles a bad fast endpoint on simple chat: try smart once, then
+        ultra, rather than repeatedly failing the same endpoint per message.
+        """
+        candidates = ((self.smart_planner, "smart"), (self.ultra_planner, "ultra"))
+        return [
+            (planner, label)
+            for planner, label in candidates
+            if planner is not None and label not in attempted and self.model_status.should_attempt(label)
+        ]
+
     @staticmethod
     def _tier_reply(provider, command, profile, history, on_token) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
@@ -201,6 +214,14 @@ class AgentOrchestrator:
         if fast.is_command or self.planner is None:
             return fast
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
+            return fast
+        # A recent provider failure is already known. Keep the deterministic
+        # router's answer and let the chat ladder try a healthy tier instead of
+        # spending another request on the same failed endpoint.
+        if (
+            type(self.planner.provider).__name__ == "OpenAICompatiblePlannerProvider"
+            and not self.model_status.should_attempt("fast")
+        ):
             return fast
         # When the instant router is already confident this is plain chat (e.g. a
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
@@ -720,7 +741,7 @@ class AgentOrchestrator:
                     }
                 )
                 return result
-            if planned.is_chat and planned.response:
+            if planned.is_chat:
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
@@ -730,7 +751,7 @@ class AgentOrchestrator:
                     grounded = self._grounded_news_answer(command, history_turns, on_token)
                     if grounded is not None:
                         return grounded
-                response = planned.response
+                response = planned.response or ""
                 profile = self.context.memory.get_profile()
                 level = self._complexity(command)
                 _, requested_label = self._pick_chat_model(level)
@@ -739,47 +760,70 @@ class AgentOrchestrator:
                 # gracefully: if a higher tier is congested/unreachable it returns
                 # nothing, so we try the next tier down rather than failing.
                 answered = False
+                attempted: set[str] = set()
                 for tier_planner, tier_label in self._higher_chat_tiers(level):
+                    if not self.model_status.should_attempt(tier_label):
+                        continue
+                    attempted.add(tier_label)
                     reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
                     self.model_status.record(tier_label, bool(reply))
                     if reply:
                         response, model_used, answered = reply, tier_label, True
                         break
                 if not answered:
-                    # Fall back to the fast tier. When streaming, generate a fresh
-                    # reply; otherwise planned.response is already the fast model's —
-                    # unless routing itself failed (confidence 0), which means even the
-                    # fast tier is down and we should try the cross-provider fallback.
+                    # Fall back to fast when it is not in its brief failure cooldown.
+                    # A planned non-streaming reply already came from that tier.
                     fast_provider = self.planner.provider if self.planner else None
                     real_fast = fast_provider is not None and type(fast_provider).__name__ != "HeuristicPlannerProvider"
-                    if on_token is not None and fast_provider is not None:
+                    fast_available = self.model_status.should_attempt("fast")
+                    if real_fast and fast_available:
+                        attempted.add("fast")
+                    if on_token is not None and fast_provider is not None and fast_available:
                         reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
                         if real_fast:
                             self.model_status.record("fast", bool(reply))
                         if reply:
                             response, model_used, answered = reply, "fast", True
-                    elif real_fast and planned.response and planned.confidence > 0:
+                    elif real_fast and fast_available and planned.response and planned.confidence > 0:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
-                    elif real_fast:
+                    elif real_fast and fast_available:
                         self.model_status.record("fast", False)
-                if not answered and self.fallback_planner is not None:
-                    # Cross-provider safety net (e.g. OpenRouter): a different backend
-                    # that may be up when the primary provider is throttled.
+                if not answered:
+                    # A failed fast tier should promote this turn to any healthy
+                    # primary tier that has not already been tried.
+                    for tier_planner, tier_label in self._recovery_chat_tiers(attempted):
+                        attempted.add(tier_label)
+                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
+                        self.model_status.record(tier_label, bool(reply))
+                        if reply:
+                            response, model_used, answered = reply, tier_label, True
+                            break
+                if not answered and self.fallback_planner is not None and self.model_status.should_attempt("openrouter"):
+                    # Cross-provider safety net is also cooled down after an error.
                     reply = self._tier_reply(self.fallback_planner.provider, command, profile, history_turns, on_token)
                     self.model_status.record("openrouter", bool(reply))
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
+                if not answered and not response:
+                    response = "I couldn't reach any configured language model just now. Please try again in a minute."
+                    model_used = "unavailable"
                 degraded = model_used != requested_label
                 if degraded:
                     # Be honest about the fallback rather than passing off a lesser
                     # model's answer as the requested one's.
                     if model_used == "openrouter":
                         note = "\n\n_(My usual models were busy, so I answered with a backup model.)_"
+                    elif model_used == "ultra":
+                        note = f"\n\n_(My {requested_label} model was busy, so I answered with my deep model.)_"
+                    elif model_used == "smart":
+                        note = f"\n\n_(My {requested_label} model was busy, so I answered with my balanced model.)_"
+                    elif model_used == "unavailable":
+                        note = ""
                     else:
                         note = f"\n\n_(My {requested_label} model was busy, so I answered with my faster model.)_"
                     response = response + note
-                    if on_token is not None:
+                    if note and on_token is not None:
                         on_token(note)
                 if needs_fresh:
                     # We wanted live data but couldn't get it (no results / search down) — be
