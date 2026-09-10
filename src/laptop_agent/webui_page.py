@@ -511,6 +511,7 @@ PAGE = r"""<!doctype html>
         <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="sttServer" role="switch" aria-checked="false"><span>Server speech<small id="sttNote">Checking…</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="typeAnim" role="switch" aria-checked="true"><span>Typing animation<small>Reveal local answers gradually</small></span><span class="sw"></span></button>
         <div class="row">
           <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
           <input type="range" id="opacityRange" min="35" max="100" step="1" value="100" aria-label="Window transparency">
@@ -1063,8 +1064,10 @@ PAGE = r"""<!doctype html>
   function typewriter(el,text){
     twCancel=false;
     const total=text.length;
-    if(total>4000||reducedMotion.matches){setMd(el,text);return;}   // skip animation for very long output
-    const step=Math.max(2,Math.ceil(total/160));          // ~constant ~1.5s regardless of length
+    if(total>4000||reducedMotion.matches||!typeAnim){setMd(el,text);return;}   // long output, reduced motion, or turned off
+    // 160 ticks at 16ms was ~2.5s of deliberate delay on every local result, which is
+    // most of what a fast command costs. ~28 ticks reads as alive without being a wait.
+    const step=Math.max(2,Math.ceil(total/28));
     let i=0;
     (function tick(){
       if(twCancel){setMd(el,text);return;}
@@ -1696,6 +1699,8 @@ PAGE = r"""<!doctype html>
   // because the microphone is only open while we choose to record — but it gives up
   // spoken barge-in, so Space and Interrupt are how you cut in. Off means the browser's
   // own recognizer, which is flakier but can be interrupted by voice.
+  let typeAnim=true;
+  try{typeAnim=localStorage.getItem('jarvis_typeanim')!=='off';}catch(e){}
   let sttServer=false, sttEngine=null;
   try{const saved=localStorage.getItem('jarvis_stt');if(saved)sttServer=saved==='server';}catch(e){}
   let sttChosen=false;
@@ -1718,6 +1723,12 @@ PAGE = r"""<!doctype html>
       :sttServer?(sttEngine+' — accurate, and it cannot hear itself. Press Space to cut in.')
       :(sttEngine+' available. The browser recognizer is flakier but can be interrupted by voice.');
   }
+  (function(){
+    const box=document.getElementById('typeAnim');
+    const paint=()=>{box.setAttribute('aria-checked',String(typeAnim));box.classList.toggle('on',typeAnim);};
+    paint();
+    box.onclick=()=>{typeAnim=!typeAnim;try{localStorage.setItem('jarvis_typeanim',typeAnim?'on':'off');}catch(e){}paint();};
+  })();
   document.getElementById('sttServer').onclick=()=>{
     if(!sttEngine||NATIVE)return;
     sttServer=!sttServer; sttChosen=true;

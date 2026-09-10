@@ -33,6 +33,8 @@ from laptop_agent.memory import MemoryStore
 from laptop_agent.metrics import system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
+from laptop_agent.planner.core import PlanDecision
+from laptop_agent.planner.heuristic import is_plain_question
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.safety import ApprovalDenied
@@ -271,6 +273,20 @@ class AgentOrchestrator:
         # Cutting the redundant classify call roughly halves latency for small talk.
         if fast.is_chat and fast.response and fast.confidence >= 0.6:
             return decided("heuristic", fast)
+        # A plain knowledge question needs no model to classify it. Skipping the routing
+        # call also skips the ~1800-token command vocabulary that prompt carries, and
+        # avoids the failure this replaced: measured on real turns, the router sent
+        # ordinary questions to the `solve` research pipeline, where "how is a hash map
+        # different from a b-tree index" took 82s and never streamed a token.
+        if is_plain_question(command):
+            return decided(
+                "direct-chat",
+                PlanDecision(
+                    action="chat",
+                    confidence=0.55,
+                    explanation="A plain question with nothing to act on; answered without a routing call.",
+                ),
+            )
         return decided("llm", self.planner.plan(command, help_text, profile, history))
 
     async def handle(
