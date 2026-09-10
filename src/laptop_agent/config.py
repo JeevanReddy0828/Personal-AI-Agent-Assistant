@@ -44,6 +44,16 @@ class AppConfig:
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Optional Jobright.ai credentials for the daily lead pull. Prefer a saved browser
+    # session (stored under data_dir); these are the fallback when no session exists.
+    jobright_email: str | None = None
+    jobright_password: str | None = None
+    # Drop Jobright leads that read as senior or want more than this many years of experience.
+    jobright_max_years: int = 4
+    # Drop Jobright leads whose JD keyword coverage by the resume is below this (0..1; 0 = off).
+    jobright_min_match: float = 0.2
+    # Chain-of-thought token budget for reasoning models (NVIDIA Nemotron ultra tier).
+    llm_reasoning_budget: int = 16384
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -64,6 +74,20 @@ def _load_dotenv(path: str = ".env") -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def load_config() -> AppConfig:
@@ -136,4 +160,9 @@ def load_config() -> AppConfig:
         # A capable, clean-output free model by default; override with OPENROUTER_MODEL.
         openrouter_model=os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free"),
         openrouter_base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        jobright_email=os.environ.get("JOBRIGHT_EMAIL"),
+        jobright_password=os.environ.get("JOBRIGHT_PASSWORD"),
+        jobright_max_years=_env_int("JOBRIGHT_MAX_YEARS", 4),
+        jobright_min_match=_env_float("JOBRIGHT_MIN_MATCH", 0.2),
+        llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
     )

@@ -30,6 +30,27 @@ class ModelStatusTests(unittest.TestCase):
         self.assertFalse(status.snapshot()["degraded"])
         self.assertEqual(status.degraded_tiers(), [])
 
+    def test_should_attempt_unknown_and_ok_tiers(self) -> None:
+        status = ModelStatus()
+        self.assertTrue(status.should_attempt("smart"))  # never exercised
+        status.record("smart", True)
+        self.assertTrue(status.should_attempt("smart"))  # healthy
+
+    def test_should_attempt_skips_recently_failed_tier(self) -> None:
+        status = ModelStatus()
+        status.record("smart", False)
+        # Within the cooldown a failed tier is skipped to avoid a wasted round-trip.
+        self.assertFalse(status.should_attempt("smart", cooldown_seconds=1000))
+        # Once the cooldown elapses the tier is retried so it can recover.
+        self.assertTrue(status.should_attempt("smart", cooldown_seconds=0.0))
+
+    def test_should_attempt_true_again_after_recovery(self) -> None:
+        status = ModelStatus()
+        status.record("smart", False)
+        self.assertFalse(status.should_attempt("smart", cooldown_seconds=1000))
+        status.record("smart", True)
+        self.assertTrue(status.should_attempt("smart", cooldown_seconds=1000))
+
 
 if __name__ == "__main__":
     unittest.main()

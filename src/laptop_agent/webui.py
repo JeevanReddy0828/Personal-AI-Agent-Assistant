@@ -15,10 +15,14 @@ Run:  python -m laptop_agent.webui                 (browser tab)
 
 from __future__ import annotations
 
+from laptop_agent.cancellation import operation, cancel, check_cancelled, OperationCancelled
+
 import asyncio
 import base64
 import json
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -36,16 +40,20 @@ from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 from laptop_agent.window_fx import apply_window_effects
 
-# Bind to loopback by default (the app has no auth — keep it local). Both are
-# overridable for advanced setups; only change HOST if you understand the exposure.
+# Local single-user interface: origin checks and a per-process token protect mutations.
+_CONFIG = load_config()
 HOST = os.environ.get("LAPTOP_AGENT_HOST", "127.0.0.1")
+if HOST not in {"127.0.0.1", "localhost"}:
+    raise ValueError("J.A.R.V.I.S is a local single-user app. Set LAPTOP_AGENT_HOST to 127.0.0.1 or localhost.")
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
     PORT = 8770
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "laptop_agent_uploads"
 MAX_UPLOAD_BYTES = 35 * 1024 * 1024
-_CONFIG = load_config()
+MAX_REQUEST_BYTES = ((MAX_UPLOAD_BYTES + 2) // 3) * 4 + 65536
+_API_TOKEN = secrets.token_urlsafe(32)
+_SCRIPT_NONCE = secrets.token_urlsafe(24)
 _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-up cycle
 # True only when serving the dedicated desktop window (run_desktop), so the HUD's
 # real window effects (opacity / always-on-top) never touch a normal browser window.
@@ -66,13 +74,25 @@ def _compose_command(command: str, attachments: object) -> str:
         return command
     if not command:
         if len(paths) == 1:
-            return f"process file {paths[0]}"
-        return "multi " + " ;; ".join(f"process file {path}" for path in paths)
+            return _bare_attachment_command(paths[0])
+        return "multi " + " ;; ".join(_bare_attachment_command(path) for path in paths)
     listing = "; ".join(paths)
     return (
         f"{command}\n\n[The user attached file(s) saved at: {listing}. "
         "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
     )
+
+
+def _bare_attachment_command(path: str) -> str:
+    """Best default command for a bare (no-message) upload. Images go through the
+    vision-first ``describe image`` path (which itself falls back to OCR) so an attached
+    photo is read by the configured vision model instead of dead-ending when the optional
+    Tesseract binary is absent."""
+    from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS
+
+    if Path(path).suffix.lower() in IMAGE_EXTENSIONS:
+        return f"describe image {path}"
+    return f"process file {path}"
 
 
 def _schedule_snapshot() -> dict:
@@ -99,6 +119,11 @@ def _jobs_snapshot() -> dict:
     """Job pipeline (records + chart-ready stats) as plain JSON for the dashboard."""
     jobs = _orchestrator.context.jobs
     return {"ok": True, "jobs": _json_safe(jobs.list()), "stats": _json_safe(jobs.stats())}
+
+
+def _pipeline_snapshot() -> dict:
+    """Pipeline view: jobs annotated with live ATS scores + base-resume status."""
+    return _json_safe(_orchestrator.pipeline_snapshot())
 
 
 def _model_label(provider) -> str:
@@ -151,7 +176,12 @@ def _refresh_llm_status() -> None:
     if ping is None:
         _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
         return
-    _LLM_STATUS["reachable"] = ping()
+    try:
+        reachable = bool(ping())
+    except (OSError, TimeoutError):
+        reachable = False
+    _LLM_STATUS["reachable"] = reachable
+    _orchestrator.model_status.record("fast", reachable)
 
 
 def _warmup() -> None:
@@ -192,9 +222,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>J.A.R.V.I.S</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+
 <style>
   :root{
     --bg:#05070b; --bg2:rgba(10,14,22,.72); --panel:rgba(14,19,28,.66); --panel2:rgba(8,12,19,.55);
@@ -202,7 +230,7 @@ PAGE = r"""<!doctype html>
     --amber:#ffb43a; --amber-b:#ffd27a; --amber-soft:#9a6a1e;
     --ice:#5fd0e6; --ice-b:#9bf0ff; --ice-deep:#1d8aa6;
     --text:#dfeaf2; --muted:#6f8497; --ok:#46e0b0; --danger:#ff5d6c; --purple:#a98bff;
-    --display:'Chakra Petch',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+    --display:'Segoe UI',system-ui,sans-serif; --body:'Segoe UI',system-ui,sans-serif; --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -210,9 +238,11 @@ PAGE = r"""<!doctype html>
   /* deep-space gradient + an arc-reactor glow rising from the centre-bottom */
   body::before{content:'';position:fixed;inset:0;z-index:-3;
     background:
-      radial-gradient(120% 80% at 50% -10%,rgba(95,208,230,.10),transparent 55%),
-      radial-gradient(90% 70% at 50% 116%,rgba(255,180,58,.10),transparent 55%),
-      linear-gradient(180deg,#070a10,#04060a 70%)}
+      radial-gradient(72% 52% at 13% -8%,rgba(95,208,230,.15),transparent 55%),
+      radial-gradient(58% 48% at 88% 3%,rgba(169,139,255,.09),transparent 55%),
+      radial-gradient(92% 66% at 50% 118%,rgba(255,180,58,.11),transparent 55%),
+      radial-gradient(125% 125% at 50% 42%,transparent 58%,rgba(2,4,7,.72)),
+      linear-gradient(180deg,#070b12,#04060a 72%)}
   /* faint HUD grid + a slow scan sweep across the whole deck */
   body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.5;
     background-image:linear-gradient(rgba(95,208,230,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(95,208,230,.05) 1px,transparent 1px);
@@ -221,7 +251,7 @@ PAGE = r"""<!doctype html>
   .scan{position:fixed;left:0;right:0;height:140px;z-index:-1;pointer-events:none;
     background:linear-gradient(180deg,transparent,rgba(95,208,230,.06) 60%,transparent);animation:scan 7.5s linear infinite}
   @keyframes scan{0%{transform:translateY(-160px)}100%{transform:translateY(100vh)}}
-  .app{position:relative;display:grid;grid-template-columns:296px minmax(0,1fr) minmax(384px,440px);grid-template-rows:58px 1fr;height:100vh}
+  .app{position:relative;display:grid;grid-template-columns:260px minmax(180px,.7fr) minmax(480px,1.3fr);grid-template-rows:58px 1fr;height:100vh}
   /* corner brackets on framed elements */
   .bracket{position:relative}
   .bracket::before,.bracket::after{content:'';position:absolute;width:10px;height:10px;pointer-events:none}
@@ -265,6 +295,34 @@ PAGE = r"""<!doctype html>
   .newchat{width:100%;text-align:left;color:#eaf6fb;background:linear-gradient(135deg,rgba(95,208,230,.16),rgba(95,208,230,.05));border:1px solid var(--line2);
     border-radius:10px;padding:11px 13px;font-family:var(--display);font-weight:600;font-size:12px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;transition:.2s}
   .newchat:hover{border-color:var(--ice);box-shadow:0 0 18px -4px rgba(95,208,230,.5);color:#fff}
+  /* Liquid-glass button (adapted from Uiverse.io by shokat_2650) — scoped to .gbtn and
+     re-tuned for the dark HUD: teal animated outline + light text. Used for New chat. */
+  @property --angle-1{syntax:"<angle>";inherits:false;initial-value:-75deg}
+  @property --angle-2{syntax:"<angle>";inherits:false;initial-value:-45deg}
+  .button-wrap{position:relative;z-index:2;border-radius:999vw;background:transparent;pointer-events:none;transition:all 400ms cubic-bezier(.25,1,.5,1)}
+  .button-shadow{--shadow-cuttoff-fix:2em;position:absolute;width:calc(100% + var(--shadow-cuttoff-fix));height:calc(100% + var(--shadow-cuttoff-fix));top:calc(0% - var(--shadow-cuttoff-fix)/2);left:calc(0% - var(--shadow-cuttoff-fix)/2);filter:blur(clamp(2px,.125em,12px));overflow:visible;pointer-events:none}
+  .button-shadow::after{content:"";position:absolute;z-index:0;inset:0;border-radius:999vw;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.22));width:calc(100% - var(--shadow-cuttoff-fix) - .25em);height:calc(100% - var(--shadow-cuttoff-fix) - .25em);top:calc(var(--shadow-cuttoff-fix) - .5em);left:calc(var(--shadow-cuttoff-fix) - .875em);padding:.125em;box-sizing:border-box;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;transition:all 400ms cubic-bezier(.25,1,.5,1);opacity:1}
+  .gbtn{--border-width:clamp(1px,.0625em,4px);all:unset;cursor:pointer;position:relative;-webkit-tap-highlight-color:rgba(0,0,0,0);pointer-events:auto;z-index:3;background:linear-gradient(-75deg,rgba(150,220,240,.06),rgba(190,235,250,.2),rgba(150,220,240,.06));border-radius:999vw;box-shadow:inset 0 .125em .125em rgba(0,0,0,.1),inset 0 -.125em .125em rgba(255,255,255,.3),0 .25em .125em -.125em rgba(0,0,0,.35),0 0 .1em .25em inset rgba(255,255,255,.1);backdrop-filter:blur(clamp(1px,.4em,8px));-webkit-backdrop-filter:blur(clamp(1px,.4em,8px));transition:all 400ms cubic-bezier(.25,1,.5,1)}
+  .gbtn:hover{transform:scale(.975);box-shadow:inset 0 .125em .125em rgba(0,0,0,.1),inset 0 -.125em .125em rgba(255,255,255,.36),0 .15em .05em -.1em rgba(0,0,0,.4),0 0 .05em .1em inset rgba(255,255,255,.24)}
+  .gbtn span{position:relative;display:block;user-select:none;font-family:var(--display);letter-spacing:1.5px;font-weight:600;font-size:12px;text-transform:uppercase;color:#eef8fc;-webkit-font-smoothing:antialiased;text-shadow:0 1px 2px rgba(0,0,0,.5);transition:all 400ms cubic-bezier(.25,1,.5,1);padding-inline:1.4em;padding-block:.95em;text-align:center}
+  .gbtn:hover span{text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .gbtn span::after{content:"";display:block;position:absolute;z-index:3;width:calc(100% - var(--border-width));height:calc(100% - var(--border-width));top:calc(0% + var(--border-width)/2);left:calc(0% + var(--border-width)/2);box-sizing:border-box;border-radius:999vw;overflow:clip;background:linear-gradient(var(--angle-2),rgba(255,255,255,0) 0%,rgba(255,255,255,.5) 40% 50%,rgba(255,255,255,0) 55%);mix-blend-mode:screen;pointer-events:none;background-size:200% 200%;background-position:0% 50%;background-repeat:no-repeat;transition:background-position 500ms cubic-bezier(.25,1,.5,1),--angle-2 500ms cubic-bezier(.25,1,.5,1)}
+  .gbtn:hover span::after{background-position:25% 50%}
+  .gbtn:active span::after{background-position:50% 15%;--angle-2:-15deg}
+  .gbtn::after{content:"";position:absolute;z-index:1;inset:0;border-radius:999vw;width:calc(100% + var(--border-width));height:calc(100% + var(--border-width));top:calc(0% - var(--border-width)/2);left:calc(0% - var(--border-width)/2);padding:var(--border-width);box-sizing:border-box;background:conic-gradient(from var(--angle-1) at 50% 50%,rgba(95,208,230,.65),rgba(95,208,230,0) 5% 40%,rgba(155,240,255,.75) 50%,rgba(95,208,230,0) 60% 95%,rgba(95,208,230,.65)),linear-gradient(180deg,rgba(155,240,255,.35),rgba(95,208,230,.35));mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;transition:all 400ms cubic-bezier(.25,1,.5,1),--angle-1 500ms ease;box-shadow:inset 0 0 0 calc(var(--border-width)/2) rgba(155,240,255,.3)}
+  .gbtn:hover::after{--angle-1:-125deg}
+  .gbtn:active::after{--angle-1:-75deg}
+  .button-wrap:has(.gbtn:hover) .button-shadow{filter:blur(clamp(2px,.0625em,6px));transition:filter 400ms cubic-bezier(.25,1,.5,1)}
+  .button-wrap:has(.gbtn:hover) .button-shadow::after{top:calc(var(--shadow-cuttoff-fix) - .875em);opacity:1}
+  .button-wrap:has(.gbtn:active){transform:rotate3d(1,0,0,25deg)}
+  .button-wrap:has(.gbtn:active) .button-shadow{filter:blur(clamp(2px,.125em,12px))}
+  .button-wrap:has(.gbtn:active) .button-shadow::after{top:calc(var(--shadow-cuttoff-fix) - .5em);opacity:.75}
+  .button-wrap:has(.gbtn:active) span{text-shadow:0 .2em .05em rgba(0,0,0,.5)}
+  @media (hover:none) and (pointer:coarse){.gbtn span::after,.gbtn:active span::after{--angle-2:-45deg}.gbtn::after,.gbtn:hover::after,.gbtn:active::after{--angle-1:-75deg}}
+  .newchat-wrap{width:100%;margin-bottom:4px}
+  .newchat-wrap .gbtn{width:100%;display:block}
+  /* Amber edge variant for a warning-flavoured action (Interrupt). */
+  .gbtn-amber::after{background:conic-gradient(from var(--angle-1) at 50% 50%,rgba(255,180,58,.7),rgba(255,180,58,0) 5% 40%,rgba(255,210,122,.8) 50%,rgba(255,180,58,0) 60% 95%,rgba(255,180,58,.7)),linear-gradient(180deg,rgba(255,210,122,.35),rgba(255,180,58,.35))!important}
   .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-left:2px solid transparent;border-radius:7px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}
   .sess:hover{background:rgba(95,208,230,.05)} .sess.active{background:rgba(95,208,230,.08);border-left-color:var(--ice);color:#eaf6fb}
 
@@ -281,10 +339,12 @@ PAGE = r"""<!doctype html>
   .chat{flex:1;overflow-y:auto;padding:18px 22px 6px}
   .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding-bottom:30px}
   .empty .orb{width:70px;height:70px}
-  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:21px;margin:0;color:#eaf6fb;text-shadow:0 0 22px rgba(95,208,230,.35)}
+  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:23px;margin:0;
+    background:linear-gradient(180deg,#f2fbfe 15%,#7fd4e6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 0 22px rgba(95,208,230,.32))}
   .empty p{color:var(--muted);font-size:13px;margin:0;max-width:420px;line-height:1.6}
   .suggest{display:grid;grid-template-columns:1fr 1fr;gap:9px;width:100%;max-width:480px}
-  .scard{position:relative;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 14px;cursor:pointer;font-size:12.5px;transition:.18s;overflow:hidden}
+  .scard{position:relative;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;cursor:pointer;font-size:12.5px;transition:.18s;overflow:hidden;backdrop-filter:blur(7px)}
   .scard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ice);opacity:0;transition:.18s}
   .scard:hover{border-color:var(--line2);background:rgba(95,208,230,.05);transform:translateY(-1px)} .scard:hover::before{opacity:.8}
   .scard b{display:block;font-family:var(--display);font-size:9.5px;letter-spacing:1.5px;color:var(--ice-b);text-transform:uppercase;margin-bottom:3px}
@@ -304,6 +364,9 @@ PAGE = r"""<!doctype html>
   .md strong{color:#fff;font-weight:500} .md a{color:var(--amber-b)}
   .msg.user .md{color:#cfe9f1} .msg.err .md{color:var(--danger)}
   .att{display:inline-flex;align-items:center;gap:6px;margin:6px 6px 0 0;background:#0b1016;border:1px solid var(--line2);border-radius:7px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .copybtn{display:inline-block;margin-top:8px;background:transparent;border:1px solid var(--line2);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:.5px;padding:3px 9px;cursor:pointer;opacity:.55;transition:opacity .15s,color .15s,border-color .15s}
+  .copybtn:hover,.copybtn:focus-visible{opacity:1;color:var(--ice-b);border-color:var(--ice-deep);outline:none}
+  .meta{margin:7px 10px 0 0;display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.3px;color:var(--muted);opacity:.8}
   .att .ic{color:var(--amber)}
   .det{margin-top:7px} .det>summary{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--amber-soft);cursor:pointer;list-style:none}
   .det>summary::-webkit-details-marker{display:none} .det>summary::before{content:'\25B8  ';color:var(--amber)} .det[open]>summary::before{content:'\25BE  '}
@@ -315,7 +378,8 @@ PAGE = r"""<!doctype html>
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
   .chip{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11px}
   .chip .ic{color:var(--amber)} .chip .rm{cursor:pointer;color:var(--muted)} .chip .rm:hover{color:var(--danger)}
-  .box{display:flex;align-items:flex-end;gap:5px;background:linear-gradient(180deg,rgba(11,16,24,.92),rgba(7,10,16,.92));border:1px solid var(--line2);border-radius:16px;padding:6px 7px 6px 6px;transition:.2s}
+  .box{display:flex;align-items:flex-end;gap:5px;background:linear-gradient(180deg,rgba(11,16,24,.92),rgba(7,10,16,.92));border:1px solid var(--line2);border-radius:18px;padding:6px 7px 6px 6px;transition:.22s;box-shadow:0 10px 34px -22px rgba(0,0,0,.9)}
+  .box:focus-within{border-color:var(--ice);box-shadow:0 0 0 3px rgba(95,208,230,.12),0 12px 34px -14px rgba(95,208,230,.45)}
   .box:focus-within{border-color:var(--ice);box-shadow:0 0 0 1px rgba(95,208,230,.5),0 0 26px -6px rgba(95,208,230,.45)}
   .iconbtn{width:38px;height:38px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-size:16px;position:relative;transition:.15s}
   .iconbtn:hover{background:rgba(95,208,230,.08);color:var(--ice-b)} .iconbtn.live{color:var(--ice)}
@@ -333,7 +397,8 @@ PAGE = r"""<!doctype html>
   #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.5;resize:none;max-height:150px;padding:9px 4px}
   #ta::placeholder{color:#46505f}
   .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:12px;background:radial-gradient(circle at 50% 35%,#ffe6ad,var(--amber));color:#1a1102;cursor:pointer;font-size:16px;box-shadow:0 0 16px -3px rgba(255,180,58,.65);transition:.15s}
-  .sendbtn.stop{background:radial-gradient(circle,#ff9aa3,var(--danger));color:#fff;box-shadow:0 0 16px -3px rgba(255,93,108,.6)}
+  .sendbtn.stop{background:radial-gradient(circle,#ff9aa3,var(--danger));color:#fff;box-shadow:0 0 16px -3px rgba(255,93,108,.6);animation:stoppulse 1.1s ease-in-out infinite}
+  @keyframes stoppulse{0%,100%{box-shadow:0 0 14px -3px rgba(255,93,108,.55)}50%{box-shadow:0 0 22px 1px rgba(255,93,108,.95)}}
   #agentBtn.on{color:var(--ice-b);background:rgba(95,208,230,.12);box-shadow:inset 0 0 0 1px rgba(95,208,230,.3)}
   .trace{margin:6px 0 2px;border:1px solid var(--line);border-left:2px solid var(--amber-soft);border-radius:10px;background:#0a0d13;overflow:hidden}
   .trace .thead{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--amber-b);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
@@ -481,6 +546,9 @@ PAGE = r"""<!doctype html>
   .vtrans{max-width:580px;min-height:52px;text-align:center;color:#eaf6fb;font-size:19px;line-height:1.5;padding:0 20px;font-weight:300}
   .vend{font-family:var(--display);letter-spacing:3px;text-transform:uppercase;font-size:11px;color:var(--ice-b);background:rgba(95,208,230,.08);border:1px solid var(--line2);border-radius:999px;padding:11px 28px;cursor:pointer;transition:.2s}
   .vend:hover{border-color:var(--ice);box-shadow:0 0 20px -4px rgba(95,208,230,.6);color:#fff}
+  .vbtns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+  .vint{color:var(--amber-b);background:rgba(255,180,58,.08)}
+  .vint:hover{border-color:var(--amber);box-shadow:0 0 20px -4px rgba(255,180,58,.55);color:#fff}
   .drop{position:absolute;inset:10px;z-index:6;background:rgba(95,208,230,.07);border:2px dashed var(--ice);border-radius:16px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:3px;text-transform:uppercase;color:var(--ice-b);pointer-events:none}
   .drop.on{display:flex}
 
@@ -532,14 +600,44 @@ PAGE = r"""<!doctype html>
   .navbtn .dico{font-style:normal;font-size:12px}
   .page{grid-column:1/-1;grid-row:2;display:none;overflow:auto;padding:20px 26px;background:linear-gradient(180deg,rgba(8,11,18,.5),rgba(6,8,13,.35))}
   body[data-view="overview"] .left,body[data-view="overview"] .stage,body[data-view="overview"] main.chatcol,
-  body[data-view="jobs"] .left,body[data-view="jobs"] .stage,body[data-view="jobs"] main.chatcol{display:none}
+  body[data-view="jobs"] .left,body[data-view="jobs"] .stage,body[data-view="jobs"] main.chatcol,
+  body[data-view="pipeline"] .left,body[data-view="pipeline"] .stage,body[data-view="pipeline"] main.chatcol{display:none}
   body[data-view="overview"] #page-overview{display:block}
   body[data-view="jobs"] #page-jobs{display:block}
+  body[data-view="pipeline"] #page-pipeline{display:block}
+  /* live pipeline board */
+  .pipebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+  .pipebar .grow{flex:1}
+  .resumebox{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
+  .resumebox textarea{width:100%;min-height:84px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:8px;font-family:var(--mono);font-size:12px;resize:vertical}
+  .resumebox .rrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .resumebox input{flex:1;min-width:160px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:7px 9px;font-family:var(--mono);font-size:12px}
+  .rstat{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .board{display:flex;gap:10px;overflow-x:auto;padding:2px 0 10px;align-items:flex-start}
+  .col{flex:0 0 220px;background:rgba(95,208,230,.03);border:1px solid var(--line,#16222e);border-radius:10px;padding:8px}
+  .col h4{margin:0 0 8px;font-family:var(--mono);font-size:11px;letter-spacing:.5px;color:var(--muted);
+    display:flex;justify-content:space-between;text-transform:uppercase}
+  .col h4 b{color:var(--ice-b,#cfe9f2)}
+  .pcard{background:var(--panel2,#0e1620);border:1px solid var(--line2,#1d2b38);border-radius:8px;padding:8px;margin-bottom:8px}
+  .pcard .pco{font-size:12px;color:var(--ice-b,#cfe9f2);font-weight:600;line-height:1.25}
+  .pcard .prole{font-size:11px;color:var(--muted);margin:1px 0 6px}
+  .pcard .prow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .score{font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;color:#04121a}
+  .score.s-hi{background:#54e0a0}.score.s-mid{background:#ffb000}.score.s-lo{background:#ff7a8a}.score.s-na{background:#41505e;color:#cfe9f2}
+  .badge{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:10px;border:1px solid var(--line2,#1d2b38);color:var(--muted)}
+  .badge.t-on{color:#54e0a0;border-color:#1d6b4e}
+  .pcard button{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:7px;cursor:pointer;
+    background:rgba(95,208,230,.08);color:var(--ice-b,#cfe9f2);border:1px solid var(--line2,#1d2b38)}
+  .pcard button:hover{border-color:var(--ice-b,#5fd0e6)}
+  .pcard select{font-family:var(--mono);font-size:10px;background:var(--panel2,#0e1620);color:var(--ice-b,#cfe9f2);
+    border:1px solid var(--line2,#1d2b38);border-radius:6px;padding:2px}
   .pagehead{display:flex;align-items:center;gap:10px;margin-bottom:16px}
   .pagehead h2{font-family:var(--display);font-weight:600;letter-spacing:1px;font-size:18px;color:#eaf6fb;margin:0}
   .pagehead .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
   .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
-  .statcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px}
+  .statcard{background:linear-gradient(160deg,rgba(18,25,36,.66),rgba(9,13,20,.5));border:1px solid var(--line);border-radius:14px;padding:14px 16px;backdrop-filter:blur(8px);box-shadow:0 12px 30px -22px rgba(0,0,0,.85)}
   .statcard .k{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
   .statcard .v{font-family:var(--display);font-size:26px;color:#eaf6fb;margin-top:4px}
   .statcard .v small{font-size:13px;color:var(--muted)}
@@ -561,6 +659,44 @@ PAGE = r"""<!doctype html>
   .stbar{height:16px;border-radius:4px;background:var(--ice);min-width:2px}
   .tlarea{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:9px;min-height:84px;resize:vertical;outline:none;margin-bottom:8px;box-sizing:border-box}
   .tlarea:focus{border-color:var(--ice)}
+
+  #mobileChats{display:none}
+  /* Layout repair: the composer stays on-screen at every supported width. */
+  .app{height:100dvh;min-height:0}
+  .app>*{min-width:0;min-height:0}
+  .content,.md{min-width:0;overflow-wrap:anywhere}
+  .md pre,.data{max-width:100%;overflow:auto}
+  button,input,select,textarea{font:inherit}
+  button{touch-action:manipulation}
+  :focus-visible{outline:2px solid var(--ice);outline-offset:3px}
+  .scard{text-align:left;color:var(--text)}
+  .resumebox button,.rrow button{background:rgba(95,208,230,.12);color:var(--ice-b);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  .pcard button,.pcard select{min-height:32px;font-size:12px}
+  .pagehead{flex-wrap:wrap}.pagehead .sub{overflow-wrap:anywhere}
+  .chartcard,.resumebox{min-width:0}
+  .jobrow{flex-wrap:wrap}
+  body>.noteviewer{position:fixed;inset:80px 16px 20px;z-index:100;max-width:900px;margin:auto}
+  .chip .rm,.note.clk,.lk{background:transparent;border:1px solid var(--line);color:var(--text);border-radius:5px;cursor:pointer}
+  .profilegrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .profilegrid label{font-size:12px;color:var(--muted)}
+  .profilegrid input{display:block;width:100%;margin-top:6px;min-width:0}
+  @media(max-width:1100px){.app{grid-template-columns:240px minmax(0,1fr)}.stage{display:none}main.chatcol{grid-column:2}}
+  @media(max-width:700px){
+    .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+    .left,.stage{display:none}main.chatcol{grid-column:1}
+    #mobileChats{display:inline-flex}
+    body.showChats .left{display:flex;position:fixed;top:136px;bottom:0;left:0;width:min(86vw,320px);z-index:90;background:#080d14;box-shadow:16px 0 40px #000a}
+    header{flex-wrap:wrap;padding:10px 12px;gap:8px;height:auto;min-height:58px}
+    #nav{order:10;flex-basis:100%;overflow:auto;justify-content:space-between}
+    header .pill{font-size:10px}header .brand{font-size:14px}
+    .page{padding:16px 12px}.charts,.profilegrid{grid-template-columns:1fr}
+    .statcards{grid-template-columns:1fr 1fr}.pagehead .sub{margin-left:0}
+    .chat{padding:16px 12px}.composer{padding:12px}
+    .jobform>*{max-width:100%;min-width:0}.resumebox input{max-width:100%}
+    .msg{gap:8px}.msg .av{width:30px;flex-shrink:0}
+    button{min-height:36px}.hint{font-size:11px}
+  }
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body data-view="chat">
@@ -575,9 +711,11 @@ PAGE = r"""<!doctype html>
     </svg>
     <div class="brand"><div class="n">J<b>.</b>A<b>.</b>R<b>.</b>V<b>.</b>I<b>.</b>S</div><div class="s">your local assistant</div></div>
     <nav class="nav" id="nav">
+      <button id="mobileChats" class="navbtn" aria-expanded="false" aria-controls="leftPanel">Chats</button>
       <button class="navbtn on" data-view="chat"><i class="dico">&#128172;</i>Chat</button>
       <button class="navbtn" data-view="overview"><i class="dico">&#9783;</i>Overview</button>
       <button class="navbtn" data-view="jobs"><i class="dico">&#128188;</i>Jobs</button>
+      <button class="navbtn" data-view="pipeline"><i class="dico">&#9776;</i>Pipeline</button>
     </nav>
     <div class="sp"></div>
     <div class="hud">
@@ -595,8 +733,8 @@ PAGE = r"""<!doctype html>
     <span class="pill" id="healthPill" title="System status"><span class="dot" id="healthDot"></span> <span id="healthText">checking…</span></span>
   </header>
 
-  <aside class="left">
-    <button class="newchat" id="newChat">+  New chat</button>
+  <aside class="left" id="leftPanel">
+    <div class="button-wrap newchat-wrap"><div class="button-shadow"></div><button class="gbtn" id="newChat"><span>+ New chat</span></button></div>
     <div class="seclbl">Sessions</div>
     <div id="sessions"></div>
     <div class="seclbl">Systems</div>
@@ -611,7 +749,7 @@ PAGE = r"""<!doctype html>
       <div id="notes"></div>
     </details>
     <details class="conn" open>
-      <summary>Agent control room</summary>
+      <summary>Tool activity</summary>
       <div id="agentSummary"></div>
       <div id="agentList"></div>
     </details>
@@ -656,14 +794,17 @@ PAGE = r"""<!doctype html>
 
   <section class="stage">
     <canvas id="core"></canvas>
-    <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>online</b></div>
+    <div class="corestate" id="corestate"><span class="blip"></span>J.A.R.V.I.S · <b>ready</b></div>
     <div class="voice" id="voice" data-state="listening">
       <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="vstate" id="vstate">Listening</div>
       <div class="vcap">subtitles</div>
       <div class="vtrans" id="vtrans">Say something…</div>
       <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
-      <button class="vend" id="vend">End voice</button>
+      <div class="vbtns">
+        <div class="button-wrap"><div class="button-shadow"></div><button class="gbtn gbtn-amber" id="vint" title="Stop speaking and listen (Space)"><span>Interrupt</span></button></div>
+        <div class="button-wrap"><div class="button-shadow"></div><button class="gbtn" id="vend"><span>End voice</span></button></div>
+      </div>
     </div>
     <div class="noteviewer" id="noteViewer">
       <div class="nv-head">
@@ -679,7 +820,7 @@ PAGE = r"""<!doctype html>
     <div class="chat" id="chat">
       <div class="empty" id="empty">
         <h1>How can I help, Jeevan?</h1>
-        <p>Talk to me, drop a file of any type, or tap Voice. Simple things run on a fast model; complex questions escalate to a stronger one. I remember things in your Obsidian vault.</p>
+        <p>Ask a question, attach a supported file, or use Voice. Files and memory work offline; connected models add chat and reasoning.</p>
         <div class="setupcard" id="setupCard" style="display:none"></div>
         <div class="suggest" id="suggest"></div>
       </div>
@@ -740,14 +881,73 @@ PAGE = r"""<!doctype html>
       <div class="md" id="tlResult" style="margin-top:10px;font-size:13px"></div>
     </div>
   </section>
+
+  <section class="page" id="page-pipeline">
+    <div class="pagehead"><h2>Pipeline</h2><span class="sub" id="pipeSub"></span></div>
+    <div class="statcards" id="pipeStats"></div>
+    <div class="chartcard resumebox" id="resumeCard">
+      <div class="t">Base resume — used for live ATS scoring &amp; tailoring</div>
+      <textarea id="rsText" placeholder="Paste your resume text here, then Save…"></textarea>
+      <div class="rrow">
+        <button id="rsSave" type="button">Save resume</button>
+        <input id="rsPath" type="text" placeholder="…or an absolute path to a PDF / DOCX / TXT">
+        <button id="rsLoad" type="button">Load file</button>
+        <span class="rstat" id="rsStat"></span>
+      </div>
+    </div>
+    <details class="chartcard resumebox">
+      <summary>Resume contact and certifications</summary>
+      <p class="rstat">Optional overrides. Otherwise email, phone and profile links are read from the top of your base resume.</p>
+      <div class="profilegrid">
+        <label>Contact line<input id="rsContact" placeholder="Email · phone · profile URLs"></label>
+        <label>Certifications<input id="rsCerts" placeholder="Certifications already earned"></label>
+        <label>GitHub username<input id="rsGithub" placeholder="Username for repository links"></label>
+      </div>
+      <div><button id="rsProfileSave" type="button">Save profile</button></div>
+    </details>
+    <div class="pipebar">
+      <button id="pullBtn" type="button">⟳ Pull from Jobright</button>
+      <button id="clearBtn" type="button">Clear leads</button>
+      <label class="rstat"><input type="checkbox" id="autoRef" checked> auto-refresh</label>
+      <span class="grow"></span>
+      <span class="mapmsg" id="pipeMsg"></span>
+    </div>
+    <div class="board" id="pipeBoard"></div>
+    <div class="chartcard" id="pkgCard" style="display:none;margin-top:14px">
+      <div class="t" id="pkgTitle">Tailored package</div>
+      <div class="md" id="pkgBody" style="font-size:13px"></div>
+    </div>
+  </section>
 </div>
 
-<script>
+<script nonce="{{NONCE}}">
+  const nativeFetch=window.fetch.bind(window);
+  window.fetch=(input,options={})=>{
+    const url=new URL(typeof input==='string'?input:input.url,location.href);
+    const same=url.origin===location.origin;
+    if(same){
+      const headers=new Headers(options.headers||(input instanceof Request?input.headers:undefined));
+      headers.set('X-Jarvis-Token','{{API_TOKEN}}');
+      options={...options,headers};
+    }
+    const p=nativeFetch(input,options);
+    if(!same)return p;
+    // The API token is per server process. If the server was restarted this tab's token
+    // goes stale and same-origin calls 403 — reload once to pick up a fresh token rather
+    // than dead-ending. A 5s guard prevents a reload loop if the 403 is something else.
+    return p.then(r=>{
+      if(r.status===403){
+        let last=0; try{last=+sessionStorage.getItem('jarvisTokReload')||0;}catch(e){}
+        if(Date.now()-last>5000){try{sessionStorage.setItem('jarvisTokReload',String(Date.now()));}catch(e){}location.reload();}
+      }
+      return r;
+    });
+  };
   const chat=document.getElementById('chat'), ta=document.getElementById('ta'), sendBtn=document.getElementById('sendBtn'),
         attachBtn=document.getElementById('attachBtn'), fileIn=document.getElementById('file'), chips=document.getElementById('chips'),
         micBtn=document.getElementById('micBtn'), reactor=document.getElementById('reactor'), drop=document.getElementById('drop'),
         voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
-        vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
+        vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
   let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
@@ -757,7 +957,7 @@ PAGE = r"""<!doctype html>
   let coreState='idle', activeTier='fast';
   const TIER_COLORS={fast:'#54e0a0',smart:'#a98bff',ultra:'#ff5d6c'};   // green / violet / red
   const VOICE_COLOR='#b388ff';                                          // violet shift in voice mode
-  const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model · 550B'};
+  const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model'};
   function coreColor(){
     if(coreState==='listening')return VOICE_COLOR;
     if(coreState==='thinking'||coreState==='speaking')return TIER_COLORS[activeTier]||'#ffb000';
@@ -777,7 +977,7 @@ PAGE = r"""<!doctype html>
     if(s==='thinking')label= activeTier==='ultra' ? 'reasoning · <b>'+TIER_NAME.ultra+'</b> · this can take a moment' : 'analyzing · <b>'+TIER_NAME[activeTier]+'</b>';
     else if(s==='speaking')label='speaking · <b>'+TIER_NAME[activeTier]+'</b>';
     else if(s==='listening')label='<b>listening…</b>';
-    else label='J.A.R.V.I.S · <b>online</b>';
+    else label='J.A.R.V.I.S · <b>ready</b>';
     corestate.className='corestate';corestate.style.color=col;corestate.innerHTML='<span class="blip"></span>'+label;
     voice.style.color=col;  // overlay bars + state text follow the same colour
     pulseCore();            // ripple the particle sphere on every state change
@@ -798,7 +998,7 @@ PAGE = r"""<!doctype html>
     return hover?0.36:0.15;
   }
   function hex2rgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
-  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);coreCanvas.width=Math.max(1,r.width*dpr);coreCanvas.height=Math.max(1,r.height*dpr);cctx.setTransform(dpr,0,0,dpr,0,0);}
+  function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);coreCanvas.width=Math.max(1,r.width*dpr);coreCanvas.height=Math.max(1,r.height*dpr);cctx.setTransform(dpr,0,0,dpr,0,0);if(matchMedia('(prefers-reduced-motion: reduce)').matches)drawSphere(0);}
   window.addEventListener('resize',fitCanvas);
   coreCanvas.addEventListener('mousemove',e=>{const r=coreCanvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hover=true;});
   coreCanvas.addEventListener('mouseleave',()=>{hover=false;mx=my=-999;});
@@ -850,16 +1050,18 @@ PAGE = r"""<!doctype html>
     cctx.fillStyle=cg2;cctx.beginPath();cctx.arc(cx,cy,ccr*3.2,0,6.283);cctx.fill();
     cctx.globalCompositeOperation='source-over';
   }
-  function coreLoop(){drawSphere(performance.now()/1000);requestAnimationFrame(coreLoop);}
+  const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
+  function coreLoop(){if(coreCanvas.offsetParent!==null&&!document.hidden)drawSphere(performance.now()/1000);if(!reducedMotion.matches)requestAnimationFrame(coreLoop);}
+  reducedMotion.addEventListener('change',()=>{if(reducedMotion.matches)fitCanvas();else coreLoop();});
   fitCanvas();setTimeout(fitCanvas,60);coreLoop();
 
   /* markdown */
-  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function inline(s){s=esc(s);
     s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
     s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
-    s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2">$1</a>');
+    s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return s;}
   function mdToHtml(src){
     const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push(c);return '@@F'+(fences.length-1)+'@@';});
@@ -880,40 +1082,52 @@ PAGE = r"""<!doctype html>
   /* suggestions */
   const SUG=[["Get oriented","What can you do?"],["Summarize","Summarize the README"],["Research","Research local-first AI agents"],["Memory","What do you remember about me?"]];
   const suggest=document.getElementById('suggest');
-  SUG.forEach(([t,q])=>{const c=document.createElement('div');c.className='scard';c.innerHTML='<b>'+t+'</b>'+q;c.onclick=()=>send(q);suggest.appendChild(c);});
+  SUG.forEach(([t,q])=>{const c=document.createElement('button');c.className='scard';c.innerHTML='<b>'+t+'</b>'+q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
   /* sessions (localStorage) */
-  let sessions=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]'), current=null;
-  function saveSessions(){localStorage.setItem('jarvis_sessions',JSON.stringify(sessions.slice(0,40)));}
-  function renderSessions(){sessionsEl.innerHTML='';sessions.forEach(s=>{const b=document.createElement('button');b.className='sess'+(s.id===current?' active':'');b.textContent=s.title||'New chat';b.onclick=()=>loadSession(s.id);sessionsEl.appendChild(b);});}
-  function newSession(){const s={id:'s'+Date.now(),title:'',msgs:[]};sessions.unshift(s);current=s.id;saveSessions();renderSessions();chat.innerHTML='';chat.appendChild(emptyEl());}
+  let sessions=[], current=null;
+  try{const saved=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]');
+    if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
+  }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
+  function saveSessions(){sessions=sessions.slice(0,40);try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}catch(e){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}}
+  function renderSessions(){sessionsEl.innerHTML='';sessions.forEach(s=>{const b=document.createElement('button');b.className='sess'+(s.id===current?' active':'');b.textContent=s.title||'New chat';b.onclick=()=>{loadSession(s.id);closeChats();};sessionsEl.appendChild(b);});}
+  function newSession(){const s={id:crypto.randomUUID(),title:'',msgs:[]};sessions.unshift(s);current=s.id;saveSessions();renderSessions();chat.innerHTML='';chat.appendChild(emptyEl());}
   function curSession(){return sessions.find(s=>s.id===current);}
   function loadSession(id){current=id;const s=curSession();chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
   let emptyNode=document.getElementById('empty');
-  function emptyEl(){return emptyNode.cloneNode(true);}
-  document.getElementById('newChat').onclick=newSession;
+  function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
+  function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
+  document.getElementById('mobileChats').onclick=()=>{const open=document.body.classList.toggle('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded',String(open));document.querySelector('.left').style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';if(open)document.getElementById('newChat').focus();};
+  document.getElementById('newChat').onclick=()=>{newSession();closeChats();};
 
   /* messages */
   function clearEmpty(){const e=chat.querySelector('.empty');if(e)e.remove();}
+  function copyOut(text,btn){
+    const done=ok=>{if(btn){btn.textContent=ok?'✓ Copied':'Copy failed';setTimeout(()=>btn.textContent='⧉ Copy',1200);}};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));}
+    else{try{const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();done(true);}catch(e){done(false);}}
+  }
   function renderMsg(role,text,atts){
     clearEmpty();
     const m=document.createElement('div');m.className='msg '+role;
     m.innerHTML='<div class="av">'+(role==='user'?'YOU':'J')+'</div><div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
     m.querySelector('.md').innerHTML=role==='user'?esc(text).replace(/\n/g,'<br>'):mdToHtml(text);
-    if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+a;box.appendChild(s);});m.querySelector('.content').appendChild(box);}
+    if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+esc(a);box.appendChild(s);});m.querySelector('.content').appendChild(box);}
+    if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?' <span style="color:#ff5d6c;font-size:11px">thinking on the 550B model — this can take ~45-60s</span>':tier==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
   function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
-    sendBtn.innerHTML=b?'&#9632;':'&#10148;'; sendBtn.title=b?'Stop':'Send'; sendBtn.classList.toggle('stop',b);}
-  function stopGen(){twCancel=true;if(currentAbort){try{currentAbort.abort();}catch(e){}}}
+    sendBtn.innerHTML=b?'&#9632;':'&#10148;'; sendBtn.title=b?'Stop':'Send';sendBtn.setAttribute('aria-label',sendBtn.title); sendBtn.classList.toggle('stop',b);}
+  let currentRequest=null;
+  function stopGen(){twCancel=true;if(currentRequest){fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:currentRequest})}).catch(()=>{hint.textContent='Could not reach the server to confirm stopping.';});}if(currentAbort){currentAbort.abort();}}
   // Typewriter reveal for instant (non-streamed) results — local command output
   // arrives as one block, so animate it like a streamed reply for a consistent feel.
   let twCancel=false;
   function typewriter(el,text){
     twCancel=false;
     const total=text.length;
-    if(total>4000){el.innerHTML=mdToHtml(text);return;}   // skip animation for very long output
+    if(total>4000||reducedMotion.matches){el.innerHTML=mdToHtml(text);return;}   // skip animation for very long output
     const step=Math.max(2,Math.ceil(total/160));          // ~constant ~1.5s regardless of length
     let i=0;
     (function tick(){
@@ -937,21 +1151,33 @@ PAGE = r"""<!doctype html>
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){ if(busy)stopGen(); else if(voiceActive)endVoice(); }
+    if(e.key==='Escape'){closeChats();if(busy)stopGen(); else if(voiceActive)endVoice(); }
+    if(e.key===' '&&voiceActive&&document.activeElement!==ta&&document.activeElement.tagName!=='INPUT'){e.preventDefault();interruptNow();}  // Space: stop speaking, listen
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); newSession(); ta.focus(); }
   });
 
   async function uploadFile(file){
-    const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file);});
+    const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.onerror=()=>r('');fr.readAsDataURL(file);});
     const res=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file.name,data})});
-    const d=await res.json(); if(d.ok){attachments.push(d);renderChips();}
+    const d=await res.json(); if(d.ok){attachments.push(d);renderChips();}else{hint.textContent=d.message||'Upload failed';}
   }
-  function renderChips(){chips.innerHTML='';attachments.forEach((a,i)=>{const c=document.createElement('div');c.className='chip';c.innerHTML='<span class="ic">&#128196;</span>'+a.name+' <span class="rm">&times;</span>';c.querySelector('.rm').onclick=()=>{attachments.splice(i,1);renderChips();};chips.appendChild(c);});}
+  function renderChips(){chips.innerHTML='';attachments.forEach((a,i)=>{const c=document.createElement('div');c.className='chip';c.innerHTML='<span class="ic">&#128196;</span>'+esc(a.name)+' <button class="rm" aria-label="Remove attachment">&times;</button>';c.querySelector('.rm').onclick=()=>{attachments.splice(i,1);renderChips();};chips.appendChild(c);});}
   attachBtn.onclick=()=>fileIn.click();
   fileIn.onchange=()=>{[...fileIn.files].forEach(uploadFile);fileIn.value='';};
   ['dragenter','dragover'].forEach(e=>document.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on');}));
   document.addEventListener('dragleave',ev=>{if(ev.clientX===0&&ev.clientY===0)drop.classList.remove('on');});
   document.addEventListener('drop',ev=>{ev.preventDefault();drop.classList.remove('on');if(ev.dataTransfer&&ev.dataTransfer.files)[...ev.dataTransfer.files].forEach(uploadFile);});
+  // Paste images straight from the clipboard (e.g. a screenshot) into the composer;
+  // typed/copied text still pastes normally because we only intercept image items.
+  ta.addEventListener('paste',ev=>{
+    const items=(ev.clipboardData&&ev.clipboardData.items)||[]; const imgs=[];
+    for(const it of items){if(it.kind==='file'&&it.type.indexOf('image/')===0){const f=it.getAsFile();if(f)imgs.push(f);}}
+    if(!imgs.length)return;
+    ev.preventDefault();
+    imgs.forEach((f,n)=>{const ext=(f.type.split('/')[1]||'png').replace('jpeg','jpg');
+      const nm=(f.name&&f.name!=='image.png')?f.name:('pasted-'+Date.now()+(n?'-'+n:'')+'.'+ext);
+      uploadFile(new File([f],nm,{type:f.type}));});
+  });
 
   async function send(text){
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
@@ -967,10 +1193,12 @@ PAGE = r"""<!doctype html>
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
     md.innerHTML='<span class="dots"><span></span><span></span><span></span></span>'+(predicted==='ultra'?' <span style="color:#ff5d6c;font-size:11px">on the 550B model — this can take a moment</span>':predicted==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'');
     let reply='', streamed='';
-    currentAbort=new AbortController();
+    const t0=performance.now(); let tFirst=0;
+    currentAbort=new AbortController();currentRequest=crypto.randomUUID();
     try{
       const speakStream=voiceActive; if(speakStream)voiceTurnReset();
-      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history,voice:speakStream})});
+      const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history,voice:speakStream})});
+      if(!r.ok)throw new Error((await r.json()).message||'Request failed');
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
       while(true){
         const {done:fin,value}=await reader.read(); if(fin)break;
@@ -979,12 +1207,13 @@ PAGE = r"""<!doctype html>
           const line=buf.slice(0,i); buf=buf.slice(i+2);
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
-          if(ev.type==='token'){if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          if(ev.type==='token'){if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          else if(ev.type==='reset'){streamed='';md.innerHTML='';ttsQueue=[];}
           else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
           else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
         }
       }
-      const d=done||{ok:true,message:streamed,data:{}};
+      const d=done||{ok:false,message:(streamed?streamed+'\n\n':'')+'Connection ended before the reply completed.',data:{}};
       reply=d.message||streamed||'(no output)';
       if(!d.ok)node.classList.add('err');
       // Chat already revealed itself token-by-token; a local command result arrives
@@ -993,18 +1222,23 @@ PAGE = r"""<!doctype html>
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
-      const ss=curSession();if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      // Show which model answered and how long it took, so tier/latency is visible.
+      const planner=d.data&&d.data.planner, totalS=((performance.now()-t0)/1000).toFixed(1), bits=[];
+      if(planner&&planner.model){const nm={fast:PLANNER,smart:SMART,ultra:ULTRA,openrouter:'backup model',unavailable:'no model reachable'}[planner.model]||planner.model;bits.push(nm);if(tFirst)bits.push('first token '+((tFirst-t0)/1000).toFixed(1)+'s');}
+      else bits.push('local');
+      bits.push(totalS+'s'+(planner&&planner.model?' total':''));
+      const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
+      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
     }catch(err){
-      if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=curSession();if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
+      if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
-    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
+    finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
     return reply;
   }
 
   /* autonomous agent mode — streams plan/act/observe steps into a live trace */
-  function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
   async function runAgent(goal){
     if(!current)newSession();
     const s=curSession();
@@ -1015,9 +1249,10 @@ PAGE = r"""<!doctype html>
     trace.innerHTML='<div class="thead"><span class="gdot"></span> AGENT · planning…</div>';
     md.innerHTML='';md.appendChild(trace);
     let reply='';
-    currentAbort=new AbortController();
+    currentAbort=new AbortController();currentRequest=crypto.randomUUID();
     try{
-      const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json'},signal:currentAbort.signal,body:JSON.stringify({goal})});
+      const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({goal})});
+      if(!r.ok)throw new Error((await r.json()).message||'Request failed');
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
       while(true){
         const {done:fin,value}=await reader.read(); if(fin)break;
@@ -1035,13 +1270,13 @@ PAGE = r"""<!doctype html>
             node.querySelector('.content').appendChild(ans);}
         }
       }
-      const ss=curSession();if(ss&&reply){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      const ss=s;if(ss&&reply){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
     }catch(err){
       if(err&&err.name==='AbortError'){trace.classList.add('fail');trace.querySelector('.thead').innerHTML='<span class="gdot"></span> AGENT · stopped';}
       else{node.classList.add('err');const e=document.createElement('div');e.className='md';e.textContent='Agent error: '+err;node.querySelector('.content').appendChild(e);}
     }
-    finally{currentAbort=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
+    finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive&&reply)speak(reply);}
     return reply;
   }
 
@@ -1057,19 +1292,20 @@ PAGE = r"""<!doctype html>
   /* metrics */
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
-    if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['warn','run as admin'];}renderConn();}catch(e){}}
-  setInterval(loadMetrics,5000);loadMetrics();
+    if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
+  const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
+  pollWhenVisible(loadMetrics,5000);loadMetrics();
 
   /* vault + note browser */
   function renderNoteList(names){
     const notes=document.getElementById('notes');notes.innerHTML='';
     if(!names.length){const e=document.createElement('div');e.className='note';e.textContent='no notes';notes.appendChild(e);return;}
-    names.forEach(name=>{const e=document.createElement('div');e.className='note clk';e.textContent=name;e.title=name;e.onclick=()=>openNote(name);notes.appendChild(e);});
+    names.forEach(name=>{const e=document.createElement('button');e.className='note clk';e.textContent=name;e.title=name;e.onclick=()=>openNote(name);notes.appendChild(e);});
   }
   let allNotes=[];
   async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
   async function openNote(name){
-    const nv=document.getElementById('noteViewer');
+    const nv=document.getElementById('noteViewer');document.body.appendChild(nv);
     document.getElementById('nvTitle').textContent=name;
     document.getElementById('nvBody').innerHTML='<div style="color:var(--muted)">Loading…</div>';
     document.getElementById('nvLinks').innerHTML='';
@@ -1081,7 +1317,7 @@ PAGE = r"""<!doctype html>
       document.getElementById('nvTitle').textContent=d.name||name;
       document.getElementById('nvBody').innerHTML=mdToHtml(d.text||'');
       const links=document.getElementById('nvLinks');links.innerHTML='';
-      const group=(label,arr)=>{if(!arr||!arr.length)return;const l=document.createElement('span');l.className='lbl';l.textContent=label;links.appendChild(l);arr.forEach(nm=>{const c=document.createElement('span');c.className='lk';c.textContent=nm;c.onclick=()=>openNote(nm);links.appendChild(c);});};
+      const group=(label,arr)=>{if(!arr||!arr.length)return;const l=document.createElement('span');l.className='lbl';l.textContent=label;links.appendChild(l);arr.forEach(nm=>{const c=document.createElement('button');c.className='lk';c.textContent=nm;c.onclick=()=>openNote(nm);links.appendChild(c);});};
       group('links to',d.outlinks);group('linked from',d.backlinks);
     }catch(e){document.getElementById('nvBody').innerHTML='<div style="color:var(--amber-b)">Could not reach the vault.</div>';}
   }
@@ -1099,11 +1335,11 @@ PAGE = r"""<!doctype html>
 
   /* agent control room */
   async function loadAgents(){try{const r=await fetch('/api/agents');const d=await r.json();if(!d.ok)return;const s=d.control_room.summary;
-    document.getElementById('agentSummary').innerHTML='<div class="agentSummary"><div class="agentStat"><b>'+s.working+'</b><span>working</span></div><div class="agentStat"><b>'+s.idle+'</b><span>idle</span></div><div class="agentStat"><b>'+s.available+'</b><span>available</span></div></div>';
+    document.getElementById('agentSummary').innerHTML='<div class="agentSummary"><div class="agentStat"><b>'+s.working+'</b><span>working</span></div><div class="agentStat"><b>'+s.idle+'</b><span>idle</span></div><div class="agentStat"><b>'+s.available+'</b><span>registered</span></div></div>';
     document.getElementById('agentList').innerHTML=d.control_room.agents.map(a=>{const done=(a.completed||0)>0?' · ✓'+a.completed:'';const fail=(a.failed||0)>0?' ✗'+a.failed:'';return '<button class="agentcard '+a.status+'" data-agent="'+esc(a.id)+'"><div class="top"><span class="dot"></span><b>'+esc(a.name)+'</b><span class="status">'+esc(a.status)+done+fail+'</span></div><div class="role">'+esc(a.role)+'</div><div class="task">'+esc(a.current_task||a.last_message||'Ready.')+'</div></button>';}).join('');
     document.querySelectorAll('.agentcard').forEach(btn=>{btn.onclick=()=>send('agent '+btn.dataset.agent);});
-  }catch(e){}}
-  setInterval(loadAgents,2500);loadAgents();
+  }catch(e){document.getElementById('agentSummary').textContent='Could not refresh tool activity.';}}
+  pollWhenVisible(loadAgents,5000);loadAgents();
 
   /* scheduled jobs */
   function renderSchedule(jobs){
@@ -1120,7 +1356,7 @@ PAGE = r"""<!doctype html>
     }).join('');
     list.querySelectorAll('button[data-act]').forEach(b=>{b.onclick=()=>postSched({action:b.dataset.act,id:b.dataset.id});});
   }
-  async function loadSchedule(){try{const d=await (await fetch('/api/schedule')).json();renderSchedule(d.jobs);}catch(e){}}
+  async function loadSchedule(){try{const d=await (await fetch('/api/schedule')).json();renderSchedule(d.jobs);}catch(e){document.getElementById('schedMsg').textContent='Could not load schedules. Check the local server.';}}
   async function postSched(payload){
     const msg=document.getElementById('schedMsg');msg.className='schedmsg';msg.textContent='…';
     try{const r=await fetch('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -1132,7 +1368,7 @@ PAGE = r"""<!doctype html>
     when:document.getElementById('schedWhen').value,spec:document.getElementById('schedSpec').value});
   document.getElementById('schedSpec').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('schedAdd').click();});
   document.getElementById('schedPanel').addEventListener('toggle',function(){if(this.open)loadSchedule();});
-  setInterval(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
+  pollWhenVisible(()=>{if(document.getElementById('schedPanel').open)loadSchedule();},15000);
 
   /* agent runs */
   function renderAgentRuns(runs){
@@ -1159,7 +1395,7 @@ PAGE = r"""<!doctype html>
   }
   async function loadAgentRuns(){try{const d=await (await fetch('/api/agent-runs')).json();renderAgentRuns(d.runs);}catch(e){}}
   document.getElementById('runsPanel').addEventListener('toggle',function(){if(this.open)loadAgentRuns();});
-  setInterval(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
+  pollWhenVisible(()=>{if(document.getElementById('runsPanel').open)loadAgentRuns();},10000);
 
   /* map */
   async function loadMap(query){
@@ -1250,19 +1486,22 @@ PAGE = r"""<!doctype html>
   })();
 
   /* multi-page router */
-  const VIEWS=['chat','overview','jobs'];
+  const VIEWS=['chat','overview','jobs','pipeline'];
   function setView(v){
     if(VIEWS.indexOf(v)<0)v='chat';
     document.body.dataset.view=v;
+    if(v==='chat')requestAnimationFrame(fitCanvas);
     document.querySelectorAll('#nav .navbtn').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
     if(v==='jobs')loadJobs();
     if(v==='overview')loadOverview();
+    if(v==='pipeline')loadPipeline();
+    pipeAutoRefresh(v==='pipeline');
   }
-  document.querySelectorAll('#nav .navbtn').forEach(b=>{b.onclick=()=>{location.hash='#/'+b.dataset.view;};});
+  document.querySelectorAll('#nav .navbtn[data-view]').forEach(b=>{b.onclick=()=>{location.hash='#/'+b.dataset.view;};});
   window.addEventListener('hashchange',()=>setView(location.hash.replace('#/','')));
 
   /* inline SVG charts (no CDN — works offline) */
-  const STAGES=['applied','screen','interview','final','offer','rejected'];
+  const STAGES=['lead','applied','screen','interview','final','offer','rejected'];
   function svgFunnel(funnel){
     const max=Math.max(1,...funnel.map(f=>f.count));
     const rowH=26, W=300, padL=78, barW=W-padL-30;
@@ -1298,9 +1537,9 @@ PAGE = r"""<!doctype html>
   }
   function renderJobs(d){
     const s=d.stats||{funnel:[],by_week:[]};
-    document.getElementById('jobSub').textContent=(s.total||0)+' application(s)';
+    document.getElementById('jobSub').textContent=(s.applications||0)+' application(s)';
     document.getElementById('jobStats').innerHTML=
-      statCard('Applications',s.total||0)+statCard('Interviews',s.interviews||0)+statCard('Offers',s.offers||0)+statCard('Response rate',Math.round((s.response_rate||0)*100)+'%');
+      statCard('Applications',s.applications||0)+statCard('Interviews',s.interviews||0)+statCard('Offers',s.offers||0)+statCard('Response rate',Math.round((s.response_rate||0)*100)+'%');
     document.getElementById('jobFunnel').innerHTML=svgFunnel(s.funnel||[]);
     document.getElementById('jobTrend').innerHTML=svgTrend(s.by_week||[]);
     const list=document.getElementById('jobList');list.innerHTML='';
@@ -1308,20 +1547,20 @@ PAGE = r"""<!doctype html>
     d.jobs.forEach(j=>{
       const row=document.createElement('div');row.className='jobrow';
       row.innerHTML='<div class="co">'+esc(j.company)+(j.role?'<small>'+esc(j.role)+'</small>':'')+'</div>';
-      const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.onchange=()=>postJob({action:'update',id:j.id,stage:sel.value});
+      const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.setAttribute('aria-label','Stage for '+j.company);sel.onchange=()=>postJob({action:'update',id:j.id,stage:sel.value});
       row.appendChild(sel);
       const nd=document.createElement('span');nd.className='nd';nd.textContent=j.next_date||'';row.appendChild(nd);
       const rm=document.createElement('button');rm.className='rm';rm.innerHTML='&times;';rm.title='remove';rm.onclick=()=>postJob({action:'remove',id:j.id});
       row.appendChild(rm);list.appendChild(row);
     });
   }
-  async function postJob(body){try{const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();renderJobs(d);}catch(e){}}
+  async function postJob(body){try{const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!d.ok)throw new Error(d.message||'Job update failed');renderJobs(d);return true;}catch(e){document.getElementById('jobSub').textContent=String(e);return false;}}
   (function initJobForm(){
     fillStageSelect(document.getElementById('jobStage'),'applied');
-    document.getElementById('jobAdd').onclick=()=>{
+    document.getElementById('jobAdd').onclick=async()=>{
       const c=document.getElementById('jobCompany'),r=document.getElementById('jobRole'),s=document.getElementById('jobStage');
       if(!c.value.trim())return;
-      postJob({action:'add',company:c.value.trim(),role:r.value.trim(),stage:s.value});c.value='';r.value='';c.focus();
+      if(await postJob({action:'add',company:c.value.trim(),role:r.value.trim(),stage:s.value})){c.value='';r.value='';c.focus();}
     };
     document.getElementById('jobCompany').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('jobAdd').click();});
   })();
@@ -1341,42 +1580,142 @@ PAGE = r"""<!doctype html>
     }catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the copilot.';}
   };
 
+  /* live pipeline page */
+  const PIPE_STAGES=['lead','applied','screen','interview','final','offer','rejected'];
+  let pipeTimer=null, pipeBusy=false;
+  function scoreBadge(ats){
+    if(!ats||typeof ats.score!=='number')return '<span class="score s-na">no score</span>';
+    const c=ats.score>=70?'s-hi':(ats.score>=45?'s-mid':'s-lo');
+    return '<span class="score '+c+'" title="'+(ats.hit_count||0)+'/'+((ats.hit_count||0)+(ats.miss_count||0))+' keywords">ATS '+ats.score+'%</span>';
+  }
+  async function loadPipeline(){
+    try{const d=await (await fetch('/api/pipeline')).json();renderPipeline(d);}
+    catch(e){document.getElementById('pipeBoard').innerHTML='<div style="color:var(--amber-b)">Could not load pipeline.</div>';}
+  }
+  let profileLoaded=false;
+  function renderPipeline(d){
+    const s=d.stats||{}, r=d.resume||{};
+    if(!profileLoaded){const p=r.profile||{};document.getElementById('rsContact').value=p.contact_links||'';document.getElementById('rsCerts').value=p.cert_links||'';document.getElementById('rsGithub').value=p.github_user||'';profileLoaded=true;}
+    document.getElementById('pipeSub').textContent=(s.leads||0)+' lead(s) · '+(s.total||0)+' tracked';
+    document.getElementById('pipeStats').innerHTML=
+      statCard('Leads',s.leads||0)+statCard('Applications',s.applications||0)+statCard('Interviews',s.interviews||0)+statCard('Offers',s.offers||0);
+    document.getElementById('rsStat').textContent=r.present?('resume set · '+(r.chars||0)+' chars'+(r.source?(' · '+r.source):'')):'no base resume yet — paste or load a file to enable scoring';
+    const byStage={};PIPE_STAGES.forEach(st=>byStage[st]=[]);
+    (d.jobs||[]).forEach(j=>{(byStage[j.stage]||(byStage[j.stage]=[])).push(j);});
+    const board=document.getElementById('pipeBoard');board.innerHTML='';
+    PIPE_STAGES.forEach(st=>{
+      const col=document.createElement('div');col.className='col';
+      col.innerHTML='<h4>'+esc(st)+' <b>'+byStage[st].length+'</b></h4>';
+      byStage[st].forEach(j=>col.appendChild(pipeCard(j)));
+      board.appendChild(col);
+    });
+  }
+  function pipeCard(j){
+    const card=document.createElement('div');card.className='pcard';
+    let h='<div class="pco">'+esc(j.company||'')+'</div>';
+    if(j.role)h+='<div class="prole">'+esc(j.role)+'</div>';
+    h+='<div class="prow">'+scoreBadge(j.ats)+(j.tailored?'<span class="badge t-on">tailored</span>':'<span class="badge">not tailored</span>')+'</div>';
+    card.innerHTML=h;
+    const row=document.createElement('div');row.className='prow';row.style.marginTop='7px';
+    const sel=document.createElement('select');fillStageSelect(sel,j.stage);sel.setAttribute('aria-label','Stage for '+j.company);sel.onchange=()=>postPipe({action:'stage',id:j.id,stage:sel.value});row.appendChild(sel);
+    const tb=document.createElement('button');tb.textContent=j.tailored?'Re-tailor':'Tailor';tb.onclick=()=>tailorJob(j.id,tb);row.appendChild(tb);
+    if(j.tailored_pdf){const pb=document.createElement('button');pb.textContent='PDF';pb.title='Download tailored resume PDF';pb.onclick=()=>window.open('/api/resume-pdf?id='+j.id,'_blank');row.appendChild(pb);}
+    if(j.tailored&&j.tailored_package){const vb=document.createElement('button');vb.textContent='Preview';vb.onclick=()=>showPackage(j);row.appendChild(vb);}
+    if(j.url&&/^https?:\/\//i.test(j.url)){const lb=document.createElement('button');lb.textContent='Open';lb.onclick=()=>window.open(j.url,'_blank','noopener');row.appendChild(lb);}
+    card.appendChild(row);
+    return card;
+  }
+  function showPackage(j){
+    document.getElementById('pkgTitle').textContent='Tailored resume — '+(j.company||'')+(j.role?(' · '+j.role):'');
+    const frame=document.createElement('iframe');
+    frame.style.cssText='width:100%;height:760px;border:1px solid var(--line2);border-radius:8px;background:#fff';
+    frame.setAttribute('sandbox','');frame.title='Tailored resume preview';
+    frame.srcdoc=j.tailored_package||'';
+    const body=document.getElementById('pkgBody');body.innerHTML='';body.appendChild(frame);
+    document.getElementById('pkgCard').style.display='block';
+    document.getElementById('pkgCard').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+  async function postPipe(body){
+    const msg=document.getElementById('pipeMsg');
+    try{pipeBusy=true;const r=await fetch('/api/pipeline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();if(d.message){msg.className='mapmsg'+(d.ok?'':' err');msg.textContent=d.message;}renderPipeline(d);return d;}
+    catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the server.';}
+    finally{pipeBusy=false;}
+  }
+  async function tailorJob(id,btn){
+    const msg=document.getElementById('pipeMsg');msg.className='mapmsg';msg.textContent='Tailoring #'+id+'… this can take a moment.';
+    if(btn){btn.disabled=true;btn.textContent='…';}
+    const d=await postPipe({action:'tailor',id:id});
+    if(btn)btn.disabled=false;
+    if(d&&d.ok){const j=(d.jobs||[]).find(x=>x.id===id);if(j)showPackage(j);}
+  }
+  (function initPipe(){
+    document.getElementById('rsProfileSave').onclick=()=>postPipe({action:'profile',profile:{contact_links:document.getElementById('rsContact').value,cert_links:document.getElementById('rsCerts').value,github_user:document.getElementById('rsGithub').value}});
+    document.getElementById('pullBtn').onclick=async()=>{
+      const b=document.getElementById('pullBtn'),msg=document.getElementById('pipeMsg');
+      b.disabled=true;b.textContent='⟳ Pulling…';msg.className='mapmsg';msg.textContent='Pulling leads from Jobright…';
+      await postPipe({action:'pull'});b.disabled=false;b.textContent='⟳ Pull from Jobright';
+    };
+    document.getElementById('rsSave').onclick=async()=>{
+      const t=document.getElementById('rsText').value.trim();if(!t)return;
+      await postPipe({action:'resume',text:t});
+    };
+    document.getElementById('rsLoad').onclick=async()=>{
+      const p=document.getElementById('rsPath').value.trim();if(!p)return;
+      await postPipe({action:'resume_file',path:p});
+    };
+    document.getElementById('clearBtn').onclick=async()=>{
+      if(!confirm('Remove all sourced leads? Your tracked applications are kept.'))return;
+      await postPipe({action:'clear_leads'});
+    };
+    document.getElementById('autoRef').onchange=e=>pipeAutoRefresh(document.body.dataset.view==='pipeline');
+  })();
+  function pipeAutoRefresh(on){
+    if(pipeTimer){clearInterval(pipeTimer);pipeTimer=null;}
+    if(on&&document.getElementById('autoRef').checked){
+      pipeTimer=setInterval(()=>{if(!document.hidden&&!pipeBusy&&document.body.dataset.view==='pipeline')loadPipeline();},20000);
+    }
+  }
+
   /* overview page */
   async function loadOverview(){
+    document.getElementById('ovSub').textContent='Loading overview…';
     try{
       const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),fetch('/api/jobs').then(r=>r.json())]);
       const tiers=(h.llm&&h.llm.tiers)||{};
       const busy=Object.values(tiers).filter(v=>v==='degraded').length;
       document.getElementById('ovSub').textContent=new Date().toLocaleString();
       document.getElementById('ovCards').innerHTML=
-        statCard('AI status',{ok:'online',degraded:'unreachable',setup:'setup'}[h.overall]||'online',busy?busy+' tier busy':'')+
-        statCard('Applications',(j.stats&&j.stats.total)||0,((j.stats&&j.stats.offers)||0)+' offers')+
+        statCard('AI status',{ok:'online',degraded:'unreachable',setup:'offline tools',checking:'checking'}[h.overall]||'unknown',busy?busy+' tier busy':'')+
+        statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers')+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
       let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar('GPU',g.util_percent,'%','g');});
       document.getElementById('ovMetrics').innerHTML=mh;
       document.getElementById('ovFunnel').innerHTML=svgFunnel((j.stats&&j.stats.funnel)||[]);
-    }catch(e){}
+    }catch(e){document.getElementById('ovSub').textContent='Overview could not load. Check the local server and retry.';}
   }
   setView(location.hash.replace('#/','')||'chat');
 
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
-    let label={ok:'online',degraded:'AI unreachable',setup:'setup needed'}[h.overall]||'online';
+    let label={ok:'online',degraded:'AI unreachable',setup:'offline tools',checking:'checking AI'}[h.overall]||'unknown';
     const busy=Object.entries((h.llm&&h.llm.tiers)||{}).filter(([k,v])=>v==='degraded').map(([k])=>k);
     if(h.overall==='ok'&&busy.length){label=busy.join('/')+' model busy';}
     pill.className='pill '+h.overall+(h.overall==='ok'&&busy.length?' busy':''); txt.textContent=label;
     const tierNote=busy.length?` · busy: ${busy.join(', ')} (using a faster model)`:'';
-    pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':'connected'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}${tierNote}`;
+    pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':h.llm.reachable===true?'connected':'configured, checking'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}${tierNote}`;
+    if(h.storage_warnings?.length){hint.textContent=h.storage_warnings.join(' ');}
     const card=document.getElementById('setupCard');
     if(card){
-      if(h.overall==='setup'){card.style.display='';card.innerHTML='<b>Connect your AI</b>No language model is configured, so I can only use offline routing. Add an OpenAI-compatible key to your <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>OPENAI_BASE_URL</code>) and restart. File, search, and memory commands still work without it.';}
+      if(h.overall==='setup'){card.style.display='';card.innerHTML='<b>Connect your AI</b>No language model is configured, so I can only use offline routing. Set <code>LAPTOP_AGENT_LLM_PROVIDER=openai-compatible</code> and your model connection in <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>OPENAI_BASE_URL</code>) and restart. File, search, and memory commands still work without it.';}
       else if(h.overall==='degraded'){card.style.display='';card.innerHTML='<b>AI endpoint unreachable</b>Your model is configured but I can\'t reach it right now — check your network or API key. Offline commands (files, search, memory) still work.';}
       else card.style.display='none';
     }
   }catch(e){}}
-  setInterval(loadHealth,12000);loadHealth();
+  pollWhenVisible(loadHealth,12000);loadHealth();
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;loadMetrics();loadAgents();loadHealth();if(document.getElementById('schedPanel').open)loadSchedule();if(document.getElementById('runsPanel').open)loadAgentRuns();if(document.body.dataset.view==='pipeline')loadPipeline();});
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;
@@ -1387,20 +1726,24 @@ PAGE = r"""<!doctype html>
   // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
   let ttsVoice=null;
   function pickVoice(){
-    const vs=speechSynthesis.getVoices(); if(!vs.length)return;
+    if(!window.speechSynthesis)return;const vs=speechSynthesis.getVoices(); if(!vs.length)return;
     const prefer=['Natural','Online','Aria','Jenny','Ava','Emma','Sonia','Libby','Michelle','Andrew','Guy','Ryan','Google US English'];
     for(const p of prefer){const v=vs.find(x=>x.name.includes(p)&&/^en/i.test(x.lang));if(v){ttsVoice=v;return;}}
     ttsVoice=vs.find(x=>/^en/i.test(x.lang))||vs[0];
   }
-  speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
+  if(window.speechSynthesis)speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
+  window.addEventListener('pagehide',()=>{endVoice();stopGen();});
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
   voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
+  if(vint)vint.onclick=interruptNow;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   // Voice mode is signalled by a violet theme shift (body.voicing) — no full-screen
   // written overlay. The conversation itself still streams into the chat panel.
-  function startVoice(){voiceActive=true;document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceActive=false;document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
+  function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
+  function startVoice(){voiceGeneration++;voiceActive=true;document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
+  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false, lastSpoken='';
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
@@ -1427,6 +1770,25 @@ PAGE = r"""<!doctype html>
     const bw=new Set(b.split(' ')), aw=a.split(' ');
     return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
   }
+  // --- barge-in: keep a recognizer alive while J.A.R.V.I.S speaks; if the user says a
+  // real phrase (not the TTS echo) it stops talking and answers the new input with the
+  // prior context. Best with headphones — open speakers can feed the voice back into
+  // the mic. The Interrupt button / Space bar are the always-reliable manual fallback.
+  let barge=null, barged=false;
+  function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}}
+  function bargeStart(){
+    if(!voiceActive||NATIVE||!SR)return; bargeStop(); barged=false;
+    try{barge=new SR();}catch(e){return;}
+    barge.lang='en-US';barge.interimResults=true;barge.continuous=true;
+    barge.onresult=e=>{if(barged)return;let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
+      const q=t.trim(); if(q.split(/\s+/).filter(Boolean).length>=2 && !isEcho(q)){barged=true;userInterrupt(q);}};
+    barge.onerror=()=>{};
+    barge.onend=()=>{if(barge&&voiceActive&&speaking&&!barged){try{barge.start();}catch(e){}}};
+    try{barge.start();}catch(e){}
+  }
+  function stopSpeaking(){try{speechSynthesis.cancel();}catch(e){}ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
+  function interruptNow(){if(!voiceActive)return;stopSpeaking();vSet('listening','Listening');listen();}           // manual: stop speaking, listen
+  function userInterrupt(q){if(!voiceActive)return;stopSpeaking();if(busy)stopGen();vSet('thinking','Thinking');setTimeout(()=>{if(voiceActive)send(q);},200);}  // spoken barge-in: abort any in-flight turn, then answer with context
   // --- voice timing HUD: marks where each turn spends time so latency is visible ---
   let vT0=0, vMarks=[];
   function vstart(){vT0=performance.now();vMarks=[];}
@@ -1456,9 +1818,13 @@ PAGE = r"""<!doctype html>
     rec.onstart=()=>vmark('mic-on');
     rec.onspeechstart=()=>vmark('speech');
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
-    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
+    rec.onerror=(e)=>{const err=(e&&e.error)||'?';vmark('err:'+err);
+      if(err==='no-speech'||err==='aborted')return;         // benign — silence timer / restart handles it
+      const M={'not-allowed':'Microphone blocked. Allow mic access for this site (click the camera/lock icon by the address bar), then start Voice again.','service-not-allowed':'Microphone is blocked by the browser or OS. Allow mic access, then retry.','audio-capture':'No microphone found. Connect or enable a mic, then retry.','network':'Speech recognition needs an internet connection in this browser, and it appears offline or blocked.'};
+      vtrans.textContent=M[err]||('Voice error: '+err);vSet('idle','Voice error');
+      if(err==='not-allowed'||err==='service-not-allowed'||err==='audio-capture'){recognizing=false;endVoice();}};
     rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
-    try{rec.start();}catch(e){recognizing=false;}
+    try{rec.start();}catch(e){recognizing=false;vtrans.textContent='Could not start the microphone: '+((e&&e.message)||e);vSet('idle','Voice error');}
   }
   // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
   // Capture raw PCM and encode a 16kHz mono 16-bit WAV in the browser, so the server
@@ -1478,16 +1844,19 @@ PAGE = r"""<!doctype html>
   async function nativeListen(){
     if(!voiceActive||recognizing||speaking)return;
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';vstart();recognizing=true;
+    const generation=voiceGeneration;
     let stream;
     try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});}
     catch(e){recognizing=false;vSet('idle','Mic blocked');vtrans.textContent='Microphone permission is needed for voice.';return;}
+    if(!voiceActive||generation!==voiceGeneration){stream.getTracks().forEach(t=>t.stop());recognizing=false;return;}
     const ac=new (window.AudioContext||window.webkitAudioContext)();
     const srcN=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();
     sink.gain.value=0;  // route through a muted sink so the graph runs without speaker feedback
     const samples=[]; let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
     const cleanup=()=>{try{proc.disconnect();}catch(e){}try{srcN.disconnect();}catch(e){}try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
+    captureStop=()=>{stopped=true;cleanup();recognizing=false;};
     const finish=async()=>{
-      if(stopped)return; stopped=true; cleanup(); recognizing=false; vmark('rec-end');
+      if(stopped)return; stopped=true; cleanup();captureStop=null; recognizing=false; vmark('rec-end');
       if(!voiceActive||speaking)return;
       if(!spoke||!samples.length){listen();return;}
       vSet('thinking','Transcribing…');
@@ -1497,7 +1866,7 @@ PAGE = r"""<!doctype html>
         const d=await r.json();vmark('stt');q=(d.text||'').trim();
         if(!d.ok&&d.message)vtrans.textContent=d.message;
       }catch(e){}
-      if(!voiceActive)return;
+      if(!voiceActive||generation!==voiceGeneration)return;
       if(q.length<2){listen();return;}
       vtrans.textContent=q;vSet('thinking','Thinking');
       await send(q);
@@ -1514,6 +1883,7 @@ PAGE = r"""<!doctype html>
     try{srcN.connect(proc);proc.connect(sink);sink.connect(ac.destination);vmark('mic-on');}catch(e){recognizing=false;cleanup();}
   }
   async function playTTS(text){
+    const generation=voiceGeneration;
     speaking=true;
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
     if(!clean){speaking=false;pumpTTS();return;}
@@ -1521,15 +1891,17 @@ PAGE = r"""<!doctype html>
     try{
       const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
       if(!r.ok)throw new Error('tts '+r.status);
-      const blob=new Blob([await r.arrayBuffer()],{type:'audio/wav'});const a=new Audio(URL.createObjectURL(blob));
-      a.onended=()=>{speaking=false;pumpTTS();};a.onerror=()=>{speaking=false;pumpTTS();};
-      vmark('speak');a.play();
+      const bytes=await r.arrayBuffer();if(!voiceActive||generation!==voiceGeneration)return;
+      releaseAudio();activeAudioURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));const a=activeAudio=new Audio(activeAudioURL);
+      a.onended=a.onerror=()=>{releaseAudio();speaking=false;pumpTTS();};
+      vmark('speak');await a.play();
     }catch(e){speaking=false;pumpTTS();}
   }
   function speakChunk(text){
     if(NATIVE)return playTTS(text);
     try{
-    speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
+    speaking=true; try{rec&&rec.stop();}catch(e){}      // stop the main turn recognizer
+    bargeStart();                                       // …but keep a barge recognizer alive so speech can be interrupted
     try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
     if(!ttsVoice)pickVoice();
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
@@ -1540,12 +1912,15 @@ PAGE = r"""<!doctype html>
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
     u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{speaking=false;pumpTTS();};            // next sentence, or resume listening when the queue drains
-    u.onerror=()=>{speaking=false;pumpTTS();};
+    u.onend=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
-  }catch(e){speaking=false;pumpTTS();}}
+  }catch(e){bargeStop();speaking=false;pumpTTS();}}
 
   renderSessions(); ta.focus();
+  document.querySelectorAll('textarea,input,select,button').forEach(el=>{
+    if(!el.getAttribute('aria-label')&&!el.labels?.length){const name=el.title||el.placeholder||el.textContent.trim()||el.id;if(name)el.setAttribute('aria-label',name);}
+  });
 </script>
 </body>
 </html>
@@ -1553,6 +1928,36 @@ PAGE = r"""<!doctype html>
 
 
 class Handler(BaseHTTPRequestHandler):
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", (
+            f"default-src 'self'; script-src 'nonce-{_SCRIPT_NONCE}'; "
+            "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
+            "media-src 'self' blob:; connect-src 'self'; "
+            "frame-src 'self' https://www.openstreetmap.org; "
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        ))
+        super().end_headers()
+
+    def _trusted_request(self, mutation: bool = False) -> bool:
+        host = self.headers.get("Host", "")
+        allowed = {f"{h}:{self.server.server_port}" for h in
+                   ("127.0.0.1", "localhost", HOST, self.server.server_address[0])}
+        origin = self.headers.get("Origin")
+        if host not in allowed or (origin and origin != f"http://{host}"):
+            self._json(403, {"ok": False, "message": "Untrusted request origin."})
+            return False
+        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+            self._json(403, {"ok": False, "message": "Cross-site requests are blocked."})
+            return False
+        if mutation and not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), _API_TOKEN):
+            self._json(403, {"ok": False, "message": "Reload J.A.R.V.I.S before retrying."})
+            return False
+        return True
+
     def log_message(self, *args: object) -> None:
         return
 
@@ -1561,12 +1966,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except ConnectionError:
+            pass  # The client closed a completed, non-streaming response.
 
     def _json(self, code: int, obj: dict) -> None:
         self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json")
 
     def do_GET(self) -> None:
+        if not self._trusted_request():
+            return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
         if path in {"/", "/index.html"}:
             page = (
@@ -1574,6 +1984,8 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("{{SMART}}", _smart_label())
                 .replace("{{ULTRA}}", _ultra_label())
                 .replace("{{VISION}}", _vision_label())
+                .replace("{{NONCE}}", _SCRIPT_NONCE)
+                .replace("{{API_TOKEN}}", _API_TOKEN)
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         elif path == "/api/health":
@@ -1600,17 +2012,66 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, _agent_runs_snapshot())
         elif path == "/api/jobs":
             self._json(200, _jobs_snapshot())
+        elif path == "/api/pipeline":
+            self._json(200, _pipeline_snapshot())
+        elif path == "/api/resume-pdf":
+            self._serve_resume_pdf()
         else:
             self._send(404, b"not found", "text/plain")
 
     def _read_json(self) -> dict:
+        if self.headers.get_content_type() != "application/json":
+            raise ValueError("Content-Type must be application/json")
         length = int(self.headers.get("Content-Length", "0") or "0")
-        if length > MAX_UPLOAD_BYTES:
+        if length < 0 or length > MAX_REQUEST_BYTES:
             raise ValueError("payload too large")
-        return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        self.connection.settimeout(15)
+        payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError("Expected a JSON object")
+        for key in ("command", "goal", "action", "name", "path", "text", "query", "data", "audio", "ext", "resume_text", "job_text", "company", "role", "stage", "when", "spec", "kind"):
+            if key in payload and not isinstance(payload[key], str):
+                raise ValueError(f"{key} must be text")
+        for key in ("attachments", "stops"):
+            if key in payload and (not isinstance(payload[key], list) or any(not isinstance(x, str) for x in payload[key])):
+                raise ValueError(f"{key} must be a list of text values")
+        if "history" in payload:
+            history = payload["history"]
+            if not isinstance(history, list) or len(history) > 100 or any(
+                not isinstance(turn, dict) or turn.get("role") not in {"user", "assistant"}
+                or not isinstance(turn.get("text", ""), str) for turn in history
+            ):
+                raise ValueError("Invalid chat history")
+        return payload
 
     def do_POST(self) -> None:
-        if self.path == "/api/upload":
+        if not self._trusted_request(mutation=True):
+            return
+        try:
+            if self.path in {"/api/stream", "/api/agent", "/api/command"}:
+                request_id = self.headers.get("X-Jarvis-Request", secrets.token_hex(16))
+                if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", request_id):
+                    raise ValueError("Invalid request ID")
+                with operation(request_id):
+                    self._dispatch_post()
+            else:
+                self._dispatch_post()
+        except OperationCancelled:
+            pass
+        except (ValueError, TypeError, UnicodeError):
+            self._json(400, {"ok": False, "message": "Invalid request values."})
+        except OSError:
+            self._json(500, {"ok": False, "message": "Could not access local data. Check disk space and permissions."})
+
+    def _dispatch_post(self) -> None:
+        if self.path == "/api/cancel":
+            payload = self._read_json()
+            request_id = payload.get("request_id", "")
+            if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", request_id):
+                raise ValueError("Invalid request ID")
+            active = cancel(request_id)
+            self._json(200, {"ok": True, "active": active, "message": "Stop requested; no further steps will run."})
+        elif self.path == "/api/upload":
             self._handle_upload()
         elif self.path == "/api/command":
             self._handle_command()
@@ -1624,6 +2085,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_jobs()
         elif self.path == "/api/copilot":
             self._handle_copilot()
+        elif self.path == "/api/pipeline":
+            self._handle_pipeline()
         elif self.path == "/api/map":
             self._handle_map()
         elif self.path == "/api/window":
@@ -1659,11 +2122,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def emit(obj: dict) -> None:
+            check_cancelled()
             try:
                 self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+                raise OperationCancelled("Client disconnected")
 
         # In voice mode, split the streamed reply into sentences and push each as a
         # `tts` event the moment it completes, so the browser starts speaking the
@@ -1678,6 +2142,11 @@ class Handler(BaseHTTPRequestHandler):
                     if spoken:
                         emit({"type": "tts", "text": spoken})
 
+        def reset_tokens():
+            if chunker is not None:
+                chunker.flush()
+            emit({"type": "reset"})
+        on_token.reset = reset_tokens
         agent_id = _orchestrator.control_room.start(command)
         try:
             result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
@@ -1687,9 +2156,11 @@ class Handler(BaseHTTPRequestHandler):
                     emit({"type": "tts", "text": tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
+        except OperationCancelled:
+            _orchestrator.control_room.finish(agent_id, "Stopped by user", ok=False)
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
-            emit({"type": "done", "ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}})
+            emit({"type": "done", "ok": False, "message": f"Blocked — that high-risk action requires interactive approval in the CLI or Tkinter interface: {exc}", "data": {}})
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
@@ -1712,11 +2183,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def emit(obj: dict) -> None:
+            check_cancelled()
             try:
                 self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+                raise OperationCancelled("Client disconnected")
 
         emit({"type": "start", "goal": goal})
         try:
@@ -1734,7 +2206,7 @@ class Handler(BaseHTTPRequestHandler):
             data = str(payload.get("data", ""))
             if data.startswith("data:") and "," in data:
                 data = data.split(",", 1)[1]
-            raw = base64.b64decode(data, validate=False)
+            raw = base64.b64decode(data, validate=True)
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "could not read upload"})
             return
@@ -1742,7 +2214,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(413, {"ok": False, "message": "file too large (max 35MB)"})
             return
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        dest = UPLOAD_DIR / name
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(" .")[:180] or "upload.bin"
+        dest = Path(tempfile.mkdtemp(prefix="upload_", dir=UPLOAD_DIR)) / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
 
@@ -1755,7 +2228,7 @@ class Handler(BaseHTTPRequestHandler):
             data = str(payload.get("audio", ""))
             if data.startswith("data:") and "," in data:
                 data = data.split(",", 1)[1]
-            raw = base64.b64decode(data, validate=False)
+            raw = base64.b64decode(data, validate=True)
             suffix = str(payload.get("ext", "webm")).lstrip(".").lower()
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"ok": False, "message": "could not read audio"})
@@ -1769,9 +2242,13 @@ class Handler(BaseHTTPRequestHandler):
         if suffix not in {"webm", "ogg", "wav", "m4a", "mp4", "mp3"}:
             suffix = "webm"
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        clip = UPLOAD_DIR / f"voice_in.{suffix}"
-        clip.write_bytes(raw)
-        result = _orchestrator.context.transcribe.transcribe_media(str(clip))
+        with tempfile.NamedTemporaryFile(prefix="voice_", suffix="." + suffix, dir=UPLOAD_DIR, delete=False) as handle:
+            clip = Path(handle.name)
+            handle.write(raw)
+        try:
+            result = _orchestrator.context.transcribe.transcribe_media(str(clip))
+        finally:
+            clip.unlink(missing_ok=True)
         text = str(result.data.get("text", "")).strip() if result.ok else ""
         self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
 
@@ -1804,6 +2281,88 @@ class Handler(BaseHTTPRequestHandler):
             company=str(payload.get("company", "")), role=str(payload.get("role", "")),
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _serve_resume_pdf(self) -> None:
+        """Stream a job's tailored resume PDF as a download."""
+        from urllib.parse import parse_qs, urlparse
+
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            job_id = int((qs.get("id", ["0"])[0]).lstrip("#") or 0)
+        except ValueError:
+            self._send(400, b"bad id", "text/plain")
+            return
+        job = _orchestrator.context.jobs.get(job_id)
+        pdf = (job or {}).get("tailored_pdf")
+        if not pdf or not Path(pdf).exists():
+            self._send(404, b"No PDF yet for this job. Tailor it first.", "text/plain")
+            return
+        data = Path(pdf).read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", f'attachment; filename="resume_{job_id}.pdf"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_pipeline(self) -> None:
+        """Drive the live pipeline page: pull Jobright leads, set the base resume (pasted or
+        from a file), tailor a job on demand, or change a job's stage. Each action returns the
+        refreshed pipeline snapshot so the board re-renders from one round-trip."""
+        try:
+            payload = self._read_json()
+            action = str(payload.get("action", "")).strip().lower()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        ok, message = True, ""
+        try:
+            if action == "pull":
+                result = asyncio.run(_orchestrator.handle("jobright pull"))
+                ok, message = result.ok, result.message
+            elif action == "tailor":
+                job_id = int(str(payload.get("id", "0")).lstrip("#") or 0)
+                result = _orchestrator.tailor_job(job_id)
+                if result.ok:
+                    pdf = asyncio.run(_orchestrator.render_job_pdf(job_id))
+                    ok = True
+                    message = "Tailored and exported to PDF." if pdf.ok else f"Tailored (PDF export failed: {pdf.message})"
+                else:
+                    ok, message = False, result.message
+            elif action == "profile":
+                profile = payload.get("profile")
+                if not isinstance(profile, dict) or any(not isinstance(v, str) for v in profile.values()):
+                    raise ValueError("Profile fields must be text")
+                allowed = {"contact_links", "cert_links", "github_user"}
+                _orchestrator.context.jobs.set_resume_profile({k: v.strip()[:2000] for k, v in profile.items() if k in allowed})
+                message = "Resume profile saved. Re-tailor existing resumes to apply it."
+            elif action == "resume":
+                result = _orchestrator.set_resume_text(str(payload.get("text", "")), source="pasted")
+                ok, message = result.ok, result.message
+            elif action == "resume_file":
+                result = _orchestrator.set_resume_from_file(str(payload.get("path", "")))
+                ok, message = result.ok, result.message
+            elif action == "clear_leads":
+                removed = _orchestrator.context.jobs.clear_leads()
+                ok, message = True, f"Cleared {removed} lead(s)."
+            elif action == "stage":
+                updated = _orchestrator.context.jobs.update(
+                    int(str(payload.get("id", "0")).lstrip("#") or 0), stage=str(payload.get("stage", "")))
+                ok = updated is not None
+                message = "Updated." if ok else "No such job."
+            elif action == "remove":
+                ok = _orchestrator.context.jobs.remove(int(str(payload.get("id", "0")).lstrip("#") or 0))
+                message = "Removed." if ok else "No such job."
+            else:
+                self._json(400, {"ok": False, "message": "Unknown action."})
+                return
+        except ApprovalDenied as exc:
+            ok, message = False, f"Blocked — that action requires interactive approval in the CLI or Tkinter interface: {exc}"
+        except (ValueError, TypeError) as exc:
+            ok, message = False, str(exc)
+        snap = _pipeline_snapshot()
+        snap["ok"], snap["message"] = ok, message
+        self._json(200, snap)
 
     def _handle_jobs(self) -> None:
         """Add / update-stage / edit / remove a tracked job application, then return the
@@ -1992,7 +2551,7 @@ class Handler(BaseHTTPRequestHandler):
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
-            body = {"ok": False, "message": f"Blocked — that high-risk action needs the desktop app: {exc}", "data": {}}
+            body = {"ok": False, "message": f"Blocked — that high-risk action requires interactive approval in the CLI or Tkinter interface: {exc}", "data": {}}
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             body = {"ok": False, "message": f"Error: {exc}", "data": {}}
@@ -2053,7 +2612,9 @@ def _launch_webview(url: str) -> bool:
     # the Web Speech API, which is unavailable inside a webview.
     sep = "&" if "?" in url else "?"
     webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
-    webview.start()
+    profile = _CONFIG.data_dir / "webview"
+    profile.mkdir(parents=True, exist_ok=True)
+    webview.start(private_mode=False, storage_path=str(profile))
     return True
 
 
@@ -2061,7 +2622,7 @@ def run_desktop() -> None:
     """Serve the chat and open it in a dedicated desktop window (no browser chrome)."""
     global _DESKTOP_MODE
     _DESKTOP_MODE = True  # enable real HUD window effects (opacity / always-on-top)
-    server = ThreadingHTTPServer((HOST, 0), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     port = server.server_address[1]
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()

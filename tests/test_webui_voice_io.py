@@ -39,7 +39,7 @@ class VoiceIoApiTests(unittest.TestCase):
 
     def _post(self, path: str, payload: dict):
         req = urllib.request.Request(
-            self.base + path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+            self.base + path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN}
         )
         return urllib.request.urlopen(req, timeout=15)
 

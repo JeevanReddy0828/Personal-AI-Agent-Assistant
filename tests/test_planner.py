@@ -391,6 +391,20 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_chat)
         self.assertLess(decision.confidence, 0.5)
 
+    def test_summarize_inbox_routes_to_digest(self) -> None:
+        for text in ("summarize my inbox", "give me a digest of my emails", "summarize my unread emails"):
+            self.assertEqual(self.plan(text).command, "email digest", text)
+
+    def test_multi_query_mentioning_email_stays_chat(self) -> None:
+        # "Summarize X" and "write an email" in separate sentences must not misroute to the
+        # inbox (which would hit IMAP and fail on bad credentials).
+        blob = (
+            "Summarize the difference between RAM and storage in two sentences.\n"
+            "Write a polite email asking to reschedule a meeting.\n"
+            "Create a three-day beginner workout plan with no equipment."
+        )
+        self.assertTrue(self.plan(blob).is_chat)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,36 @@
 from __future__ import annotations
 
+import copy
 import shutil
 import subprocess
+import threading
+import time
+
+_CACHE_TTL_SECONDS = 2.0
+_cache_lock = threading.Lock()
+_cached_metrics: dict[str, object] | None = None
+_cached_at = 0.0
 
 
-def system_metrics() -> dict[str, object]:
+def system_metrics(*, force: bool = False) -> dict[str, object]:
+    """Return a short-lived, independent metrics snapshot.
+
+    Several UI panels request metrics at once. Caching avoids repeating process
+    probes and GPU subprocesses while returning a copy so callers cannot mutate
+    the shared snapshot.
+    """
+    global _cached_at, _cached_metrics
+    with _cache_lock:
+        now = time.monotonic()
+        if not force and _cached_metrics is not None and now - _cached_at < _CACHE_TTL_SECONDS:
+            return copy.deepcopy(_cached_metrics)
+        fresh = _collect_system_metrics()
+        _cached_metrics = fresh
+        _cached_at = now
+        return copy.deepcopy(fresh)
+
+
+def _collect_system_metrics() -> dict[str, object]:
     """Best-effort CPU / RAM / GPU usage. Uses psutil if present, else platform tools.
 
     Every field degrades to None when unavailable, so callers can render "n/a".
@@ -26,7 +52,7 @@ def _cpu_ram() -> tuple[float | None, int | None, int | None]:
 
         memory = psutil.virtual_memory()
         return (
-            round(psutil.cpu_percent(interval=0.1), 1),
+            round(psutil.cpu_percent(interval=None), 1),
             round(memory.used / 1_048_576),
             round(memory.total / 1_048_576),
         )

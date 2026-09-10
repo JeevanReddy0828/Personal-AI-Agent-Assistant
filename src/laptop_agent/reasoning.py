@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from laptop_agent.cancellation import check_cancelled
+
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -162,6 +166,7 @@ class AutonomousAgent:
 
         steps: list[AgentStep] = []
         for index in range(self.max_steps):
+            check_cancelled()
             prompt = self._build_prompt(goal, steps)
             try:
                 reply = self._decide(prompt) or ""
@@ -180,6 +185,7 @@ class AutonomousAgent:
                     steps=steps,
                 )
 
+            check_cancelled()
             decision = parse_agent_decision(reply)
             if decision.is_final:
                 return AgentRunResult(
@@ -206,6 +212,7 @@ class AutonomousAgent:
 
         # Ran out of steps without a FINAL — ask for a closing summary, falling back
         # to a local recap so we always hand the user something coherent.
+        check_cancelled()
         summary = self._summarize(goal, steps)
         return AgentRunResult(goal=goal, final_answer=summary, status="stopped", steps=steps)
 
@@ -216,6 +223,7 @@ class AutonomousAgent:
         )
         try:
             reply = self._decide(prompt) or ""
+            check_cancelled()
             decision = parse_agent_decision(reply)
             if decision.final_answer:
                 return decision.final_answer
@@ -235,6 +243,7 @@ class AgentRunTracker:
         self._next_run = 1
         self._load()
 
+    @synchronized
     def record_run(self, result: AgentRunResult) -> dict[str, object]:
         ok = sum(1 for step in result.steps if step.status == "ok")
         failed = sum(1 for step in result.steps if step.status == "failed")
@@ -256,17 +265,20 @@ class AgentRunTracker:
         self._save()
         return run
 
+    @synchronized
     def latest(self) -> dict[str, object] | None:
         return self._runs[-1] if self._runs else None
 
+    @synchronized
     def all_runs(self) -> list[dict[str, object]]:
         return list(self._runs)
 
+    @synchronized
     def _load(self) -> None:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
@@ -279,13 +291,12 @@ class AgentRunTracker:
         except (TypeError, ValueError):
             self._next_run = self._infer_next_run()
 
+    @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
 
+    @synchronized
     def _infer_next_run(self) -> int:
         numbers = []
         for run in self._runs:

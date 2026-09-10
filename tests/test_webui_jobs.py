@@ -37,7 +37,7 @@ class JobsApiTests(unittest.TestCase):
     def _post(self, payload: dict) -> dict:
         req = urllib.request.Request(
             self.base + "/api/jobs", data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
         )
         return json.loads(urllib.request.urlopen(req, timeout=15).read())
 

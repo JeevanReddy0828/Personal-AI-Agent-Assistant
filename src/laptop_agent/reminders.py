@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,6 +28,7 @@ class ReminderStore:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @synchronized
     def add(self, due_at: str, message: str) -> dict[str, object]:
         due = self._parse_due_at(due_at)
         cleaned = message.strip()
@@ -43,11 +46,13 @@ class ReminderStore:
         self._save(store)
         return {"ok": True, "reminder": reminder.__dict__}
 
+    @synchronized
     def list(self, include_done: bool = False) -> list[dict[str, object]]:
         reminders = self._load()["reminders"]
         filtered = [item for item in reminders if include_done or not item.get("done")]
         return sorted(filtered, key=lambda item: str(item.get("due_at", "")))
 
+    @synchronized
     def due(self, now: datetime | None = None) -> list[dict[str, object]]:
         current = now or datetime.now(UTC)
         due_items = []
@@ -60,6 +65,7 @@ class ReminderStore:
                 due_items.append(item)
         return due_items
 
+    @synchronized
     def complete(self, reminder_id: int) -> bool:
         store = self._load()
         changed = False
@@ -80,29 +86,31 @@ class ReminderStore:
             cleaned = cleaned.replace(" ", "T", 1)
         parsed = datetime.fromisoformat(cleaned)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
+            parsed = parsed.astimezone()
         return parsed.astimezone(UTC)
 
+    @synchronized
     def _load(self) -> dict[str, object]:
         if not self.path.exists():
             return {"next_id": 1, "reminders": []}
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return {"next_id": 1, "reminders": []}
         if not isinstance(data, dict):
             return {"next_id": 1, "reminders": []}
         reminders = data.get("reminders")
-        data["reminders"] = reminders if isinstance(reminders, list) else []
+        data["reminders"] = [r for r in reminders if isinstance(r, dict) and isinstance(r.get("id"), int)] if isinstance(reminders, list) else []
         try:
             data["next_id"] = max(int(data.get("next_id", 1)), self._infer_next_id(data["reminders"]))
         except (TypeError, ValueError):
             data["next_id"] = self._infer_next_id(data["reminders"])
         return data
 
+    @synchronized
     def _save(self, store: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(store, indent=2, sort_keys=True), encoding="utf-8")
+        atomic_write_text(self.path, json.dumps(store, indent=2, sort_keys=True))
 
     @staticmethod
     def _infer_next_id(reminders: list[object]) -> int:

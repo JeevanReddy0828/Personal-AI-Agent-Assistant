@@ -23,7 +23,7 @@ class DesktopTool:
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Open app or file: {target}",
-                risk=RiskLevel.MEDIUM,
+                risk=RiskLevel.HIGH,
                 reason="Launching apps/files may execute local programs or reveal private content.",
             )
         )

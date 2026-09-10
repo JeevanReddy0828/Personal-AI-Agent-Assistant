@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from laptop_agent.cancellation import check_cancelled, OperationCancelled
+
 import asyncio
+import html
+import hashlib
+import json
 import re
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +18,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
-from laptop_agent.copilot import JobCopilot
+from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
@@ -29,6 +36,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
@@ -67,6 +75,7 @@ class AgentContext:
     knowledge: KnowledgeBase
     obsidian: ObsidianVault
     jobs: JobTracker
+    jobright: JobrightTool
 
 
 class AgentOrchestrator:
@@ -104,6 +113,8 @@ class AgentOrchestrator:
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._copilot_cache: JobCopilot | None = None
+        self._resume_copilot_cache: JobCopilot | None = None
+        self._repo_cache: dict[str, list[dict]] | None = None
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -114,6 +125,11 @@ class AgentOrchestrator:
             "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
             "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
             "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
+            # Logic / puzzle / multi-step reasoning cues -> the reasoning tier, which
+            # thinks before answering (the non-reasoning tiers ramble on these).
+            "puzzle", "riddle", "brain teaser", "logic puzzle", "logic problem",
+            "measure exactly", "show your reasoning", "show your work", "show the steps",
+            "find the flaw", "fallacy", "how many ways", "solve for",
         )
         if words > 70 or any(trigger in lowered for trigger in deep):
             return 2
@@ -148,23 +164,48 @@ class AgentOrchestrator:
             ladder.append((self.smart_planner, "smart"))
         return ladder
 
+    def _recovery_chat_tiers(self, attempted: set[str]) -> list[tuple[Planner, str]]:
+        """Usable primary tiers not already chosen by the complexity ladder.
+
+        This handles a bad fast endpoint on simple chat: try smart once, then
+        ultra, rather than repeatedly failing the same endpoint per message.
+        """
+        candidates = ((self.smart_planner, "smart"), (self.ultra_planner, "ultra"))
+        return [
+            (planner, label)
+            for planner, label in candidates
+            if planner is not None and label not in attempted and self.model_status.should_attempt(label)
+        ]
+
     @staticmethod
     def _tier_reply(provider, command, profile, history, on_token) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
         (e.g. it was unreachable/congested), which signals the caller to fall back."""
+        check_cancelled()
         if provider is None:
             return ""
         streamer = getattr(provider, "stream_answer", None)
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
-            for token in streamer(command, profile, None, history):
-                chunks.append(token)
-                on_token(token)
+            try:
+                for token in streamer(command, profile, None, history):
+                    check_cancelled()
+                    chunks.append(token)
+                    on_token(token)
+            except (OSError, TimeoutError):
+                check_cancelled()
+                reset = getattr(on_token, "reset", None)
+                if reset:
+                    reset()
+                return ""
+            check_cancelled()
             return "".join(chunks).strip()
         answer_fn = getattr(provider, "answer", None)
         if answer_fn is not None:
-            return (answer_fn(command, profile, None, history) or "").strip()
+            reply = (answer_fn(command, profile, None, history) or "").strip()
+            check_cancelled()
+            return reply
         return ""
 
     def _route(
@@ -178,6 +219,14 @@ class AgentOrchestrator:
         if fast.is_command or self.planner is None:
             return fast
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
+            return fast
+        # A recent provider failure is already known. Keep the deterministic
+        # router's answer and let the chat ladder try a healthy tier instead of
+        # spending another request on the same failed endpoint.
+        if (
+            type(self.planner.provider).__name__ == "OpenAICompatiblePlannerProvider"
+            and not self.model_status.should_attempt("fast")
+        ):
             return fast
         # When the instant router is already confident this is plain chat (e.g. a
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
@@ -194,6 +243,7 @@ class AgentOrchestrator:
         history: list[dict[str, str]] | None = None,
         on_token=None,
     ) -> ToolResult:
+        check_cancelled()
         command = text.strip()
         lowered = command.lower()
         history_turns = history or []
@@ -217,6 +267,16 @@ class AgentOrchestrator:
 
         if lowered in {"jobs", "job list", "list jobs", "job tracker"}:
             return self._jobs_list()
+
+        if lowered in {"jobright", "jobright pull", "pull jobs", "pull jobright", "jobright sync"}:
+            return await self._jobright_pull()
+
+        if lowered.startswith("tailor job "):
+            raw = command[len("tailor job ") :].strip().lstrip("#")
+            return self.tailor_job(int(raw)) if raw.isdigit() else ToolResult.failure("Use: tailor job <id>")
+
+        if lowered.startswith("resume file "):
+            return self.set_resume_from_file(command[len("resume file ") :].strip())
 
         if lowered.startswith("job add "):
             return self._job_add(command[len("job add ") :].strip())
@@ -686,7 +746,7 @@ class AgentOrchestrator:
                     }
                 )
                 return result
-            if planned.is_chat and planned.response:
+            if planned.is_chat:
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
@@ -696,7 +756,7 @@ class AgentOrchestrator:
                     grounded = self._grounded_news_answer(command, history_turns, on_token)
                     if grounded is not None:
                         return grounded
-                response = planned.response
+                response = planned.response or ""
                 profile = self.context.memory.get_profile()
                 level = self._complexity(command)
                 _, requested_label = self._pick_chat_model(level)
@@ -705,47 +765,70 @@ class AgentOrchestrator:
                 # gracefully: if a higher tier is congested/unreachable it returns
                 # nothing, so we try the next tier down rather than failing.
                 answered = False
+                attempted: set[str] = set()
                 for tier_planner, tier_label in self._higher_chat_tiers(level):
+                    if not self.model_status.should_attempt(tier_label):
+                        continue
+                    attempted.add(tier_label)
                     reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
                     self.model_status.record(tier_label, bool(reply))
                     if reply:
                         response, model_used, answered = reply, tier_label, True
                         break
                 if not answered:
-                    # Fall back to the fast tier. When streaming, generate a fresh
-                    # reply; otherwise planned.response is already the fast model's —
-                    # unless routing itself failed (confidence 0), which means even the
-                    # fast tier is down and we should try the cross-provider fallback.
+                    # Fall back to fast when it is not in its brief failure cooldown.
+                    # A planned non-streaming reply already came from that tier.
                     fast_provider = self.planner.provider if self.planner else None
                     real_fast = fast_provider is not None and type(fast_provider).__name__ != "HeuristicPlannerProvider"
-                    if on_token is not None and fast_provider is not None:
+                    fast_available = self.model_status.should_attempt("fast")
+                    if real_fast and fast_available:
+                        attempted.add("fast")
+                    if on_token is not None and fast_provider is not None and fast_available:
                         reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
                         if real_fast:
                             self.model_status.record("fast", bool(reply))
                         if reply:
                             response, model_used, answered = reply, "fast", True
-                    elif real_fast and planned.response and planned.confidence > 0:
+                    elif real_fast and fast_available and planned.response and planned.confidence > 0:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
-                    elif real_fast:
+                    elif real_fast and fast_available:
                         self.model_status.record("fast", False)
-                if not answered and self.fallback_planner is not None:
-                    # Cross-provider safety net (e.g. OpenRouter): a different backend
-                    # that may be up when the primary provider is throttled.
+                if not answered:
+                    # A failed fast tier should promote this turn to any healthy
+                    # primary tier that has not already been tried.
+                    for tier_planner, tier_label in self._recovery_chat_tiers(attempted):
+                        attempted.add(tier_label)
+                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
+                        self.model_status.record(tier_label, bool(reply))
+                        if reply:
+                            response, model_used, answered = reply, tier_label, True
+                            break
+                if not answered and self.fallback_planner is not None and self.model_status.should_attempt("openrouter"):
+                    # Cross-provider safety net is also cooled down after an error.
                     reply = self._tier_reply(self.fallback_planner.provider, command, profile, history_turns, on_token)
                     self.model_status.record("openrouter", bool(reply))
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
+                if not answered and not response:
+                    response = "I couldn't reach any configured language model just now. Please try again in a minute."
+                    model_used = "unavailable"
                 degraded = model_used != requested_label
                 if degraded:
                     # Be honest about the fallback rather than passing off a lesser
                     # model's answer as the requested one's.
                     if model_used == "openrouter":
                         note = "\n\n_(My usual models were busy, so I answered with a backup model.)_"
+                    elif model_used == "ultra":
+                        note = f"\n\n_(My {requested_label} model was busy, so I answered with my deep model.)_"
+                    elif model_used == "smart":
+                        note = f"\n\n_(My {requested_label} model was busy, so I answered with my balanced model.)_"
+                    elif model_used == "unavailable":
+                        note = ""
                     else:
                         note = f"\n\n_(My {requested_label} model was busy, so I answered with my faster model.)_"
                     response = response + note
-                    if on_token is not None:
+                    if note and on_token is not None:
                         on_token(note)
                 if needs_fresh:
                     # We wanted live data but couldn't get it (no results / search down) — be
@@ -842,11 +925,7 @@ class AgentOrchestrator:
         streamed_live = on_token is not None and streamer is not None
         text = ""
         if streamed_live:
-            chunks: list[str] = []
-            for token in streamer(prompt, profile, None, history_turns):
-                chunks.append(token)
-                on_token(token)
-            text = "".join(chunks).strip()
+            text = self._tier_reply(provider, prompt, profile, history_turns, on_token)
         if not text:
             text = (answer(prompt, profile, None, history_turns) or "").strip()
         if not text:
@@ -1059,6 +1138,23 @@ class AgentOrchestrator:
             return ToolResult.failure(f"No tracked job #{parts[0].lstrip('#')}.")
         return ToolResult.success(f"#{job['id']} {job['company']} → {job['stage']}.", job=job)
 
+    async def _jobright_pull(self) -> ToolResult:
+        resume_text = self.context.jobs.get_resume().get("text", "")
+        result = await self.context.jobright.pull(resume_text=resume_text)
+        if not result.ok:
+            return result
+        leads = result.data.get("leads", [])
+        summary = self.context.jobs.import_leads(leads)
+        return ToolResult.success(
+            f"Pulled {len(leads)} Jobright lead(s); added {summary['added']} new, "
+            f"skipped {summary['skipped']} already tracked.",
+            scraped=result.data.get("scraped", len(leads)),
+            relevant=len(leads),
+            added=summary["added"],
+            skipped=summary["skipped"],
+            added_jobs=summary["added_jobs"],
+        )
+
     def _job_remove(self, raw: str) -> ToolResult:
         if not raw.lstrip("#").isdigit():
             return ToolResult.failure("Use: job remove <id>")
@@ -1266,16 +1362,20 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
 
-    def _build_agent_brain(self):
+    def _build_agent_brain(self, planners=None, answer_max_tokens: int = 900):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
-        Tries the smart tier, then the fast planner, then the cross-provider fallback
-        (OpenRouter), using the first that returns text — so reasoning (the autonomous
-        agent and the advisor) keeps working when a tier is congested. Yields '' when no
-        LLM is configured, so callers end with a clear message instead of looping.
+        By default tries the smart tier, then the fast planner, then the cross-provider
+        fallback (OpenRouter), using the first that returns text — so reasoning (the
+        autonomous agent and the advisor) keeps working when a tier is congested. Pass an
+        explicit ``planners`` tuple to change the order, and ``answer_max_tokens`` to allow
+        long outputs (e.g. a full resume) instead of a concise chat reply. Yields '' when no
+        LLM is configured, so callers end with a clear message.
         """
+        if planners is None:
+            planners = (self.smart_planner, self.planner, self.fallback_planner)
         answerers = []
-        for planner in (self.smart_planner, self.planner, self.fallback_planner):
+        for planner in planners:
             answer = getattr(planner.provider, "answer", None) if planner else None
             if answer is not None:
                 answerers.append(answer)
@@ -1284,16 +1384,33 @@ class AgentOrchestrator:
         profile = self.context.memory.get_profile()
 
         def decide(prompt: str) -> str:
+            check_cancelled()
             for answer in answerers:
                 try:
-                    reply = answer(prompt, profile, None, None)
+                    reply = answer(prompt, profile, None, None, max_tokens=answer_max_tokens)
+                except TypeError:
+                    reply = answer(prompt, profile, None, None)  # older provider without max_tokens
                 except Exception:
                     reply = None
+                check_cancelled()
                 if reply:
                     return reply
             return ""
 
         return decide
+
+    def _resume_copilot(self) -> JobCopilot:
+        """CoPilot for full-resume generation. Uses a large output budget so the whole resume
+        (every experience + projects + education) is never truncated. The smart tier leads
+        because it reliably emits the complete document; the ultra reasoning tier (which tends
+        to stop a long structured output early) and OpenRouter are fallbacks."""
+        if self._resume_copilot_cache is None:
+            brain = self._build_agent_brain(
+                (self.smart_planner, self.ultra_planner, self.planner, self.fallback_planner),
+                answer_max_tokens=8000,
+            )
+            self._resume_copilot_cache = JobCopilot(decide=brain)
+        return self._resume_copilot_cache
 
     async def run_agent(self, goal: str, on_step=None) -> ToolResult:
         """Public entry for autonomous runs with an optional per-step callback (used by the
@@ -1314,6 +1431,9 @@ class AgentOrchestrator:
         )
         try:
             result = await agent.run(goal, on_step=on_step)
+        except OperationCancelled:
+            self.control_room.finish(agent_id, "Stopped by user", ok=False)
+            raise
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
             return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)
@@ -1381,9 +1501,9 @@ class AgentOrchestrator:
         'schedule run due' command. Each job runs through handle()/run_agent so risky steps
         still hit the approval gate."""
         moment = now or datetime.now().astimezone()
-        due = self.context.scheduler.due_jobs(moment)
+        due = self.context.scheduler.claim_due_jobs(moment)
         ran = []
-        for job in due:
+        for index, job in enumerate(due):
             try:
                 if job.kind == "agent":
                     result = await self._run_agent(job.spec)
@@ -1391,6 +1511,10 @@ class AgentOrchestrator:
                     result = await self.handle(job.spec, _allow_planner=False)
                 status = "ok" if result.ok else "failed"
                 message = result.message
+            except OperationCancelled:
+                for pending in due[index:]:
+                    self.context.scheduler.mark_ran(pending.id, moment, "stopped")
+                raise
             except Exception as exc:
                 status, message = "failed", str(exc)
             self.context.scheduler.mark_ran(job.id, datetime.now().astimezone(), status)
@@ -1398,7 +1522,7 @@ class AgentOrchestrator:
         if not ran:
             return ToolResult.success("No scheduled jobs are due.", ran=[])
         ok = sum(1 for item in ran if item["status"] == "ok")
-        return ToolResult.success(f"Ran {len(ran)} due job(s): {ok} ok.", ran=ran)
+        return ToolResult(ok=ok == len(ran), message=f"Ran {len(ran)} due job(s): {ok} ok.", data={"ran": ran})
 
     def _file_processor(self) -> FileProcessor:
         # Built lazily from existing tools — no AgentContext field needed.
@@ -1499,7 +1623,9 @@ class AgentOrchestrator:
     def _problem_solver(self) -> ProblemSolver:
         if self._problem_solver_cache is None:
             self._problem_solver_cache = ProblemSolver(
-                decide=self._build_agent_brain(),
+                # A structured framing/options/plan analysis is long; the default 900-token
+                # budget truncated it mid-sentence, so give it real room.
+                decide=self._build_agent_brain(answer_max_tokens=4000),
                 research=self._advice_research,
             )
         return self._problem_solver_cache
@@ -1520,6 +1646,137 @@ class AgentOrchestrator:
             ats=result.ats, keywords=result.keywords, missing=result.missing,
             grounding=result.grounding, used_llm=result.used_llm, company=company, role=role,
         )
+
+    def pipeline_snapshot(self) -> dict:
+        """The job pipeline for the live dashboard: every tracked job, each annotated with a
+        live (local, no-LLM) ATS score when a base resume and a job description are present,
+        plus the funnel stats and base-resume metadata."""
+        jobs = self.context.jobs
+        resume = jobs.get_resume()
+        resume_text = resume.get("text", "")
+        enriched = []
+        for job in jobs.list():
+            item = dict(job)
+            jd = job.get("description", "")
+            if resume_text and jd:
+                item["ats"] = ats_score(extract_keywords(jd), resume_text)
+            enriched.append(item)
+        return {
+            "ok": True,
+            "jobs": enriched,
+            "stats": jobs.stats(),
+            "resume": {
+                "present": bool(resume_text),
+                "profile": resume.get("profile", {}),
+                "chars": len(resume_text),
+                "source": resume.get("source", ""),
+                "updated_at": resume.get("updated_at", ""),
+            },
+        }
+
+    def set_resume_text(self, text: str, source: str = "pasted") -> ToolResult:
+        text = (text or "").strip()
+        if not text:
+            return ToolResult.failure("Resume text is empty.")
+        self.context.jobs.set_resume(text, source=source)
+        return ToolResult.success(f"Saved base resume ({len(text)} chars).", chars=len(text), source=source)
+
+    def set_resume_from_file(self, path: str) -> ToolResult:
+        extracted = self.context.files.extract_document_text(path)
+        if not extracted.ok:
+            return extracted
+        text = str(extracted.data.get("text", "")).strip()
+        if not text:
+            return ToolResult.failure("No text could be extracted from that file.")
+        name = Path(path.strip().strip("'\"")).name
+        self.context.jobs.set_resume(text, source=name)
+        return ToolResult.success(f"Loaded base resume from {name} ({len(text)} chars).", chars=len(text), source=name)
+
+    def tailor_job(self, job_id: int) -> ToolResult:
+        """Tailor the stored base resume to a tracked job's description, persisting the
+        result on the job. The LLM call is on-demand (one job at a time)."""
+        job = self.context.jobs.get(job_id)
+        if job is None:
+            return ToolResult.failure(f"No tracked job #{job_id}.")
+        resume_record = self.context.jobs.get_resume()
+        resume = resume_record.get("text", "")
+        if not resume:
+            return ToolResult.failure("Set a base resume first — paste it or load it from a file.")
+        jd = job.get("description", "")
+        if not jd:
+            return ToolResult.failure(f"#{job_id} {job['company']} has no job description to tailor against.")
+        profile = resume_record.get("profile", {}) or {}
+        repos = self._github_repos(profile.get("github_user", ""))
+        name = next((ln.strip() for ln in resume.splitlines() if ln.strip()), "")
+        # Explicit profile overrides win; otherwise retain source contact details.
+        contact = profile.get("contact_links", "") or self._contact_from_resume(resume)
+        result = self._resume_copilot().tailor_resume(
+            resume, jd, company=job.get("company", ""), role=job.get("role", ""),
+            repos=repos, contact=contact,
+            certs=profile.get("cert_links", ""), name=name,
+        )
+        if not result.ok:
+            return ToolResult.failure(result.package, job_id=job_id)
+        stored = self.context.jobs.set_tailoring(
+            job_id, package=result.package, used_llm=result.used_llm,
+            grounding=result.grounding, ats=result.ats, expected_resume=resume_record.get("updated_at", ""),
+        )
+        if stored is None:
+            return ToolResult.failure("The base resume changed or the job was removed during tailoring. Retry with the current resume.")
+        return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
+
+    async def render_job_pdf(self, job_id: int) -> ToolResult:
+        """Render a job's tailored HTML resume to a downloadable PDF under data_dir/resumes."""
+        job = self.context.jobs.get(job_id)
+        if job is None or not job.get("tailored_package"):
+            return ToolResult.failure("Tailor the job first, then export to PDF.")
+        from laptop_agent.tools.resume_pdf import render_html_to_pdf
+
+        package = job["tailored_package"]
+        digest = hashlib.sha256(package.encode("utf-8")).hexdigest()[:16]
+        out = self.context.jobs.path.parent / "resumes" / f"job_{job_id}_{digest}.pdf"
+        result = await render_html_to_pdf(package, out)
+        if result.ok:
+            if self.context.jobs.set_tailored_pdf(job_id, str(out), expected_package=package) is None:
+                return ToolResult.failure("The resume changed during export. Export the current version again.")
+        return result
+
+    @staticmethod
+    def _contact_from_resume(resume: str) -> str:
+        """Recover a contact line (email · phone) from the top of the base resume, escaped
+        as safe HTML for the fixed template. Best-effort; returns '' if nothing is found."""
+        head = "\n".join(resume.splitlines()[:8])
+        email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", head)
+        phone = re.search(r"\+?\d[\d\s().-]{7,}\d", head)
+        parts = [m.group(0).strip() for m in (email, phone) if m]
+        parts.extend(re.findall(r"https?://[^\s<>]+", head))
+        return " · ".join(html.escape(p) for p in parts)
+
+    def _github_repos(self, user: str) -> list[dict]:
+        """Public repo list (name + url) for grounding project links in tailored resumes.
+        Cached per process; best-effort — returns [] if unset or unreachable."""
+        user = (user or "").strip()
+        if not user:
+            return []
+        if getattr(self, "_repo_cache", None) is None:
+            self._repo_cache = {}
+        if user in self._repo_cache:
+            return self._repo_cache[user]
+        repos: list[dict] = []
+        try:
+            request = urllib.request.Request(
+                f"https://api.github.com/users/{user}/repos?per_page=100&sort=updated",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "jarvis-resume"},
+            )
+            with urllib.request.urlopen(request, timeout=15) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            if isinstance(data, list):
+                repos = [{"name": r.get("name", ""), "url": r.get("html_url", "")}
+                         for r in data if isinstance(r, dict) and r.get("html_url")]
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+            repos = []
+        self._repo_cache[user] = repos
+        return repos
 
     def _advice_research(self, query: str) -> tuple[str, list]:
         """Best-effort web grounding for the advisor: returns (context_text, sources).
@@ -2021,11 +2278,19 @@ class AgentOrchestrator:
         commands = [item.strip() for item in expression.split(";;") if item.strip()]
         if not commands:
             return ToolResult.failure("Use: multi <command 1> ;; <command 2>")
-        results = await asyncio.gather(*(self._run_tracked_subtask(command) for command in commands), return_exceptions=True)
+        if len(commands) > 20:
+            return ToolResult.failure("Run at most 20 subtasks in one batch.")
+        slots = asyncio.Semaphore(4)
+        async def run(command):
+            async with slots:
+                check_cancelled()
+                return await asyncio.to_thread(lambda: asyncio.run(self._run_tracked_subtask(command)))
+        results = await asyncio.gather(*(run(command) for command in commands), return_exceptions=True)
+        check_cancelled()
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 payload.append({"command": command, "ok": False, "message": str(result), "data": {}})
                 records.append(TaskRecord(index=index, command=command, status="failed", message=str(result)))
             else:
@@ -2040,13 +2305,18 @@ class AgentOrchestrator:
                 )
         dashboard = self.context.tasks.record_run(records, retry_of=retry_of)
         verb = "Retried" if retry_of is not None else "Ran"
-        return ToolResult.success(f"{verb} {len(payload)} subtasks.", results=payload, dashboard=dashboard)
+        succeeded = sum(1 for item in payload if item["ok"])
+        return ToolResult(
+            ok=succeeded == len(payload),
+            message=f"{verb} {len(payload)} subtasks: {succeeded} succeeded.",
+            data={"results": payload, "dashboard": dashboard},
+        )
 
     async def _run_tracked_subtask(self, command: str) -> ToolResult:
         agent_id = self.control_room.start(command)
         try:
             result = await self.handle(command)
-        except Exception as exc:
+        except (Exception, OperationCancelled) as exc:
             self.control_room.finish(agent_id, str(exc), ok=False)
             raise
         self.control_room.finish(agent_id, result.message, ok=result.ok)

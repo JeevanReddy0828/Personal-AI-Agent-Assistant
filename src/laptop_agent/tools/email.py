@@ -138,24 +138,39 @@ class EmailTool:
             )
         )
 
-        with imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port) as client:
-            client.login(self.config.imap_username, self.config.imap_password)
-            client.select(self.config.imap_mailbox, readonly=True)
-            status, payload = client.search(None, *criteria)
-            if status != "OK":
-                return ToolResult.failure("Inbox search failed.", status=status)
-            ids = payload[0].split()[-safe_limit:]
-            messages = []
-            for message_id in reversed(ids):
-                fetch_status, fetch_payload = client.fetch(message_id, "(BODY.PEEK[])")
-                if fetch_status != "OK":
-                    continue
-                for item in fetch_payload:
-                    if not isinstance(item, tuple):
+        try:
+            with imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port) as client:
+                client.login(self.config.imap_username, self.config.imap_password)
+                client.select(self.config.imap_mailbox, readonly=True)
+                status, payload = client.search(None, *criteria)
+                if status != "OK":
+                    return ToolResult.failure("Inbox search failed.", status=status)
+                ids = payload[0].split()[-safe_limit:]
+                messages = []
+                for message_id in reversed(ids):
+                    fetch_status, fetch_payload = client.fetch(message_id, "(BODY.PEEK[])")
+                    if fetch_status != "OK":
                         continue
-                    parsed = BytesParser(policy=policy.default).parsebytes(item[1])
-                    messages.append(self._message_summary(parsed, message_id.decode("ascii", errors="replace")))
-                    break
+                    for item in fetch_payload:
+                        if not isinstance(item, tuple):
+                            continue
+                        parsed = BytesParser(policy=policy.default).parsebytes(item[1])
+                        messages.append(self._message_summary(parsed, message_id.decode("ascii", errors="replace")))
+                        break
+        except imaplib.IMAP4.error as exc:
+            # imaplib carries the server message as bytes; decode it so the reply is a
+            # readable sentence instead of a raw b'...' repr leaking to the user.
+            detail = exc.args[0].decode("utf-8", "replace") if exc.args and isinstance(exc.args[0], bytes) else str(exc)
+            if "authenticationfailed" in detail.lower() or "invalid credentials" in detail.lower():
+                return ToolResult.failure(
+                    "Email login failed — your IMAP username or app password is invalid or expired. "
+                    "Update IMAP_USERNAME / IMAP_PASSWORD in .env; Gmail needs a current 16-character app "
+                    "password from https://myaccount.google.com/apppasswords.",
+                    setup="gmail-app-password",
+                )
+            return ToolResult.failure(f"The email server rejected the request: {detail}")
+        except (OSError, TimeoutError) as exc:
+            return ToolResult.failure(f"Could not reach the email server ({self.config.imap_host}): {exc}")
         return ToolResult.success(f"Found {len(messages)} email message(s).", query=query, messages=messages)
 
     def search_oauth_mail(self, provider: str, query: str = "ALL", limit: int = 10) -> ToolResult:

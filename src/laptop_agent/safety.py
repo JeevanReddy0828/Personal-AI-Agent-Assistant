@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
+from laptop_agent.cancellation import check_cancelled
 from enum import Enum
 from typing import Callable
 
@@ -30,12 +32,17 @@ class ApprovalGate:
     def __init__(self, ask: Callable[[ApprovalRequest], bool] | None = None, audit: AuditLogger | None = None) -> None:
         self._ask = ask or self._cli_ask
         self._audit = audit
+        self._prompt_lock = threading.RLock()
 
     def require(self, request: ApprovalRequest) -> None:
+        check_cancelled()
         if request.risk == RiskLevel.LOW:
             self._record(request, approved=True, skipped=True)
             return
-        approved = self._ask(request)
+        with self._prompt_lock:
+            check_cancelled()
+            approved = self._ask(request)
+            check_cancelled()
         self._record(request, approved=approved, skipped=False)
         if not approved:
             raise ApprovalDenied(f"Approval denied for: {request.action}")

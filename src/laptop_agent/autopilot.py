@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+
 import json
 import re
 from dataclasses import dataclass
@@ -12,12 +14,10 @@ SAFE_PREFIXES = (
     "memory",
     "audit",
     "agents",
-    "agent ",
     "briefing",
     "reminders",
     "tasks",
     "workflow status",
-    "knowledge",
     "knowledge list",
     "knowledge stats",
     "recall ",
@@ -55,7 +55,10 @@ class AutopilotPlanner:
     @staticmethod
     def is_safe_command(command: str) -> bool:
         lowered = command.strip().lower()
-        return any(lowered == prefix.strip() or lowered.startswith(prefix) for prefix in SAFE_PREFIXES)
+        return lowered in {"knowledge", "reminders due", "agent runs", "agent last"} or any(
+            lowered.startswith(prefix) if prefix.endswith(" ") else lowered == prefix
+            for prefix in SAFE_PREFIXES
+        )
 
 
 class AutopilotTracker:
@@ -66,6 +69,7 @@ class AutopilotTracker:
         self._next_run = 1
         self._load()
 
+    @synchronized
     def record_run(self, goal: str, steps: list[AutopilotStep]) -> dict[str, object]:
         blocked = sum(1 for step in steps if step.status == "blocked")
         failed = sum(1 for step in steps if step.status == "failed")
@@ -88,17 +92,20 @@ class AutopilotTracker:
         self._save()
         return run
 
+    @synchronized
     def latest(self) -> dict[str, object] | None:
         return self._runs[-1] if self._runs else None
 
+    @synchronized
     def all_runs(self) -> list[dict[str, object]]:
         return list(self._runs)
 
+    @synchronized
     def _load(self) -> None:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = read_json(self.path, {})
         except (OSError, ValueError):
             return
         if not isinstance(data, dict):
@@ -111,13 +118,12 @@ class AutopilotTracker:
         except (TypeError, ValueError):
             self._next_run = self._infer_next_run()
 
+    @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
 
+    @synchronized
     def _infer_next_run(self) -> int:
         numbers = []
         for run in self._runs:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from laptop_agent.storage import storage_warnings
+
 
 def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) -> dict[str, object]:
     """A production self-check: is the brain, memory, and mail wired and reachable?
@@ -27,6 +29,8 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
         overall = "setup"  # no AI connected — first-run state
     elif llm_reachable is False:
         overall = "degraded"  # configured but the endpoint is unreachable
+    elif llm_reachable is None:
+        overall = "checking"
     else:
         overall = "ok"
 
@@ -37,6 +41,7 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
 
     return {
         "overall": overall,
+        "storage_warnings": storage_warnings(),
         "llm": {
             "configured": llm_configured,
             "reachable": llm_reachable,
@@ -44,14 +49,9 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
             "tiers": tier_status["tiers"],
             "degraded_tier": tier_status["degraded"],
         },
-        "models": {
-            "fast": getattr(config, "llm_model", None),
-            "smart": getattr(config, "llm_smart_model", None),
-            "ultra": getattr(config, "llm_ultra_model", None),
-            "vision": getattr(config, "llm_vision_model", None),
-            "openrouter": getattr(config, "openrouter_model", None) if getattr(config, "openrouter_api_key", None) else None,
-        },
-        "vault": {"connected": vault_connected, "path": getattr(config, "obsidian_vault", None)},
+        # Health is served without a chat token, so expose connection state only;
+        # model identifiers and local vault paths belong in local configuration.
+        "vault": {"connected": vault_connected},
         "email": {"configured": email_configured},
         "search": {
             "provider": getattr(config, "search_provider", "") or "duckduckgo",

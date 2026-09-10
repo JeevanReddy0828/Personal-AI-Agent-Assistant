@@ -20,6 +20,7 @@ from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.autopilot import AutopilotTracker
@@ -35,6 +36,13 @@ from laptop_agent.workflows import WorkflowTracker
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_contact_from_resume_recovers_email_and_phone(self) -> None:
+        resume = "Jeevan Arlagadda\njeevan@example.com | +1 (555) 123-4567\n- Built things"
+        contact = AgentOrchestrator._contact_from_resume(resume)
+        self.assertIn("jeevan@example.com", contact)
+        self.assertIn("555", contact)
+        self.assertEqual(AgentOrchestrator._contact_from_resume(""), "")
+
     def build(self, tmp: Path) -> AgentOrchestrator:
         gate = ApprovalGate(lambda request: True)
         config = AppConfig(
@@ -119,6 +127,7 @@ class OrchestratorTests(unittest.TestCase):
                 knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
                 obsidian=ObsidianVault(config.obsidian_vault),
                 jobs=JobTracker(config.data_dir / "jobs.json"),
+                jobright=JobrightTool(gate, session_path=config.data_dir / "jobright_session.json"),
                 autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
                 agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
                 scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
@@ -283,7 +292,7 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
             result = asyncio.run(orchestrator.handle("multi help ;; memory ;; read file missing.txt"))
-            self.assertTrue(result.ok)
+            self.assertFalse(result.ok)
             self.assertEqual(result.data["dashboard"]["task_count"], 3)
             self.assertTrue(result.data["dashboard"]["retry_available"])
             dash = asyncio.run(orchestrator.handle("tasks"))
@@ -303,10 +312,10 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
             first = asyncio.run(orchestrator.handle("multi help ;; read file missing.txt"))
-            self.assertTrue(first.ok)
+            self.assertFalse(first.ok)
             self.assertEqual(first.data["dashboard"]["failed_commands"], ["read file missing.txt"])
             retry = asyncio.run(orchestrator.handle("multi retry failed"))
-            self.assertTrue(retry.ok)
+            self.assertFalse(retry.ok)
             self.assertEqual(retry.data["dashboard"]["retry_of"], 1)
             self.assertEqual(retry.data["dashboard"]["task_count"], 1)
             self.assertEqual(retry.data["results"][0]["command"], "read file missing.txt")
@@ -940,6 +949,16 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("planner", result.data)
             self.assertEqual(result.data["matches"][0]["line"], 1)
 
+    def test_complexity_escalates_logic_and_puzzles(self) -> None:
+        for text in (
+            "You have 8 and 5 liter jugs; how do you measure exactly 4 liters?",
+            "What is 37 x 48? Show your reasoning.",
+            "Find the flaw in this claim: correlation always proves causation.",
+            "solve this riddle for me",
+        ):
+            self.assertEqual(AgentOrchestrator._complexity(text), 2, text)  # reasoning tier
+        self.assertEqual(AgentOrchestrator._complexity("hey there"), 0)  # small talk stays simple
+
     def test_three_tier_model_selection(self) -> None:
         class ChatPlanner:
             def plan(self, text, available_commands, memory_profile, history=None):
@@ -1177,6 +1196,41 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(calls, [])  # primary tier answered -> fallback untouched
             self.assertFalse(res.data["degraded"])
 
+    def test_chat_skips_tier_in_failure_cooldown(self) -> None:
+        # A tier that failed moments ago is skipped for its cooldown instead of adding a
+        # wasted round-trip to every message; the turn promotes to the next healthy tier.
+        ultra_calls: list[int] = []
+
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        class FastRouting:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed")
+
+        class UltraSpy:
+            def answer(self, text, profile, model=None, history=None):
+                ultra_calls.append(1)
+                return "ultra answer"
+
+        class WorkingSmart:
+            def answer(self, text, profile, model=None, history=None):
+                return "smart answer"
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.router = Planner(LowConfRouter())
+            o.planner = Planner(FastRouting())
+            o.ultra_planner = Planner(UltraSpy())
+            o.smart_planner = Planner(WorkingSmart())
+            o.model_status.record("ultra", False)  # just failed -> in cooldown
+            res = asyncio.run(o.handle("design a system architecture from scratch in depth"))
+            self.assertTrue(res.ok)
+            self.assertEqual(ultra_calls, [])  # ultra skipped without a call
+            self.assertIn("smart answer", res.message)
+            self.assertEqual(res.data["planner"]["model"], "smart")
+
     def test_tailor_application_scores_resume(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))  # heuristic planner -> no LLM, deterministic ATS only
@@ -1266,6 +1320,57 @@ class OrchestratorTests(unittest.TestCase):
             # "around 3pm…" must not be hijacked into a stray category lookup.
             miss = asyncio.run(orchestrator.handle("around 3pm and remind me to call mom"))
             self.assertFalse(miss.message.startswith("I can find:"))
+
+
+    def test_pipeline_snapshot_scores_leads_with_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            orch.context.jobs.add("Acme", role="ML Engineer", stage="lead",
+                                  description="We need Python, Kubernetes and machine learning.")
+            # No resume yet -> no ATS score.
+            snap = orch.pipeline_snapshot()
+            self.assertFalse(snap["resume"]["present"])
+            self.assertNotIn("ats", snap["jobs"][0])
+            # Once a resume is set, leads with a description get a live ATS score.
+            orch.set_resume_text("- Built systems with Python and machine learning", source="paste")
+            snap = orch.pipeline_snapshot()
+            self.assertTrue(snap["resume"]["present"])
+            self.assertIn("ats", snap["jobs"][0])
+            self.assertGreater(snap["jobs"][0]["ats"]["score"], 0)
+            self.assertEqual(snap["stats"]["leads"], 1)
+
+    def test_tailor_job_requires_resume_and_description(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            job = orch.context.jobs.add("Acme", role="SWE", stage="lead")  # no description
+            self.assertFalse(orch.tailor_job(999).ok)  # no such job
+            self.assertFalse(orch.tailor_job(job["id"]).ok)  # no resume set
+            orch.set_resume_text("- Built X with Python", source="paste")
+            self.assertFalse(orch.tailor_job(job["id"]).ok)  # no JD to tailor against
+
+    def test_tailor_job_persists_latex_resume(self) -> None:
+        from laptop_agent.copilot import JobCopilot
+
+        with tempfile.TemporaryDirectory() as raw:
+            orch = self.build(Path(raw))
+            orch.set_resume_text("Candidate\nData engineer.\nLanguages: Python\nAcme 2024 DE Remote\n- Built Python pipelines", source="paste")
+            # Inject the resume copilot with a deterministic JSON-returning brain (no network).
+            import json as _json
+            content = _json.dumps({
+                "summary": "Data engineer.",
+                "skills": [{"category": "Languages", "items": "Python"}],
+                "experiences": [{"company": "Acme", "dates": "2024", "title": "DE",
+                                 "location": "Remote", "bullets": ["Built Python pipelines"]}],
+                "projects": [], "education": [],
+            })
+            orch._resume_copilot_cache = JobCopilot(decide=lambda prompt: content)
+            job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
+                                        description="Python data pipelines and SQL.")
+            result = orch.tailor_job(job["id"])
+            self.assertTrue(result.ok)
+            stored = orch.context.jobs.get(job["id"])
+            self.assertTrue(stored["tailored"])
+            self.assertIn("<html", stored["tailored_package"].lower())
 
 
 if __name__ == "__main__":
