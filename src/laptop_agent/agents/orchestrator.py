@@ -52,6 +52,7 @@ from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.config import load_config
+from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.weather import WeatherTool
@@ -114,6 +115,9 @@ class AgentOrchestrator:
         # Tracks per-tier model reachability so chat can fall back fast<-smart<-ultra
         # when a tier is congested, and health can show "the advanced model is busy".
         self.model_status = ModelStatus()
+        # Per-turn latency traces (timings only, never prompts or replies), so a slow
+        # turn can be explained instead of guessed at.
+        self.traces = TraceStore(load_config().data_dir / "traces.json")
         self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
@@ -122,6 +126,7 @@ class AgentOrchestrator:
         self._weather_tool_cache: WeatherTool | None = None
         self._image_tool_cache: ImageTool | None = None
         self._document_tool_cache: DocumentTool | None = None
+        self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -240,11 +245,18 @@ class AgentOrchestrator:
         history: list[dict[str, str]] | None = None,
     ):
         help_text = self.help_text()
+        trace = current_trace()
+
+        def decided(source: str, decision):
+            if trace is not None:
+                trace.route_done(source)
+            return decision
+
         fast = self.router.plan(command, help_text, profile)
         if fast.is_command or self.planner is None:
-            return fast
+            return decided("heuristic", fast)
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
-            return fast
+            return decided("heuristic", fast)
         # A recent provider failure is already known. Keep the deterministic
         # router's answer and let the chat ladder try a healthy tier instead of
         # spending another request on the same failed endpoint.
@@ -252,16 +264,75 @@ class AgentOrchestrator:
             type(self.planner.provider).__name__ == "OpenAICompatiblePlannerProvider"
             and not self.model_status.should_attempt("fast")
         ):
-            return fast
+            return decided("heuristic", fast)
         # When the instant router is already confident this is plain chat (e.g. a
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
         # chat" and then the chat path makes a second LLM call to actually answer.
         # Cutting the redundant classify call roughly halves latency for small talk.
         if fast.is_chat and fast.response and fast.confidence >= 0.6:
-            return fast
-        return self.planner.plan(command, help_text, profile, history)
+            return decided("heuristic", fast)
+        return decided("llm", self.planner.plan(command, help_text, profile, history))
 
     async def handle(
+        self,
+        text: str,
+        _allow_planner: bool = True,
+        history: list[dict[str, str]] | None = None,
+        on_token=None,
+    ) -> ToolResult:
+        """Route one turn, timing it. The inner leg of a planned command runs under the
+        same trace, so a tool's own time is not counted as a second turn."""
+        if not _allow_planner or current_trace() is not None:
+            return await self._handle(text, _allow_planner, history, on_token)
+        trace = TurnTrace()
+        token = begin_trace(trace)
+        try:
+            result = await self._handle(text, _allow_planner, history, self._traced_tokens(on_token, trace))
+            trace.finish(result.ok)
+            return result
+        except Exception:
+            trace.finish(False)
+            raise
+        finally:
+            end_trace(token)
+            if not trace.verb and trace.route_source in ("", "direct"):
+                # A direct command prefix never reached the router. Record the tool name
+                # only when the first word is a known command, so free-text never lands
+                # in the trace file.
+                trace.route_source = "direct"
+                verb = (text or "").strip().split(" ", 1)[0].lower()
+                if verb in self._command_verbs():
+                    trace.kind, trace.verb = "command", verb
+            try:
+                self.traces.add(trace)
+            except OSError:
+                pass  # a trace is diagnostics; never fail a turn over one
+
+    @staticmethod
+    def _traced_tokens(on_token, trace: TurnTrace):
+        """Wrap the stream callback to capture time-to-first-token, preserving .reset."""
+        if on_token is None:
+            return None
+
+        def traced(text):
+            trace.first_token()
+            return on_token(text)
+
+        reset = getattr(on_token, "reset", None)
+        if reset is not None:
+            traced.reset = reset
+        return traced
+
+    def _command_verbs(self) -> frozenset[str]:
+        if self._command_verbs_cache is None:
+            self._command_verbs_cache = frozenset(
+                entry.strip().split(" ", 1)[0].lower()
+                for entry in self._AGENT_COMMANDS
+                if entry and not entry.startswith("#")
+            )
+        return self._command_verbs_cache
+
+    async def _handle(
         self,
         text: str,
         _allow_planner: bool = True,
@@ -569,6 +640,9 @@ class AgentOrchestrator:
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
 
+        if lowered in {"latency", "traces", "why slow", "speed"}:
+            return self._latency_report()
+
         if lowered.startswith("document "):
             return self._document_tool().create(command[len("document ") :].strip())
 
@@ -762,7 +836,14 @@ class AgentOrchestrator:
                 # Light up the specialist the planner delegated to, so the control
                 # room reflects the resolved tool, not just the Planner.
                 resolved_agent = self.control_room.start(planned.command)
+                trace = current_trace()
+                if trace is not None:
+                    trace.kind = "command"
+                    trace.verb = planned.command.strip().split(" ", 1)[0].lower()
+                    trace.tool_started()
                 result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
+                if trace is not None:
+                    trace.tool_done()
                 self.control_room.finish(resolved_agent, result.message, ok=result.ok)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
@@ -849,6 +930,10 @@ class AgentOrchestrator:
                     response = "I couldn't reach any configured language model just now. Please try again in a minute."
                     model_used = "unavailable"
                 degraded = model_used != requested_label
+                trace = current_trace()
+                if trace is not None:
+                    trace.kind = "chat"
+                    trace.model, trace.requested_model, trace.degraded = model_used, requested_label, degraded
                 if degraded:
                     # Be honest about the fallback rather than passing off a lesser
                     # model's answer as the requested one's.
@@ -1033,6 +1118,7 @@ class AgentOrchestrator:
                 "  web search <query>",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file)",
+                "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
                 "  trip <stop1> to <stop2> to <stop3> …  (multi-stop route + totals)",
@@ -1580,6 +1666,35 @@ class AgentOrchestrator:
             shape = match.group(1).lower()
             described = described[: match.start()].strip()
         return self._image_tool().generate(described, shape=shape)
+
+    def _latency_report(self) -> ToolResult:
+        """`latency` — where recent turns actually spent their time."""
+        stats = self.traces.summary()
+        if not stats.get("turns"):
+            return ToolResult.success("No turns recorded yet. Ask me a few things and try again.", **stats)
+
+        def ms(value) -> str:
+            return "—" if value is None else f"{value} ms"
+
+        lines = [
+            f"Over the last {stats['turns']} turn(s) — {stats['chat_turns']} chat, {stats['command_turns']} command:",
+            "",
+            "| measure | median |",
+            "|---|---|",
+            f"| total | {ms(stats['median_total_ms'])} |",
+            f"| routing | {ms(stats['median_route_ms'])} |",
+            f"| time to first token (chat) | {ms(stats['median_ttft_ms'])} |",
+            f"| chat total | {ms(stats['median_chat_total_ms'])} |",
+            f"| tool run (command) | {ms(stats['median_tool_ms'])} |",
+            "",
+            f"{stats['llm_routed']} turn(s) ({stats['llm_routed_pct']}%) paid an extra model call just to "
+            "classify the request before answering it.",
+        ]
+        if stats["degraded"]:
+            lines.append(f"{stats['degraded']} turn(s) fell back to a different model tier.")
+        if stats["failed"]:
+            lines.append(f"{stats['failed']} turn(s) failed.")
+        return ToolResult.success(chr(10).join(lines), latency=stats, recent=self.traces.recent(10))
 
     def _document_tool(self) -> DocumentTool:
         if self._document_tool_cache is None:

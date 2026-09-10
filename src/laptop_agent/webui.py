@@ -367,6 +367,9 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
+        elif path == "/api/traces":
+            self._json(200, {"ok": True, "summary": _orchestrator.traces.summary(),
+                             "recent": _orchestrator.traces.recent(40)})
         elif path == "/api/agent-runs":
             self._json(200, _agent_runs_snapshot())
         elif path == "/api/jobs":
