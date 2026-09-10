@@ -65,7 +65,9 @@ class BrowserRegressions(unittest.TestCase):
         for width in (390, 700, 1100, 1440):
             self.page.set_viewport_size({"width": width, "height": 950})
             for view in ("chat", "overview", "jobs", "pipeline"):
-                self.page.locator(f'#nav [data-view="{view}"]').click()
+                # Jobs and Pipeline are off the nav but still routable, so drive every
+                # view through the hash router rather than only the ones with a button.
+                self.page.evaluate("v=>{location.hash='#/'+v;}", view)
                 self.wait_js("v=>document.body.dataset.view===v", arg=view)
                 dims = self.page.evaluate("({width:innerWidth,scroll:document.documentElement.scrollWidth})")
                 self.assertLessEqual(dims["scroll"], dims["width"], (width, view, dims))
@@ -76,7 +78,7 @@ class BrowserRegressions(unittest.TestCase):
                     self.assertLessEqual(box["x"] + box["width"], width)
         artifacts = Path(__file__).resolve().parents[1] / "docs" / "review"
         artifacts.mkdir(parents=True, exist_ok=True)
-        self.page.locator('#nav [data-view="chat"]').click()
+        self.page.evaluate("()=>{location.hash='#/chat';}")
         self.page.screenshot(path=str(artifacts / "desktop.png"))
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.screenshot(path=str(artifacts / "mobile.png"))
@@ -152,7 +154,7 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(state, {"capture": 1, "pause": 1, "revoke": 1, "active": False, "audio": None})
 
     def test_profile_fields_round_trip_in_pipeline(self):
-        self.page.locator('#nav [data-view="pipeline"]').click()
+        self.page.evaluate("()=>{location.hash='#/pipeline';}")
         self.wait_js("document.body.dataset.view==='pipeline' && profileLoaded")
         self.page.get_by_text('Resume contact and certifications', exact=True).click()
         self.page.locator('#rsContact').fill('candidate@example.com · 555-123-4567')
@@ -162,6 +164,66 @@ class BrowserRegressions(unittest.TestCase):
         self.page.reload()
         self.wait_js("profileLoaded")
         self.assertEqual(self.page.locator('#rsContact').input_value(), 'candidate@example.com · 555-123-4567')
+
+    def test_a_table_reply_gets_copy_and_csv_actions(self):
+        self.page.evaluate("""() => {
+            renderMsg('bot', '| Planet | Moons |\\n|---|---|\\n| Earth | 1 |\\n| Mars, red | 2 |');
+        }""")
+        self.assertEqual(self.page.locator('.msg .md table').count(), 1)
+        labels = self.page.locator('.msg .tableacts .oact').all_text_contents()
+        self.assertEqual(labels, ["Copy", "CSV"])
+        # a field holding a comma must survive the round trip as one quoted cell
+        csv = self.page.evaluate("toCSV(tableToRows(document.querySelector('.msg .md table')))")
+        self.assertIn('"Mars, red",2', csv)
+        self.assertTrue(csv.startswith("Planet,Moons"))
+
+    def test_a_picture_reply_gets_a_save_action(self):
+        self.page.evaluate("""() => {
+            renderMsg('bot', '![a fox](/api/image?name=fox-1.png)\\n\\nHere is a fox.');
+        }""")
+        self.assertEqual(self.page.locator('.msg .md .figure img').count(), 1)
+        self.assertEqual(self.page.locator('.msg .md .figure .oact').inner_text(), "Save")
+
+    def test_decorating_twice_does_not_stack_actions(self):
+        self.page.evaluate("""() => {
+            renderMsg('bot', '| A |\\n|---|\\n| 1 |');
+            decorate(document.querySelector('.msg .md'));
+            decorate(document.querySelector('.msg .md'));
+        }""")
+        self.assertEqual(self.page.locator('.msg .tableacts').count(), 1)
+
+    def test_a_deleted_chat_leaves_storage_and_opens_another(self):
+        self.page.evaluate("""() => {
+            sessions=[{id:'a',title:'First',msgs:[{role:'user',text:'one'}]},
+                      {id:'b',title:'Second',msgs:[{role:'user',text:'two'}]}];
+            current='b'; saveSessions(); renderSessions();
+        }""")
+        self.page.locator('.sessrow', has_text="Second").locator('.sessdel').click()
+        stored = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions).map(s=>s.id)")
+        self.assertEqual(stored, ["a"])
+        # deleting the open chat must leave a chat on screen, not a blank panel
+        self.assertEqual(self.page.evaluate("current"), "a")
+
+    def test_an_incognito_chat_is_never_written_to_storage(self):
+        self.page.evaluate("()=>{sessions=[];current=null;saveSessions();}")
+        self.page.locator('#newGhost').click()
+        self.page.evaluate("""() => {
+            const s=curSession(); s.title='Secret'; s.msgs.push({role:'user',text:'private'}); saveSessions();
+        }""")
+        stored = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions||'[]')")
+        self.assertEqual(stored, [])
+        self.assertTrue(self.page.evaluate("document.body.classList.contains('ghosting')"))
+        # …but it is a usable chat while it is open
+        self.assertEqual(self.page.evaluate("curSession().msgs.length"), 1)
+
+    def test_an_ordinary_chat_is_still_saved_alongside_an_incognito_one(self):
+        self.page.evaluate("()=>{sessions=[];current=null;saveSessions();}")
+        self.page.locator('#newGhost').click()
+        self.page.locator('#newChat').click()
+        self.page.evaluate("()=>{curSession().title='Kept';saveSessions();}")
+        stored = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions).map(s=>s.title)")
+        self.assertEqual(stored, ["Kept"])
+        self.assertFalse(self.page.evaluate("document.body.classList.contains('ghosting')"))
 
     def test_mobile_chat_drawer_and_new_chat_suggestions(self):
         self.page.set_viewport_size({"width": 390, "height": 844})

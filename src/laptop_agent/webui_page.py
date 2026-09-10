@@ -100,9 +100,20 @@ PAGE = r"""<!doctype html>
   .newchat:hover{background:rgba(255,255,255,.07);border-color:var(--hair-3)}
   .seclbl{font:500 11.5px var(--sans);color:var(--faint);margin:20px 10px 6px}
   #sessions{flex:1;min-height:0;overflow-y:auto;margin:0 -4px;padding:0 4px 4px}
-  .sess{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:8px 10px;margin:1px 0;color:var(--text-2);font:400 13.5px/1.35 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background var(--fast),color var(--fast)}
-  .sess:hover{background:rgba(255,255,255,.045);color:var(--text)}
-  .sess.active{background:var(--accent-soft);color:#eef8fb}
+  .sessrow{position:relative;display:flex;align-items:center;margin:1px 0;border-radius:9px;transition:background var(--fast)}
+  .sessrow:hover{background:rgba(255,255,255,.045)}
+  .sessrow.active{background:var(--accent-soft)}
+  .sess{display:block;flex:1;min-width:0;text-align:left;border:0;background:transparent;border-radius:9px;padding:8px 10px;color:var(--text-2);font:400 13.5px/1.35 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color var(--fast)}
+  .sessrow:hover .sess{color:var(--text)}
+  .sessrow.active .sess{color:#eef8fb}
+  .sess .ghosttag{color:var(--violet);margin-right:6px;font-size:11px;letter-spacing:.04em}
+  .sessdel{flex:none;border:0;background:transparent;color:var(--faint);padding:6px 8px;border-radius:8px;opacity:0;transition:opacity var(--fast),color var(--fast)}
+  .sessrow:hover .sessdel,.sessdel:focus-visible{opacity:1}
+  .sessdel:hover{color:var(--danger);background:rgba(255,107,122,.1)}
+  .sessdel svg{width:13px;height:13px}
+  /* incognito: the composer picks up a violet edge so the mode is never a surprise */
+  body.ghosting .composer{border-color:rgba(163,148,255,.5)}
+  body.ghosting .newchat.ghost{background:rgba(163,148,255,.14);color:#d9d2ff}
   .railfoot{margin-top:10px;padding-top:10px;border-top:1px solid var(--hair)}
   .sysbtn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:500 12.5px var(--sans);text-align:left;transition:background var(--fast),color var(--fast)}
   .sysbtn:hover{background:rgba(255,255,255,.045);color:var(--text)}
@@ -175,6 +186,17 @@ PAGE = r"""<!doctype html>
   .md th,.md td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
   .md th{font-weight:600;color:var(--text-2);background:rgba(255,255,255,.03);white-space:nowrap}
   .md tbody tr:last-child td{border-bottom:none}
+  /* save / copy / export actions attached to a picture or a table */
+  .md .figure{position:relative;display:inline-block;max-width:100%}
+  .md .figure img{margin:.6em 0}
+  .md .oactions{display:flex;gap:6px}
+  .md .figure .oactions{position:absolute;top:14px;right:8px;opacity:0;transition:opacity var(--fast)}
+  .md .figure:hover .oactions,.md .figure:focus-within .oactions{opacity:1}
+  .md .tableacts{margin:-2px 0 .8em}
+  .oact{border:1px solid var(--hair-2);background:rgba(12,17,26,.82);color:var(--text-2);
+    border-radius:7px;padding:3px 9px;font:500 11.5px/1.5 var(--sans);letter-spacing:.02em;
+    backdrop-filter:blur(6px);transition:color var(--fast),border-color var(--fast),background var(--fast)}
+  .oact:hover{color:var(--text);border-color:var(--accent-line);background:var(--surface-3)}
   .msg.err .md{color:var(--danger)}
   .att{display:inline-flex;align-items:center;gap:6px;margin:8px 6px 0 0;background:rgba(255,255,255,.04);border:1px solid var(--hair-2);border-radius:8px;padding:5px 10px;font:12.5px var(--sans);color:var(--text-2)}
   .att .ic{color:var(--muted)}
@@ -468,8 +490,9 @@ PAGE = r"""<!doctype html>
       <button id="mobileChats" class="navbtn" aria-expanded="false" aria-controls="leftPanel">Chats</button>
       <button class="navbtn on" data-view="chat">Chat</button>
       <button class="navbtn" data-view="overview">Overview</button>
-      <button class="navbtn" data-view="jobs">Jobs</button>
-      <button class="navbtn" data-view="pipeline">Pipeline</button>
+      <!-- Jobs and Pipeline are off the nav for now. The pages, routes and APIs are all
+           still here and reachable at #/jobs and #/pipeline; only the buttons are gone.
+           The version with them in the nav is preserved on feature/jobs-pipeline-nav. -->
     </nav>
     <div class="sp"></div>
     <button class="pill" id="healthPill" title="System status" aria-controls="sysDrawer" aria-expanded="false"><span class="dot" id="healthDot"></span><span id="healthText">Checking…</span></button>
@@ -491,6 +514,7 @@ PAGE = r"""<!doctype html>
 
   <aside class="left" id="leftPanel">
     <button class="newchat" id="newChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
+    <button class="newchat ghost" id="newGhost" title="A chat that is never saved to this browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0-6 6v11l2-2 2 2 2-2 2 2 2-2 2 2V9a6 6 0 0 0-6-6z"/><path d="M9.5 10h.01M14.5 10h.01"/></svg><span>Incognito chat</span></button>
     <div class="seclbl">Recent</div>
     <div id="sessions"></div>
     <div class="railfoot">
@@ -840,6 +864,58 @@ PAGE = r"""<!doctype html>
     s=s.replace(/!\[([^\]]*)\]\(((?:\/|data:image\/)[^)\s]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return s;}
+  /* Actions on rendered output: save a generated picture, copy or export a table.
+     Added as DOM nodes rather than markup so nothing user- or model-authored is ever
+     interpolated into HTML. Idempotent — a re-render decorates only what is new. */
+  function download(name,type,body){
+    const url=URL.createObjectURL(new Blob([body],{type}));
+    const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();
+    a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function tableToRows(table){
+    return [...table.rows].map(r=>[...r.cells].map(c=>c.innerText.trim()));
+  }
+  function toCSV(rows){
+    // Excel opens this directly; a field is quoted when it holds a comma, quote or newline.
+    return rows.map(r=>r.map(v=>/[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v).join(',')).join('\r\n');
+  }
+  function actionBtn(label,title,fn){
+    const b=document.createElement('button');b.type='button';b.className='oact';
+    b.textContent=label;b.title=title;b.setAttribute('aria-label',title);
+    b.onclick=ev=>{ev.preventDefault();fn(b);};return b;
+  }
+  function flash(btn,text){const was=btn.textContent;btn.textContent=text;setTimeout(()=>{btn.textContent=was;},1200);}
+  function decorate(root){
+    root.querySelectorAll('img:not([data-dec])').forEach(img=>{
+      img.dataset.dec='1';
+      const src=img.getAttribute('src')||'';
+      const name=(/[?&]name=([^&]+)/.exec(src)||[])[1]||'image.png';
+      const wrap=document.createElement('div');wrap.className='figure';
+      img.parentNode.insertBefore(wrap,img);wrap.appendChild(img);
+      const bar=document.createElement('div');bar.className='oactions';
+      bar.appendChild(actionBtn('Save','Download this picture',async b=>{
+        try{const r=await fetch(src);download(decodeURIComponent(name),r.headers.get('Content-Type')||'image/png',await r.blob());flash(b,'Saved');}
+        catch(e){flash(b,'Failed');}
+      }));
+      wrap.appendChild(bar);
+    });
+    root.querySelectorAll('table:not([data-dec])').forEach(table=>{
+      table.dataset.dec='1';
+      const bar=document.createElement('div');bar.className='oactions tableacts';
+      const stamp=()=>new Date().toISOString().slice(0,10);
+      bar.appendChild(actionBtn('Copy','Copy the table as tab-separated text',async b=>{
+        const text=tableToRows(table).map(r=>r.join('\t')).join('\n');
+        try{await navigator.clipboard.writeText(text);flash(b,'Copied');}
+        catch(e){flash(b,'Blocked');}
+      }));
+      bar.appendChild(actionBtn('CSV','Download the table as a CSV file, ready for Excel',b=>{
+        download('table-'+stamp()+'.csv','text/csv;charset=utf-8',toCSV(tableToRows(table)));flash(b,'Saved');
+      }));
+      const holder=table.closest('.tw')||table;
+      holder.parentNode.insertBefore(bar,holder.nextSibling);
+    });
+  }
+  function setMd(el,text){el.innerHTML=mdToHtml(text);decorate(el);return el;}
   function mdToHtml(src){
     const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push(c);return '@@F'+(fences.length-1)+'@@';});
     let html='',list=null; const close=()=>{if(list){html+='</'+list+'>';list=null;}};
@@ -880,15 +956,47 @@ PAGE = r"""<!doctype html>
     if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
   }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
   function saveSessions(){sessions=sessions.slice(0,40);
-    try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}
+    // Incognito sessions stay in memory: they are filtered out of everything written to disk.
+    const keep=sessions.filter(s=>!s.ghost);
+    try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
     catch(e){
       // Over quota: the tool-data digests are the expendable part — drop them and retry once.
       sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
-      try{localStorage.setItem('jarvis_sessions',JSON.stringify(sessions));}
+      try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
-  function renderSessions(){sessionsEl.innerHTML='';sessions.forEach(s=>{const b=document.createElement('button');b.className='sess'+(s.id===current?' active':'');b.textContent=s.title||'New chat';b.onclick=()=>{loadSession(s.id);closeChats();};sessionsEl.appendChild(b);});}
-  function newSession(){const s={id:crypto.randomUUID(),title:'',msgs:[]};sessions.unshift(s);current=s.id;saveSessions();renderSessions();chat.innerHTML='';chat.appendChild(emptyEl());}
+  function renderSessions(){
+    sessionsEl.innerHTML='';
+    sessions.forEach(s=>{
+      const row=document.createElement('div');row.className='sessrow'+(s.id===current?' active':'');
+      const b=document.createElement('button');b.className='sess';
+      b.innerHTML=(s.ghost?'<span class="ghosttag">incognito</span>':'')+esc(s.title||'New chat');
+      b.title=s.title||'New chat';
+      b.onclick=()=>{loadSession(s.id);closeChats();};
+      const del=document.createElement('button');del.className='sessdel';del.type='button';
+      del.setAttribute('aria-label','Delete this chat');del.title='Delete this chat';
+      del.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+      del.onclick=ev=>{ev.stopPropagation();deleteSession(s.id);};
+      row.appendChild(b);row.appendChild(del);sessionsEl.appendChild(row);
+    });
+  }
+  function deleteSession(id){
+    const i=sessions.findIndex(s=>s.id===id); if(i<0)return;
+    const wasCurrent=sessions[i].id===current;
+    sessions.splice(i,1); saveSessions();
+    // Deleting the open chat leaves nothing on screen, so open the next one or start fresh.
+    if(wasCurrent){ if(sessions.length){loadSession(sessions[0].id);} else {newSession();} }
+    else renderSessions();
+  }
+  // Incognito: the session lives in memory only. saveSessions() never writes it, so it is
+  // gone on reload and never reaches localStorage.
+  function newSession(ghost){
+    const s={id:crypto.randomUUID(),title:'',msgs:[]};
+    if(ghost)s.ghost=true;
+    sessions.unshift(s);current=s.id;
+    document.body.classList.toggle('ghosting',!!ghost);
+    saveSessions();renderSessions();chat.innerHTML='';chat.appendChild(emptyEl());
+  }
   function curSession(){return sessions.find(s=>s.id===current);}
   // The whole session goes to the server (it chunks and budgets the context), capped at
   // the API's 100-turn limit and a sane per-message size so a pasted document can't
@@ -897,12 +1005,13 @@ PAGE = r"""<!doctype html>
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?JSON.stringify(d).slice(0,2000):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
   document.getElementById('mobileChats').onclick=()=>{const open=document.body.classList.toggle('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded',String(open));document.querySelector('.left').style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';if(open)document.getElementById('newChat').focus();};
   document.getElementById('newChat').onclick=()=>{newSession();closeChats();};
+  document.getElementById('newGhost').onclick=()=>{newSession(true);closeChats();hint.textContent='Incognito chat — this conversation is not saved in this browser.';};
 
   /* messages */
   function clearEmpty(){const e=chat.querySelector('.empty');if(e)e.remove();}
@@ -915,7 +1024,7 @@ PAGE = r"""<!doctype html>
     clearEmpty();
     const m=document.createElement('div');m.className='msg '+role;
     m.innerHTML=(role==='user'?'':'<div class="av">J</div>')+'<div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
-    m.querySelector('.md').innerHTML=role==='user'?esc(text).replace(/\n/g,'<br>'):mdToHtml(text);
+    if(role==='user')m.querySelector('.md').innerHTML=esc(text).replace(/\n/g,'<br>');else setMd(m.querySelector('.md'),text);
     if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+esc(a);box.appendChild(s);});m.querySelector('.content').appendChild(box);}
     if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
@@ -931,15 +1040,15 @@ PAGE = r"""<!doctype html>
   function typewriter(el,text){
     twCancel=false;
     const total=text.length;
-    if(total>4000||reducedMotion.matches){el.innerHTML=mdToHtml(text);return;}   // skip animation for very long output
+    if(total>4000||reducedMotion.matches){setMd(el,text);return;}   // skip animation for very long output
     const step=Math.max(2,Math.ceil(total/160));          // ~constant ~1.5s regardless of length
     let i=0;
     (function tick(){
-      if(twCancel){el.innerHTML=mdToHtml(text);return;}
+      if(twCancel){setMd(el,text);return;}
       i=Math.min(total,i+step);
       el.innerHTML=mdToHtml(text.slice(0,i));
       chat.scrollTop=chat.scrollHeight;
-      if(i<total)setTimeout(tick,16); else el.innerHTML=mdToHtml(text);
+      if(i<total)setTimeout(tick,16); else setMd(el,text);
     })();
   }
 
@@ -1025,7 +1134,7 @@ PAGE = r"""<!doctype html>
       if(!d.ok)node.classList.add('err');
       // Chat already revealed itself token-by-token; a local command result arrives
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
-      if(streamed)md.innerHTML=mdToHtml(reply); else typewriter(md,reply);
+      if(streamed)setMd(md,reply); else typewriter(md,reply);
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
@@ -1038,7 +1147,7 @@ PAGE = r"""<!doctype html>
       const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data)});saveSessions();}
       loadVault();
     }catch(err){
-      if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
+      if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
     finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
@@ -1074,7 +1183,7 @@ PAGE = r"""<!doctype html>
             trace.querySelector('.thead').innerHTML='<span class="gdot"></span> Agent · '+(st.index+1)+' step(s)…';}
           else if(ev.type==='done'){reply=ev.message||'';trace.classList.add(ev.ok?'done':'fail');
             trace.querySelector('.thead').innerHTML='<span class="gdot"></span> Agent · '+(ev.ok?'done':'stopped');
-            const ans=document.createElement('div');ans.className='md';ans.style.marginTop='8px';ans.innerHTML=mdToHtml(reply);
+            const ans=document.createElement('div');ans.className='md';ans.style.marginTop='8px';setMd(ans,reply);
             node.querySelector('.content').appendChild(ans);}
         }
       }
@@ -1125,7 +1234,7 @@ PAGE = r"""<!doctype html>
       const d=await r.json();
       if(!d.ok){document.getElementById('nvBody').innerHTML='<div style="color:var(--warn)">'+esc(d.message||'Could not open note.')+'</div>';return;}
       document.getElementById('nvTitle').textContent=d.name||name;
-      document.getElementById('nvBody').innerHTML=mdToHtml(d.text||'');
+      setMd(document.getElementById('nvBody'),d.text||'');
       const links=document.getElementById('nvLinks');links.innerHTML='';
       const group=(label,arr)=>{if(!arr||!arr.length)return;const l=document.createElement('span');l.className='lbl';l.textContent=label;links.appendChild(l);arr.forEach(nm=>{const c=document.createElement('button');c.className='lk';c.textContent=nm;c.onclick=()=>openNote(nm);links.appendChild(c);});};
       group('links to',d.outlinks);group('linked from',d.backlinks);
@@ -1410,7 +1519,7 @@ PAGE = r"""<!doctype html>
       const d=await r.json();
       if(!d.ok){msg.className='mapmsg err';msg.textContent=d.message||'Could not tailor.';return;}
       msg.textContent=(d.ats&&typeof d.ats.score==='number')?('ATS match '+d.ats.score+'%'+(d.used_llm?'':' · add a model key for the written sections')):'';
-      res.innerHTML=mdToHtml(d.message||'');
+      setMd(res,d.message||'');
     }catch(e){msg.className='mapmsg err';msg.textContent='Could not reach the copilot.';}
   };
 
