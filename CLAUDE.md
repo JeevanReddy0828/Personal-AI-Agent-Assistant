@@ -186,10 +186,15 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
   naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
   (`CHAT_BUDGET`), the autonomous agent (`AGENT_BUDGET`, via `AutonomousAgent.run(context=…)`)
   and the advisor (`ADVISOR_BUDGET`, `ProblemSolver.solve(conversation=…)`). The router is
-  taught that a back-reference is a follow-up: `action=chat` with `response` possibly null,
-  which `handle` accepts (`planned.action == "chat"`, not `is_chat`) and hands to the chat
-  tiers — so "build an ERD for this" is answered from the schema in the conversation instead
-  of the agent scanning the filesystem. `/api/agent` takes `history` like `/api/stream`.
+  taught that a back-reference is a follow-up: resolve it from the transcript, emit a command
+  only when it names something actionable there, else `action=chat` with `response` possibly
+  null (`PlanDecision.is_chat` means `action == "chat"`; the fast tier answers a text-less
+  chat decision) — so "build an ERD for this" is answered from the schema in the conversation
+  instead of the agent scanning the filesystem. `/api/agent` takes `history` like
+  `/api/stream`; the web client stores a bounded digest of each reply's tool data (`extra`)
+  and the CLI appends one, so "summarize this" after `read file …` has the text. Results are
+  memoized per (history, query, budget), and a synthesized prompt (grounded news) passes
+  `context_query=` so the context is ranked on the user's own words.
 - **Freshness path.** Before answering a chat turn, `_needs_fresh_info` flags
   time-sensitive questions (keywords + patterns like "did X end", recent years);
   `_grounded_news_answer` then runs a web search (one retry for the flaky free

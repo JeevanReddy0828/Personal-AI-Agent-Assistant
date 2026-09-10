@@ -1096,7 +1096,10 @@ PAGE = r"""<!doctype html>
   // The whole session goes to the server (it chunks and budgets the context), capped at
   // the API's 100-turn limit and a sane per-message size so a pasted document can't
   // balloon the request.
-  function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:String(m.text||'').slice(0,40000)})):[];}
+  // A reply's `extra` is a bounded digest of the tool data behind it (the "details" pane),
+  // so "summarize this" after `read file …` has the file text, not just the status line.
+  function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
+  function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?JSON.stringify(d).slice(0,4000):'';}catch(e){return '';}}
   function loadSession(id){current=id;const s=curSession();chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
@@ -1232,7 +1235,7 @@ PAGE = r"""<!doctype html>
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data)});saveSessions();}
       loadVault();
     }catch(err){
       if(err&&err.name==='AbortError'){reply=streamed;md.innerHTML=mdToHtml(streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}

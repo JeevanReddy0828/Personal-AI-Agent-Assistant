@@ -18,7 +18,9 @@ class PlanDecision:
 
     @property
     def is_chat(self) -> bool:
-        return self.action == "chat" and bool(self.response)
+        # A chat decision may carry no text: a router that defers a follow-up to the
+        # answerer sends action=chat with response=null.
+        return self.action == "chat"
 
 
 class PlannerProvider(Protocol):

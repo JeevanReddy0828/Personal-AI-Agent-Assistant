@@ -656,7 +656,7 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("erDiagram", result.message)
             self.assertEqual(result.data["steps"], [])
             self.assertIn("order_items", brain.prompts[0])
-            self.assertIn("most likely refers to J.A.R.V.I.S's reply in turn 2", brain.prompts[0])
+            self.assertIn("most likely means J.A.R.V.I.S's reply in turn 2", brain.prompts[0])
             # The command path carries the same context.
             result = asyncio.run(orchestrator.handle("agent run build an ERD for this", history=history))
             self.assertTrue(result.ok)

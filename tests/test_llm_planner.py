@@ -149,9 +149,25 @@ class LlmPlannerParsingTests(unittest.TestCase):
         )
         system = captured["messages"][0]["content"]
         self.assertIn("table_29", system)
-        self.assertIn("most likely refers to J.A.R.V.I.S's reply in turn 2", system)
+        self.assertIn("most likely means J.A.R.V.I.S's reply in turn 2", system)
         self.assertIn("follow-up", _SYSTEM_PROMPT)
         self.assertTrue(any("ERD" in user for user, _json in _FEWSHOT))
+
+    def test_context_query_ranks_the_session_instead_of_a_synthesized_prompt(self) -> None:
+        # A grounded-news prompt contains "this"; the context must be judged on the
+        # user's own question so no bogus "refers back" note is injected.
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return "ok"
+
+        history = [{"role": "user", "text": "hi"}, {"role": "assistant", "text": "Hello, Jeevan."}]
+        prompt = "Answer the user's question using the web search results below. Prefer this live information. QUESTION: did the war end?"
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture).answer(prompt, {}, history=history, context_query="did the war end?")
+        self.assertNotIn("most likely means", captured["messages"][0]["content"])
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture).answer("shorter", {}, history=history)
+        self.assertIn("most likely means", captured["messages"][0]["content"])
 
     def test_solve_routing_is_taught_to_the_model(self) -> None:
         # The brain must be told it can route decisions/problems to `solve`, both in

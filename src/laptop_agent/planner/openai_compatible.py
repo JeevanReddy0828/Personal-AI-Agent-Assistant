@@ -46,9 +46,10 @@ _SYSTEM_PROMPT = (
     "(e.g. README.md). Only ask a clarifying question when no reasonable default exists. Never claim you are doing "
     "an action in a chat response — if it needs an action, emit a command.\n"
     "The 'Recent conversation' block is this session's transcript. When the message refers back to it ('this', "
-    "'that', 'it', 'the schema above', 'now make a diagram of it', 'shorter'), it is a follow-up about something "
-    "already said: use action=chat and answer from that text. Never run file or search commands to find something "
-    "that was said in the conversation."
+    "'that', 'it', 'the schema above', 'now make a diagram of it', 'shorter'), it is a follow-up: resolve the "
+    "reference from the transcript. If it asks for an action on something named there (a file path, URL or note), "
+    "emit that command with the resolved argument; otherwise use action=chat (response may be null) and answer "
+    "from the transcript. Never run file or search commands to find something that was said in the conversation."
 )
 
 # Few-shot shown as real message turns; small models follow these far more
@@ -120,7 +121,7 @@ class OpenAICompatiblePlannerProvider:
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
         system = (
             f"{_PERSONA}\n\n{_SYSTEM_PROMPT}\n\nCurrent directory: {os.getcwd()}\n"
-            f"Known facts about the user: {facts}\n{self._history_block(history, text)}\n"
+            f"Known facts about the user: {facts}\n{context_block(history, text, budget=ROUTE_BUDGET)}\n"
             f"Available commands:\n{available_commands}"
         )
         # All user turns are plain request text so the examples and the real
@@ -187,10 +188,13 @@ class OpenAICompatiblePlannerProvider:
         model: str | None = None,
         history: list[dict[str, str]] | None = None,
         max_tokens: int = 900,
+        context_query: str | None = None,
     ) -> str | None:
         """Plain conversational reply (no routing JSON). Used for complex questions.
         ``max_tokens`` defaults to a concise chat reply; long outputs (e.g. a full resume)
-        pass a larger value so the response is not truncated mid-document."""
+        pass a larger value so the response is not truncated mid-document. ``context_query``
+        is what the session context is ranked against when ``text`` is a synthesized prompt
+        rather than the user's own words."""
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
         payload: dict[str, object] = {
             "model": model or self.model,
@@ -201,7 +205,7 @@ class OpenAICompatiblePlannerProvider:
                     "role": "system",
                     "content": (
                         f"{_PERSONA} Answer directly and helpfully in Markdown. "
-                        f"Known facts about the user: {facts}.\n{self._history_block(history, text, CHAT_BUDGET)}"
+                        f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
                 {"role": "user", "content": text},
@@ -220,6 +224,7 @@ class OpenAICompatiblePlannerProvider:
         memory_profile: dict[str, object],
         model: str | None = None,
         history: list[dict[str, str]] | None = None,
+        context_query: str | None = None,
     ):
         """Yield the conversational reply token-by-token so the UI shows it live."""
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
@@ -235,7 +240,7 @@ class OpenAICompatiblePlannerProvider:
                     "role": "system",
                     "content": (
                         f"{_PERSONA} Answer directly and helpfully in Markdown. "
-                        f"Known facts about the user: {facts}.\n{self._history_block(history, text, CHAT_BUDGET)}"
+                        f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
                 {"role": "user", "content": text},
@@ -354,12 +359,6 @@ class OpenAICompatiblePlannerProvider:
             command=str(command) if command else None,
             response=str(response) if response else None,
         )
-
-    @staticmethod
-    def _history_block(history: list[dict[str, str]] | None, query: str = "", budget: int = ROUTE_BUDGET) -> str:
-        """The session context for this request (see ``laptop_agent.context``): the whole
-        conversation chunked and budgeted, not the last few turns clipped short."""
-        return context_block(history, query, budget=budget)
 
     @staticmethod
     def _strip_reasoning(content: str) -> str:

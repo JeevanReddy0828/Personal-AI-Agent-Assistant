@@ -52,8 +52,13 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   Budgets live in `context.py` (`ROUTE_BUDGET` 2.4k chars, `CHAT_BUDGET` 9k, `AGENT_BUDGET` 6k,
   `ADVISOR_BUDGET` 5k). Raise them there, not per call site.
 - A router decision of `action=chat` with no `response` is legitimate (a follow-up deferred to
-  the answerer). `handle` keys on `planned.action == "chat"`; `PlanDecision.is_chat` still
-  requires text and is only for the heuristic short-circuit in `_route`.
+  the answerer): `PlanDecision.is_chat` means `action == "chat"`, and `_route`'s heuristic
+  short-circuit checks `fast.response` explicitly. The fast tier answers a text-less chat turn.
+- Provider `answer`/`stream_answer` take `context_query=` for synthesized prompts (grounded
+  news) so the session context is ranked on the user's words; `_call_with_query` falls back
+  positionally for providers/test doubles without it. `refers_back` ignores messages over 60
+  words and short messages that start with a command verb; the advisor skips web research when
+  the problem refers back. `build_context` is memoized (16 entries) across the tier ladder.
 - Every entry point passes the session: `/api/stream`, `/api/agent` and `/api/command` accept
   `history`; the web client sends up to 80 turns (server cap 100); the CLI keeps its own list.
   Adding a new model-facing path means threading `history` through it.

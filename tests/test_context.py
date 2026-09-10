@@ -24,13 +24,12 @@ SCHEMA = (
 
 
 def _session(extra: int = 0) -> list[dict[str, str]]:
-    turns = [
-        {"role": "user", "text": "Design a database schema for an online marketplace with users, listings, orders."},
-        {"role": "assistant", "text": SCHEMA},
-    ]
-    for index in range(extra):
-        turns.insert(0, {"role": "assistant", "text": f"Earlier answer number {index} about the weather in Tokyo."})
-        turns.insert(0, {"role": "user", "text": f"Earlier question number {index} about weather."})
+    turns: list[dict[str, str]] = []
+    for index in range(extra):  # oldest first: filler weather turns, then the schema exchange
+        turns.append({"role": "user", "text": f"Earlier question number {index} about weather."})
+        turns.append({"role": "assistant", "text": f"Earlier answer number {index} about the weather in Tokyo."})
+    turns.append({"role": "user", "text": "Design a database schema for an online marketplace with users, listings, orders."})
+    turns.append({"role": "assistant", "text": SCHEMA})
     return turns
 
 
@@ -52,10 +51,25 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual("".join(piece.replace(" ", "") for _, piece in pieces), text.replace(" ", ""))
 
     def test_refers_back_detects_follow_ups(self) -> None:
-        for query in ["build an ERD for this", "make it shorter", "turn the schema into a diagram", "shorter"]:
+        for query in ["build an ERD for this", "make it shorter", "turn the schema above into a diagram", "shorter", "in mermaid"]:
             self.assertTrue(refers_back(query), query)
-        for query in ["what is the weather in Tokyo tomorrow", "research local-first ai agents"]:
+        for query in [
+            "what is the weather in Tokyo tomorrow", "research local-first ai agents",
+            "explain the design principles of REST APIs", "check weather", "scan files .", "play music",
+            "edit the items list",  # 'it' inside 'edit'/'items' does not count
+            "Answer the user's question using the web search results below, which are current. Prefer this live "
+            "information over any prior knowledge, lead with the most up-to-date facts, and cite sources inline. "
+            "If the results don't clearly answer it, say what is and isn't known. QUESTION: did the war end? "
+            "WEB SEARCH RESULTS: [1] a [2] b [3] c [4] d [5] e f g h i j k l m n o p q r s t u v w x y z a b c d",
+        ]:
             self.assertFalse(refers_back(query), query)
+
+    def test_nested_fences_stay_one_chunk(self) -> None:
+        text = "Here is how to write a fenced block:\n\n~~~\n```python\nprint('hi')\n```\n~~~\n\nThat is all."
+        pieces = chunk_text(text)
+        fenced = [piece for _, piece in pieces if "```python" in piece]
+        self.assertEqual(len(fenced), 1)
+        self.assertIn("~~~\n```python\nprint('hi')\n```\n~~~", fenced[0])  # closed by the matching ~~~ only
 
 
 class BuildContextTests(unittest.TestCase):
@@ -77,16 +91,29 @@ class BuildContextTests(unittest.TestCase):
         self.assertTrue(result.refers_back)
         self.assertIn("order_items", result.text)          # the tables the follow-up needs
         self.assertIn("CREATE TABLE users", result.text)   # fenced code survives verbatim
-        self.assertIn("most likely refers to J.A.R.V.I.S's reply in turn 2", result.text)
-        self.assertIn("do not search files", result.text)
+        self.assertIn("most likely means J.A.R.V.I.S's reply in turn 2", result.text)
+        self.assertIn("Never search files", result.text)
 
     def test_budget_is_respected_and_relevant_sections_survive_truncation(self) -> None:
         budget = len(SCHEMA) // 2
         result = build_context(_session(), "add indexes to the action plan tables", budget=budget)
-        self.assertLessEqual(len(result.text), budget + 200)  # the referent note may overhang slightly
+        self.assertLessEqual(len(result.text), budget)
         self.assertIn("omitted here", result.text)
         self.assertIn("remaining sections", result.text)
         self.assertIn("Action plan", result.text)  # named as a remaining section or surfaced as a chunk
+        # The referent note always fits inside the budget too.
+        result = build_context(_session(), "build an ERD for this", budget=600)
+        self.assertLessEqual(len(result.text), 600)
+        self.assertIn("most likely means", result.text)
+        result = build_context(_session(), "build an ERD for this", budget=300)  # too small for the note
+        self.assertLessEqual(len(result.text), 300)
+        self.assertNotIn("most likely means", result.text)
+
+    def test_context_is_memoized_per_inputs(self) -> None:
+        history = _session()
+        first = build_context(history, "build an ERD for this")
+        self.assertIs(build_context(list(history), "build an ERD for this"), first)
+        self.assertIsNot(build_context(history, "add indexes"), first)
 
     def test_long_session_gets_an_outline_and_relevant_earlier_chunks(self) -> None:
         history = _session(extra=6) + [

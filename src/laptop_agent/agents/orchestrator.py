@@ -18,7 +18,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
-from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, context_block
+from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, context_block, refers_back
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
@@ -179,10 +179,22 @@ class AgentOrchestrator:
         ]
 
     @staticmethod
-    def _tier_reply(provider, command, profile, history, on_token) -> str:
+    def _call_with_query(fn, command, profile, history, query):
+        """Call a provider's answer/stream_answer, passing ``context_query`` only when the
+        provider accepts it (test doubles and older providers do not)."""
+        if query is None:
+            return fn(command, profile, None, history)
+        try:
+            return fn(command, profile, None, history, context_query=query)
+        except TypeError:
+            return fn(command, profile, None, history)
+
+    @classmethod
+    def _tier_reply(cls, provider, command, profile, history, on_token, query=None) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
-        (e.g. it was unreachable/congested), which signals the caller to fall back."""
+        (e.g. it was unreachable/congested), which signals the caller to fall back.
+        ``query`` ranks the session context when ``command`` is a synthesized prompt."""
         check_cancelled()
         if provider is None:
             return ""
@@ -190,7 +202,7 @@ class AgentOrchestrator:
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
             try:
-                for token in streamer(command, profile, None, history):
+                for token in cls._call_with_query(streamer, command, profile, history, query):
                     check_cancelled()
                     chunks.append(token)
                     on_token(token)
@@ -204,7 +216,7 @@ class AgentOrchestrator:
             return "".join(chunks).strip()
         answer_fn = getattr(provider, "answer", None)
         if answer_fn is not None:
-            reply = (answer_fn(command, profile, None, history) or "").strip()
+            reply = (cls._call_with_query(answer_fn, command, profile, history, query) or "").strip()
             check_cancelled()
             return reply
         return ""
@@ -233,7 +245,7 @@ class AgentOrchestrator:
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
         # chat" and then the chat path makes a second LLM call to actually answer.
         # Cutting the redundant classify call roughly halves latency for small talk.
-        if fast.is_chat and fast.confidence >= 0.6:
+        if fast.is_chat and fast.response and fast.confidence >= 0.6:
             return fast
         return self.planner.plan(command, help_text, profile, history)
 
@@ -747,9 +759,7 @@ class AgentOrchestrator:
                     }
                 )
                 return result
-            if planned.action == "chat":
-                # (Not ``is_chat``: a router that defers a follow-up to the answerer sends
-                # action=chat with no text, and that must still reach the chat tiers.)
+            if planned.is_chat:
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
@@ -786,7 +796,11 @@ class AgentOrchestrator:
                     fast_available = self.model_status.should_attempt("fast")
                     if real_fast and fast_available:
                         attempted.add("fast")
-                    if on_token is not None and fast_provider is not None and fast_available:
+                    # A router that chose chat but left the text to the answerer (a
+                    # follow-up on the conversation) is asked for the reply too, rather
+                    # than being counted as a dead endpoint.
+                    deferred = real_fast and not planned.response and planned.confidence > 0
+                    if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
                         if real_fast:
                             self.model_status.record("fast", bool(reply))
@@ -795,14 +809,6 @@ class AgentOrchestrator:
                     elif real_fast and fast_available and planned.response and planned.confidence > 0:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
-                    elif real_fast and fast_available and planned.confidence > 0:
-                        # The router chose chat but left the text to the answerer (a
-                        # follow-up on the conversation): ask the fast tier for the reply
-                        # instead of counting this turn as a dead endpoint.
-                        reply = self._tier_reply(fast_provider, command, profile, history_turns, None)
-                        self.model_status.record("fast", bool(reply))
-                        if reply:
-                            response, model_used, answered = reply, "fast", True
                     elif real_fast and fast_available:
                         self.model_status.record("fast", False)
                 if not answered:
@@ -935,10 +941,11 @@ class AgentOrchestrator:
         streamer = getattr(provider, "stream_answer", None)
         streamed_live = on_token is not None and streamer is not None
         text = ""
+        # The prompt is synthesized; the session context is ranked on the user's words.
         if streamed_live:
-            text = self._tier_reply(provider, prompt, profile, history_turns, on_token)
+            text = self._tier_reply(provider, prompt, profile, history_turns, on_token, query=command)
         if not text:
-            text = (answer(prompt, profile, None, history_turns) or "").strip()
+            text = (self._call_with_query(answer, prompt, profile, history_turns, command) or "").strip()
         if not text:
             return None
 
@@ -1809,8 +1816,11 @@ class AgentOrchestrator:
         if not cleaned:
             return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
         agent_id = self.control_room.start(f"advisor: {cleaned}")
+        conversation = context_block(history or [], cleaned, budget=ADVISOR_BUDGET)
+        # A problem phrased as a follow-up ("is option B safer for this?") is meaningless
+        # as a web query; the conversation is its grounding.
         result = self._problem_solver().solve(
-            cleaned, conversation=context_block(history or [], cleaned, budget=ADVISOR_BUDGET)
+            cleaned, do_research=not (conversation and refers_back(cleaned)), conversation=conversation
         )
         self.control_room.finish(agent_id, result.analysis[:200], ok=result.ok)
         if not result.ok:

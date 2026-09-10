@@ -69,6 +69,25 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("THOUGHT", d.final_answer)
         d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
         self.assertEqual(d.final_answer, "all set")
+        # Leftover reasoning prose (even a wrapped multi-line THOUGHT) is not a deliverable.
+        d = parse_agent_decision(
+            "THOUGHT: I need to think about this carefully because the schema needs several\n"
+            "considerations around normalization and refunds that I should mention first.\n"
+            "FINAL: Here's the ERD."
+        )
+        self.assertEqual(d.final_answer, "Here's the ERD.")
+        # A table is a deliverable.
+        d = parse_agent_decision("| table | rows |\n|---|---|\n| users | 3 |\nFINAL: Counts above.")
+        self.assertTrue(d.final_answer.startswith("| table |"))
+
+    def test_uppercase_final_header_wins_over_a_prose_answer_line(self) -> None:
+        raw = "Q: What is 2+2?\nAnswer: 4\nFINAL: The ERD is:\nerDiagram\n  USERS ||--o{ ORDERS : places"
+        d = parse_agent_decision(raw)
+        self.assertTrue(d.final_answer.startswith("The ERD is:"))
+        self.assertIn("erDiagram", d.final_answer)
+        self.assertNotIn("FINAL", d.final_answer)
+        # Lower-case headers still parse when nothing better exists.
+        self.assertEqual(parse_agent_decision("final: ok").final_answer, "ok")
 
     def test_thought_only_reply_drops_the_label(self) -> None:
         # A reply that is only a THOUGHT (no ACTION/FINAL) should surface the thought

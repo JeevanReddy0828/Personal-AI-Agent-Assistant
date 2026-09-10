@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from laptop_agent.cancellation import check_cancelled
-
+from laptop_agent.context import FOLLOW_UP_RULE
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 import json
@@ -17,8 +17,13 @@ from laptop_agent.tools.base import ToolResult
 # How the reasoning model is asked to answer each turn. We accept a couple of
 # header spellings so a smaller model that drifts slightly still parses.
 _ACTION_RE = re.compile(r"^\s*(?:ACTION|COMMAND|NEXT)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-_FINAL_RE = re.compile(r"^\s*(?:FINAL|ANSWER|DONE)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE | re.DOTALL)
+_FINAL_HEAD_RE = re.compile(r"^[ \t]*(FINAL|ANSWER|DONE)[ \t]*:[ \t]*", re.IGNORECASE | re.MULTILINE)
 _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# What a deliverable written before FINAL looks like (code, headings, tables, lists,
+# Mermaid), as opposed to leftover reasoning prose.
+_DELIVERABLE_RE = re.compile(
+    r"(?:^|\n)[ \t]*(?:```|~~~|#{1,6}[ \t]|\|.*\||[-*][ \t]|\d+\.[ \t]|(?:erDiagram|flowchart|graph|sequenceDiagram|classDiagram|stateDiagram)\b)"
+)
 
 
 @dataclass(frozen=True)
@@ -66,13 +71,16 @@ def parse_agent_decision(text: str) -> AgentDecision:
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
 
-    final_match = _FINAL_RE.search(raw)
+    # Prefer an upper-case header: a deliverable may legitimately contain a line such as
+    # "Done: migrated" or "Answer: 4" before the model's real FINAL.
+    heads = list(_FINAL_HEAD_RE.finditer(raw))
+    final_match = next((head for head in heads if head.group(1).isupper()), heads[0] if heads else None)
     if final_match:
-        answer = final_match.group(1).strip().strip("`").strip()
+        answer = raw[final_match.end():].strip().strip("`").strip()
         # The model sometimes writes the deliverable (a diagram, code, a table) and then a
         # one-line FINAL that refers to it "above" — keep that body, minus the headers.
         body = _ACTION_RE.sub("", _THOUGHT_RE.sub("", raw[: final_match.start()])).strip()
-        if "```" in body or len(body) > 80:
+        if body and _DELIVERABLE_RE.search("\n" + body):
             answer = f"{body}\n\n{answer}".strip()
         return AgentDecision(thought=thought, command="", final_answer=answer, is_final=True)
 
@@ -126,9 +134,8 @@ class AutonomousAgent:
         self._execute = execute
         self._command_reference = command_reference.strip()
         self.max_steps = max(1, max_steps)
-        self._context = ""
 
-    def _build_prompt(self, goal: str, steps: list[AgentStep]) -> str:
+    def _build_prompt(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
         lines = [
             "You are the autonomous executor inside a local laptop assistant.",
             "Achieve the user's GOAL by choosing ONE command at a time from the AVAILABLE COMMANDS.",
@@ -144,13 +151,13 @@ class AutonomousAgent:
             "",
             f"GOAL: {goal}",
         ]
-        if self._context:
+        if context:
             lines += [
                 "",
                 "CONVERSATION CONTEXT (this session — what the user and you already said):",
-                self._context,
+                context,
                 "If the GOAL refers to something in the CONVERSATION CONTEXT ('this', 'it', 'the schema above'),",
-                "work from that text. Never search files or the web for something that was said in the conversation.",
+                f"work from that text. {FOLLOW_UP_RULE}",
                 "If the goal can be completed from the context alone (a diagram, summary, rewrite or answer about",
                 "it), reply FINAL: immediately with the complete result.",
             ]
@@ -177,7 +184,7 @@ class AutonomousAgent:
         is the session transcript block (``laptop_agent.context``) so a goal like "build an
         ERD for this" resolves against what was already said."""
         goal = goal.strip()
-        self._context = (context or "").strip()
+        context = (context or "").strip()
         if not goal:
             return AgentRunResult(goal="", final_answer="No goal was provided.", status="failed")
 
@@ -192,7 +199,7 @@ class AutonomousAgent:
         steps: list[AgentStep] = []
         for index in range(self.max_steps):
             check_cancelled()
-            prompt = self._build_prompt(goal, steps)
+            prompt = self._build_prompt(goal, steps, context)
             try:
                 reply = self._decide(prompt) or ""
             except Exception as exc:  # the brain is injected; never crash the loop on it
@@ -238,11 +245,11 @@ class AutonomousAgent:
         # Ran out of steps without a FINAL — ask for a closing summary, falling back
         # to a local recap so we always hand the user something coherent.
         check_cancelled()
-        summary = self._summarize(goal, steps)
+        summary = self._summarize(goal, steps, context)
         return AgentRunResult(goal=goal, final_answer=summary, status="stopped", steps=steps)
 
-    def _summarize(self, goal: str, steps: list[AgentStep]) -> str:
-        prompt = self._build_prompt(goal, steps) + (
+    def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
+        prompt = self._build_prompt(goal, steps, context) + (
             "\n\nYou have reached the step limit. Reply with FINAL: <summary of progress "
             "and what remains> only."
         )

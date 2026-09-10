@@ -25,7 +25,12 @@ async def repl() -> None:
         except ApprovalDenied as exc:
             print(f"Denied: {exc}")
             continue
-        history += [{"role": "user", "text": text}, {"role": "assistant", "text": result.message}]
+        # Keep a bounded digest of the tool data with the reply, so "summarize this"
+        # after `read file …` has the file text to work from, not just the status line.
+        reply = result.message
+        if result.data:
+            reply += "\n" + json.dumps(_json_safe(result.data), default=str)[:4000]
+        history += [{"role": "user", "text": text[:40000]}, {"role": "assistant", "text": reply[:40000]}]
         del history[:-80]
         print(result.message)
         if result.data:
