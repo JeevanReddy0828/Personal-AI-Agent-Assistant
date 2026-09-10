@@ -634,6 +634,77 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(last.ok)
             self.assertEqual(last.data["agent"]["run"], 1)
 
+    def test_autonomous_agent_sees_the_session_context(self) -> None:
+        # "build an ERD for this" after a schema answer must reach the reasoning model with
+        # that schema in the prompt, so it answers instead of scanning the filesystem.
+        class ScriptedProvider:
+            def __init__(self):
+                self.prompts = []
+
+            def answer(self, text, memory_profile, model=None, history=None, max_tokens=900):
+                self.prompts.append(text)
+                return "THOUGHT: it is in the conversation\nFINAL: erDiagram USERS ||--o{ ORDERS : places"
+
+        schema = "## Action plan\n1. Create `users` (id UUID PK).\n2. Create `orders` (buyer_id FK users).\n3. Create `order_items`."
+        history = [{"role": "user", "text": "design a marketplace schema"}, {"role": "assistant", "text": schema}]
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            brain = ScriptedProvider()
+            orchestrator.smart_planner = Planner(brain)
+            result = asyncio.run(orchestrator.run_agent("build an ERD for this", history=history))
+            self.assertTrue(result.ok)
+            self.assertIn("erDiagram", result.message)
+            self.assertEqual(result.data["steps"], [])
+            self.assertIn("order_items", brain.prompts[0])
+            self.assertIn("most likely refers to J.A.R.V.I.S's reply in turn 2", brain.prompts[0])
+            # The command path carries the same context.
+            result = asyncio.run(orchestrator.handle("agent run build an ERD for this", history=history))
+            self.assertTrue(result.ok)
+            self.assertIn("order_items", brain.prompts[-1])
+
+    def test_advisor_sees_the_session_context(self) -> None:
+        class Brain:
+            def __init__(self):
+                self.prompts = []
+
+            def answer(self, text, memory_profile, model=None, history=None, max_tokens=900):
+                self.prompts.append(text)
+                return "## Recommendation\nOption B."
+
+        history = [{"role": "user", "text": "pick a DB"}, {"role": "assistant", "text": "Option A Postgres, Option B MySQL"}]
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            brain = Brain()
+            orchestrator.smart_planner = Planner(brain)
+            result = asyncio.run(orchestrator.handle("solve is option B safer for this?", history=history))
+            self.assertTrue(result.ok)
+            self.assertIn("Option B MySQL", brain.prompts[0])
+
+    def test_chat_decision_without_text_is_answered_by_the_fast_tier(self) -> None:
+        # The router may defer a follow-up to the answerer (action=chat, response=null);
+        # that must produce a reply, not be recorded as a dead fast endpoint.
+        class Provider:
+            def __init__(self):
+                self.answers = 0
+
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.9, explanation="follow-up", response=None)
+
+            def answer(self, text, memory_profile, model=None, history=None):
+                self.answers += 1
+                return "Here is the ERD from the schema above."
+
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            provider = Provider()
+            orchestrator.planner = Planner(provider)
+            result = asyncio.run(orchestrator.handle("build an erd for this", history=[{"role": "user", "text": "x"}]))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.message, "Here is the ERD from the schema above.")
+            self.assertEqual(result.data["planner"]["model"], "fast")
+            self.assertEqual(provider.answers, 1)
+            self.assertTrue(orchestrator.model_status.should_attempt("fast"))
+
     def test_autonomous_agent_without_llm_fails_clearly(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))  # heuristic planner only — no answer()

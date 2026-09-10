@@ -37,6 +37,13 @@ class ProblemSolverTests(unittest.TestCase):
         self.assertEqual(result.sources, sources)
         self.assertIn("Benchmarks comparing options", brain.prompts[0])  # context fed to the model
 
+    def test_conversation_context_precedes_the_problem(self) -> None:
+        brain = _Brain()
+        ProblemSolver(decide=brain).solve("is option B safer for this?", conversation="User: pick a DB\nJ.A.R.V.I.S: Option A Postgres, Option B MySQL")
+        prompt = brain.prompts[0]
+        self.assertIn("Conversation so far in this session", prompt)
+        self.assertLess(prompt.index("Option B MySQL"), prompt.index("PROBLEM: is option B safer"))
+
     def test_research_failure_is_nonfatal(self) -> None:
         def boom(_q):
             raise RuntimeError("search down")

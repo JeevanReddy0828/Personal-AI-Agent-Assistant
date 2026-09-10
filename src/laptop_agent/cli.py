@@ -10,6 +10,7 @@ from laptop_agent.safety import ApprovalDenied
 
 async def repl() -> None:
     orchestrator = build_orchestrator()
+    history: list[dict[str, str]] = []  # this terminal session's transcript, for follow-ups
     print("Laptop Agent MVP. Type 'help' for commands, 'exit' to quit.")
     while True:
         try:
@@ -20,10 +21,12 @@ async def repl() -> None:
         if text.lower() in {"exit", "quit"}:
             return
         try:
-            result = await orchestrator.handle(text)
+            result = await orchestrator.handle(text, history=history)
         except ApprovalDenied as exc:
             print(f"Denied: {exc}")
             continue
+        history += [{"role": "user", "text": text}, {"role": "assistant", "text": result.message}]
+        del history[:-80]
         print(result.message)
         if result.data:
             print(json.dumps(_json_safe(result.data), indent=2, default=str))

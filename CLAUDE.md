@@ -168,13 +168,28 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
         `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
-        memory.py, token_vault.py (DPAPI), config.py
+        memory.py, token_vault.py (DPAPI), config.py,
+        context.py (session context: chunks the chat transcript by Markdown structure, ranks
+            chunks against the new message, budgets one block for every model-facing prompt)
 ```
 
 - `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
   entry. It checks direct command prefixes, then routes via heuristic → LLM.
   Tool results are turned into plain language by `_humanize` (local, no extra
   LLM call). Chat replies stream via the `on_token` callback when provided.
+- **Session context.** `history` is the whole session transcript (the web client sends
+  up to 80 turns per request; the CLI keeps its own list). `context.build_context(history,
+  query, budget=…)` chunks each turn by Markdown structure (fenced code stays whole), ranks
+  chunks against the new message (TF-IDF + recency + a boost for the latest assistant turn
+  when the message refers back with this/that/it), and assembles a budgeted block: an
+  outline of older turns, the recent turns verbatim, the best earlier chunks, and a note
+  naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
+  (`CHAT_BUDGET`), the autonomous agent (`AGENT_BUDGET`, via `AutonomousAgent.run(context=…)`)
+  and the advisor (`ADVISOR_BUDGET`, `ProblemSolver.solve(conversation=…)`). The router is
+  taught that a back-reference is a follow-up: `action=chat` with `response` possibly null,
+  which `handle` accepts (`planned.action == "chat"`, not `is_chat`) and hands to the chat
+  tiers — so "build an ERD for this" is answered from the schema in the conversation instead
+  of the agent scanning the filesystem. `/api/agent` takes `history` like `/api/stream`.
 - **Freshness path.** Before answering a chat turn, `_needs_fresh_info` flags
   time-sensitive questions (keywords + patterns like "did X end", recent years);
   `_grounded_news_answer` then runs a web search (one retry for the flaky free

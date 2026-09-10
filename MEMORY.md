@@ -45,6 +45,19 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 - Run tests through tests/run_tests.py to isolate personal configuration/data. Browser
   checks are opt-in with JARVIS_BROWSER_TESTS=1 and use mocked external integrations.
 
+## Session context (2026-09-10) — branch `claude/session-context`
+
+- The model never sees raw history any more: every prompt goes through
+  `context.build_context(history, query, budget)` (chunk → rank → budget → referent note).
+  Budgets live in `context.py` (`ROUTE_BUDGET` 2.4k chars, `CHAT_BUDGET` 9k, `AGENT_BUDGET` 6k,
+  `ADVISOR_BUDGET` 5k). Raise them there, not per call site.
+- A router decision of `action=chat` with no `response` is legitimate (a follow-up deferred to
+  the answerer). `handle` keys on `planned.action == "chat"`; `PlanDecision.is_chat` still
+  requires text and is only for the heuristic short-circuit in `_route`.
+- Every entry point passes the session: `/api/stream`, `/api/agent` and `/api/command` accept
+  `history`; the web client sends up to 80 turns (server cap 100); the CLI keeps its own list.
+  Adding a new model-facing path means threading `history` through it.
+
 ## Live-testing pass (2026-09-09) — branch `codex/review-stabilization-final`
 
 - **NVIDIA models get retired.** IDs return HTTP 410 (Gone) at end-of-life and 404 ("not for

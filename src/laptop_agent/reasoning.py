@@ -69,6 +69,11 @@ def parse_agent_decision(text: str) -> AgentDecision:
     final_match = _FINAL_RE.search(raw)
     if final_match:
         answer = final_match.group(1).strip().strip("`").strip()
+        # The model sometimes writes the deliverable (a diagram, code, a table) and then a
+        # one-line FINAL that refers to it "above" — keep that body, minus the headers.
+        body = _ACTION_RE.sub("", _THOUGHT_RE.sub("", raw[: final_match.start()])).strip()
+        if "```" in body or len(body) > 80:
+            answer = f"{body}\n\n{answer}".strip()
         return AgentDecision(thought=thought, command="", final_answer=answer, is_final=True)
 
     action_match = _ACTION_RE.search(raw)
@@ -121,6 +126,7 @@ class AutonomousAgent:
         self._execute = execute
         self._command_reference = command_reference.strip()
         self.max_steps = max(1, max_steps)
+        self._context = ""
 
     def _build_prompt(self, goal: str, steps: list[AgentStep]) -> str:
         lines = [
@@ -132,11 +138,22 @@ class AutonomousAgent:
             "ACTION: <a single command, copied verbatim from AVAILABLE COMMANDS with concrete arguments>",
             "When the goal is met (or cannot proceed), instead reply:",
             "THOUGHT: <why you are stopping>",
-            "FINAL: <a concise answer for the user, summarizing what you did and found>",
+            "FINAL: <the complete answer for the user — everything they should see goes after FINAL:, "
+            "including any diagram, code or table; it may span many lines>",
             "Rules: one command per turn, no prose outside the format, never invent commands.",
             "",
             f"GOAL: {goal}",
         ]
+        if self._context:
+            lines += [
+                "",
+                "CONVERSATION CONTEXT (this session — what the user and you already said):",
+                self._context,
+                "If the GOAL refers to something in the CONVERSATION CONTEXT ('this', 'it', 'the schema above'),",
+                "work from that text. Never search files or the web for something that was said in the conversation.",
+                "If the goal can be completed from the context alone (a diagram, summary, rewrite or answer about",
+                "it), reply FINAL: immediately with the complete result.",
+            ]
         if self._command_reference:
             lines += ["", "AVAILABLE COMMANDS:", self._command_reference]
         if steps:
@@ -149,10 +166,18 @@ class AutonomousAgent:
         lines += ["", "Your turn:"]
         return "\n".join(lines)
 
-    async def run(self, goal: str, on_step: Callable[[AgentStep], None] | None = None) -> AgentRunResult:
+    async def run(
+        self,
+        goal: str,
+        on_step: Callable[[AgentStep], None] | None = None,
+        context: str = "",
+    ) -> AgentRunResult:
         """Run the loop. ``on_step`` (if given) is called after each executed step so a UI
-        can render the trace live; it must not raise (failures are swallowed)."""
+        can render the trace live; it must not raise (failures are swallowed). ``context``
+        is the session transcript block (``laptop_agent.context``) so a goal like "build an
+        ERD for this" resolves against what was already said."""
         goal = goal.strip()
+        self._context = (context or "").strip()
         if not goal:
             return AgentRunResult(goal="", final_answer="No goal was provided.", status="failed")
 

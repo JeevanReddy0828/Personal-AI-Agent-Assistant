@@ -3,6 +3,22 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session context (2026-09-10)
+
+- **Follow-ups lost the conversation.** After the advisor produced a schema, "build a flow
+  chart for this schema" and "build erd for this" (agent mode) went hunting for `schema.json`
+  on disk. Four causes: `/api/agent` sent no history at all; the provider clipped every turn
+  to 300 chars and kept 8 turns, so the schema was gone even in chat; the advisor never saw
+  the conversation; the client sent only the last 12 messages. Fix: `context.py` chunks the
+  whole session and budgets a block for every prompt, with a note naming what "this" refers
+  to; history is threaded through agent, advisor, CLI and `/api/agent`. Rule: any new
+  model-facing path must take `history` and build its context with `context_block`.
+- **A chat decision with no text fell into the no-LLM fallback.** `PlanDecision.is_chat`
+  requires a response, so a router reply of `action=chat, response=null` returned the canned
+  "I do not have an LLM provider connected" message even with a model configured (and the
+  non-streaming path also recorded the fast tier as down). Fix: `handle` checks
+  `planned.action == "chat"` and asks the fast tier for the reply.
+
 ## Live-testing pass (2026-09-09)
 
 - **Chat brain pointed at retired models.** Every chat failed: `meta/llama-3.1-8b-instruct`

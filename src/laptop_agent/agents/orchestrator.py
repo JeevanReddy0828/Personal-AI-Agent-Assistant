@@ -18,6 +18,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
+from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, context_block
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
@@ -337,7 +338,7 @@ class AgentOrchestrator:
             return self._agent_last()
 
         if lowered.startswith("agent run "):
-            return await self._run_agent(command[len("agent run ") :].strip())
+            return await self._run_agent(command[len("agent run ") :].strip(), history=history_turns)
 
         if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
             return self._agent_control_room()
@@ -536,7 +537,7 @@ class AgentOrchestrator:
 
         for verb in ("solve ", "advise me on ", "advise ", "strategize ", "strategise "):
             if lowered.startswith(verb):
-                return self._solve(command[len(verb) :].strip())
+                return self._solve(command[len(verb) :].strip(), history_turns)
 
         if lowered.startswith("research report "):
             return self._research_report(command[len("research report ") :].strip())
@@ -746,7 +747,9 @@ class AgentOrchestrator:
                     }
                 )
                 return result
-            if planned.is_chat:
+            if planned.action == "chat":
+                # (Not ``is_chat``: a router that defers a follow-up to the answerer sends
+                # action=chat with no text, and that must still reach the chat tiers.)
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
@@ -792,6 +795,14 @@ class AgentOrchestrator:
                     elif real_fast and fast_available and planned.response and planned.confidence > 0:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
+                    elif real_fast and fast_available and planned.confidence > 0:
+                        # The router chose chat but left the text to the answerer (a
+                        # follow-up on the conversation): ask the fast tier for the reply
+                        # instead of counting this turn as a dead endpoint.
+                        reply = self._tier_reply(fast_provider, command, profile, history_turns, None)
+                        self.model_status.record("fast", bool(reply))
+                        if reply:
+                            response, model_used, answered = reply, "fast", True
                     elif real_fast and fast_available:
                         self.model_status.record("fast", False)
                 if not answered:
@@ -1412,12 +1423,13 @@ class AgentOrchestrator:
             self._resume_copilot_cache = JobCopilot(decide=brain)
         return self._resume_copilot_cache
 
-    async def run_agent(self, goal: str, on_step=None) -> ToolResult:
+    async def run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
         """Public entry for autonomous runs with an optional per-step callback (used by the
-        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path."""
-        return await self._run_agent(goal, on_step=on_step)
+        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path.
+        ``history`` is the session transcript so the goal can refer to earlier turns."""
+        return await self._run_agent(goal, on_step=on_step, history=history)
 
-    async def _run_agent(self, goal: str, on_step=None) -> ToolResult:
+    async def _run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
         goal = goal.strip()
         if not goal:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
@@ -1425,12 +1437,13 @@ class AgentOrchestrator:
         agent_id = self.control_room.start(f"agent: {goal}")
         agent = AutonomousAgent(
             decide=self._build_agent_brain(),
-            execute=lambda command: self.handle(command, _allow_planner=False),
+            execute=lambda command: self.handle(command, _allow_planner=False, history=history),
             command_reference=self._agent_reference(),
             max_steps=6,
         )
+        context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
-            result = await agent.run(goal, on_step=on_step)
+            result = await agent.run(goal, on_step=on_step, context=context)
         except OperationCancelled:
             self.control_room.finish(agent_id, "Stopped by user", ok=False)
             raise
@@ -1791,12 +1804,14 @@ class AgentOrchestrator:
             return "", []
         return str(gathered.data.get("text", "")), list(gathered.data.get("sources", []))
 
-    def _solve(self, problem: str) -> ToolResult:
+    def _solve(self, problem: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = problem.strip().strip("'\"")
         if not cleaned:
             return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
         agent_id = self.control_room.start(f"advisor: {cleaned}")
-        result = self._problem_solver().solve(cleaned)
+        result = self._problem_solver().solve(
+            cleaned, conversation=context_block(history or [], cleaned, budget=ADVISOR_BUDGET)
+        )
         self.control_room.finish(agent_id, result.analysis[:200], ok=result.ok)
         if not result.ok:
             return ToolResult.failure(result.analysis, problem=cleaned)

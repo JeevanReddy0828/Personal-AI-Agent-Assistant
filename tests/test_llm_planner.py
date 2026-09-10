@@ -132,6 +132,27 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertIn("User: summarize the README", system)
         self.assertIn("J.A.R.V.I.S: Done.", system)
 
+    def test_follow_up_gets_the_previous_answer_and_a_referent_note(self) -> None:
+        # A long earlier answer must reach the router in full (the old block clipped each
+        # turn to 300 chars), and "this" must be resolved to that reply so the model
+        # answers from it instead of hunting for a file.
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return '{"action":"chat","response":null}'
+
+        schema = "## Action plan\n" + "\n".join(f"{i}. Create `table_{i}` with id UUID PK." for i in range(1, 30))
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture).plan(
+            "build an ERD for this", "help", {},
+            [{"role": "user", "text": "design a marketplace schema"}, {"role": "assistant", "text": schema}],
+        )
+        system = captured["messages"][0]["content"]
+        self.assertIn("table_29", system)
+        self.assertIn("most likely refers to J.A.R.V.I.S's reply in turn 2", system)
+        self.assertIn("follow-up", _SYSTEM_PROMPT)
+        self.assertTrue(any("ERD" in user for user, _json in _FEWSHOT))
+
     def test_solve_routing_is_taught_to_the_model(self) -> None:
         # The brain must be told it can route decisions/problems to `solve`, both in
         # the system prompt and via a worked few-shot example — so it auto-routes
