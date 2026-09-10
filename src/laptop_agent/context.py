@@ -15,8 +15,10 @@ Everything is local and dependency-free.
 
 from __future__ import annotations
 
+import inspect
 import math
 import re
+import threading
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 
@@ -258,6 +260,7 @@ def _summary_line(text: str, limit: int = 140, detail: bool = True) -> str:
 
 _MEMO: OrderedDict[tuple, SessionContext] = OrderedDict()
 _MEMO_SIZE = 16
+_MEMO_LOCK = threading.Lock()  # the web server handles requests on threads
 
 
 def build_context(
@@ -276,14 +279,16 @@ def build_context(
     if not turns:
         return SessionContext(text="")
     key = (tuple(turns), query, budget, recent_turns, title)
-    cached = _MEMO.get(key)
-    if cached is not None:
-        _MEMO.move_to_end(key)
-        return cached
+    with _MEMO_LOCK:
+        cached = _MEMO.get(key)
+        if cached is not None:
+            _MEMO.move_to_end(key)
+            return cached
     result = _assemble(turns, query, budget, recent_turns, title)
-    _MEMO[key] = result
-    while len(_MEMO) > _MEMO_SIZE:
-        _MEMO.popitem(last=False)
+    with _MEMO_LOCK:
+        _MEMO[key] = result
+        while len(_MEMO) > _MEMO_SIZE:
+            _MEMO.popitem(last=False)
     return result
 
 
@@ -416,3 +421,14 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
 
 def context_block(history: list[dict[str, str]] | None, query: str = "", budget: int = 9000) -> str:
     return build_context(history, query, budget=budget).text
+
+
+def accepts_context_query(fn) -> bool:
+    """Whether a provider's answer/stream_answer takes ``context_query=`` (test doubles
+    and older providers do not); checked by signature so a provider's own TypeError is
+    never mistaken for an unsupported keyword."""
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == "context_query" or p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters)

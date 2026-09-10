@@ -109,6 +109,19 @@ class BuildContextTests(unittest.TestCase):
         self.assertLessEqual(len(result.text), 300)
         self.assertNotIn("most likely means", result.text)
 
+    def test_accepts_context_query_is_decided_by_signature(self) -> None:
+        from laptop_agent.context import accepts_context_query
+
+        def legacy(text, profile, model=None, history=None):
+            raise TypeError("a bug inside the provider must not look like an unsupported keyword")
+
+        def modern(text, profile, model=None, history=None, context_query=None):
+            return "ok"
+
+        self.assertFalse(accepts_context_query(legacy))
+        self.assertTrue(accepts_context_query(modern))
+        self.assertTrue(accepts_context_query(lambda *a, **kw: "ok"))
+
     def test_context_is_memoized_per_inputs(self) -> None:
         history = _session()
         first = build_context(history, "build an ERD for this")

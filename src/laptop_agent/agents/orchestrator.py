@@ -18,7 +18,7 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
-from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, context_block, refers_back
+from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, accepts_context_query, context_block, refers_back
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
@@ -182,12 +182,9 @@ class AgentOrchestrator:
     def _call_with_query(fn, command, profile, history, query):
         """Call a provider's answer/stream_answer, passing ``context_query`` only when the
         provider accepts it (test doubles and older providers do not)."""
-        if query is None:
-            return fn(command, profile, None, history)
-        try:
+        if query is not None and accepts_context_query(fn):
             return fn(command, profile, None, history, context_query=query)
-        except TypeError:
-            return fn(command, profile, None, history)
+        return fn(command, profile, None, history)
 
     @classmethod
     def _tier_reply(cls, provider, command, profile, history, on_token, query=None) -> str:
