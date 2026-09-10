@@ -949,6 +949,16 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("planner", result.data)
             self.assertEqual(result.data["matches"][0]["line"], 1)
 
+    def test_complexity_escalates_logic_and_puzzles(self) -> None:
+        for text in (
+            "You have 8 and 5 liter jugs; how do you measure exactly 4 liters?",
+            "What is 37 x 48? Show your reasoning.",
+            "Find the flaw in this claim: correlation always proves causation.",
+            "solve this riddle for me",
+        ):
+            self.assertEqual(AgentOrchestrator._complexity(text), 2, text)  # reasoning tier
+        self.assertEqual(AgentOrchestrator._complexity("hey there"), 0)  # small talk stays simple
+
     def test_three_tier_model_selection(self) -> None:
         class ChatPlanner:
             def plan(self, text, available_commands, memory_profile, history=None):

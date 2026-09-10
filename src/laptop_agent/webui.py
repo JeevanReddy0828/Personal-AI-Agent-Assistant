@@ -884,12 +884,24 @@ PAGE = r"""<!doctype html>
   const nativeFetch=window.fetch.bind(window);
   window.fetch=(input,options={})=>{
     const url=new URL(typeof input==='string'?input:input.url,location.href);
-    if(url.origin===location.origin){
+    const same=url.origin===location.origin;
+    if(same){
       const headers=new Headers(options.headers||(input instanceof Request?input.headers:undefined));
       headers.set('X-Jarvis-Token','{{API_TOKEN}}');
       options={...options,headers};
     }
-    return nativeFetch(input,options);
+    const p=nativeFetch(input,options);
+    if(!same)return p;
+    // The API token is per server process. If the server was restarted this tab's token
+    // goes stale and same-origin calls 403 — reload once to pick up a fresh token rather
+    // than dead-ending. A 5s guard prevents a reload loop if the 403 is something else.
+    return p.then(r=>{
+      if(r.status===403){
+        let last=0; try{last=+sessionStorage.getItem('jarvisTokReload')||0;}catch(e){}
+        if(Date.now()-last>5000){try{sessionStorage.setItem('jarvisTokReload',String(Date.now()));}catch(e){}location.reload();}
+      }
+      return r;
+    });
   };
   const chat=document.getElementById('chat'), ta=document.getElementById('ta'), sendBtn=document.getElementById('sendBtn'),
         attachBtn=document.getElementById('attachBtn'), fileIn=document.getElementById('file'), chips=document.getElementById('chips'),

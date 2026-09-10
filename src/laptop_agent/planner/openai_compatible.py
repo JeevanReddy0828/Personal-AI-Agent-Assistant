@@ -220,7 +220,9 @@ class OpenAICompatiblePlannerProvider:
         payload: dict[str, object] = {
             "model": model or self.model,
             "temperature": 0.6,
-            "max_tokens": 900,
+            # Roomy enough that a thorough comparison or design answer isn't cut off
+            # mid-sentence; short replies still stop early on their own.
+            "max_tokens": 2048,
             "stream": True,
             "messages": [
                 {

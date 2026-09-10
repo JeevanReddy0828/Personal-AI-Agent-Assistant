@@ -125,6 +125,11 @@ class AgentOrchestrator:
             "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
             "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
             "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
+            # Logic / puzzle / multi-step reasoning cues -> the reasoning tier, which
+            # thinks before answering (the non-reasoning tiers ramble on these).
+            "puzzle", "riddle", "brain teaser", "logic puzzle", "logic problem",
+            "measure exactly", "show your reasoning", "show your work", "show the steps",
+            "find the flaw", "fallacy", "how many ways", "solve for",
         )
         if words > 70 or any(trigger in lowered for trigger in deep):
             return 2
@@ -1618,7 +1623,9 @@ class AgentOrchestrator:
     def _problem_solver(self) -> ProblemSolver:
         if self._problem_solver_cache is None:
             self._problem_solver_cache = ProblemSolver(
-                decide=self._build_agent_brain(),
+                # A structured framing/options/plan analysis is long; the default 900-token
+                # budget truncated it mid-sentence, so give it real room.
+                decide=self._build_agent_brain(answer_max_tokens=4000),
                 research=self._advice_research,
             )
         return self._problem_solver_cache
