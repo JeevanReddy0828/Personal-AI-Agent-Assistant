@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from laptop_agent.webui import _compose_command
+from laptop_agent.webui import _CONFIG, _compose_command, _image_path
 
 
 class ComposeCommandTests(unittest.TestCase):
@@ -35,6 +35,36 @@ class ComposeCommandTests(unittest.TestCase):
     def test_ignores_blank_and_non_list_attachments(self) -> None:
         self.assertEqual(_compose_command("hi", [""]), "hi")
         self.assertEqual(_compose_command("hi", None), "hi")
+
+
+class ImageRouteTests(unittest.TestCase):
+    """The /api/image route resolves a bare filename inside the images directory only."""
+
+    PNG_HEADER = bytes([0x89]) + b"PNG\r\n" + bytes([0x1A]) + b"\n"
+
+    def setUp(self) -> None:
+        self.directory = (_CONFIG.data_dir / "images").resolve()
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.picture = self.directory / "fox-1.png"
+        self.picture.write_bytes(self.PNG_HEADER)
+        self.addCleanup(self.picture.unlink, True)
+
+    def test_serves_a_generated_picture(self) -> None:
+        self.assertEqual(_image_path("fox-1.png"), self.picture)
+
+    def test_rejects_path_traversal_and_absolute_paths(self) -> None:
+        for name in ("../../.env", "..\\..\\.env", "/etc/passwd", "sub/fox-1.png", ".hidden.png", ""):
+            with self.subTest(name=name):
+                self.assertIsNone(_image_path(name))
+
+    def test_rejects_a_file_that_is_not_an_image_format(self) -> None:
+        other = self.directory / "notes.txt"
+        other.write_text("secret", encoding="utf-8")
+        self.addCleanup(other.unlink, True)
+        self.assertIsNone(_image_path("notes.txt"))
+
+    def test_missing_file_is_not_found(self) -> None:
+        self.assertIsNone(_image_path("nope.png"))
 
 
 if __name__ == "__main__":

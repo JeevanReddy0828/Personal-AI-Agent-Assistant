@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from laptop_agent.tools.imagegen import DEFAULT_MODEL as DEFAULT_IMAGE_MODEL
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -37,6 +39,8 @@ class AppConfig:
     llm_vision_model: str | None
     llm_api_key: str | None
     obsidian_vault: str | None
+    llm_image_model: str = DEFAULT_IMAGE_MODEL
+    llm_image_api_key: str | None = None
     search_provider: str = ""
     search_api_key: str | None = None
     # Optional cross-provider fallback: when the primary (e.g. NVIDIA) tiers are
@@ -152,6 +156,10 @@ def load_config() -> AppConfig:
         llm_smart_model=os.environ.get("OPENAI_SMART_MODEL"),
         llm_ultra_model=os.environ.get("OPENAI_ULTRA_MODEL"),
         llm_vision_model=os.environ.get("OPENAI_VISION_MODEL"),
+        # Blank entries in .env mean "not set", so fall back rather than passing "" on.
+        llm_image_model=os.environ.get("OPENAI_IMAGE_MODEL", "").strip() or DEFAULT_IMAGE_MODEL,
+        # Image generation lives on a different NVIDIA host, so it may carry its own key.
+        llm_image_api_key=os.environ.get("OPENAI_IMAGE_KEY", "").strip() or os.environ.get("OPENAI_API_KEY"),
         llm_api_key=os.environ.get("OPENAI_API_KEY"),
         obsidian_vault=os.environ.get("OBSIDIAN_VAULT"),
         search_provider=search_provider,

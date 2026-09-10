@@ -132,6 +132,11 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
+        imagegen (text-to-image via NVIDIA's hosted FLUX endpoint: `image <description>`
+            plus a heuristic route for "draw me a picture of …"; the trailing word
+            square/landscape/portrait/wide/tall picks the resolution. Saves under
+            `data_dir/images/`, returns Markdown that embeds the picture, and the chat
+            renders it inline through `/api/image?name=`),
         travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),
@@ -231,6 +236,12 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`)
 - `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
 - `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
+- `OPENAI_IMAGE_MODEL` — text-to-image (`black-forest-labs/flux.2-klein-4b`), called on
+  `https://ai.api.nvidia.com/v1/genai/<model>`, not the chat base URL. Optionally
+  `OPENAI_IMAGE_KEY` when image generation uses its own NVIDIA key.
+  Measured on the free tier: klein answers in ~2s while `flux.1-schnell` queues past a
+  300s timeout, and `nemotron-3.5-lightning-30b-a3b` takes 6-14s per chat turn against
+  0.5-1.5s for `nemotron-3-super-120b-a12b` — so super stays on the fast tier.
 - `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
 
 The ultra tier is treated as an NVIDIA **reasoning** model: its provider is built with

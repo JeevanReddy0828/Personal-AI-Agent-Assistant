@@ -99,6 +99,10 @@ class HeuristicPlannerProvider:
         if flights:
             return flights
 
+        picture = self._image(raw)
+        if picture:
+            return picture
+
         weather = self._weather(raw)
         if weather:
             return weather
@@ -408,6 +412,24 @@ class HeuristicPlannerProvider:
             dest = m.group(1).strip().strip("?.!,'\"")
             return self._command(f"web search flights to {dest}", "User wants flights.", 0.78) if dest else None
         return None
+
+    def _image(self, text: str) -> PlanDecision | None:
+        """'draw me a picture of a fox' -> the image tool, with no LLM round-trip."""
+        match = re.match(
+            r"^\s*(?:can you |could you |please )?"
+            r"(?:draw|paint|sketch|generate|create|make|render)\s+"
+            r"(?:me\s+)?(?:an?\s+|some\s+)?"
+            r"(?:image|picture|photo|illustration|drawing|painting|artwork)\s+"
+            r"(?:of|showing|with)\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        subject = match.group(1).strip().strip("?.!,'\"")
+        if not subject:
+            return None
+        return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
 
     def _weather(self, text: str) -> PlanDecision | None:
         """Real forecast (Open-Meteo) instead of opening a web search for weather."""

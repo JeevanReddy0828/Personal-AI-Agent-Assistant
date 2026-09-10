@@ -59,6 +59,9 @@ _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-
 # True only when serving the dedicated desktop window (run_desktop), so the HUD's
 # real window effects (opacity / always-on-top) never touch a normal browser window.
 _DESKTOP_MODE = False
+# Only the formats the image tool writes are servable, so the route can never be used
+# to read an arbitrary file that happens to sit in the images directory.
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 def _compose_command(command: str, attachments: object) -> str:
@@ -94,6 +97,23 @@ def _bare_attachment_command(path: str) -> str:
     if Path(path).suffix.lower() in IMAGE_EXTENSIONS:
         return f"describe image {path}"
     return f"process file {path}"
+
+
+def _image_path(name: str) -> Path | None:
+    """Resolve a generated image by bare filename, or None if it is not one of ours.
+
+    The name must be a plain filename in the images directory with a format the image
+    tool writes, so the route can never be walked into an arbitrary file on disk.
+    """
+    if not name or name != Path(name).name or name.startswith("."):
+        return None
+    if Path(name).suffix.lower() not in IMAGE_TYPES:
+        return None
+    directory = (_CONFIG.data_dir / "images").resolve()
+    target = (directory / name).resolve()
+    if target.parent != directory or not target.is_file():
+        return None
+    return target
 
 
 def _schedule_snapshot() -> dict:
@@ -306,6 +326,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, _pipeline_snapshot())
         elif path == "/api/resume-pdf":
             self._serve_resume_pdf()
+        elif path == "/api/image":
+            self._serve_image()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -574,6 +596,24 @@ class Handler(BaseHTTPRequestHandler):
             company=str(payload.get("company", "")), role=str(payload.get("role", "")),
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _serve_image(self) -> None:
+        """Serve a generated picture so the chat can embed it (CSP allows img-src 'self')."""
+        from urllib.parse import parse_qs, urlparse
+
+        name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
+        target = _image_path(name)
+        if target is None:
+            self._send(404, b"no such image", "text/plain")
+            return
+        kind = IMAGE_TYPES[target.suffix.lower()]
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_resume_pdf(self) -> None:
         """Stream a job's tailored resume PDF as a download."""

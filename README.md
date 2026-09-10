@@ -112,6 +112,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### 👁️ Vision & media
 | Capability | How |
 |---|---|
+| Generate a picture | `image <description>`, or "draw me a picture of …" |
 | Image OCR | `ocr image <path>` |
 | Audio/video transcription (offline) | `transcribe <path>` |
 | Understand your screen | `read screen [question]` |
@@ -190,6 +191,7 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 | smart | `OPENAI_SMART_MODEL` | complex questions |
 | ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout); NVIDIA reasoning models think first (`OPENAI_REASONING_BUDGET`) |
 | vision | `OPENAI_VISION_MODEL` | screen + images |
+| image | `OPENAI_IMAGE_MODEL` | text-to-image (FLUX; own key via `OPENAI_IMAGE_KEY`) |
 | backup | `OPENROUTER_API_KEY` | cross-provider last resort |
 
 At runtime each turn escalates by complexity and **degrades gracefully**:
@@ -251,6 +253,7 @@ src/laptop_agent/
   planner/                 Heuristic (instant) + OpenAI-compatible (LLM) routers
   tools/                   files, web, research, email, travel, transcribe, webcam,
                            music, weather, youtube, obsidian, browser, desktop, terminal,
+                           imagegen (text-to-image),
                            jobright (lead scraper), resume_pdf (HTML→PDF via Chromium)
   copilot.py  jobs.py      Resume CoPilot (ATS + grounded template resume) + job pipeline
   advisor.py  reasoning.py Problem-solver + autonomous plan/act/observe loop
@@ -259,6 +262,7 @@ src/laptop_agent/
   safety.py  audit.py      Approval gate + JSONL audit log
   model_status.py  health.py  Per-tier reachability + system self-check
   cli.py  gui.py  webui.py  Three front ends (CLI, Tkinter, web/native)
+  webui_page.py            The web UI document (markup + CSS + JS), served by webui.py
 tests/                     Dependency-free unit tests (offline)
 ```
 
