@@ -334,6 +334,7 @@ PAGE = r"""<!doctype html>
   .att{display:inline-flex;align-items:center;gap:6px;margin:6px 6px 0 0;background:#0b1016;border:1px solid var(--line2);border-radius:7px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted)}
   .copybtn{display:inline-block;margin-top:8px;background:transparent;border:1px solid var(--line2);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:.5px;padding:3px 9px;cursor:pointer;opacity:.55;transition:opacity .15s,color .15s,border-color .15s}
   .copybtn:hover,.copybtn:focus-visible{opacity:1;color:var(--ice-b);border-color:var(--ice-deep);outline:none}
+  .meta{margin:7px 10px 0 0;display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.3px;color:var(--muted);opacity:.8}
   .att .ic{color:var(--amber)}
   .det{margin-top:7px} .det>summary{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--amber-soft);cursor:pointer;list-style:none}
   .det>summary::-webkit-details-marker{display:none} .det>summary::before{content:'\25B8  ';color:var(--amber)} .det[open]>summary::before{content:'\25BE  '}
@@ -904,7 +905,7 @@ PAGE = r"""<!doctype html>
   let coreState='idle', activeTier='fast';
   const TIER_COLORS={fast:'#54e0a0',smart:'#a98bff',ultra:'#ff5d6c'};   // green / violet / red
   const VOICE_COLOR='#b388ff';                                          // violet shift in voice mode
-  const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model · 550B'};
+  const TIER_NAME={fast:'fast model',smart:'complex model',ultra:'deep model'};
   function coreColor(){
     if(coreState==='listening')return VOICE_COLOR;
     if(coreState==='thinking'||coreState==='speaking')return TIER_COLORS[activeTier]||'#ffb000';
@@ -1139,6 +1140,7 @@ PAGE = r"""<!doctype html>
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
     md.innerHTML='<span class="dots"><span></span><span></span><span></span></span>'+(predicted==='ultra'?' <span style="color:#ff5d6c;font-size:11px">on the 550B model — this can take a moment</span>':predicted==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'');
     let reply='', streamed='';
+    const t0=performance.now(); let tFirst=0;
     currentAbort=new AbortController();currentRequest=crypto.randomUUID();
     try{
       const speakStream=voiceActive; if(speakStream)voiceTurnReset();
@@ -1152,7 +1154,7 @@ PAGE = r"""<!doctype html>
           const line=buf.slice(0,i); buf=buf.slice(i+2);
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
-          if(ev.type==='token'){if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          if(ev.type==='token'){if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
           else if(ev.type==='reset'){streamed='';md.innerHTML='';ttsQueue=[];}
           else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
           else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
@@ -1167,6 +1169,12 @@ PAGE = r"""<!doctype html>
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
+      // Show which model answered and how long it took, so tier/latency is visible.
+      const planner=d.data&&d.data.planner, totalS=((performance.now()-t0)/1000).toFixed(1), bits=[];
+      if(planner&&planner.model){const nm={fast:PLANNER,smart:SMART,ultra:ULTRA,openrouter:'backup model',unavailable:'no model reachable'}[planner.model]||planner.model;bits.push(nm);if(tFirst)bits.push('first token '+((tFirst-t0)/1000).toFixed(1)+'s');}
+      else bits.push('local');
+      bits.push(totalS+'s'+(planner&&planner.model?' total':''));
+      const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
       const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply});saveSessions();}
       loadVault();
     }catch(err){
@@ -1737,9 +1745,13 @@ PAGE = r"""<!doctype html>
     rec.onstart=()=>vmark('mic-on');
     rec.onspeechstart=()=>vmark('speech');
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
-    rec.onerror=(e)=>{vmark('err:'+(e&&e.error||'?'));};
+    rec.onerror=(e)=>{const err=(e&&e.error)||'?';vmark('err:'+err);
+      if(err==='no-speech'||err==='aborted')return;         // benign — silence timer / restart handles it
+      const M={'not-allowed':'Microphone blocked. Allow mic access for this site (click the camera/lock icon by the address bar), then start Voice again.','service-not-allowed':'Microphone is blocked by the browser or OS. Allow mic access, then retry.','audio-capture':'No microphone found. Connect or enable a mic, then retry.','network':'Speech recognition needs an internet connection in this browser, and it appears offline or blocked.'};
+      vtrans.textContent=M[err]||('Voice error: '+err);vSet('idle','Voice error');
+      if(err==='not-allowed'||err==='service-not-allowed'||err==='audio-capture'){recognizing=false;endVoice();}};
     rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
-    try{rec.start();}catch(e){recognizing=false;}
+    try{rec.start();}catch(e){recognizing=false;vtrans.textContent='Could not start the microphone: '+((e&&e.message)||e);vSet('idle','Voice error');}
   }
   // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
   // Capture raw PCM and encode a 16kHz mono 16-bit WAV in the browser, so the server
