@@ -88,6 +88,12 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("FINAL", d.final_answer)
         # Lower-case headers still parse when nothing better exists.
         self.assertEqual(parse_agent_decision("final: ok").final_answer, "ok")
+        # An upper-case DONE: key inside a fenced deliverable is not the header.
+        raw = "THOUGHT: config below\n```yaml\nTODO: pending\nDONE: complete\n```\nFINAL: The config is above."
+        d = parse_agent_decision(raw)
+        self.assertTrue(d.final_answer.startswith("```yaml\nTODO: pending\nDONE: complete\n```"))
+        self.assertTrue(d.final_answer.endswith("The config is above."))
+        self.assertNotIn("FINAL", d.final_answer)
 
     def test_thought_only_reply_drops_the_label(self) -> None:
         # A reply that is only a THOUGHT (no ACTION/FINAL) should surface the thought

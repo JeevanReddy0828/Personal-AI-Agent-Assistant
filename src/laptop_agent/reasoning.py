@@ -53,6 +53,28 @@ class AgentRunResult:
     steps: list[AgentStep] = field(default_factory=list)
 
 
+_FENCE_OPEN_RE = re.compile(r"^\s{0,3}(```|~~~)")
+
+
+def _fenced_spans(text: str) -> list[tuple[int, int]]:
+    """Character spans of fenced code blocks (an unclosed fence runs to the end)."""
+    spans: list[tuple[int, int]] = []
+    marker, start, position = "", 0, 0
+    for line in text.splitlines(keepends=True):
+        if marker:
+            if line.strip() == marker:
+                spans.append((start, position + len(line)))
+                marker = ""
+        else:
+            opener = _FENCE_OPEN_RE.match(line)
+            if opener:
+                marker, start = opener.group(1), position
+        position += len(line)
+    if marker:
+        spans.append((start, len(text)))
+    return spans
+
+
 def _strip_command(raw: str) -> str:
     """Pull a runnable command out of a model line — drop fences, quotes, trailing prose."""
     command = raw.strip()
@@ -71,9 +93,10 @@ def parse_agent_decision(text: str) -> AgentDecision:
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
 
-    # Prefer an upper-case header: a deliverable may legitimately contain a line such as
-    # "Done: migrated" or "Answer: 4" before the model's real FINAL.
-    heads = list(_FINAL_HEAD_RE.finditer(raw))
+    # Prefer an upper-case header outside any fenced block: a deliverable may legitimately
+    # contain a line such as "Done: migrated", "Answer: 4" or a "DONE:" YAML key.
+    fenced = _fenced_spans(raw)
+    heads = [head for head in _FINAL_HEAD_RE.finditer(raw) if not any(start <= head.start() < end for start, end in fenced)]
     final_match = next((head for head in heads if head.group(1).isupper()), heads[0] if heads else None)
     if final_match:
         answer = raw[final_match.end():].strip().strip("`").strip()

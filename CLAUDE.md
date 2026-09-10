@@ -179,11 +179,15 @@ Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
   LLM call). Chat replies stream via the `on_token` callback when provided.
 - **Session context.** `history` is the whole session transcript (the web client sends
   up to 80 turns per request; the CLI keeps its own list). `context.build_context(history,
-  query, budget=…)` chunks each turn by Markdown structure (fenced code stays whole), ranks
-  chunks against the new message (TF-IDF + recency + a boost for the latest assistant turn
-  when the message refers back with this/that/it), and assembles a budgeted block: an
-  outline of older turns, the recent turns verbatim, the best earlier chunks, and a note
-  naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
+  query, budget=…)` follows the standard chat-memory hierarchy: when the whole transcript
+  fits the budget it goes in verbatim; otherwise the recent turns are quoted verbatim, the
+  older turns become a **rolling summary** written by the fast tier in the background
+  (`register_summarizer`, cached per transcript prefix and folded incrementally; a
+  heading outline stands in until it exists), and the best earlier chunks are retrieved
+  with **contextual BM25** (each Markdown chunk — fenced code kept whole — is indexed with
+  its turn's title and section heading). A follow-up ("build an ERD for this") is rewritten
+  into a standalone query for retrieval and for the advisor's web research
+  (`resolve_reference`), and the block ends with a note naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
   (`CHAT_BUDGET`), the autonomous agent (`AGENT_BUDGET`, via `AutonomousAgent.run(context=…)`)
   and the advisor (`ADVISOR_BUDGET`, `ProblemSolver.solve(conversation=…)`). The router is
   taught that a back-reference is a follow-up: resolve it from the transcript, emit a command

@@ -23,6 +23,11 @@ near-miss. Newest first.
   below… prefer this live information" prompt contains "this", so every fresh-news answer got
   a note telling the model the question referred to the previous reply. Fix: rank the session
   context on the user's own words (`context_query=`), and `refers_back` ignores long messages.
+- **Long fenced code was sawn in half; a `DONE:` YAML key posed as the FINAL header.** The
+  hard-split loop cut a 2.8k-char code block into two unbalanced pieces, and header detection
+  matched inside fenced blocks. Fix: long fences split at line boundaries with every piece
+  re-fenced; header candidates outside fenced spans only. Also: a hard-cut fallback marked a
+  whole chunk as shown when only its prefix was, hiding the rest from retrieval.
 - **A one-line FINAL dropped the diagram written before it.** The agent wrote the Mermaid
   chart, then `FINAL: the chart is above`, and only the FINAL text reached the user. Fix: keep a
   pre-FINAL body when it has deliverable structure (fence, heading, table, list, diagram) and

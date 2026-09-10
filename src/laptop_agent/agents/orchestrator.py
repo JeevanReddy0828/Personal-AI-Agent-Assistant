@@ -18,7 +18,14 @@ from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotPlanner, AutopilotStep, AutopilotTracker, parse_autopilot_steps
-from laptop_agent.context import ADVISOR_BUDGET, AGENT_BUDGET, accepts_context_query, context_block, refers_back
+from laptop_agent.context import (
+    ADVISOR_BUDGET,
+    AGENT_BUDGET,
+    accepts_context_query,
+    build_context,
+    context_block,
+    register_summarizer,
+)
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
@@ -116,6 +123,9 @@ class AgentOrchestrator:
         self._copilot_cache: JobCopilot | None = None
         self._resume_copilot_cache: JobCopilot | None = None
         self._repo_cache: dict[str, list[dict]] | None = None
+        # The rolling summary of older turns is written by the fast tier in the background
+        # (see context.py); with no model configured it simply never appears.
+        register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
 
     @staticmethod
     def _complexity(text: str) -> int:
@@ -1813,12 +1823,10 @@ class AgentOrchestrator:
         if not cleaned:
             return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
         agent_id = self.control_room.start(f"advisor: {cleaned}")
-        conversation = context_block(history or [], cleaned, budget=ADVISOR_BUDGET)
-        # A problem phrased as a follow-up ("is option B safer for this?") is meaningless
-        # as a web query; the conversation is its grounding.
-        result = self._problem_solver().solve(
-            cleaned, do_research=not (conversation and refers_back(cleaned)), conversation=conversation
-        )
+        session = build_context(history or [], cleaned, budget=ADVISOR_BUDGET)
+        # A follow-up ("is option B safer for this?") is researched in its standalone
+        # form ("… (referring to: Postgres vs MySQL)"), not as the bare fragment.
+        result = self._problem_solver().solve(cleaned, conversation=session.text, research_query=session.query)
         self.control_room.finish(agent_id, result.analysis[:200], ok=result.ok)
         if not result.ok:
             return ToolResult.failure(result.analysis, problem=cleaned)

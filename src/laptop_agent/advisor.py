@@ -52,9 +52,13 @@ class ProblemSolver:
         self._research = research
         self._max_context_chars = max_context_chars
 
-    def solve(self, problem: str, do_research: bool = True, conversation: str = "") -> AdviceResult:
+    def solve(
+        self, problem: str, do_research: bool = True, conversation: str = "", research_query: str | None = None
+    ) -> AdviceResult:
         """``conversation`` is the session transcript block, so a problem phrased as a
-        follow-up ("is option B safer for this?") is judged against what was already said."""
+        follow-up ("is option B safer for this?") is judged against what was already said;
+        ``research_query`` is that follow-up rewritten to stand alone, which is what the
+        web search sees."""
         problem = (problem or "").strip()
         if not problem:
             return AdviceResult(problem="", analysis="Tell me the problem or decision you'd like help with.", ok=False)
@@ -62,7 +66,7 @@ class ProblemSolver:
         context, sources, used_research = "", [], False
         if do_research and self._research is not None:
             try:
-                context, sources = self._research(problem)
+                context, sources = self._research(research_query or problem)
             except Exception:  # grounding is best-effort; never block the advice on it
                 context, sources = "", []
             context = (context or "").strip()[: self._max_context_chars]

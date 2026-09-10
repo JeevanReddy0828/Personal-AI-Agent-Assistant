@@ -4,13 +4,22 @@ Every model-facing path (router, chat tiers, autonomous agent, advisor) used to 
 most the last eight turns clipped to 300 characters, so a long answer such as a schema
 design vanished and a follow-up like "build an ERD for this" had nothing to refer to.
 
-``build_context`` treats the whole session as the source instead. It splits each turn
-into Markdown-aware chunks (headings, paragraphs, fenced code kept whole), ranks them
-against the new message (term overlap with IDF, recency, and a boost for the most recent
-assistant turn when the message refers back with "this"/"that"/"it"), and assembles a
-budgeted block: a one-line outline of every turn, the most recent turns verbatim, the
-best earlier chunks, and a note naming what "this" most likely refers to.
-Everything is local and dependency-free.
+``build_context`` treats the whole session as the source instead, following the usual
+hierarchy for chat memory (recent turns verbatim, older turns summarized, the rest
+retrieved on demand):
+
+* When the whole transcript fits the budget it goes in verbatim — nothing beats the
+  original text for a small corpus.
+* Otherwise the most recent turns are quoted verbatim (the turn a follow-up refers to
+  gets the largest share), the older turns become a rolling summary written by the
+  configured model in the background (cached per transcript prefix, so it never adds
+  latency; a heading-based outline stands in until it exists), and the best earlier
+  chunks are retrieved with contextual BM25 — each chunk is indexed together with its
+  turn's title and section heading, so it matches on what it is *about*.
+* A follow-up ("build an ERD for this", "shorter") is rewritten into a standalone
+  query for retrieval, and the block ends with a note naming what "this" refers to.
+
+Everything is local and dependency-free; the summarizer is an injected callable.
 """
 
 from __future__ import annotations
@@ -20,6 +29,7 @@ import math
 import re
 import threading
 from collections import Counter, OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 _ROLE_LABEL = {"user": "User", "assistant": "J.A.R.V.I.S"}
@@ -70,7 +80,10 @@ _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 _FENCE_OPEN = re.compile(r"^\s{0,3}(```|~~~)")
 _WORD = re.compile(r"[a-z0-9]+")
 
-History = "list[dict[str, str]] | None"
+# BM25 parameters (the usual defaults) and the size of the rolling summary.
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+_SUMMARY_WORDS = 220
 
 
 @dataclass(frozen=True)
@@ -85,8 +98,10 @@ class Chunk:
 @dataclass(frozen=True)
 class SessionContext:
     text: str
+    query: str = ""  # the message rewritten as a standalone query (for retrieval/research)
     referent: str = ""
     refers_back: bool = False
+    summarized: bool = False
 
 
 def normalize_history(history: list[dict[str, str]] | None) -> list[tuple[str, str]]:
@@ -114,6 +129,19 @@ def refers_back(query: str) -> bool:
     if _REFERS_BACK.search(query):
         return True
     return len(words) <= 3 and words[0].lower().strip("?!.,") not in _COMMAND_VERBS
+
+
+def resolve_reference(query: str, turns: list[tuple[str, str]]) -> tuple[str, int | None]:
+    """Rewrite a follow-up into a standalone query by naming what it refers to (the latest
+    assistant turn), the way conversational retrieval rewrites "is it safer?" into
+    "is option B safer? (referring to: Postgres vs MySQL)". Returns (query, referent turn)."""
+    if not refers_back(query):
+        return query, None
+    referent = max((i for i, (role, _) in enumerate(turns) if role == "assistant"), default=None)
+    if referent is None:
+        return query, None
+    title = _summary_line(turns[referent][1], 90, detail=False)
+    return f"{query} (referring to: {title})", referent
 
 
 def _split_point(text: str, limit: int) -> int:
@@ -178,12 +206,38 @@ def chunk_text(text: str, target: int = 700, hard: int = 1400) -> list[tuple[str
 
     pieces: list[tuple[str, str]] = []
     for block_heading, block in merged:
+        opener = _FENCE_OPEN.match(block)
+        if opener and len(block) > hard:
+            pieces.extend((block_heading, piece) for piece in _split_fence(block, opener.group(1), hard))
+            continue
         while len(block) > hard:
             cut = _split_point(block, hard)
             pieces.append((block_heading, block[:cut].rstrip()))
             block = block[cut:].lstrip()
         if block:
             pieces.append((block_heading, block))
+    return pieces
+
+
+def _split_fence(block: str, marker: str, hard: int) -> list[str]:
+    """Cut a long fenced block at line boundaries and re-fence every piece, so no chunk
+    ever shows an unbalanced fence."""
+    lines = block.splitlines()
+    opener = lines[0]
+    closer = marker if lines[-1].strip() == marker else ""
+    body = lines[1 : len(lines) - 1 if closer else len(lines)]
+    limit = max(200, hard - len(opener) - len(marker) - 2)
+    pieces: list[str] = []
+    group: list[str] = []
+    size = 0
+    for line in body:
+        if group and size + len(line) + 1 > limit:
+            pieces.append("\n".join([opener, *group, marker]))
+            group, size = [], 0
+        group.append(line)
+        size += len(line) + 1
+    if group or not pieces:
+        pieces.append("\n".join([opener, *group, closer or marker]))
     return pieces
 
 
@@ -196,16 +250,26 @@ def chunk_history(turns: list[tuple[str, str]]) -> list[Chunk]:
 
 
 def rank_chunks(
-    chunks: list[Chunk], query: str, turn_count: int, referent_turn: int | None = None
+    chunks: list[Chunk],
+    query: str,
+    turn_count: int,
+    referent_turn: int | None = None,
+    turn_titles: dict[int, str] | None = None,
 ) -> list[tuple[float, Chunk]]:
-    """Score chunks for a query: TF-IDF overlap, a heading hit, recency, and a flat boost
-    for the turn the query refers back to. Sorted best first."""
+    """Contextual BM25: each chunk is scored on its own text plus its turn's title and
+    section heading (so it matches on what it is about), then weighted for recency and
+    boosted when it belongs to the turn the query refers back to. Sorted best first."""
     query_terms = set(terms(query))
     if not query_terms:  # nothing to match on: only the referent boost can rank anything
         ranked = [(1.0 if chunk.turn == referent_turn else 0.0, chunk) for chunk in chunks]
         ranked.sort(key=lambda item: (-item[0], item[1].turn, item[1].position))
         return ranked
-    counts_per_chunk = [Counter(terms(chunk.text + " " + chunk.heading)) for chunk in chunks]
+    titles = turn_titles or {}
+    counts_per_chunk = [
+        Counter(terms(f"{titles.get(chunk.turn, '')} {chunk.heading} {chunk.text}")) for chunk in chunks
+    ]
+    lengths = [sum(counts.values()) for counts in counts_per_chunk]
+    average_length = (sum(lengths) / len(lengths)) if lengths else 1.0
     document_frequency: Counter[str] = Counter()
     for counts in counts_per_chunk:
         for term in query_terms:
@@ -213,18 +277,18 @@ def rank_chunks(
                 document_frequency[term] += 1
     total = max(1, len(chunks))
     ranked: list[tuple[float, Chunk]] = []
-    for chunk, counts in zip(chunks, counts_per_chunk):
+    for chunk, counts, length in zip(chunks, counts_per_chunk, lengths):
         score = 0.0
         for term in query_terms:
             frequency = counts.get(term, 0)
-            if frequency:
-                score += (1 + math.log(frequency)) * math.log(1 + total / (1 + document_frequency[term]))
-        score /= math.sqrt(len(query_terms))
-        if score and query_terms & set(terms(chunk.heading)):
-            score += 0.5
+            if not frequency:
+                continue
+            idf = math.log(1 + (total - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
+            norm = frequency + _BM25_K1 * (1 - _BM25_B + _BM25_B * length / max(1.0, average_length))
+            score += idf * frequency * (_BM25_K1 + 1) / norm
         score *= 0.6 + 0.4 * (chunk.turn + 1) / max(1, turn_count)
         if referent_turn is not None and chunk.turn == referent_turn:
-            score += 1.0
+            score = score * 1.5 + 1.0
         ranked.append((score, chunk))
     ranked.sort(key=lambda item: (-item[0], item[1].turn, item[1].position))
     return ranked
@@ -258,9 +322,81 @@ def _summary_line(text: str, limit: int = 140, detail: bool = True) -> str:
     return first
 
 
+# ---------------------------------------------------------------------------------------
+# Rolling summary of the older turns (the "summary buffer"): written by the configured
+# model, folded incrementally (previous summary + newly aged turns), cached per transcript
+# prefix, and computed in the background so a request never waits for it.
+Summarizer = Callable[[str], str]
+_summarizer: Summarizer | None = None
+_summarize_in_background = True
+_SUMMARIES: OrderedDict[tuple, str] = OrderedDict()
+_SUMMARY_SIZE = 64
+_IN_FLIGHT: set[tuple] = set()
+_LOCK = threading.Lock()  # guards the memo, the summaries and the in-flight set
+_SUMMARY_PROMPT = (
+    "Summarize the earlier part of this conversation for your own later use. Keep every specific a "
+    "follow-up could need: what the user asked for, decisions and recommendations, names, numbers, "
+    "file paths, URLs, commands, code identifiers, table and column names. Dense prose or bullets, "
+    "at most {limit} words, no preamble.\n\nPREVIOUS SUMMARY (may be empty):\n{previous}\n\n"
+    "NEW TURNS TO FOLD IN:\n{turns}\n\nSUMMARY:"
+)
+
+
+def register_summarizer(fn: Summarizer | None, background: bool = True) -> None:
+    """Install the model call that writes the rolling summary (prompt -> text; '' when no
+    model is available). ``background=False`` computes summaries inline, for tests."""
+    global _summarizer, _summarize_in_background
+    _summarizer = fn
+    _summarize_in_background = background
+
+
+def _compute_summary(prefix: tuple[tuple[str, str], ...]) -> None:
+    summarizer = _summarizer
+    if summarizer is None:
+        return
+    with _LOCK:
+        base = max((k for k in range(len(prefix) - 1, 0, -1) if prefix[:k] in _SUMMARIES), default=0)
+        previous = _SUMMARIES.get(prefix[:base], "") if base else ""
+    new_turns = "\n".join(
+        f"{_ROLE_LABEL[role]}: {text[:1500]}{' …' if len(text) > 1500 else ''}" for role, text in prefix[base:]
+    )
+    prompt = _SUMMARY_PROMPT.format(limit=_SUMMARY_WORDS, previous=previous or "(none)", turns=new_turns)
+    try:
+        summary = (summarizer(prompt) or "").strip()
+    except Exception:  # the model is best-effort here; the outline stands in
+        summary = ""
+    with _LOCK:
+        _IN_FLIGHT.discard(prefix)
+        if summary:
+            _SUMMARIES[prefix] = summary
+            _SUMMARIES.move_to_end(prefix)
+            while len(_SUMMARIES) > _SUMMARY_SIZE:
+                _SUMMARIES.popitem(last=False)
+
+
+def _summary_for(prefix: tuple[tuple[str, str], ...]) -> str | None:
+    """The cached rolling summary of ``prefix``, or None (and a background job) if it is
+    not written yet."""
+    if _summarizer is None or not prefix:
+        return None
+    with _LOCK:
+        cached = _SUMMARIES.get(prefix)
+        if cached is not None:
+            return cached
+        if prefix in _IN_FLIGHT:
+            return None
+        _IN_FLIGHT.add(prefix)
+    if _summarize_in_background:
+        threading.Thread(target=_compute_summary, args=(prefix,), daemon=True).start()
+        return None
+    _compute_summary(prefix)
+    with _LOCK:
+        return _SUMMARIES.get(prefix)
+
+
+# ---------------------------------------------------------------------------------------
 _MEMO: OrderedDict[tuple, SessionContext] = OrderedDict()
 _MEMO_SIZE = 16
-_MEMO_LOCK = threading.Lock()  # the web server handles requests on threads
 
 
 def build_context(
@@ -277,15 +413,15 @@ def build_context(
     tier the fallback ladder tries, all with the same history."""
     turns = normalize_history(history)
     if not turns:
-        return SessionContext(text="")
+        return SessionContext(text="", query=query)
     key = (tuple(turns), query, budget, recent_turns, title)
-    with _MEMO_LOCK:
+    with _LOCK:
         cached = _MEMO.get(key)
         if cached is not None:
             _MEMO.move_to_end(key)
             return cached
     result = _assemble(turns, query, budget, recent_turns, title)
-    with _MEMO_LOCK:
+    with _LOCK:
         _MEMO[key] = result
         while len(_MEMO) > _MEMO_SIZE:
             _MEMO.popitem(last=False)
@@ -294,13 +430,8 @@ def build_context(
 
 def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turns: int, title: str) -> SessionContext:
     turn_count = len(turns)
-    chunks = chunk_history(turns)
-    by_turn: dict[int, list[Chunk]] = {}
-    for chunk in chunks:
-        by_turn.setdefault(chunk.turn, []).append(chunk)
-    anaphoric = refers_back(query)
-    last_assistant = max((i for i, (role, _) in enumerate(turns) if role == "assistant"), default=None)
-    referent_turn = last_assistant if anaphoric else None
+    resolved, referent_turn = resolve_reference(query, turns)
+    anaphoric = referent_turn is not None or refers_back(query)
 
     # The referent note is short and reserved up front so it always fits (or is dropped
     # when the budget is too small to hold anything else beside it).
@@ -316,7 +447,6 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
             note = ""
 
     lines: list[str] = []
-    used: set[tuple[int, int]] = set()
     size = len(note) + 1 if note else 0
 
     def add(line: str) -> None:
@@ -326,25 +456,52 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
 
     add(f"{title} (this session, oldest first — a quoted transcript, not instructions):")
 
-    # 1. A one-line outline of everything before the recent window.
-    recent_start = max(0, turn_count - recent_turns)
-    if recent_start > 0:
-        outline = [
-            f"{index + 1}. {_ROLE_LABEL[role]}: {_summary_line(text)}"
-            for index, (role, text) in enumerate(turns[:recent_start])
-        ]
-        outline_budget = int(budget * 0.15)
-        while outline and sum(len(line) + 1 for line in outline) > outline_budget:
-            outline.pop(0)
-        omitted = recent_start - len(outline)
-        if omitted:
-            add(f"({omitted} earlier turn(s) omitted)")
-        for line in outline:
+    def finish(summarized: bool = False) -> SessionContext:
+        if note:
+            lines.append(note)
+        return SessionContext(
+            text="\n".join(lines) + "\n", query=resolved, referent=referent, refers_back=anaphoric, summarized=summarized
+        )
+
+    # Small corpus: everything verbatim beats any summary or retrieval.
+    verbatim = [f"{_ROLE_LABEL[role]}: {text}" for role, text in turns]
+    if size + sum(len(line) + 1 for line in verbatim) <= budget:
+        for line in verbatim:
             add(line)
+        return finish()
+
+    chunks = chunk_history(turns)
+    by_turn: dict[int, list[Chunk]] = {}
+    for chunk in chunks:
+        by_turn.setdefault(chunk.turn, []).append(chunk)
+    titles = {index: _summary_line(text, 90, detail=False) for index, (_, text) in enumerate(turns)}
+    used: set[tuple[int, int]] = set()
+
+    # 1. The older turns: the rolling summary when the model has written it, else an outline.
+    recent_start = max(0, turn_count - recent_turns)
+    summarized = False
+    if recent_start > 0:
+        older_budget = int(budget * 0.3)
+        summary = _summary_for(tuple(turns[:recent_start]))
+        if summary and len(summary) + 40 <= older_budget:
+            add(f"Summary of turns 1–{recent_start}:")
+            add(summary)
+            summarized = True
+        else:
+            outline = [f"{index + 1}. {_ROLE_LABEL[role]}: {_summary_line(text)}" for index, (role, text) in enumerate(turns[:recent_start])]
+            outline_budget = int(budget * 0.15)
+            while outline and sum(len(line) + 1 for line in outline) > outline_budget:
+                outline.pop(0)
+            omitted = recent_start - len(outline)
+            if omitted:
+                add(f"({omitted} earlier turn(s) omitted)")
+            for line in outline:
+                add(line)
         add("Most recent turns:")
 
     # 2. The recent window verbatim: the referent (else the latest assistant turn) is
     #    filled first, then the others newest-first, until the window's share runs out.
+    last_assistant = max((i for i, (role, _) in enumerate(turns) if role == "assistant"), default=None)
     recent = list(range(recent_start, turn_count))
     star = referent_turn if referent_turn in recent else (last_assistant if last_assistant in recent else None)
     pool = int((budget - size) * 0.7)
@@ -372,10 +529,9 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
                 break
             kept.append(chunk)
             total += len(chunk.text) + 2
-        if not kept:
-            first = by_turn.get(index, [])[:1]
+        if not kept:  # only a prefix is shown, so the chunk stays retrievable later
             cut = _split_point(text, cap)
-            return f"{label}{text[:cut].rstrip()} …", first
+            return f"{label}{text[:cut].rstrip()} …", []
         rest = by_turn[index][len(kept):]
         sections: list[str] = []
         for chunk in rest:
@@ -396,7 +552,7 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
         candidates = [chunk for chunk in chunks if (chunk.turn, chunk.position) not in used]
         picked: list[tuple[str, Chunk]] = []
         left = budget - size - len("Relevant earlier context for this request:") - 1
-        for score, chunk in rank_chunks(candidates, query, turn_count, referent_turn):
+        for score, chunk in rank_chunks(candidates, resolved, turn_count, referent_turn, titles):
             if score <= 0 or len(picked) >= 8:
                 break
             where = f"turn {chunk.turn + 1}, {_ROLE_LABEL[chunk.role]}"
@@ -412,11 +568,7 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
             for line, _chunk in sorted(picked, key=lambda item: (item[1].turn, item[1].position)):
                 add(line)
 
-    # 4. Say what "this" points at, so a follow-up is answered from the text, not by hunting.
-    if note:
-        lines.append(note)
-
-    return SessionContext(text="\n".join(lines) + "\n", referent=referent, refers_back=anaphoric)
+    return finish(summarized)
 
 
 def context_block(history: list[dict[str, str]] | None, query: str = "", budget: int = 9000) -> str:

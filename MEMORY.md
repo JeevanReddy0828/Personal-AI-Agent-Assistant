@@ -48,7 +48,13 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 ## Session context (2026-09-10) — branch `claude/session-context`
 
 - The model never sees raw history any more: every prompt goes through
-  `context.build_context(history, query, budget)` (chunk → rank → budget → referent note).
+  `context.build_context(history, query, budget)`. Design follows the documented chat-memory
+  hierarchy (recent verbatim → older summarized → rest retrieved): the summary buffer pattern
+  (LangChain/Mem0), Anthropic's contextual retrieval (chunks indexed with situating context,
+  BM25) and conversational query rewriting (resolve "this" before retrieval/research).
+  Small sessions go in verbatim (Anthropic: under ~200k tokens just include everything).
+  The rolling summary is an injected callable (`register_summarizer`, the orchestrator uses
+  the fast tier) and always runs in the background — a request never waits for it.
   Budgets live in `context.py` (`ROUTE_BUDGET` 2.4k chars, `CHAT_BUDGET` 9k, `AGENT_BUDGET` 6k,
   `ADVISOR_BUDGET` 5k). Raise them there, not per call site.
 - A router decision of `action=chat` with no `response` is legitimate (a follow-up deferred to

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from laptop_agent.context import build_context, chunk_text, context_block, rank_chunks, refers_back, chunk_history
+from laptop_agent.context import (
+    CHAT_BUDGET, build_context, chunk_history, chunk_text, context_block, rank_chunks, refers_back,
+    register_summarizer, resolve_reference,
+)
 
 SCHEMA = (
     "## Problem\nDesign a robust PostgreSQL schema for an online marketplace.\n\n"
@@ -63,6 +66,16 @@ class ChunkingTests(unittest.TestCase):
             "WEB SEARCH RESULTS: [1] a [2] b [3] c [4] d [5] e f g h i j k l m n o p q r s t u v w x y z a b c d",
         ]:
             self.assertFalse(refers_back(query), query)
+
+    def test_long_fence_is_split_into_balanced_pieces(self) -> None:
+        code = "```python\n" + "\n".join(f"print('line {i}')" for i in range(200)) + "\n```"
+        pieces = chunk_text("Here:\n\n" + code + "\n\nDone.", hard=1400)
+        fenced = [piece for _, piece in pieces if "print('line" in piece]
+        self.assertGreater(len(fenced), 1)
+        for piece in fenced:
+            self.assertTrue(piece.startswith("```python\n") and piece.rstrip().endswith("```"), piece[:40])
+            self.assertLessEqual(len(piece), 1400)
+        self.assertEqual("".join(fenced).count("print('line"), 200)
 
     def test_nested_fences_stay_one_chunk(self) -> None:
         text = "Here is how to write a fenced block:\n\n~~~\n```python\nprint('hi')\n```\n~~~\n\nThat is all."
@@ -135,12 +148,12 @@ class BuildContextTests(unittest.TestCase):
             {"role": "user", "text": "and what about the weather?"},
             {"role": "assistant", "text": "Still sunny in Tokyo."},
         ]
-        result = build_context(history, "which tables did you propose for refunds and payments", budget=6000)
+        result = build_context(history, "which tables did you propose for refunds and payments", budget=1800)
         self.assertIn("Most recent turns:", result.text)
         self.assertRegex(result.text, r"\d+\. J\.A\.R\.V\.I\.S: Problem")
         self.assertIn("Relevant earlier context", result.text)
         self.assertIn("refunds", result.text)
-        self.assertLessEqual(len(result.text), 6000 + 300)
+        self.assertLessEqual(len(result.text), 1800)
 
     def test_ranking_prefers_matching_and_referent_chunks(self) -> None:
         turns = [("user", "hi"), ("assistant", "## Fruit\napples and pears\n\n## Cars\nengines and wheels")]
@@ -149,6 +162,79 @@ class BuildContextTests(unittest.TestCase):
         self.assertIn("engines", ranked[0][1].text)
         boosted = rank_chunks(chunks, "more", 2, referent_turn=1)
         self.assertTrue(all(score >= 1.0 for score, chunk in boosted if chunk.turn == 1))
+
+
+
+class MemoryHierarchyTests(unittest.TestCase):
+    """The summary buffer, contextual BM25 retrieval and follow-up rewriting."""
+
+    def tearDown(self) -> None:
+        register_summarizer(None)
+
+    def test_small_session_goes_in_verbatim_with_no_outline(self) -> None:
+        history = _session(extra=3)  # 8 short-ish turns that fit a generous budget
+        result = build_context(history, "and the refunds table?", budget=CHAT_BUDGET)
+        self.assertNotIn("Most recent turns:", result.text)
+        self.assertIn("Earlier question number 0", result.text)
+        self.assertIn("CREATE TABLE users", result.text)
+
+    def test_rolling_summary_replaces_the_outline_and_is_cached_incrementally(self) -> None:
+        prompts: list[str] = []
+
+        def summarizer(prompt: str) -> str:
+            prompts.append(prompt)
+            return "Earlier: the user asked about Tokyo weather several times; then asked for a marketplace schema."
+
+        register_summarizer(summarizer, background=False)
+        history = _session(extra=6) + [
+            {"role": "user", "text": "thanks"}, {"role": "assistant", "text": "Any time, Jeevan."},
+            {"role": "user", "text": "and the weather?"}, {"role": "assistant", "text": "Still sunny in Tokyo."},
+        ]
+        result = build_context(history, "which tables did you propose for refunds", budget=1800)
+        self.assertTrue(result.summarized)
+        self.assertIn("Summary of turns 1–", result.text)
+        self.assertIn("marketplace schema", result.text)
+        self.assertNotRegex(result.text, r"\d+\. J\.A\.R\.V\.I\.S: Earlier answer")   # outline replaced
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("PREVIOUS SUMMARY", prompts[0])
+        # Same prefix, different question: served from the cache, no second model call.
+        build_context(history, "and the payments table?", budget=1800)
+        self.assertEqual(len(prompts), 1)
+        # A longer prefix folds the previous summary in instead of starting over.
+        build_context(history + [{"role": "user", "text": "x"}, {"role": "assistant", "text": "y"}], "more?", budget=1800)
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("Earlier: the user asked about Tokyo", prompts[-1])
+
+    def test_outline_stands_in_when_the_summarizer_has_nothing(self) -> None:
+        register_summarizer(lambda prompt: "", background=False)
+        result = build_context(_session(extra=6), "which tables did you propose", budget=1200)
+        self.assertFalse(result.summarized)
+        self.assertRegex(result.text, r"\d+\. User: Earlier question")
+
+    def test_contextual_bm25_matches_on_the_turns_topic(self) -> None:
+        turns = [
+            ("user", "tell me about the marketplace schema"),
+            ("assistant", "## Notes\nUse UUID keys and snapshot prices at purchase time."),
+            ("user", "tell me about tokyo weather"),
+            ("assistant", "## Notes\nBring an umbrella in June; typhoons peak in September."),
+        ]
+        chunks = chunk_history(turns)
+        titles = {i: text.splitlines()[0] for i, (_, text) in enumerate(turns)}
+        ranked = rank_chunks(chunks, "marketplace snapshot prices", 4, turn_titles=titles)
+        self.assertIn("snapshot prices", ranked[0][1].text)
+        # 'schema' appears only in the user turn's title, yet the assistant chunk under it ranks
+        # above the weather chunk because chunks are indexed with their turn's title.
+        ranked = rank_chunks(chunks, "schema keys", 4, turn_titles={1: titles[0], 3: titles[2]})
+        self.assertIn("UUID keys", ranked[0][1].text)
+
+    def test_follow_up_is_rewritten_into_a_standalone_query(self) -> None:
+        turns = [("user", "pick a DB"), ("assistant", "Option A Postgres, Option B MySQL")]
+        query, referent = resolve_reference("is option B safer for this?", turns)
+        self.assertEqual(referent, 1)
+        self.assertEqual(query, "is option B safer for this? (referring to: Option A Postgres, Option B MySQL)")
+        self.assertEqual(resolve_reference("what is the weather in Tokyo tomorrow", turns), ("what is the weather in Tokyo tomorrow", None))
+        result = build_context([{"role": r, "text": t} for r, t in turns], "is option B safer for this?")
+        self.assertIn("(referring to:", result.query)
 
 
 if __name__ == "__main__":
