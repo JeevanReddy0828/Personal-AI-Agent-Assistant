@@ -238,9 +238,11 @@ PAGE = r"""<!doctype html>
   /* deep-space gradient + an arc-reactor glow rising from the centre-bottom */
   body::before{content:'';position:fixed;inset:0;z-index:-3;
     background:
-      radial-gradient(120% 80% at 50% -10%,rgba(95,208,230,.10),transparent 55%),
-      radial-gradient(90% 70% at 50% 116%,rgba(255,180,58,.10),transparent 55%),
-      linear-gradient(180deg,#070a10,#04060a 70%)}
+      radial-gradient(72% 52% at 13% -8%,rgba(95,208,230,.15),transparent 55%),
+      radial-gradient(58% 48% at 88% 3%,rgba(169,139,255,.09),transparent 55%),
+      radial-gradient(92% 66% at 50% 118%,rgba(255,180,58,.11),transparent 55%),
+      radial-gradient(125% 125% at 50% 42%,transparent 58%,rgba(2,4,7,.72)),
+      linear-gradient(180deg,#070b12,#04060a 72%)}
   /* faint HUD grid + a slow scan sweep across the whole deck */
   body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.5;
     background-image:linear-gradient(rgba(95,208,230,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(95,208,230,.05) 1px,transparent 1px);
@@ -309,10 +311,12 @@ PAGE = r"""<!doctype html>
   .chat{flex:1;overflow-y:auto;padding:18px 22px 6px}
   .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding-bottom:30px}
   .empty .orb{width:70px;height:70px}
-  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:21px;margin:0;color:#eaf6fb;text-shadow:0 0 22px rgba(95,208,230,.35)}
+  .empty h1{font-family:var(--display);font-weight:600;letter-spacing:3px;font-size:23px;margin:0;
+    background:linear-gradient(180deg,#f2fbfe 15%,#7fd4e6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 0 22px rgba(95,208,230,.32))}
   .empty p{color:var(--muted);font-size:13px;margin:0;max-width:420px;line-height:1.6}
   .suggest{display:grid;grid-template-columns:1fr 1fr;gap:9px;width:100%;max-width:480px}
-  .scard{position:relative;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 14px;cursor:pointer;font-size:12.5px;transition:.18s;overflow:hidden}
+  .scard{position:relative;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;cursor:pointer;font-size:12.5px;transition:.18s;overflow:hidden;backdrop-filter:blur(7px)}
   .scard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ice);opacity:0;transition:.18s}
   .scard:hover{border-color:var(--line2);background:rgba(95,208,230,.05);transform:translateY(-1px)} .scard:hover::before{opacity:.8}
   .scard b{display:block;font-family:var(--display);font-size:9.5px;letter-spacing:1.5px;color:var(--ice-b);text-transform:uppercase;margin-bottom:3px}
@@ -346,7 +350,8 @@ PAGE = r"""<!doctype html>
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
   .chip{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11px}
   .chip .ic{color:var(--amber)} .chip .rm{cursor:pointer;color:var(--muted)} .chip .rm:hover{color:var(--danger)}
-  .box{display:flex;align-items:flex-end;gap:5px;background:linear-gradient(180deg,rgba(11,16,24,.92),rgba(7,10,16,.92));border:1px solid var(--line2);border-radius:16px;padding:6px 7px 6px 6px;transition:.2s}
+  .box{display:flex;align-items:flex-end;gap:5px;background:linear-gradient(180deg,rgba(11,16,24,.92),rgba(7,10,16,.92));border:1px solid var(--line2);border-radius:18px;padding:6px 7px 6px 6px;transition:.22s;box-shadow:0 10px 34px -22px rgba(0,0,0,.9)}
+  .box:focus-within{border-color:var(--ice);box-shadow:0 0 0 3px rgba(95,208,230,.12),0 12px 34px -14px rgba(95,208,230,.45)}
   .box:focus-within{border-color:var(--ice);box-shadow:0 0 0 1px rgba(95,208,230,.5),0 0 26px -6px rgba(95,208,230,.45)}
   .iconbtn{width:38px;height:38px;flex:none;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-size:16px;position:relative;transition:.15s}
   .iconbtn:hover{background:rgba(95,208,230,.08);color:var(--ice-b)} .iconbtn.live{color:var(--ice)}
@@ -604,7 +609,7 @@ PAGE = r"""<!doctype html>
   .pagehead h2{font-family:var(--display);font-weight:600;letter-spacing:1px;font-size:18px;color:#eaf6fb;margin:0}
   .pagehead .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
   .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
-  .statcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px}
+  .statcard{background:linear-gradient(160deg,rgba(18,25,36,.66),rgba(9,13,20,.5));border:1px solid var(--line);border-radius:14px;padding:14px 16px;backdrop-filter:blur(8px);box-shadow:0 12px 30px -22px rgba(0,0,0,.85)}
   .statcard .k{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
   .statcard .v{font-family:var(--display);font-size:26px;color:#eaf6fb;margin-top:4px}
   .statcard .v small{font-size:13px;color:var(--muted)}
