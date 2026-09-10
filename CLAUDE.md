@@ -297,7 +297,8 @@ Windows backend) ships no Web Speech API, the native window does voice
 pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
 `packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
 
-The web UI (the `PAGE` string in `webui.py`; the server reads it at import, so CSS/JS
+The web UI (the `PAGE` string in `webui_page.py`; `webui.py` keeps the server and routes
+and imports it, and the server reads it at import, so CSS/JS
 edits need a restart) is a calm dark workspace: a slim left rail (New chat, recent
 conversations, a status row), an assistant-presence panel holding the animated particle
 **orb** — the only glowing element; `setCore` stamps `body[data-core]` so the ambient
