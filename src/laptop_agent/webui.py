@@ -295,6 +295,32 @@ PAGE = r"""<!doctype html>
   .newchat{width:100%;text-align:left;color:#eaf6fb;background:linear-gradient(135deg,rgba(95,208,230,.16),rgba(95,208,230,.05));border:1px solid var(--line2);
     border-radius:10px;padding:11px 13px;font-family:var(--display);font-weight:600;font-size:12px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;transition:.2s}
   .newchat:hover{border-color:var(--ice);box-shadow:0 0 18px -4px rgba(95,208,230,.5);color:#fff}
+  /* Liquid-glass button (adapted from Uiverse.io by shokat_2650) — scoped to .gbtn and
+     re-tuned for the dark HUD: teal animated outline + light text. Used for New chat. */
+  @property --angle-1{syntax:"<angle>";inherits:false;initial-value:-75deg}
+  @property --angle-2{syntax:"<angle>";inherits:false;initial-value:-45deg}
+  .button-wrap{position:relative;z-index:2;border-radius:999vw;background:transparent;pointer-events:none;transition:all 400ms cubic-bezier(.25,1,.5,1)}
+  .button-shadow{--shadow-cuttoff-fix:2em;position:absolute;width:calc(100% + var(--shadow-cuttoff-fix));height:calc(100% + var(--shadow-cuttoff-fix));top:calc(0% - var(--shadow-cuttoff-fix)/2);left:calc(0% - var(--shadow-cuttoff-fix)/2);filter:blur(clamp(2px,.125em,12px));overflow:visible;pointer-events:none}
+  .button-shadow::after{content:"";position:absolute;z-index:0;inset:0;border-radius:999vw;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.22));width:calc(100% - var(--shadow-cuttoff-fix) - .25em);height:calc(100% - var(--shadow-cuttoff-fix) - .25em);top:calc(var(--shadow-cuttoff-fix) - .5em);left:calc(var(--shadow-cuttoff-fix) - .875em);padding:.125em;box-sizing:border-box;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;transition:all 400ms cubic-bezier(.25,1,.5,1);opacity:1}
+  .gbtn{--border-width:clamp(1px,.0625em,4px);all:unset;cursor:pointer;position:relative;-webkit-tap-highlight-color:rgba(0,0,0,0);pointer-events:auto;z-index:3;background:linear-gradient(-75deg,rgba(150,220,240,.06),rgba(190,235,250,.2),rgba(150,220,240,.06));border-radius:999vw;box-shadow:inset 0 .125em .125em rgba(0,0,0,.1),inset 0 -.125em .125em rgba(255,255,255,.3),0 .25em .125em -.125em rgba(0,0,0,.35),0 0 .1em .25em inset rgba(255,255,255,.1);backdrop-filter:blur(clamp(1px,.4em,8px));-webkit-backdrop-filter:blur(clamp(1px,.4em,8px));transition:all 400ms cubic-bezier(.25,1,.5,1)}
+  .gbtn:hover{transform:scale(.975);box-shadow:inset 0 .125em .125em rgba(0,0,0,.1),inset 0 -.125em .125em rgba(255,255,255,.36),0 .15em .05em -.1em rgba(0,0,0,.4),0 0 .05em .1em inset rgba(255,255,255,.24)}
+  .gbtn span{position:relative;display:block;user-select:none;font-family:var(--display);letter-spacing:1.5px;font-weight:600;font-size:12px;text-transform:uppercase;color:#eef8fc;-webkit-font-smoothing:antialiased;text-shadow:0 1px 2px rgba(0,0,0,.5);transition:all 400ms cubic-bezier(.25,1,.5,1);padding-inline:1.4em;padding-block:.95em;text-align:center}
+  .gbtn:hover span{text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .gbtn span::after{content:"";display:block;position:absolute;z-index:3;width:calc(100% - var(--border-width));height:calc(100% - var(--border-width));top:calc(0% + var(--border-width)/2);left:calc(0% + var(--border-width)/2);box-sizing:border-box;border-radius:999vw;overflow:clip;background:linear-gradient(var(--angle-2),rgba(255,255,255,0) 0%,rgba(255,255,255,.5) 40% 50%,rgba(255,255,255,0) 55%);mix-blend-mode:screen;pointer-events:none;background-size:200% 200%;background-position:0% 50%;background-repeat:no-repeat;transition:background-position 500ms cubic-bezier(.25,1,.5,1),--angle-2 500ms cubic-bezier(.25,1,.5,1)}
+  .gbtn:hover span::after{background-position:25% 50%}
+  .gbtn:active span::after{background-position:50% 15%;--angle-2:-15deg}
+  .gbtn::after{content:"";position:absolute;z-index:1;inset:0;border-radius:999vw;width:calc(100% + var(--border-width));height:calc(100% + var(--border-width));top:calc(0% - var(--border-width)/2);left:calc(0% - var(--border-width)/2);padding:var(--border-width);box-sizing:border-box;background:conic-gradient(from var(--angle-1) at 50% 50%,rgba(95,208,230,.65),rgba(95,208,230,0) 5% 40%,rgba(155,240,255,.75) 50%,rgba(95,208,230,0) 60% 95%,rgba(95,208,230,.65)),linear-gradient(180deg,rgba(155,240,255,.35),rgba(95,208,230,.35));mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;transition:all 400ms cubic-bezier(.25,1,.5,1),--angle-1 500ms ease;box-shadow:inset 0 0 0 calc(var(--border-width)/2) rgba(155,240,255,.3)}
+  .gbtn:hover::after{--angle-1:-125deg}
+  .gbtn:active::after{--angle-1:-75deg}
+  .button-wrap:has(.gbtn:hover) .button-shadow{filter:blur(clamp(2px,.0625em,6px));transition:filter 400ms cubic-bezier(.25,1,.5,1)}
+  .button-wrap:has(.gbtn:hover) .button-shadow::after{top:calc(var(--shadow-cuttoff-fix) - .875em);opacity:1}
+  .button-wrap:has(.gbtn:active){transform:rotate3d(1,0,0,25deg)}
+  .button-wrap:has(.gbtn:active) .button-shadow{filter:blur(clamp(2px,.125em,12px))}
+  .button-wrap:has(.gbtn:active) .button-shadow::after{top:calc(var(--shadow-cuttoff-fix) - .5em);opacity:.75}
+  .button-wrap:has(.gbtn:active) span{text-shadow:0 .2em .05em rgba(0,0,0,.5)}
+  @media (hover:none) and (pointer:coarse){.gbtn span::after,.gbtn:active span::after{--angle-2:-45deg}.gbtn::after,.gbtn:hover::after,.gbtn:active::after{--angle-1:-75deg}}
+  .newchat-wrap{width:100%;margin-bottom:4px}
+  .newchat-wrap .gbtn{width:100%;display:block}
   .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-left:2px solid transparent;border-radius:7px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}
   .sess:hover{background:rgba(95,208,230,.05)} .sess.active{background:rgba(95,208,230,.08);border-left-color:var(--ice);color:#eaf6fb}
 
@@ -706,7 +732,7 @@ PAGE = r"""<!doctype html>
   </header>
 
   <aside class="left" id="leftPanel">
-    <button class="newchat" id="newChat">+  New chat</button>
+    <div class="button-wrap newchat-wrap"><div class="button-shadow"></div><button class="gbtn" id="newChat"><span>+ New chat</span></button></div>
     <div class="seclbl">Sessions</div>
     <div id="sessions"></div>
     <div class="seclbl">Systems</div>
