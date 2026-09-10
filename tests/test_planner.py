@@ -107,6 +107,18 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_weather_strips_time_words(self) -> None:
         self.assertEqual(self.plan("weather forecast for Dallas tomorrow").command, "weather Dallas")
 
+    def test_draw_request_routes_to_the_image_tool(self) -> None:
+        decision = self.plan("draw me a picture of a red fox in snow")
+        self.assertTrue(decision.is_command)
+        self.assertEqual(decision.command, "image a red fox in snow")
+
+    def test_generate_an_image_phrasing_also_routes(self) -> None:
+        self.assertEqual(self.plan("generate an image of a brass compass").command, "image a brass compass")
+
+    def test_draw_without_a_subject_stays_chat(self) -> None:
+        # "draw the diagram" is about something already in the conversation, not a prompt.
+        self.assertFalse(self.plan("draw the diagram").is_command)
+
     def test_general_email_read_uses_imap_digest_not_oauth(self) -> None:
         # Regression: "give me important emails" was routed to a high-risk Outlook
         # OAuth read and blocked; it must use the local IMAP digest instead.

@@ -51,6 +51,8 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
+from laptop_agent.config import load_config
+from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
@@ -117,6 +119,7 @@ class AgentOrchestrator:
         self.router = Planner(HeuristicPlannerProvider())
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
+        self._image_tool_cache: ImageTool | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -563,6 +566,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
+
+        if lowered.startswith("image "):
+            return self._generate_image(command[len("image ") :].strip())
 
         if lowered.startswith("weather "):
             return self._weather_tool().forecast(command[len("weather ") :].strip())
@@ -1020,6 +1026,7 @@ class AgentOrchestrator:
                 "  remember note <text>",
                 "  search files <query> <path>",
                 "  web search <query>",
+                "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
                 "  trip <stop1> to <stop2> to <stop3> …  (multi-stop route + totals)",
@@ -1347,6 +1354,7 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         # web & research
         "web search <query>",
+        "image <description>",
         "weather <location>",
         "distance <origin> to <destination>",
         "trip <stop1> to <stop2> to <stop3>",
@@ -1556,6 +1564,29 @@ class AgentOrchestrator:
         if self._file_processor_cache is None:
             self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
         return self._file_processor_cache
+
+    def _generate_image(self, request: str) -> ToolResult:
+        """`image <description>` — the trailing shape word picks the aspect ratio."""
+        described, shape = request.strip(), "square"
+        match = re.search(r"\s+(square|landscape|portrait|wide|tall)$", described, re.IGNORECASE)
+        if match:
+            shape = match.group(1).lower()
+            described = described[: match.start()].strip()
+        return self._image_tool().generate(described, shape=shape)
+
+    def _image_tool(self) -> ImageTool:
+        if self._image_tool_cache is None:
+            config = load_config()
+            self._image_tool_cache = ImageTool(
+                api_key=config.llm_image_api_key,
+                data_dir=config.data_dir,
+                model=config.llm_image_model,
+                base_url=config.llm_image_base_url,
+                fallback_model=config.llm_image_fallback_model,
+                fallback_api_key=config.llm_image_fallback_api_key,
+                approval_gate=self.context.web.approval_gate,
+            )
+        return self._image_tool_cache
 
     def _weather_tool(self) -> WeatherTool:
         if self._weather_tool_cache is None:

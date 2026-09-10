@@ -168,6 +168,13 @@ PAGE = r"""<!doctype html>
   .md pre{background:#0a0f17;border:1px solid var(--hair);border-radius:10px;padding:12px 14px;overflow:auto;margin:.6em 0;max-width:100%}
   .md pre code{background:none;padding:0;color:var(--text-2)}
   .md strong{color:#fff;font-weight:600} .md a{color:var(--accent);text-decoration:none} .md a:hover{text-decoration:underline}
+  /* generated pictures and data tables in a reply */
+  .md img{display:block;max-width:min(100%,560px);height:auto;margin:.6em 0;border:1px solid var(--hair);border-radius:var(--r-md);background:var(--surface-2)}
+  .md .tw{overflow-x:auto;margin:.6em 0;border:1px solid var(--hair);border-radius:var(--r-md)}
+  .md table{border-collapse:collapse;width:100%;font-size:13.5px}
+  .md th,.md td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
+  .md th{font-weight:600;color:var(--text-2);background:rgba(255,255,255,.03);white-space:nowrap}
+  .md tbody tr:last-child td{border-bottom:none}
   .msg.err .md{color:var(--danger)}
   .att{display:inline-flex;align-items:center;gap:6px;margin:8px 6px 0 0;background:rgba(255,255,255,.04);border:1px solid var(--hair-2);border-radius:8px;padding:5px 10px;font:12.5px var(--sans);color:var(--text-2)}
   .att .ic{color:var(--muted)}
@@ -830,14 +837,28 @@ PAGE = r"""<!doctype html>
     s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
     s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
+    s=s.replace(/!\[([^\]]*)\]\(((?:\/|data:image\/)[^)\s]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return s;}
   function mdToHtml(src){
     const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push(c);return '@@F'+(fences.length-1)+'@@';});
     let html='',list=null; const close=()=>{if(list){html+='</'+list+'>';list=null;}};
-    for(const raw of src.split('\n')){
-      const t=raw.trim();
+    const rows=src.split('\n');
+    const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+    for(let i=0;i<rows.length;i++){
+      const raw=rows[i], t=raw.trim();
       let m;
+      // | a | b | over |---|---| becomes a real table, so data stops arriving as prose
+      if(t.startsWith('|')&&/^\|[\s:|-]+\|?$/.test((rows[i+1]||'').trim())){
+        close();
+        const head=cells(t); i++;
+        let body='';
+        while(i+1<rows.length&&rows[i+1].trim().startsWith('|')){
+          body+='<tr>'+cells(rows[++i]).map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>';
+        }
+        html+='<div class="tw"><table><thead><tr>'+head.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+        continue;
+      }
       if(/^@@F\d+@@$/.test(t)){close();html+='<pre><code>'+esc(fences[+t.slice(3,-2)])+'</code></pre>';continue;}
       if((m=raw.match(/^(#{1,3})\s+(.*)$/))){close();const lv=Math.min(m[1].length+2,4);html+='<h'+lv+'>'+inline(m[2])+'</h'+lv+'>';continue;}
       if((m=raw.match(/^\s*[-*]\s+(.*)$/))){if(list!=='ul'){close();html+='<ul>';list='ul';}html+='<li>'+inline(m[1])+'</li>';continue;}

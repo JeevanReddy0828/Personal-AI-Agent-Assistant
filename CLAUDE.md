@@ -132,6 +132,11 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
+        imagegen (text-to-image via NVIDIA's hosted FLUX endpoint: `image <description>`
+            plus a heuristic route for "draw me a picture of …"; the trailing word
+            square/landscape/portrait/wide/tall picks the resolution. Saves under
+            `data_dir/images/`, returns Markdown that embeds the picture, and the chat
+            renders it inline through `/api/image?name=`),
         travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),
@@ -231,6 +236,16 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`)
 - `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
 - `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
+- `OPENAI_IMAGE_MODEL` — text-to-image (`black-forest-labs/flux.2-klein-4b`), plus
+  `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL` (default
+  `https://ai.api.nvidia.com/v1/genai`) and an optional second model tried when the
+  first is queued: `OPENAI_IMAGE_FALLBACK_MODEL` / `OPENAI_IMAGE_FALLBACK_KEY`. The
+  model id is part of the **path**, not the body, and this is a **different host from
+  chat** — never point `OPENAI_BASE_URL` at it, or every chat turn breaks. The fallback
+  gets half the primary's timeout so a double failure doesn't double the wait.
+  Measured on the free tier: klein answers in ~2s, `flux.1-schnell` times out at 90s on
+  its own key, and `nemotron-3.5-lightning-30b-a3b` takes 6-14s per chat turn against
+  0.5-1.5s for `nemotron-3-super-120b-a12b` — so super stays on the fast tier.
 - `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
 
 The ultra tier is treated as an NVIDIA **reasoning** model: its provider is built with
