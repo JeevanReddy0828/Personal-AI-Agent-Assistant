@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
+from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.document import DocumentTool, markdown_to_html, split_format
 
 SAMPLE = """# Rate Limit Brief
@@ -117,6 +118,30 @@ class DocumentToolTests(unittest.TestCase):
         result = self.tool(writer=broken).create("a brief as markdown")
         self.assertFalse(result.ok)
         self.assertIn("model offline", result.message)
+
+    def test_documents_written_in_the_same_second_do_not_overwrite_each_other(self) -> None:
+        results = [self.tool().create("the weekly brief as markdown") for _ in range(3)]
+        names = [r.data["name"] for r in results]
+        self.assertEqual(len(set(names)), 3, names)
+        self.assertEqual(len(list((self.data_dir / "documents").iterdir())), 3)
+
+    def test_a_failed_render_leaves_no_empty_file_behind(self) -> None:
+        # The name is claimed by creating an empty file before rendering, so a render
+        # failure must clean it up rather than leaving a 0-byte PDF in the folder.
+        from laptop_agent.tools import resume_pdf
+
+        async def broken(html, out_path, single_page=True):
+            return ToolResult.failure("Chromium is not installed")
+
+        original = resume_pdf.render_html_to_pdf
+        resume_pdf.render_html_to_pdf = broken
+        try:
+            result = self.tool().create("a brief on rate limits as a pdf")
+        finally:
+            resume_pdf.render_html_to_pdf = original
+        self.assertFalse(result.ok)
+        self.assertIn("Chromium", result.message)
+        self.assertEqual(list((self.data_dir / "documents").glob("*.pdf")), [])
 
     def test_denied_approval_stops_the_call(self) -> None:
         calls: list[str] = []
