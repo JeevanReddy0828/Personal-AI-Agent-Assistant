@@ -14,6 +14,16 @@ _BOUNDARY = re.compile(r"[.!?…](?=\s)|\n")
 # rules like "----", bullets, emphasis markers, code ticks, link brackets).
 _DECOR_ONLY = re.compile(r"^[\s=\-*_~.#·•>|`]{2,}$")
 _SPEAK_STRIP = re.compile(r"[`*_>#\[\]()|~]+")
+# An embedded picture has nothing speakable in it, and reading its URL aloud used to
+# feed a garbled "slash api slash image question mark name equals…" back into the
+# microphone, which the echo guard could not match — so the agent answered itself.
+_MD_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# A link reads as its label; the target is noise.
+_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+# Fenced code is not speech.
+_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+# Bare URLs and paths, wherever they survive the above.
+_BARE_URL = re.compile(r"(?:https?://|www\.)\S+|(?<![\w.])/\S*/\S+", re.IGNORECASE)
 
 
 def clean_for_speech(text: str) -> str:
@@ -25,10 +35,17 @@ def clean_for_speech(text: str) -> str:
     t = (text or "").strip()
     if not t or _DECOR_ONLY.match(t):
         return ""
+    # Order matters: drop whole constructs before the punctuation strip breaks them apart.
+    t = _CODE_FENCE.sub(" ", t)
+    t = _MD_IMAGE.sub(" ", t)
+    t = _MD_LINK.sub(lambda m: m.group(1), t)
+    t = _BARE_URL.sub(" ", t)
     t = re.sub(r"^\s*[-*•·]\s+", "", t)          # leading bullet markers
     t = _SPEAK_STRIP.sub(" ", t)                  # inline markdown markers
     t = re.sub(r"={2,}|-{3,}|\.{4,}|~{2,}", " ", t)  # leftover decorative runs
-    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+", " ", t)
+    # dropping a construct can strand a space in front of punctuation
+    t = re.sub(r" ([.,!?;:])", lambda m: m.group(1), t).strip()
     return t
 
 
