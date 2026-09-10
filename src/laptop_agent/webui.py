@@ -239,8 +239,7 @@ PAGE = r"""<!doctype html>
     --shadow-1:0 1px 2px rgba(0,0,0,.35),0 10px 28px -14px rgba(0,0,0,.6);
     --shadow-2:0 20px 60px -20px rgba(0,0,0,.75);
     --rail-w:248px; --presence-w:clamp(280px,26vw,400px); --head-h:56px;
-    /* aliases kept for the few inline styles that still reference the old names */
-    --line:var(--hair); --line2:var(--hair-2); --amber-b:var(--warn); --ice:var(--accent); --ice-b:var(--accent-2); --panel2:var(--surface-2);
+    --violet-2:#b48cff; --voice:#a394ff;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -265,7 +264,8 @@ PAGE = r"""<!doctype html>
   /* ---------- top bar ---------- */
   header{grid-column:1/-1;position:relative;z-index:60;display:flex;align-items:center;gap:14px;padding:0 14px 0 18px;border-bottom:1px solid var(--hair);background:rgba(9,13,20,.72);backdrop-filter:blur(14px)}
   .brand{display:flex;align-items:center;gap:11px;min-width:calc(var(--rail-w) - 18px)}
-  .mark{width:26px;height:26px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 30%,#d7f8fd,var(--accent) 42%,#5d5be0 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);transition:box-shadow var(--med)}
+  .mark,.msg .av{width:26px;height:26px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 30%,#d7f8fd,var(--accent) 42%,#5d5be0 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  .mark{transition:box-shadow var(--med)}
   .mark.busy{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 0 0 4px var(--accent-soft)}
   .brand .n{font:600 14.5px/1.1 var(--display);letter-spacing:.6px;color:var(--text)}
   .brand .s{font:400 12px/1.2 var(--sans);color:var(--muted);margin-top:2px}
@@ -278,16 +278,16 @@ PAGE = r"""<!doctype html>
   .pill{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px 0 10px;border-radius:999px;border:1px solid var(--hair);background:rgba(255,255,255,.02);color:var(--muted);font:500 12.5px var(--sans);transition:background var(--fast),color var(--fast),border-color var(--fast)}
   .pill:hover{background:rgba(255,255,255,.05);color:var(--text);border-color:var(--hair-2)}
   .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:background .4s}
-  #healthPill.ok .dot{background:var(--ok)}
-  #healthPill.ok.busy .dot,#healthPill.degraded .dot{background:var(--warn)}
-  #healthPill.setup .dot{background:var(--danger)}
+  .pill.ok>.dot,.sysbtn.ok>.dot{background:var(--ok)}
+  .pill.busy>.dot,.sysbtn.busy>.dot,.pill.degraded>.dot,.sysbtn.degraded>.dot{background:var(--warn)}
+  .pill.setup>.dot,.sysbtn.setup>.dot{background:var(--danger)}
   .hud{display:flex;align-items:center;gap:6px;position:relative}
   .hudbtn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:10px;background:transparent;color:var(--muted);transition:background var(--fast),color var(--fast)}
   .hudbtn svg{width:18px;height:18px}
   .hudbtn:hover,.hudbtn.on{background:rgba(255,255,255,.06);color:var(--text)}
   .hudpop{position:absolute;top:42px;right:0;z-index:70;width:252px;background:var(--surface-2);border:1px solid var(--hair-2);border-radius:var(--r-md);padding:8px;display:none;flex-direction:column;gap:2px;box-shadow:var(--shadow-2)}
   .hudpop.open{display:flex}
-  .hudpop .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border-radius:9px;font:500 13px var(--sans);color:var(--text);cursor:pointer;transition:background var(--fast)}
+  .hudpop .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 10px;border:0;border-radius:9px;background:transparent;text-align:left;font:500 13px var(--sans);color:var(--text);cursor:pointer;transition:background var(--fast)}
   .hudpop .toggle:hover{background:rgba(255,255,255,.04)}
   .hudpop .toggle small{display:block;font:400 11.5px/1.3 var(--sans);color:var(--muted);margin-top:2px}
   .hudpop .sw{width:34px;height:20px;border-radius:999px;background:rgba(255,255,255,.12);position:relative;flex:none;transition:background var(--fast)}
@@ -315,7 +315,6 @@ PAGE = r"""<!doctype html>
   .sysbtn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:500 12.5px var(--sans);text-align:left;transition:background var(--fast),color var(--fast)}
   .sysbtn:hover{background:rgba(255,255,255,.045);color:var(--text)}
   .sysbtn .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none;transition:background .4s}
-  .sysbtn.ok .dot{background:var(--ok)} .sysbtn.busy .dot,.sysbtn.degraded .dot{background:var(--warn)} .sysbtn.setup .dot{background:var(--danger)}
   .sysbtn span:nth-child(2){flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sysbtn svg{width:14px;height:14px;opacity:.6}
 
@@ -327,11 +326,11 @@ PAGE = r"""<!doctype html>
   body.voicing .stage::before{background:radial-gradient(circle,rgba(150,136,255,.2),rgba(98,211,234,.09) 45%,transparent 70%)}
   .stage::after{content:'';position:absolute;top:0;bottom:0;right:0;width:1px;pointer-events:none;background:linear-gradient(180deg,transparent,var(--hair-2) 25%,var(--hair-2) 75%,transparent)}
   #core{display:block;position:absolute;inset:0;width:100%;height:100%}
-  .corestate{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font:500 12.5px var(--sans);color:var(--muted);transition:color var(--med),opacity var(--med)}
+  .corestate{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font:500 12.5px var(--sans);color:var(--core-color,var(--muted));transition:color var(--med),opacity var(--med)}
   .corestate b{font-weight:600;color:var(--text)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:middle;opacity:.9}
   body.voicing .corestate{opacity:0}
-  .voice{position:absolute;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:flex-end;gap:12px;padding:0 26px 30px;color:var(--accent);pointer-events:none;
+  .voice{position:absolute;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:flex-end;gap:12px;padding:0 26px 30px;color:var(--core-color,var(--accent));pointer-events:none;
     background:linear-gradient(180deg,transparent 42%,rgba(9,13,20,.9) 78%)}
   .voice.on{display:flex}
   .voice>*{pointer-events:auto;position:relative}
@@ -361,12 +360,10 @@ PAGE = r"""<!doctype html>
   .suggest{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:620px;margin-top:6px}
   .scard{border:1px solid var(--hair-2);background:rgba(255,255,255,.03);color:var(--text-2);border-radius:999px;padding:9px 15px;font:400 13.5px var(--sans);text-align:left;transition:background var(--fast),border-color var(--fast),color var(--fast)}
   .scard:hover{background:rgba(255,255,255,.06);border-color:var(--accent-line);color:var(--text)}
-  .scard b{display:none}
 
   .msg{display:flex;gap:12px;margin-bottom:22px;animation:rise .22s var(--ease) both;position:relative}
   .msg.user{flex-direction:row-reverse}
-  .msg .av{display:none}
-  .msg.bot .av{display:block;width:26px;height:26px;border-radius:50%;flex:none;margin-top:2px;font-size:0;color:transparent;background:radial-gradient(circle at 35% 30%,#d7f8fd,var(--accent) 42%,#5d5be0 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  .msg .av{margin-top:2px;font-size:0;color:transparent}
   .msg .content{flex:1;min-width:0}
   .msg.user .content{flex:0 1 auto;max-width:78%}
   .msg .who{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -384,6 +381,7 @@ PAGE = r"""<!doctype html>
   .att .ic{color:var(--muted)}
   .copybtn{display:inline-block;margin-top:6px;border:0;background:transparent;color:var(--faint);font:12px var(--sans);padding:4px 8px;margin-left:-8px;border-radius:6px;opacity:0;transition:opacity var(--fast),color var(--fast),background var(--fast)}
   .msg:hover .copybtn,.copybtn:focus-visible{opacity:1}
+  @media(hover:none){.copybtn{opacity:.7}}
   .copybtn:hover{color:var(--text);background:rgba(255,255,255,.05)}
   .meta{display:inline-block;margin:6px 10px 0 0;font:11px var(--mono);color:var(--faint)}
   .det{margin-top:6px} .det>summary{font:12px var(--sans);color:var(--faint);cursor:pointer;list-style:none}
@@ -432,7 +430,7 @@ PAGE = r"""<!doctype html>
   .voicetoggle.on .vico svg{animation:blink 1.1s infinite}
   .sendbtn{width:38px;height:38px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);transition:background var(--fast),transform var(--fast)}
   .sendbtn svg{width:18px;height:18px}
-  .sendbtn:hover{background:var(--accent-2)} .sendbtn:active{transform:scale(.95)} .sendbtn:disabled{opacity:.4}
+  .sendbtn:hover{background:var(--accent-2)} .sendbtn:active{transform:scale(.95)}
   .sendbtn.stop{background:var(--danger);color:#fff;animation:stoppulse 1.2s ease-in-out infinite}
   @keyframes stoppulse{0%,100%{box-shadow:0 0 0 0 rgba(255,107,122,.45)}50%{box-shadow:0 0 0 7px rgba(255,107,122,0)}}
   .hint{margin-top:9px;text-align:center;font:12px var(--sans);color:var(--faint)}
@@ -681,8 +679,8 @@ PAGE = r"""<!doctype html>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
-        <div class="toggle" id="compactBtn" role="switch" aria-checked="false" tabindex="0"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></div>
-        <div class="toggle" id="onTopToggle" role="switch" aria-checked="false" tabindex="0"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></div>
+        <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
         <div class="row">
           <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
           <input type="range" id="opacityRange" min="35" max="100" step="1" value="100" aria-label="Window transparency">
@@ -697,7 +695,7 @@ PAGE = r"""<!doctype html>
     <div class="seclbl">Recent</div>
     <div id="sessions"></div>
     <div class="railfoot">
-      <button class="sysbtn" id="railStatus" title="System status" aria-controls="sysDrawer"><span class="dot"></span><span id="railText">System status</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="sysbtn" id="railStatus" title="System status" aria-controls="sysDrawer" aria-expanded="false"><span class="dot"></span><span id="railText">Checking…</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
   </aside>
 
@@ -929,13 +927,16 @@ PAGE = r"""<!doctype html>
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
   const coreCanvas=document.getElementById('core'), cctx=coreCanvas.getContext('2d'), corestate=document.getElementById('corestate');
   let coreState='idle', activeTier='fast';
-  const TIER_COLORS={fast:'#62d3ea',smart:'#8b7cff',ultra:'#b48cff'};   // cyan -> indigo -> violet: one hue family
-  const VOICE_COLOR='#a394ff';                                          // violet shift in voice mode
-  const TIER_NAME={fast:'fast model',smart:'smart model',ultra:'reasoning model'};
+  const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const TIER_COLORS={fast:cssVar('--accent'),smart:cssVar('--violet'),ultra:cssVar('--violet-2')};   // cyan -> indigo -> violet, from the CSS palette
+  const VOICE_COLOR=cssVar('--voice');                                  // violet shift in voice mode
+  // planner.model can also be 'openrouter' / 'unavailable' (cross-provider fallback, nothing reachable)
+  const TIER_NAME={fast:'fast model',smart:'smart model',ultra:'reasoning model',openrouter:'backup model',unavailable:'no model reachable'};
+  const tierName=t=>TIER_NAME[t]||t||'';
   function coreColor(){
     if(coreState==='listening')return VOICE_COLOR;
-    if(coreState==='thinking'||coreState==='speaking')return TIER_COLORS[activeTier]||'#62d3ea';
-    return voiceActive?VOICE_COLOR:'#62d3ea';
+    if(coreState==='thinking'||coreState==='speaking')return TIER_COLORS[activeTier]||TIER_COLORS.fast;
+    return voiceActive?VOICE_COLOR:TIER_COLORS.fast;
   }
   // mirror of the server's complexity classifier, to colour the wait by predicted tier
   function estimateTier(text){
@@ -948,13 +949,13 @@ PAGE = r"""<!doctype html>
     coreState=s; if(tier)activeTier=tier;
     const col=coreColor();
     let label;
-    if(s==='thinking')label= activeTier==='ultra' ? '<b>Reasoning</b> · this can take a moment' : '<b>Thinking</b> · '+TIER_NAME[activeTier];
-    else if(s==='speaking')label='<b>Speaking</b> · '+TIER_NAME[activeTier];
+    if(s==='thinking')label= activeTier==='ultra' ? '<b>Reasoning</b> · this can take a moment' : '<b>Thinking</b> · '+tierName(activeTier);
+    else if(s==='speaking')label='<b>Speaking</b> · '+tierName(activeTier);
     else if(s==='listening')label='<b>Listening</b>';
     else label='<b>Ready</b>';
     document.body.dataset.core=s;   // drives the ambient glow behind the orb
-    corestate.className='corestate';corestate.style.color=col;corestate.innerHTML='<span class="blip"></span>'+label;
-    voice.style.color=col;  // overlay bars + state text follow the same colour
+    document.body.style.setProperty('--core-color',col);   // .corestate and the voice overlay both read it
+    corestate.className='corestate';corestate.innerHTML='<span class="blip"></span>'+label;
     pulseCore();            // ripple the particle sphere on every state change
   }
   /* ---- 3D particle sphere: a cloud of light points that rotates, breathes,
@@ -963,6 +964,7 @@ PAGE = r"""<!doctype html>
   (function(){const gold=Math.PI*(3-Math.sqrt(5));for(let i=0;i<NP;i++){const y=1-(i/(NP-1))*2,rr=Math.sqrt(1-y*y),th=gold*i;
     pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
   const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
+  const VOICE_RGB=hex2rgb(VOICE_COLOR), ACCENT_RGB=hex2rgb(TIER_COLORS.fast);
   let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false, expand=0;
   function pulseCore(){shock=Math.min(1.6,shock+1);}   // hoisted; called by setCore + send
   function targetEnergy(){
@@ -990,7 +992,7 @@ PAGE = r"""<!doctype html>
     rot+=0.0015+e*0.011+expand*0.013;
     const scanLat = searching ? Math.sin(t*1.6) : 99;
     // voice mode shifts the whole core to violet so the theme reads as "listening"
-    const VRGB=[163,148,255], acc=voiceActive?VRGB:[98,211,234];
+    const VRGB=VOICE_RGB, acc=voiceActive?VRGB:ACCENT_RGB;
     const tint=voiceActive?VRGB:((coreState==='thinking'||coreState==='speaking')?hex2rgb(coreColor()):null);
     const cosY=Math.cos(rot),sinY=Math.sin(rot),cosX=Math.cos(rotX),sinX=Math.sin(rotX);
     const breathe=R*(1+Math.sin(t*1.5)*0.018*(1+e))*(1+0.22*expand);   // puff outward while searching
@@ -1085,7 +1087,7 @@ PAGE = r"""<!doctype html>
   function renderMsg(role,text,atts){
     clearEmpty();
     const m=document.createElement('div');m.className='msg '+role;
-    m.innerHTML='<div class="av">'+(role==='user'?'YOU':'J')+'</div><div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
+    m.innerHTML=(role==='user'?'':'<div class="av">J</div>')+'<div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
     m.querySelector('.md').innerHTML=role==='user'?esc(text).replace(/\n/g,'<br>'):mdToHtml(text);
     if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+esc(a);box.appendChild(s);});m.querySelector('.content').appendChild(box);}
     if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
@@ -1262,7 +1264,8 @@ PAGE = r"""<!doctype html>
   const PLANNER='{{PLANNER}}', SMART='{{SMART}}', ULTRA='{{ULTRA}}', VISION='{{VISION}}';
   const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],ultra:[ULTRA!=='—'?'ok':'off',ULTRA],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
   function renderConn(){
-    const rows=[['Fast model',conn.fast],['Smart model',conn.smart],['Reasoning model',conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
+    const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+    const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
     document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v">'+v+'</span></div>').join('');
   }
   renderConn();
@@ -1272,7 +1275,8 @@ PAGE = r"""<!doctype html>
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
-  pollWhenVisible(loadMetrics,5000);loadMetrics();
+  const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
+  pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 
   /* vault + note browser */
   function renderNoteList(names){
@@ -1291,13 +1295,13 @@ PAGE = r"""<!doctype html>
     try{
       const r=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',name})});
       const d=await r.json();
-      if(!d.ok){document.getElementById('nvBody').innerHTML='<div style="color:var(--amber-b)">'+esc(d.message||'Could not open note.')+'</div>';return;}
+      if(!d.ok){document.getElementById('nvBody').innerHTML='<div style="color:var(--warn)">'+esc(d.message||'Could not open note.')+'</div>';return;}
       document.getElementById('nvTitle').textContent=d.name||name;
       document.getElementById('nvBody').innerHTML=mdToHtml(d.text||'');
       const links=document.getElementById('nvLinks');links.innerHTML='';
       const group=(label,arr)=>{if(!arr||!arr.length)return;const l=document.createElement('span');l.className='lbl';l.textContent=label;links.appendChild(l);arr.forEach(nm=>{const c=document.createElement('button');c.className='lk';c.textContent=nm;c.onclick=()=>openNote(nm);links.appendChild(c);});};
       group('links to',d.outlinks);group('linked from',d.backlinks);
-    }catch(e){document.getElementById('nvBody').innerHTML='<div style="color:var(--amber-b)">Could not reach the vault.</div>';}
+    }catch(e){document.getElementById('nvBody').innerHTML='<div style="color:var(--warn)">Could not reach the vault.</div>';}
   }
   document.getElementById('nvClose').onclick=()=>document.getElementById('noteViewer').classList.remove('open');
   let vaultSearchTimer=null;
@@ -1317,7 +1321,7 @@ PAGE = r"""<!doctype html>
     document.getElementById('agentList').innerHTML=d.control_room.agents.map(a=>{const done=(a.completed||0)>0?' · ✓'+a.completed:'';const fail=(a.failed||0)>0?' ✗'+a.failed:'';return '<button class="agentcard '+a.status+'" data-agent="'+esc(a.id)+'"><div class="top"><span class="dot"></span><b>'+esc(a.name)+'</b><span class="status">'+esc(a.status)+done+fail+'</span></div><div class="role">'+esc(a.role)+'</div><div class="task">'+esc(a.current_task||a.last_message||'Ready.')+'</div></button>';}).join('');
     document.querySelectorAll('.agentcard').forEach(btn=>{btn.onclick=()=>send('agent '+btn.dataset.agent);});
   }catch(e){document.getElementById('agentSummary').textContent='Could not refresh tool activity.';}}
-  pollWhenVisible(loadAgents,5000);loadAgents();
+  pollWhenVisible(()=>{if(drawerOpen())loadAgents();},5000);loadAgents();
 
   /* scheduled jobs */
   function renderSchedule(jobs){
@@ -1455,7 +1459,6 @@ PAGE = r"""<!doctype html>
   compactBtn.onclick=()=>setCompact(!document.body.classList.contains('compact'));
   async function setOnTop(on,post){onTopToggle.classList.toggle('on',on);onTopToggle.setAttribute('aria-checked',String(on));localStorage.setItem('hudOnTop',on?'1':'0');if(post){const d=await postWindow({on_top:on});if(!(d&&d.applied&&d.applied.on_top!=null))document.getElementById('hudHint').textContent='Always-on-top works only in the desktop app.';}}
   onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
-  [compactBtn,onTopToggle].forEach(t=>t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();t.click();}}));
   hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
   document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
   (function restoreHud(){
@@ -1466,14 +1469,24 @@ PAGE = r"""<!doctype html>
 
   /* system status drawer: models, usage, vault and the tool panels live here so the
      main view stays quiet; opened from the status pill or the rail footer */
-  const sysDrawer=document.getElementById('sysDrawer'),scrim=document.getElementById('scrim'),healthPill=document.getElementById('healthPill');
-  function setDrawer(open){
+  const sysDrawer=document.getElementById('sysDrawer'),scrim=document.getElementById('scrim'),healthPill=document.getElementById('healthPill'),
+        healthText=document.getElementById('healthText'),railStatus=document.getElementById('railStatus'),railText=document.getElementById('railText');
+  let drawerOpener=null;
+  function setDrawer(open,opener){
+    if(open)drawerOpener=opener||document.activeElement;
+    else if(sysDrawer.contains(document.activeElement))(drawerOpener&&drawerOpener.focus?drawerOpener:healthPill).focus();   // move focus out before hiding
     sysDrawer.classList.toggle('open',open);scrim.classList.toggle('open',open);
-    sysDrawer.setAttribute('aria-hidden',String(!open));healthPill.setAttribute('aria-expanded',String(open));
-    if(open){loadMetrics();loadAgents();document.getElementById('drawerClose').focus();}
+    sysDrawer.setAttribute('aria-hidden',String(!open));
+    healthPill.setAttribute('aria-expanded',String(open));railStatus.setAttribute('aria-expanded',String(open));
+    if(open){loadMetrics();loadAgents();document.getElementById('drawerClose').focus();} else drawerOpener=null;
   }
-  healthPill.onclick=()=>setDrawer(!sysDrawer.classList.contains('open'));
-  document.getElementById('railStatus').onclick=()=>setDrawer(true);
+  function setStatus(cls,label){   // one health state painted on both drawer triggers
+    healthPill.className='pill '+cls;healthText.textContent=label;
+    railStatus.className='sysbtn '+cls;railText.textContent=label;
+    const name='System status: '+label;healthPill.setAttribute('aria-label',name);railStatus.setAttribute('aria-label',name);
+  }
+  healthPill.onclick=()=>setDrawer(!sysDrawer.classList.contains('open'),healthPill);
+  railStatus.onclick=()=>setDrawer(true,railStatus);
   document.getElementById('drawerClose').onclick=()=>setDrawer(false);
   scrim.onclick=()=>setDrawer(false);
 
@@ -1500,9 +1513,9 @@ PAGE = r"""<!doctype html>
     let h=funnel.length*rowH+8, y=4, out='<svg width="100%" viewBox="0 0 '+W+' '+h+'" preserveAspectRatio="xMidYMid meet" style="font-family:var(--sans)">';
     funnel.forEach(f=>{
       const w=Math.max(2,Math.round(f.count/max*barW));
-      out+='<text x="0" y="'+(y+12)+'" fill="#8793a3" font-size="10">'+esc(f.stage)+'</text>';
-      out+='<rect x="'+padL+'" y="'+y+'" width="'+w+'" height="16" rx="4" fill="#62d3ea" fill-opacity=".85"/>';
-      out+='<text x="'+(padL+w+5)+'" y="'+(y+12)+'" fill="#b9c4d0" font-size="10">'+f.count+'</text>';
+      out+='<text x="0" y="'+(y+12)+'" style="fill:var(--muted)" font-size="10">'+esc(f.stage)+'</text>';
+      out+='<rect x="'+padL+'" y="'+y+'" width="'+w+'" height="16" rx="4" style="fill:var(--accent);fill-opacity:.85"/>';
+      out+='<text x="'+(padL+w+5)+'" y="'+(y+12)+'" style="fill:var(--text-2)" font-size="10">'+f.count+'</text>';
       y+=rowH;
     });
     return out+'</svg>';
@@ -1514,9 +1527,9 @@ PAGE = r"""<!doctype html>
     let out='<svg width="100%" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="font-family:var(--sans)">';
     byWeek.forEach((wk,i)=>{
       const x=12+i*((W-20)/n), bh=Math.round(wk.count/max*(H-padB-10));
-      out+='<rect x="'+x+'" y="'+(H-padB-bh)+'" width="'+bw+'" height="'+Math.max(2,bh)+'" rx="3" fill="#62d3ea" fill-opacity=".7"/>';
-      out+='<text x="'+(x+bw/2)+'" y="'+(H-padB-bh-4)+'" fill="#b9c4d0" font-size="9" text-anchor="middle">'+wk.count+'</text>';
-      out+='<text x="'+(x+bw/2)+'" y="'+(H-7)+'" fill="#8793a3" font-size="8" text-anchor="middle">'+esc(wk.week.split('-W')[1]||'')+'</text>';
+      out+='<rect x="'+x+'" y="'+(H-padB-bh)+'" width="'+bw+'" height="'+Math.max(2,bh)+'" rx="3" style="fill:var(--accent);fill-opacity:.7"/>';
+      out+='<text x="'+(x+bw/2)+'" y="'+(H-padB-bh-4)+'" style="fill:var(--text-2)" font-size="9" text-anchor="middle">'+wk.count+'</text>';
+      out+='<text x="'+(x+bw/2)+'" y="'+(H-7)+'" style="fill:var(--muted)" font-size="8" text-anchor="middle">'+esc(wk.week.split('-W')[1]||'')+'</text>';
     });
     return out+'</svg>';
   }
@@ -1525,7 +1538,7 @@ PAGE = r"""<!doctype html>
   /* job tracker page */
   function fillStageSelect(sel,current){sel.innerHTML='';STAGES.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;if(s===current)o.selected=true;sel.appendChild(o);});}
   async function loadJobs(){
-    try{const d=await (await fetch('/api/jobs')).json();renderJobs(d);}catch(e){document.getElementById('jobList').innerHTML='<div style="color:var(--amber-b)">Could not load jobs.</div>';}
+    try{const d=await (await fetch('/api/jobs')).json();renderJobs(d);}catch(e){document.getElementById('jobList').innerHTML='<div style="color:var(--warn)">Could not load jobs.</div>';}
   }
   function renderJobs(d){
     const s=d.stats||{funnel:[],by_week:[]};
@@ -1582,7 +1595,7 @@ PAGE = r"""<!doctype html>
   }
   async function loadPipeline(){
     try{const d=await (await fetch('/api/pipeline')).json();renderPipeline(d);}
-    catch(e){document.getElementById('pipeBoard').innerHTML='<div style="color:var(--amber-b)">Could not load pipeline.</div>';}
+    catch(e){document.getElementById('pipeBoard').innerHTML='<div style="color:var(--warn)">Could not load pipeline.</div>';}
   }
   let profileLoaded=false;
   function renderPipeline(d){
@@ -1620,7 +1633,7 @@ PAGE = r"""<!doctype html>
   function showPackage(j){
     document.getElementById('pkgTitle').textContent='Tailored resume — '+(j.company||'')+(j.role?(' · '+j.role):'');
     const frame=document.createElement('iframe');
-    frame.style.cssText='width:100%;height:760px;border:1px solid var(--line2);border-radius:8px;background:#fff';
+    frame.style.cssText='width:100%;height:760px;border:1px solid var(--hair-2);border-radius:8px;background:#fff';
     frame.setAttribute('sandbox','');frame.title='Tailored resume preview';
     frame.srcdoc=j.tailored_package||'';
     const body=document.getElementById('pkgBody');body.innerHTML='';body.appendChild(frame);
@@ -1670,6 +1683,7 @@ PAGE = r"""<!doctype html>
   }
 
   /* overview page */
+  const HEALTH_LABEL={ok:'Online',degraded:'AI unreachable',setup:'Offline tools',checking:'Checking AI'};
   async function loadOverview(){
     document.getElementById('ovSub').textContent='Loading overview…';
     try{
@@ -1678,7 +1692,7 @@ PAGE = r"""<!doctype html>
       const busy=Object.values(tiers).filter(v=>v==='degraded').length;
       document.getElementById('ovSub').textContent=new Date().toLocaleString();
       document.getElementById('ovCards').innerHTML=
-        statCard('AI status',{ok:'online',degraded:'unreachable',setup:'offline tools',checking:'checking'}[h.overall]||'unknown',busy?busy+' tier busy':'')+
+        statCard('AI status',HEALTH_LABEL[h.overall]||'Unknown',busy?busy+' tier busy':'')+
         statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers')+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
@@ -1691,13 +1705,11 @@ PAGE = r"""<!doctype html>
 
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
-    const pill=document.getElementById('healthPill'),txt=document.getElementById('healthText');
-    let label={ok:'Online',degraded:'AI unreachable',setup:'Offline tools',checking:'Checking AI'}[h.overall]||'Unknown';
+    const pill=healthPill;
+    let label=HEALTH_LABEL[h.overall]||'Unknown';
     const busy=Object.entries((h.llm&&h.llm.tiers)||{}).filter(([k,v])=>v==='degraded').map(([k])=>k);
     if(h.overall==='ok'&&busy.length){label=busy.join('/')+' model busy';}
-    const cls=h.overall+(h.overall==='ok'&&busy.length?' busy':'');
-    pill.className='pill '+cls; txt.textContent=label;
-    document.getElementById('railStatus').className='sysbtn '+cls; document.getElementById('railText').textContent=label;
+    setStatus(h.overall+(h.overall==='ok'&&busy.length?' busy':''),label);
     const tierNote=busy.length?` · busy: ${busy.join(', ')} (using a faster model)`:'';
     pill.title=`AI: ${h.llm.configured?(h.llm.reachable===false?'configured but unreachable':h.llm.reachable===true?'connected':'configured, checking'):'not configured'} · vault: ${h.vault.connected?'connected':'off'} · email: ${h.email.configured?'on':'off'}${tierNote}`;
     if(h.storage_warnings?.length){hint.textContent=h.storage_warnings.join(' ');}
@@ -1709,7 +1721,7 @@ PAGE = r"""<!doctype html>
     }
   }catch(e){}}
   pollWhenVisible(loadHealth,12000);loadHealth();
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;loadMetrics();loadAgents();loadHealth();if(document.getElementById('schedPanel').open)loadSchedule();if(document.getElementById('runsPanel').open)loadAgentRuns();if(document.body.dataset.view==='pipeline')loadPipeline();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;if(drawerOpen()){loadMetrics();loadAgents();}loadHealth();if(document.getElementById('schedPanel').open)loadSchedule();if(document.getElementById('runsPanel').open)loadAgentRuns();if(document.body.dataset.view==='pipeline')loadPipeline();});
 
   /* voice */
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null,dictating=false;

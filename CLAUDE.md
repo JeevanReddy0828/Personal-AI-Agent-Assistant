@@ -283,8 +283,8 @@ conversation column with a rounded composer (attach · agent mode · text · dic
 panels (tool activity, scheduled jobs, agent runs, map, trip planner) live in a
 right-hand **System status** drawer (`#sysDrawer`, opened from the header status pill or
 the rail footer; Esc closes). Design tokens are the CSS variables at the top of the
-`<style>` block: one cyan accent for interactive/active states, green only for healthy
-status, sans-serif body type (Segoe UI Variable → system stack; the CSP is
+`<style>` block: one cyan accent for interactive/active states, green only for healthy or
+positive status (health dots, high ATS scores), sans-serif body type (Segoe UI Variable → system stack; the CSP is
 `font-src 'self'`, so no web fonts), monospace reserved for model names, timings and
 diagnostics, 150–250 ms motion that honours `prefers-reduced-motion`. Browser
 regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,

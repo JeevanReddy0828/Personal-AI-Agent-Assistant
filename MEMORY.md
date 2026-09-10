@@ -77,8 +77,8 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   composer; the send button is cyan. Mobile (≤520px) composer is two rows.
 - Typography: sans-serif everywhere (Segoe UI Variable → system stack — the CSP is
   `font-src 'self'` and the app is offline-first, so no web fonts); monospace only for model
-  names, timings and diagnostics. Green is reserved for healthy status.
-- The old CSS variable names (`--ice`, `--line2`, `--amber-b`, `--panel2`) survive as aliases
-  because a few inline styles in JS still use them.
+  names, timings and diagnostics. Green is reserved for healthy/positive status (health dots, high ATS scores).
+- The palette lives only in the `:root` tokens; the JS reads `--accent`/`--violet`/`--violet-2`/
+  `--voice` via `getComputedStyle` for the orb, and inline styles use the token names directly.
 - `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
   a hash-only navigation (`#/chat`) does not refetch the page.
