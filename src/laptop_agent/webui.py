@@ -364,7 +364,8 @@ PAGE = r"""<!doctype html>
   #ta{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.5;resize:none;max-height:150px;padding:9px 4px}
   #ta::placeholder{color:#46505f}
   .sendbtn{width:40px;height:40px;flex:none;border:none;border-radius:12px;background:radial-gradient(circle at 50% 35%,#ffe6ad,var(--amber));color:#1a1102;cursor:pointer;font-size:16px;box-shadow:0 0 16px -3px rgba(255,180,58,.65);transition:.15s}
-  .sendbtn.stop{background:radial-gradient(circle,#ff9aa3,var(--danger));color:#fff;box-shadow:0 0 16px -3px rgba(255,93,108,.6)}
+  .sendbtn.stop{background:radial-gradient(circle,#ff9aa3,var(--danger));color:#fff;box-shadow:0 0 16px -3px rgba(255,93,108,.6);animation:stoppulse 1.1s ease-in-out infinite}
+  @keyframes stoppulse{0%,100%{box-shadow:0 0 14px -3px rgba(255,93,108,.55)}50%{box-shadow:0 0 22px 1px rgba(255,93,108,.95)}}
   #agentBtn.on{color:var(--ice-b);background:rgba(95,208,230,.12);box-shadow:inset 0 0 0 1px rgba(95,208,230,.3)}
   .trace{margin:6px 0 2px;border:1px solid var(--line);border-left:2px solid var(--amber-soft);border-radius:10px;background:#0a0d13;overflow:hidden}
   .trace .thead{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;color:var(--amber-b);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
@@ -512,6 +513,9 @@ PAGE = r"""<!doctype html>
   .vtrans{max-width:580px;min-height:52px;text-align:center;color:#eaf6fb;font-size:19px;line-height:1.5;padding:0 20px;font-weight:300}
   .vend{font-family:var(--display);letter-spacing:3px;text-transform:uppercase;font-size:11px;color:var(--ice-b);background:rgba(95,208,230,.08);border:1px solid var(--line2);border-radius:999px;padding:11px 28px;cursor:pointer;transition:.2s}
   .vend:hover{border-color:var(--ice);box-shadow:0 0 20px -4px rgba(95,208,230,.6);color:#fff}
+  .vbtns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+  .vint{color:var(--amber-b);background:rgba(255,180,58,.08)}
+  .vint:hover{border-color:var(--amber);box-shadow:0 0 20px -4px rgba(255,180,58,.55);color:#fff}
   .drop{position:absolute;inset:10px;z-index:6;background:rgba(95,208,230,.07);border:2px dashed var(--ice);border-radius:16px;display:none;align-items:center;justify-content:center;font-family:var(--display);letter-spacing:3px;text-transform:uppercase;color:var(--ice-b);pointer-events:none}
   .drop.on{display:flex}
 
@@ -764,7 +768,7 @@ PAGE = r"""<!doctype html>
       <div class="vcap">subtitles</div>
       <div class="vtrans" id="vtrans">Say something…</div>
       <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
-      <button class="vend" id="vend">End voice</button>
+      <div class="vbtns"><button class="vend vint" id="vint" title="Stop speaking and listen (Space)">Interrupt</button><button class="vend" id="vend">End voice</button></div>
     </div>
     <div class="noteviewer" id="noteViewer">
       <div class="nv-head">
@@ -907,7 +911,7 @@ PAGE = r"""<!doctype html>
         attachBtn=document.getElementById('attachBtn'), fileIn=document.getElementById('file'), chips=document.getElementById('chips'),
         micBtn=document.getElementById('micBtn'), reactor=document.getElementById('reactor'), drop=document.getElementById('drop'),
         voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
-        vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'),
+        vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
   let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
@@ -1112,6 +1116,7 @@ PAGE = r"""<!doctype html>
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){closeChats();if(busy)stopGen(); else if(voiceActive)endVoice(); }
+    if(e.key===' '&&voiceActive&&document.activeElement!==ta&&document.activeElement.tagName!=='INPUT'){e.preventDefault();interruptNow();}  // Space: stop speaking, listen
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); newSession(); ta.focus(); }
   });
 
@@ -1695,13 +1700,14 @@ PAGE = r"""<!doctype html>
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
   voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
   vend.onclick=endVoice;
+  if(vint)vint.onclick=interruptNow;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
   // Voice mode is signalled by a violet theme shift (body.voicing) — no full-screen
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
   function startVoice(){voiceGeneration++;voiceActive=true;document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false, lastSpoken='';
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
@@ -1728,6 +1734,25 @@ PAGE = r"""<!doctype html>
     const bw=new Set(b.split(' ')), aw=a.split(' ');
     return aw.length>1 && aw.filter(w=>bw.has(w)).length/aw.length>0.6;
   }
+  // --- barge-in: keep a recognizer alive while J.A.R.V.I.S speaks; if the user says a
+  // real phrase (not the TTS echo) it stops talking and answers the new input with the
+  // prior context. Best with headphones — open speakers can feed the voice back into
+  // the mic. The Interrupt button / Space bar are the always-reliable manual fallback.
+  let barge=null, barged=false;
+  function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}}
+  function bargeStart(){
+    if(!voiceActive||NATIVE||!SR)return; bargeStop(); barged=false;
+    try{barge=new SR();}catch(e){return;}
+    barge.lang='en-US';barge.interimResults=true;barge.continuous=true;
+    barge.onresult=e=>{if(barged)return;let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
+      const q=t.trim(); if(q.split(/\s+/).filter(Boolean).length>=2 && !isEcho(q)){barged=true;userInterrupt(q);}};
+    barge.onerror=()=>{};
+    barge.onend=()=>{if(barge&&voiceActive&&speaking&&!barged){try{barge.start();}catch(e){}}};
+    try{barge.start();}catch(e){}
+  }
+  function stopSpeaking(){try{speechSynthesis.cancel();}catch(e){}ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
+  function interruptNow(){if(!voiceActive)return;stopSpeaking();vSet('listening','Listening');listen();}           // manual: stop speaking, listen
+  function userInterrupt(q){if(!voiceActive)return;stopSpeaking();if(busy)stopGen();vSet('thinking','Thinking');setTimeout(()=>{if(voiceActive)send(q);},200);}  // spoken barge-in: abort any in-flight turn, then answer with context
   // --- voice timing HUD: marks where each turn spends time so latency is visible ---
   let vT0=0, vMarks=[];
   function vstart(){vT0=performance.now();vMarks=[];}
@@ -1839,7 +1864,8 @@ PAGE = r"""<!doctype html>
   function speakChunk(text){
     if(NATIVE)return playTTS(text);
     try{
-    speaking=true; try{rec&&rec.stop();}catch(e){}      // never listen while we talk (avoids echo)
+    speaking=true; try{rec&&rec.stop();}catch(e){}      // stop the main turn recognizer
+    bargeStart();                                       // …but keep a barge recognizer alive so speech can be interrupted
     try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
     if(!ttsVoice)pickVoice();
     const clean=text.replace(/[`*#_>\[\]()]/g,'').replace(/\s+/g,' ').trim();
@@ -1850,10 +1876,10 @@ PAGE = r"""<!doctype html>
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
     u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{speaking=false;pumpTTS();};            // next sentence, or resume listening when the queue drains
-    u.onerror=()=>{speaking=false;pumpTTS();};
+    u.onend=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{if(barged)return;bargeStop();speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
-  }catch(e){speaking=false;pumpTTS();}}
+  }catch(e){bargeStop();speaking=false;pumpTTS();}}
 
   renderSessions(); ta.focus();
   document.querySelectorAll('textarea,input,select,button').forEach(el=>{
