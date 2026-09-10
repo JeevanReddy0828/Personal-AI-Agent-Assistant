@@ -151,7 +151,12 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
         obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
             alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
             for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
-Subsystems: knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
+Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tier and
+        fallback, ok — timings only, never prompts or replies; the only text kept is the
+        resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
+        `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the
+        right turn. Read it with `latency` or `/api/traces`),
+        knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool),
         advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
