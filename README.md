@@ -113,6 +113,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Capability | How |
 |---|---|
 | Generate a picture | `image <description>`, or "draw me a picture of …"; **Save** it from the reply |
+| Write a document | `document <request> as pdf|word|markdown`, or "write a brief on X as a pdf" |
 | Image OCR | `ocr image <path>` |
 | Audio/video transcription | `transcribe <path>` — hosted Parakeet (~1s) or offline Vosk/Whisper |
 | Understand your screen | `read screen [question]` |
