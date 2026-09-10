@@ -358,6 +358,10 @@ Both Claude and Codex edit this repo. To avoid collisions:
 - **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
   they live only in gitignored `.env`).
 - GPU metrics need an elevated launch on this laptop (Optimus dGPU).
+- `context.py` carries its own tokenizer/stopword list — the repo's fifth copy (knowledge,
+  obsidian, files, copilot). Consolidate when any of them is next touched.
+- The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
+  discard those changes (`git checkout -- docs/review`) unless a review PR wants new evidence.
 - The user keeps durable project memory in an Obsidian vault at
   `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem\Personal AI Agent`.
   Keep those notes in sync when shipping features.
