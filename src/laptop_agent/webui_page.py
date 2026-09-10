@@ -921,6 +921,10 @@ PAGE = r"""<!doctype html>
   function decorate(root){
     root.querySelectorAll('img:not([data-dec])').forEach(img=>{
       img.dataset.dec='1';
+      // A model sometimes writes its own ![...](/api/image?name=...) pointing at a file that
+      // was never generated. That rendered as a zero-height image with a Save control and
+      // nothing to save, which reads as a broken feature — drop the whole figure instead.
+      img.addEventListener('error',()=>{const fig=img.closest('.figure');(fig||img).remove();});
       const src=img.getAttribute('src')||'';
       const name=(/[?&]name=([^&]+)/.exec(src)||[])[1]||'image.png';
       const wrap=document.createElement('div');wrap.className='figure';

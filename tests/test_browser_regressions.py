@@ -229,7 +229,28 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
 
+    def test_a_broken_generated_image_leaves_no_phantom_save(self):
+        # A model sometimes writes its own image link to a file that was never generated.
+        # That rendered as a zero-height image with a Save control and nothing to save.
+        self.page.evaluate("""() => {
+            renderMsg('bot', '![diagram](/api/image?name=does-not-exist-123.png)\\n\\nHere is a diagram.');
+        }""")
+        self.wait_js("document.querySelectorAll('.msg .md img').length===0")
+        self.assertEqual(self.page.locator('.msg .md .figure').count(), 0)
+        self.assertEqual(self.page.locator('.msg .md .oact').count(), 0)
+        self.assertIn("Here is a diagram.", self.page.locator('.msg .md').inner_text())
+
     def test_a_picture_reply_gets_a_save_action(self):
+        from laptop_agent.webui import _CONFIG
+        directory = (_CONFIG.data_dir / 'images').resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        picture = directory / 'fox-1.png'
+        # a 1x1 PNG, so the image actually loads and keeps its Save control
+        picture.write_bytes(bytes.fromhex(
+            '89504e470d0a1a0a0000000d494844520000000100000001080600000'
+            '01f15c4890000000a49444154789c6360000002000100ffff0300000600'
+            '0557bfabd40000000049454e44ae426082'))
+        self.addCleanup(picture.unlink, True)
         self.page.evaluate("""() => {
             renderMsg('bot', '![a fox](/api/image?name=fox-1.png)\\n\\nHere is a fox.');
         }""")
