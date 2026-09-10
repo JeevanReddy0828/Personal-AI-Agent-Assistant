@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from laptop_agent.planner import HeuristicPlannerProvider
-from laptop_agent.planner.heuristic import is_plain_question
+from laptop_agent.planner.heuristic import is_diagram_subject, is_plain_question
 
 
 class HeuristicPlannerTests(unittest.TestCase):
@@ -154,6 +154,25 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertFalse(is_plain_question(""))
         self.assertFalse(is_plain_question("   "))
         self.assertFalse(is_plain_question("what is " + "x" * 500))
+
+    def test_technical_diagrams_are_recognised(self) -> None:
+        for text in (
+            "ERD diagram of the database schema",
+            "a state diagram of TCP congestion control",
+            "a flowchart of the login process",
+            "an architecture diagram",
+            "a wireframe of the settings page",
+            "a UML sequence diagram",
+        ):
+            self.assertTrue(is_diagram_subject(text), text)
+
+    def test_ordinary_pictures_are_not_diagrams(self) -> None:
+        for text in (
+            "a red fox asleep in fresh snow",
+            "a brass compass on a weathered desk",
+            "a futuristic city at dusk",
+        ):
+            self.assertFalse(is_diagram_subject(text), text)
 
     def test_draw_without_a_subject_stays_chat(self) -> None:
         # "draw the diagram" is about something already in the conversation, not a prompt.

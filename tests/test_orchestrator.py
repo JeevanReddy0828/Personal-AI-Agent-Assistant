@@ -1030,6 +1030,52 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(AgentOrchestrator._complexity(text), 2, text)  # reasoning tier
         self.assertEqual(AgentOrchestrator._complexity("hey there"), 0)  # small talk stays simple
 
+    def test_a_diagram_request_never_reaches_image_generation(self) -> None:
+        # Reported: after a conversation about TCP congestion control, "create an image for
+        # this" produced an unreadable entity-relationship picture. The router had copied the
+        # subject from its own few-shot example; a diffusion model cannot draw a diagram.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="",
+                command="image an entity-relationship diagram of users and orders",
+            )
+            history = [{"role": "assistant", "text": "Here is a state diagram: SlowStart --> CongestionAvoidance"}]
+            fixed = o._repair_image_command("create an image for this", invented, history)
+            self.assertTrue(fixed.is_chat)
+            self.assertIsNone(fixed.command)
+
+    def test_a_back_reference_takes_its_subject_from_the_conversation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="",
+                command="image an entity-relationship diagram of users and orders",
+            )
+            history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat for hunting in snow."}]
+            fixed = o._repair_image_command("create an image for this", invented, history)
+            self.assertTrue(fixed.is_command)
+            self.assertIn("fox", fixed.command.lower())
+            self.assertNotIn("entity-relationship", fixed.command.lower())
+
+    def test_an_explicit_picture_request_is_left_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            asked = PlanDecision(
+                action="command", confidence=0.9, explanation="",
+                command="image a brass compass on a weathered desk",
+            )
+            fixed = o._repair_image_command("image a brass compass on a weathered desk", asked, [])
+            self.assertEqual(fixed.command, "image a brass compass on a weathered desk")
+
+    def test_a_back_reference_with_no_conversation_falls_back_to_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="", command="image something imagined",
+            )
+            self.assertTrue(o._repair_image_command("create an image for this", invented, []).is_chat)
+
     def test_three_tier_model_selection(self) -> None:
         class ChatPlanner:
             def plan(self, text, available_commands, memory_profile, history=None):

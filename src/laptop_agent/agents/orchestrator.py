@@ -24,7 +24,9 @@ from laptop_agent.context import (
     accepts_context_query,
     build_context,
     context_block,
+    refers_back,
     register_summarizer,
+    topic_of,
 )
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
@@ -34,7 +36,7 @@ from laptop_agent.metrics import system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import is_plain_question
+from laptop_agent.planner.heuristic import is_diagram_subject, is_plain_question
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.safety import ApprovalDenied
@@ -287,7 +289,57 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        return decided("llm", self.planner.plan(command, help_text, profile, history))
+        planned = self.planner.plan(command, help_text, profile, history)
+        return decided("llm", self._repair_image_command(command, planned, history))
+
+    @staticmethod
+    def _referent_topic(history: list[dict[str, str]] | None) -> str:
+        """What the latest assistant turn was about, in a few words."""
+        for turn in reversed(history or []):
+            if turn.get("role") == "assistant" and turn.get("text"):
+                return topic_of(str(turn["text"]))
+        return ""
+
+    def _repair_image_command(self, text, planned, history):
+        """The router invents image subjects, and sends diagrams to a diffusion model.
+
+        Both reproduced: after a conversation about TCP congestion control, "create an
+        image for this" routed to an entity-relationship diagram of users, orders and
+        products — copied from the router's own few-shot example, not the conversation —
+        and the picture that came back was unreadable.
+
+        So a technical diagram never reaches image generation, and a back-reference takes
+        its subject from the conversation rather than from whatever the router imagined."""
+        command = (planned.command or "") if planned.is_command else ""
+        if not command.lower().startswith("image "):
+            return planned
+        subject = command[len("image ") :].strip()
+        resolved = False
+        # Resolve the subject before judging it: the router's invention says nothing about
+        # what the user actually pointed at.
+        if refers_back(text):
+            topic = self._referent_topic(history)
+            if not topic:
+                return PlanDecision(
+                    action="chat",
+                    confidence=0.55,
+                    explanation="A back-reference with nothing to refer to.",
+                )
+            subject, resolved = topic, True
+        if is_diagram_subject(subject) or is_diagram_subject(text):
+            return PlanDecision(
+                action="chat",
+                confidence=0.55,
+                explanation="A technical diagram belongs in the reply, not in a generated picture.",
+            )
+        if resolved:
+            return PlanDecision(
+                action="command",
+                command=f"image {subject}",
+                confidence=planned.confidence,
+                explanation="Back-reference resolved from the conversation, not the router.",
+            )
+        return planned
 
     async def handle(
         self,
