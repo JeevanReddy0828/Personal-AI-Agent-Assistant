@@ -1581,6 +1581,9 @@ class AgentOrchestrator:
                 api_key=config.llm_image_api_key,
                 data_dir=config.data_dir,
                 model=config.llm_image_model,
+                base_url=config.llm_image_base_url,
+                fallback_model=config.llm_image_fallback_model,
+                fallback_api_key=config.llm_image_fallback_api_key,
                 approval_gate=self.context.web.approval_gate,
             )
         return self._image_tool_cache

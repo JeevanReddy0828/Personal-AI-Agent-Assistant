@@ -191,7 +191,7 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 | smart | `OPENAI_SMART_MODEL` | complex questions |
 | ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout); NVIDIA reasoning models think first (`OPENAI_REASONING_BUDGET`) |
 | vision | `OPENAI_VISION_MODEL` | screen + images |
-| image | `OPENAI_IMAGE_MODEL` | text-to-image (FLUX; own key via `OPENAI_IMAGE_KEY`) |
+| image | `OPENAI_IMAGE_MODEL` | text-to-image (FLUX, own key + base URL; `OPENAI_IMAGE_FALLBACK_MODEL` stands in when it is queued) |
 | backup | `OPENROUTER_API_KEY` | cross-provider last resort |
 
 At runtime each turn escalates by complexity and **degrades gracefully**:
