@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from laptop_agent.webui import _CONFIG, _compose_command, _image_path
+from laptop_agent.webui import _CONFIG, _compose_command, _image_path, _probe_llm
 
 
 class ComposeCommandTests(unittest.TestCase):
@@ -65,6 +65,40 @@ class ImageRouteTests(unittest.TestCase):
 
     def test_missing_file_is_not_found(self) -> None:
         self.assertIsNone(_image_path("nope.png"))
+
+
+class LlmProbeTests(unittest.TestCase):
+    """One refused ping used to show "AI unreachable" for the whole 200s warm cycle."""
+
+    def test_a_single_refusal_is_retried(self) -> None:
+        results = iter([False, True])
+        calls: list[int] = []
+
+        def ping() -> bool:
+            calls.append(1)
+            return next(results)
+
+        self.assertTrue(_probe_llm(ping, delay=0))
+        self.assertEqual(len(calls), 2)
+
+    def test_a_first_success_does_not_ping_twice(self) -> None:
+        calls: list[int] = []
+
+        def ping() -> bool:
+            calls.append(1)
+            return True
+
+        self.assertTrue(_probe_llm(ping, delay=0))
+        self.assertEqual(len(calls), 1)
+
+    def test_repeated_failure_reports_unreachable(self) -> None:
+        self.assertFalse(_probe_llm(lambda: False, delay=0))
+
+    def test_network_errors_are_treated_as_a_failed_ping(self) -> None:
+        def ping() -> bool:
+            raise TimeoutError("no route")
+
+        self.assertFalse(_probe_llm(ping, delay=0))
 
 
 if __name__ == "__main__":
