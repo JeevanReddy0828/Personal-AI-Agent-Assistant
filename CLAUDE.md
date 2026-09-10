@@ -357,7 +357,18 @@ behind a desktop-gated `/api/window`
 POST (`_DESKTOP_MODE`, set only by `run_desktop`, so a normal browser is never
 touched). In a browser the slider still fades the app visually via CSS.
 
-Speech-to-text has two engines, chosen by `LAPTOP_AGENT_STT` (default `auto`):
+Speech-to-text has three engines, chosen by `LAPTOP_AGENT_STT` (default `auto`):
+**Riva** (hosted NVIDIA Parakeet, `riva` extra) is the accurate one — ~1s against Whisper's
+~10s on the same clip, with punctuation. It is **gRPC, not REST**: the API catalog's
+`/v1/audio/transcriptions` returns 404 on both hosts, so it needs `nvidia-riva-client`
+against `grpc.nvcf.nvidia.com:443` with a `function-id` metadata header (that id selects
+the model; `RIVA_SERVER` / `RIVA_ASR_FUNCTION_ID` / `RIVA_API_KEY` override, and the key
+falls back to `OPENAI_API_KEY`). It takes PCM WAV only, so `auto` skips it for other media,
+and a failed cloud call falls through to a local engine — losing the network costs quality,
+not the transcription. `/api/health` reports the chosen engine as `stt.engine`, and the web
+page uses that to record-and-post instead of trusting the browser's recognizer (a gear
+toggle overrides; server speech gives up spoken barge-in, since the recorder owns the mic,
+so Space/Interrupt cut in). The two local engines:
 **Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
 browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`

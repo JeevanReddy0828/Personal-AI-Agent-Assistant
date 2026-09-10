@@ -503,6 +503,7 @@ PAGE = r"""<!doctype html>
       <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
         <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="sttServer" role="switch" aria-checked="false"><span>Server speech<small id="sttNote">Checking…</small></span><span class="sw"></span></button>
         <div class="row">
           <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
           <input type="range" id="opacityRange" min="35" max="100" step="1" value="100" aria-label="Window transparency">
@@ -1643,6 +1644,7 @@ PAGE = r"""<!doctype html>
 
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
+    setSttEngine(h.stt&&h.stt.engine);
     const pill=healthPill;
     let label=HEALTH_LABEL[h.overall]||'Unknown';
     const busy=Object.entries((h.llm&&h.llm.tiers)||{}).filter(([k,v])=>v==='degraded').map(([k])=>k);
@@ -1667,6 +1669,39 @@ PAGE = r"""<!doctype html>
   // Native app window (pywebview): ?app=1 is set by run_desktop. There is no Web Speech
   // API, so voice records audio and uses the server (/api/transcribe + /api/tts).
   const NATIVE=location.search.indexOf('app=1')>=0;
+  // Server speech: record here, transcribe on the server (hosted Parakeet ~1s, or a local
+  // engine). More accurate than the browser recognizer and it cannot hear the reply,
+  // because the microphone is only open while we choose to record — but it gives up
+  // spoken barge-in, so Space and Interrupt are how you cut in. Off means the browser's
+  // own recognizer, which is flakier but can be interrupted by voice.
+  let sttServer=false, sttEngine=null;
+  try{const saved=localStorage.getItem('jarvis_stt');if(saved)sttServer=saved==='server';}catch(e){}
+  let sttChosen=false;
+  try{sttChosen=!!localStorage.getItem('jarvis_stt');}catch(e){}
+  function useServerStt(){return NATIVE||(sttServer&&!!sttEngine);}
+  function setSttEngine(name){
+    sttEngine=name||null;
+    // Nothing was chosen yet: prefer the server whenever the server has an engine, since
+    // that is the accurate path. An explicit choice always wins.
+    if(!sttChosen)sttServer=!!sttEngine;
+    const box=document.getElementById('sttServer');
+    if(box){
+      box.setAttribute('aria-checked',String(useServerStt()));
+      box.classList.toggle('on',useServerStt());
+      box.disabled=!sttEngine||NATIVE;
+    }
+    const note=document.getElementById('sttNote');
+    if(note)note.textContent=NATIVE?'The app window always transcribes on the server.'
+      :!sttEngine?'No server engine installed — using the browser recognizer.'
+      :sttServer?(sttEngine+' — accurate, and it cannot hear itself. Press Space to cut in.')
+      :(sttEngine+' available. The browser recognizer is flakier but can be interrupted by voice.');
+  }
+  document.getElementById('sttServer').onclick=()=>{
+    if(!sttEngine||NATIVE)return;
+    sttServer=!sttServer; sttChosen=true;
+    try{localStorage.setItem('jarvis_stt',sttServer?'server':'browser');}catch(e){}
+    setSttEngine(sttEngine);
+  };
   if(!SR)micBtn.style.display='none';                   // dictation needs Web Speech; voice mode uses the server in NATIVE
   // pick the most human-sounding installed voice (Edge "Natural"/"Online" neural voices)
   let ttsVoice=null;
@@ -1764,7 +1799,7 @@ PAGE = r"""<!doctype html>
   function bargeReset(){bargeOff=false;bargeCount=0;bargeWindow=performance.now();}
   function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}}
   function bargeStart(){
-    if(!voiceActive||NATIVE||!SR||bargeOff)return; bargeStop(); barged=false;
+    if(!voiceActive||useServerStt()||!SR||bargeOff)return; bargeStop(); barged=false;
     try{barge=new SR();}catch(e){return;}
     barge.lang='en-US';barge.interimResults=true;barge.continuous=true;
     barge.onresult=e=>{if(barged)return;let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
@@ -1782,7 +1817,7 @@ PAGE = r"""<!doctype html>
   function vstart(){vT0=performance.now();vMarks=[];}
   function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
-    if(NATIVE)return nativeListen();                     // server-side speech path for the app window
+    if(useServerStt())return nativeListen();             // record here, transcribe on the server
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';
     vstart();
@@ -1890,7 +1925,7 @@ PAGE = r"""<!doctype html>
     }catch(e){speaking=false;pumpTTS();}
   }
   function speakChunk(text){
-    if(NATIVE)return playTTS(text);
+    if(NATIVE)return playTTS(text);   // the app window has no Web Speech API
     try{
     speaking=true; try{rec&&rec.stop();}catch(e){}      // stop the main turn recognizer
     bargeStart();                                       // …but keep a barge recognizer alive so speech can be interrupted

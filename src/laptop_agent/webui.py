@@ -101,6 +101,19 @@ def _bare_attachment_command(path: str) -> str:
     return f"process file {path}"
 
 
+def _stt_engine() -> str | None:
+    """Name of the speech engine a recording would reach, cached after the first look:
+    importing Whisper to answer a health poll is far too slow to do every time."""
+    if "stt" not in _LLM_STATUS:
+        from laptop_agent.tools.transcribe import stt_engine_name
+
+        try:
+            _LLM_STATUS["stt"] = stt_engine_name()
+        except Exception:  # pragma: no cover - a broken engine must not break health
+            _LLM_STATUS["stt"] = None
+    return _LLM_STATUS["stt"]  # type: ignore[return-value]
+
+
 def _image_path(name: str) -> Path | None:
     """Resolve a generated image by bare filename, or None if it is not one of ours.
 
@@ -314,7 +327,10 @@ class Handler(BaseHTTPRequestHandler):
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         elif path == "/api/health":
-            self._json(200, system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG))
+            report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
+            # The page decides between its own recognizer and posting audio here.
+            report["stt"] = {"engine": _stt_engine()}
+            self._json(200, report)
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":

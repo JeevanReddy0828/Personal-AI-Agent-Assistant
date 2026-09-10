@@ -19,13 +19,20 @@ class SttEngineSelectionTests(unittest.TestCase):
         self._saved_env = os.environ.get("LAPTOP_AGENT_STT")
         self._saved_vosk = transcribe_module._vosk_asr_backend
         self._saved_whisper = transcribe_module._builtin_asr_backend
+        self._saved_riva = transcribe_module._riva_asr_backend
+        self._saved_riva_available = transcribe_module._riva_available
         self.calls: list[str] = []
         transcribe_module._vosk_asr_backend = lambda t: (self.calls.append("vosk"), {"text": "v"})[1]
         transcribe_module._builtin_asr_backend = lambda t: (self.calls.append("whisper"), {"text": "w"})[1]
+        transcribe_module._riva_asr_backend = lambda t: (self.calls.append("riva"), {"text": "r"})[1]
+        # Riva is a network engine: off unless a test asks for it, so nothing here dials out.
+        transcribe_module._riva_available = lambda: False
 
     def tearDown(self) -> None:
         transcribe_module._vosk_asr_backend = self._saved_vosk
         transcribe_module._builtin_asr_backend = self._saved_whisper
+        transcribe_module._riva_asr_backend = self._saved_riva
+        transcribe_module._riva_available = self._saved_riva_available
         if self._saved_env is None:
             os.environ.pop("LAPTOP_AGENT_STT", None)
         else:
@@ -60,6 +67,56 @@ class SttEngineSelectionTests(unittest.TestCase):
         finally:
             transcribe_module._vosk_available = saved
         self.assertEqual(self.calls, ["whisper"])
+
+    def test_explicit_riva(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "riva"
+        transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["riva"])
+
+    def test_auto_prefers_riva_for_wav_when_it_is_usable(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+        transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["riva"])
+
+    def test_auto_skips_riva_for_media_it_cannot_take(self) -> None:
+        # Riva accepts PCM WAV only, so an mp4 goes straight to a local engine.
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+        saved = transcribe_module._vosk_available
+        transcribe_module._vosk_available = lambda: True
+        try:
+            transcribe_module._default_asr_backend(Path("clip.mp4"))
+        finally:
+            transcribe_module._vosk_available = saved
+        self.assertEqual(self.calls, ["vosk"])
+
+    def test_a_failed_cloud_call_falls_back_to_a_local_engine(self) -> None:
+        # The point of a local-first app is that losing the network costs quality, not the
+        # transcription itself.
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+        def dead(target):
+            self.calls.append("riva")
+            raise RuntimeError("no route to host")
+        transcribe_module._riva_asr_backend = dead
+        saved = transcribe_module._vosk_available
+        transcribe_module._vosk_available = lambda: True
+        try:
+            transcribe_module._default_asr_backend(Path("clip.wav"))
+        finally:
+            transcribe_module._vosk_available = saved
+        self.assertEqual(self.calls, ["riva", "vosk"])
+
+    def test_riva_without_a_key_or_client_explains_itself(self) -> None:
+        saved_key = {name: os.environ.pop(name, None) for name in ("RIVA_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY")}
+        try:
+            with self.assertRaises(MissingDependencyError):
+                self._saved_riva(Path("clip.wav"))
+        finally:
+            for name, value in saved_key.items():
+                if value is not None:
+                    os.environ[name] = value
 
     def test_vosk_missing_dependency_message(self) -> None:
         # Vosk isn't a test dependency, so the real backend raises a clear install hint.

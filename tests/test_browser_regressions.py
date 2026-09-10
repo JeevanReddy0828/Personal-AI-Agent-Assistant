@@ -165,6 +165,39 @@ class BrowserRegressions(unittest.TestCase):
         self.wait_js("profileLoaded")
         self.assertEqual(self.page.locator('#rsContact').input_value(), 'candidate@example.com · 555-123-4567')
 
+    def test_server_speech_is_preferred_when_the_server_has_an_engine(self):
+        state = self.page.evaluate("""() => {
+            localStorage.removeItem('jarvis_stt'); sttChosen=false; sttServer=false;
+            setSttEngine('riva:parakeet');
+            return {use:useServerStt(), note:document.getElementById('sttNote').textContent,
+                    checked:document.getElementById('sttServer').getAttribute('aria-checked')};
+        }""")
+        self.assertTrue(state["use"])
+        self.assertEqual(state["checked"], "true")
+        self.assertIn("riva:parakeet", state["note"])
+
+    def test_no_server_engine_leaves_the_browser_recognizer_in_charge(self):
+        state = self.page.evaluate("""() => {
+            localStorage.removeItem('jarvis_stt'); sttChosen=false;
+            setSttEngine(null);
+            return {use:useServerStt(), disabled:document.getElementById('sttServer').disabled};
+        }""")
+        self.assertFalse(state["use"])
+        self.assertTrue(state["disabled"])
+
+    def test_choosing_the_browser_recognizer_sticks(self):
+        state = self.page.evaluate("""() => {
+            localStorage.removeItem('jarvis_stt'); sttChosen=false; sttServer=false;
+            setSttEngine('riva:parakeet');
+            document.getElementById('sttServer').click();
+            return {use:useServerStt(), stored:localStorage.getItem('jarvis_stt')};
+        }""")
+        self.assertFalse(state["use"])
+        self.assertEqual(state["stored"], "browser")
+        # an explicit choice survives the next health poll
+        again = self.page.evaluate("()=>{setSttEngine('riva:parakeet');return useServerStt();}")
+        self.assertFalse(again)
+
     def test_a_table_reply_gets_copy_and_csv_actions(self):
         self.page.evaluate("""() => {
             renderMsg('bot', '| Planet | Moons |\\n|---|---|\\n| Earth | 1 |\\n| Mars, red | 2 |');

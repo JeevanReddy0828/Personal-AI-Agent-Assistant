@@ -218,22 +218,136 @@ def _vosk_asr_backend(target: Path) -> dict[str, object]:
     return {"text": text, "segments": [], "language": "en", "engine": f"vosk:{Path(model_path).name}"}
 
 
+# NVIDIA's hosted speech models are Riva gRPC, not the REST catalog: /v1/audio/transcriptions
+# returns 404 on both API hosts. Server and function id are overridable because the id
+# identifies the model (this one is parakeet-tdt-0.6b-v2).
+RIVA_SERVER = "grpc.nvcf.nvidia.com:443"
+RIVA_ASR_FUNCTION_ID = "d3fe9151-442b-4204-a70d-5fcc597fd610"
+
+
+def _riva_key() -> str:
+    for name in ("RIVA_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    # The key normally arrives from .env, which only load_config() reads. Anything that
+    # reaches this tool without having loaded the config would otherwise fall back to a
+    # slower local engine for no reason.
+    try:
+        from laptop_agent.config import load_config
+
+        return (load_config().llm_api_key or "").strip()
+    except Exception:  # pragma: no cover - config is optional for this tool
+        return ""
+
+
+def _riva_available() -> bool:
+    return importlib.util.find_spec("riva") is not None and bool(_riva_key())
+
+
+def _riva_asr_backend(target: Path) -> dict[str, object]:
+    """Hosted NVIDIA Parakeet over Riva gRPC: the most accurate engine here, and the
+    fastest (~1s), but it needs the network and only takes PCM WAV."""
+    import wave
+
+    try:
+        import riva.client  # type: ignore
+    except ImportError as exc:
+        raise MissingDependencyError(
+            "Cloud speech recognition needs: pip install nvidia-riva-client "
+            "(or install this app's 'riva' extra)."
+        ) from exc
+    key = _riva_key()
+    if not key:
+        raise MissingDependencyError(
+            "Cloud speech recognition needs an NVIDIA API key in RIVA_API_KEY or OPENAI_API_KEY."
+        )
+    try:
+        wf = wave.open(str(target), "rb")
+    except (wave.Error, EOFError) as exc:
+        raise RuntimeError(f"Cloud speech recognition needs PCM WAV audio: {exc}") from exc
+    with wf:
+        if wf.getsampwidth() != 2:
+            raise RuntimeError("Cloud speech recognition needs 16-bit PCM WAV audio.")
+        channels, rate = wf.getnchannels(), wf.getframerate()
+        audio = wf.readframes(wf.getnframes())
+    if not audio:
+        raise RuntimeError("That audio file is empty.")
+
+    server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
+    function_id = os.environ.get("RIVA_ASR_FUNCTION_ID", RIVA_ASR_FUNCTION_ID).strip() or RIVA_ASR_FUNCTION_ID
+    language = os.environ.get("RIVA_ASR_LANGUAGE", "en-US").strip() or "en-US"
+    auth = riva.client.Auth(
+        uri=server,
+        use_ssl=True,
+        metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
+    )
+    config = riva.client.RecognitionConfig(
+        encoding=riva.client.AudioEncoding.LINEAR_PCM,
+        language_code=language,
+        max_alternatives=1,
+        enable_automatic_punctuation=True,
+        sample_rate_hertz=rate,
+        audio_channel_count=channels,
+    )
+    response = riva.client.ASRService(auth).offline_recognize(audio, config)
+    text = " ".join(
+        result.alternatives[0].transcript for result in response.results if result.alternatives
+    ).strip()
+    return {"text": text, "segments": [], "language": language, "engine": "riva:parakeet"}
+
+
 def _default_asr_backend(target: Path) -> dict[str, object]:
-    """Pick the STT engine: LAPTOP_AGENT_STT=vosk|whisper, or 'auto' (default) which
-    prefers the lightweight Vosk when a model is present, else Whisper."""
+    """Pick the STT engine: LAPTOP_AGENT_STT=riva|vosk|whisper, or 'auto' (default),
+    which prefers hosted Parakeet when it is usable, then the lightweight Vosk when a
+    model is present, else Whisper.
+
+    Riva only accepts PCM WAV, so 'auto' skips it for other media, and a failed cloud
+    call falls through to a local engine rather than losing the transcription — the
+    point of a local-first app is that the network is optional."""
     engine = os.environ.get("LAPTOP_AGENT_STT", "auto").strip().lower()
+    if engine == "riva":
+        return _riva_asr_backend(target)
     if engine == "vosk":
         return _vosk_asr_backend(target)
     if engine == "whisper":
         return _builtin_asr_backend(target)
+    if target.suffix.lower() == ".wav" and _riva_available():
+        try:
+            return _riva_asr_backend(target)
+        except (MissingDependencyError, RuntimeError, OSError):
+            pass
     if _vosk_available():
         return _vosk_asr_backend(target)
     return _builtin_asr_backend(target)
 
 
+def stt_engine_name() -> str | None:
+    """Which speech engine a recording would actually reach, or None if there is none.
+
+    The web page uses this to decide whether to record and post audio to the server
+    instead of trusting the browser's own recognizer."""
+    engine = os.environ.get("LAPTOP_AGENT_STT", "auto").strip().lower()
+    if engine == "riva":
+        return "riva:parakeet" if _riva_available() else None
+    if engine == "vosk":
+        return "vosk" if _vosk_available() else None
+    if engine == "whisper":
+        return "whisper" if importlib.util.find_spec("whisper") is not None else None
+    if _riva_available():
+        return "riva:parakeet"
+    if _vosk_available():
+        return "vosk"
+    return "whisper" if importlib.util.find_spec("whisper") is not None else None
+
+
 def warm_stt() -> bool:
     """Pre-load whichever STT engine is selected so the first voice turn isn't slow."""
     engine = os.environ.get("LAPTOP_AGENT_STT", "auto").strip().lower()
+    # Riva is a network call with nothing to pre-load, and it is what 'auto' reaches for
+    # first, so there is no local model to warm in that case.
+    if engine == "riva":
+        return _riva_available()
     if engine in ("vosk", "auto") and _vosk_available():
         try:
             _load_vosk_model(_resolve_vosk_model_path())  # type: ignore[arg-type]
@@ -242,6 +356,8 @@ def warm_stt() -> bool:
             pass
     if engine == "vosk":
         return False
+    if engine == "auto" and _riva_available():
+        return True
     return warm_whisper()
 
 
