@@ -292,7 +292,24 @@ voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
 avoid cold-start latency. Chat replies stream token-by-token; instant local command
 results (which arrive whole) are revealed with a JS `typewriter()` pass so both feel
-alive — skipped for >4k-char output and cancelled by Stop/Esc.
+alive — skipped for >4k-char output and cancelled by Stop/Esc. Every render point goes
+through `setMd(el, text)` (render + `decorate()`), so a generated picture gets a **Save**
+control and a table gets **Copy**/**CSV**; both are built as DOM nodes, never markup, so
+nothing model-authored is interpolated into HTML. Chats in the rail have a delete control,
+and **Incognito chat** creates a session `saveSessions()` filters out of `localStorage` on
+both the normal and the over-quota retry path.
+
+**Voice, and why it used to answer itself.** `clean_for_speech` (server) and `speakable()`
+(client, same rules) must drop embedded images, code fences and bare URLs *before* the
+punctuation strip breaks those constructs apart. Reading an image URL aloud produced
+"slash api slash image question mark name equals…", which the echo guard could not match,
+so the microphone heard it, counted it as a spoken interruption, and drew the picture
+again — one request became four. The echo guard compares against the **last six utterances
+individually** (not one accumulating blob, which matched almost any real sentence and ate
+the user's own interruptions), a barge-in needs three words, an utterance's tail is ignored
+for 400ms, and a third spoken interruption inside 25s turns spoken barge-in off for the
+session. With open speakers full duplex is never fully reliable; Space and Interrupt are the
+manual fallback.
 
 ## Running it
 
@@ -348,7 +365,10 @@ bundles the Vosk path for a far smaller `JARVIS.exe`.
 
 The web app is now **multi-page**: a header nav + hash router (`#/chat`, `#/overview`,
 `#/jobs`, `#/pipeline`) toggles `body[data-view]` to swap full-width routed pages (Chat
-stays default). The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG
+stays default). **The nav shows only Chat and Overview** — Jobs and Pipeline keep their
+pages, routes and APIs and stay reachable by hash, but have no buttons (the nav version is
+preserved on `feature/jobs-pipeline-nav`), so browser tests drive those two views through
+`location.hash` rather than a click. The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG
 charts** (funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
 `/api/metrics`; the Job Tracker page adds/edits applications and changes stage inline.
 

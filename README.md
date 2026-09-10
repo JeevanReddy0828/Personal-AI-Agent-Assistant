@@ -112,7 +112,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### 👁️ Vision & media
 | Capability | How |
 |---|---|
-| Generate a picture | `image <description>`, or "draw me a picture of …" |
+| Generate a picture | `image <description>`, or "draw me a picture of …"; **Save** it from the reply |
 | Image OCR | `ocr image <path>` |
 | Audio/video transcription (offline) | `transcribe <path>` |
 | Understand your screen | `read screen [question]` |
