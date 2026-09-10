@@ -321,6 +321,8 @@ PAGE = r"""<!doctype html>
   @media (hover:none) and (pointer:coarse){.gbtn span::after,.gbtn:active span::after{--angle-2:-45deg}.gbtn::after,.gbtn:hover::after,.gbtn:active::after{--angle-1:-75deg}}
   .newchat-wrap{width:100%;margin-bottom:4px}
   .newchat-wrap .gbtn{width:100%;display:block}
+  /* Amber edge variant for a warning-flavoured action (Interrupt). */
+  .gbtn-amber::after{background:conic-gradient(from var(--angle-1) at 50% 50%,rgba(255,180,58,.7),rgba(255,180,58,0) 5% 40%,rgba(255,210,122,.8) 50%,rgba(255,180,58,0) 60% 95%,rgba(255,180,58,.7)),linear-gradient(180deg,rgba(255,210,122,.35),rgba(255,180,58,.35))!important}
   .sess{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-left:2px solid transparent;border-radius:7px;padding:9px 11px;color:var(--text);font-size:12.5px;cursor:pointer;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}
   .sess:hover{background:rgba(95,208,230,.05)} .sess.active{background:rgba(95,208,230,.08);border-left-color:var(--ice);color:#eaf6fb}
 
@@ -799,7 +801,10 @@ PAGE = r"""<!doctype html>
       <div class="vcap">subtitles</div>
       <div class="vtrans" id="vtrans">Say something…</div>
       <div id="vdbg" style="font-family:var(--mono);font-size:10px;color:var(--amber-soft);margin-top:10px;min-height:12px;letter-spacing:.4px"></div>
-      <div class="vbtns"><button class="vend vint" id="vint" title="Stop speaking and listen (Space)">Interrupt</button><button class="vend" id="vend">End voice</button></div>
+      <div class="vbtns">
+        <div class="button-wrap"><div class="button-shadow"></div><button class="gbtn gbtn-amber" id="vint" title="Stop speaking and listen (Space)"><span>Interrupt</span></button></div>
+        <div class="button-wrap"><div class="button-shadow"></div><button class="gbtn" id="vend"><span>End voice</span></button></div>
+      </div>
     </div>
     <div class="noteviewer" id="noteViewer">
       <div class="nv-head">
