@@ -82,6 +82,16 @@ class ImageToolTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("could not decode", result.message)
 
+    def test_pictures_made_in_the_same_second_do_not_overwrite_each_other(self) -> None:
+        # The name carries a second-resolution timestamp, so three fast generations of the
+        # same subject used to collide and leave one file.
+        results = [self.tool().generate("a plain grey sphere") for _ in range(3)]
+        names = [r.data["name"] for r in results]
+        self.assertEqual(len(set(names)), 3, names)
+        self.assertEqual(len(list((self.data_dir / "images").iterdir())), 3)
+        for result in results:
+            self.assertTrue(Path(result.data["image"]).is_file())
+
     def test_denied_approval_stops_the_call(self) -> None:
         calls: list[tuple[str, dict]] = []
         tool = self.tool(backend=backend(seen=calls), approval_gate=ApprovalGate(ask=lambda request: False))

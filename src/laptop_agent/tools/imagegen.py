@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
-from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.base import ToolResult, reserve_new_path
 
 # A backend takes the model id and the request body and returns the parsed JSON
 # response. Injectable so the success path is unit-tested offline, per the
@@ -165,10 +165,11 @@ class ImageTool:
                 attempts=problems,
             )
 
-        name = f"{_slug(described)}-{int(time.time())}.{_extension(raw)}"
-        self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.directory / name
+        path = reserve_new_path(
+            self.directory, f"{_slug(described)}-{int(time.time())}", f".{_extension(raw)}"
+        )
         path.write_bytes(raw)
+        name = path.name
         url = f"/api/image?name={name}"
         note = "" if used == self.model else f" _(drawn with {used} — the usual model was busy)_"
         return ToolResult.success(

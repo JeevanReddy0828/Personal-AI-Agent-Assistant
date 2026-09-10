@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
-from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.base import ToolResult, reserve_new_path
 
 # The model writes the document body as Markdown; injected so the success path is
 # unit-tested offline, per the weather/websearch/imagegen pattern.
@@ -282,9 +282,8 @@ class DocumentTool:
             return ToolResult.failure("The model returned an empty document. Try again, or narrow the request.")
 
         title = _title_of(body, request[:80])
-        name = f"{_slug(title)}-{int(time.time())}.{chosen}"
-        self.directory.mkdir(parents=True, exist_ok=True)
-        out_path = self.directory / name
+        out_path = reserve_new_path(self.directory, f"{_slug(title)}-{int(time.time())}", f".{chosen}")
+        name = out_path.name
 
         if chosen == "md":
             out_path.write_text(body, encoding="utf-8")
@@ -312,6 +311,8 @@ class DocumentTool:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     result = pool.submit(render).result()
         if not result.ok:
+            # The name was claimed with an empty file before rendering; do not leave it behind.
+            out_path.unlink(missing_ok=True)
             return result
         url = f"/api/document?name={name}"
         return ToolResult.success(
