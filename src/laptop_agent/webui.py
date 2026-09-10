@@ -332,6 +332,8 @@ PAGE = r"""<!doctype html>
   .md strong{color:#fff;font-weight:500} .md a{color:var(--amber-b)}
   .msg.user .md{color:#cfe9f1} .msg.err .md{color:var(--danger)}
   .att{display:inline-flex;align-items:center;gap:6px;margin:6px 6px 0 0;background:#0b1016;border:1px solid var(--line2);border-radius:7px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .copybtn{display:inline-block;margin-top:8px;background:transparent;border:1px solid var(--line2);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:.5px;padding:3px 9px;cursor:pointer;opacity:.55;transition:opacity .15s,color .15s,border-color .15s}
+  .copybtn:hover,.copybtn:focus-visible{opacity:1;color:var(--ice-b);border-color:var(--ice-deep);outline:none}
   .att .ic{color:var(--amber)}
   .det{margin-top:7px} .det>summary{font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--amber-soft);cursor:pointer;list-style:none}
   .det>summary::-webkit-details-marker{display:none} .det>summary::before{content:'\25B8  ';color:var(--amber)} .det[open]>summary::before{content:'\25BE  '}
@@ -1047,12 +1049,18 @@ PAGE = r"""<!doctype html>
 
   /* messages */
   function clearEmpty(){const e=chat.querySelector('.empty');if(e)e.remove();}
+  function copyOut(text,btn){
+    const done=ok=>{if(btn){btn.textContent=ok?'✓ Copied':'Copy failed';setTimeout(()=>btn.textContent='⧉ Copy',1200);}};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));}
+    else{try{const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();done(true);}catch(e){done(false);}}
+  }
   function renderMsg(role,text,atts){
     clearEmpty();
     const m=document.createElement('div');m.className='msg '+role;
     m.innerHTML='<div class="av">'+(role==='user'?'YOU':'J')+'</div><div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
     m.querySelector('.md').innerHTML=role==='user'?esc(text).replace(/\n/g,'<br>'):mdToHtml(text);
     if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+esc(a);box.appendChild(s);});m.querySelector('.content').appendChild(box);}
+    if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?' <span style="color:#ff5d6c;font-size:11px">thinking on the 550B model — this can take ~45-60s</span>':tier==='smart'?' <span style="color:#a98bff;font-size:11px">on the complex model…</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
@@ -1105,6 +1113,17 @@ PAGE = r"""<!doctype html>
   ['dragenter','dragover'].forEach(e=>document.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on');}));
   document.addEventListener('dragleave',ev=>{if(ev.clientX===0&&ev.clientY===0)drop.classList.remove('on');});
   document.addEventListener('drop',ev=>{ev.preventDefault();drop.classList.remove('on');if(ev.dataTransfer&&ev.dataTransfer.files)[...ev.dataTransfer.files].forEach(uploadFile);});
+  // Paste images straight from the clipboard (e.g. a screenshot) into the composer;
+  // typed/copied text still pastes normally because we only intercept image items.
+  ta.addEventListener('paste',ev=>{
+    const items=(ev.clipboardData&&ev.clipboardData.items)||[]; const imgs=[];
+    for(const it of items){if(it.kind==='file'&&it.type.indexOf('image/')===0){const f=it.getAsFile();if(f)imgs.push(f);}}
+    if(!imgs.length)return;
+    ev.preventDefault();
+    imgs.forEach((f,n)=>{const ext=(f.type.split('/')[1]||'png').replace('jpeg','jpg');
+      const nm=(f.name&&f.name!=='image.png')?f.name:('pasted-'+Date.now()+(n?'-'+n:'')+'.'+ext);
+      uploadFile(new File([f],nm,{type:f.type}));});
+  });
 
   async function send(text){
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
