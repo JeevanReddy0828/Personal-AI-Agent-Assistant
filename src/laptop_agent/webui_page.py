@@ -215,8 +215,28 @@ PAGE = r"""<!doctype html>
   .det{margin-top:6px} .det>summary{font:12px var(--sans);color:var(--faint);cursor:pointer;list-style:none}
   .det>summary::-webkit-details-marker{display:none} .det>summary::before{content:'\25B8  '} .det[open]>summary::before{content:'\25BE  '}
   .data{margin-top:6px;font:11.5px/1.5 var(--mono);color:var(--muted);background:#0a0f17;border:1px solid var(--hair);border-radius:8px;padding:10px 12px;max-height:220px;max-width:100%;overflow:auto;white-space:pre-wrap}
-  .dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:blink 1.2s infinite}
-  .dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+  /* Thinking indicator. Adapted from the "big-octopus-60" CSS loader by alexruix on
+     uiverse.io (MIT): a travelling pill that stretches and snaps back. Rewritten onto the
+     accent tokens, sized for a chat line rather than a page, and carrying no glow, so the
+     orb stays the only glowing thing. The three blinking dots it replaces read as
+     "stalled" more than "working". */
+  .think{position:relative;display:inline-block;width:64px;height:8px;vertical-align:middle}
+  .think i{position:absolute;bottom:0;left:0;display:block;height:8px;width:8px;border-radius:50px;
+    background:var(--accent);animation:think-run 2.4s ease both infinite}
+  .think i::before{content:'';position:absolute;top:0;left:0;height:100%;width:100%;
+    border-radius:inherit;background:var(--accent-2);animation:think-fill 2.4s ease both infinite}
+  @keyframes think-run{
+    0%{width:8px;transform:translateX(0)}
+    40%{width:100%;transform:translateX(0)}
+    80%{width:8px;transform:translateX(56px)}
+    90%{width:100%;transform:translateX(0)}
+    100%{width:8px;transform:translateX(0)}}
+  @keyframes think-fill{
+    0%{width:8px}
+    40%{width:80%}
+    80%{width:100%}
+    90%{width:80%}
+    100%{width:8px}}
   .tiernote{font:12.5px var(--sans);color:var(--muted);margin-left:8px}
   .trace{margin:2px 0 4px;border:1px solid var(--hair-2);border-radius:12px;background:var(--surface);overflow:hidden}
   .trace .thead{font:500 12.5px var(--sans);color:var(--accent);padding:9px 12px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center}
@@ -484,6 +504,7 @@ PAGE = r"""<!doctype html>
     #agentBtn{margin-right:auto}
   }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+  @media(prefers-reduced-motion:reduce){.think i{width:100%}}
 </style>
 </head>
 <body data-view="chat">
@@ -1053,7 +1074,7 @@ PAGE = r"""<!doctype html>
     if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
-  function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="dots"><span></span><span></span><span></span></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
+  function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="think" role="status" aria-label="Working"><i></i></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
   function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
     sendBtn.innerHTML=b?STOP_ICON:SEND_ICON; sendBtn.title=b?'Stop':'Send';sendBtn.setAttribute('aria-label',sendBtn.title); sendBtn.classList.toggle('stop',b);}
   let currentRequest=null;
@@ -1133,7 +1154,7 @@ PAGE = r"""<!doctype html>
     const predicted=estimateTier(text); activeTier=predicted;
     ta.value='';auto();attachments=[];renderChips();setBusy(true,predicted);
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
-    md.innerHTML='<span class="dots"><span></span><span></span><span></span></span>'+(predicted==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':predicted==='smart'?'<span class="tiernote">smart model</span>':'');
+    md.innerHTML='<span class="think" role="status" aria-label="Working"><i></i></span>'+(predicted==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':predicted==='smart'?'<span class="tiernote">smart model</span>':'');
     let reply='', streamed='';
     const t0=performance.now(); let tFirst=0;
     currentAbort=new AbortController();currentRequest=crypto.randomUUID();

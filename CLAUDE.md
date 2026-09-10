@@ -362,7 +362,11 @@ the rail footer; Esc closes). Design tokens are the CSS variables at the top of 
 `<style>` block: one cyan accent for interactive/active states, green only for healthy or
 positive status (health dots, high ATS scores), sans-serif body type (Segoe UI Variable → system stack; the CSP is
 `font-src 'self'`, so no web fonts), monospace reserved for model names, timings and
-diagnostics, 150–250 ms motion that honours `prefers-reduced-motion`. Browser
+diagnostics, 150–250 ms motion that honours `prefers-reduced-motion`. Third-party CSS
+(e.g. uiverse.io elements, MIT) is **adapted, never pasted**: re-express its colours as
+the tokens, drop any glow so the orb stays the only glowing element, size it for the
+surface it lands on, and credit the author in a comment above the rule. Tailwind
+variants are unusable here — no Tailwind, and the CSP blocks CDNs. Browser
 regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,
 `#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`.
 
