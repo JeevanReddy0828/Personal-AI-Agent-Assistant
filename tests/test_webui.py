@@ -16,6 +16,16 @@ class ComposeCommandTests(unittest.TestCase):
         result = _compose_command("", ["/tmp/a.csv", "/tmp/b.pdf"])
         self.assertEqual(result, "multi process file /tmp/a.csv ;; process file /tmp/b.pdf")
 
+    def test_bare_image_upload_routes_to_vision_describe(self) -> None:
+        # An image goes through the vision-first describe path (OCR fallback), not the
+        # OCR-only file processor, so it works without the optional Tesseract binary.
+        self.assertEqual(_compose_command("", ["/tmp/dl back.jpeg"]), "describe image /tmp/dl back.jpeg")
+        self.assertEqual(_compose_command("", ["/tmp/shot.PNG"]), "describe image /tmp/shot.PNG")
+
+    def test_bare_mixed_upload_routes_each_by_type(self) -> None:
+        result = _compose_command("", ["/tmp/pic.jpg", "/tmp/data.csv"])
+        self.assertEqual(result, "multi describe image /tmp/pic.jpg ;; process file /tmp/data.csv")
+
     def test_typed_message_keeps_command_and_appends_paths(self) -> None:
         result = _compose_command("what is the total revenue?", ["/tmp/sales.csv"])
         self.assertTrue(result.startswith("what is the total revenue?"))

@@ -74,13 +74,25 @@ def _compose_command(command: str, attachments: object) -> str:
         return command
     if not command:
         if len(paths) == 1:
-            return f"process file {paths[0]}"
-        return "multi " + " ;; ".join(f"process file {path}" for path in paths)
+            return _bare_attachment_command(paths[0])
+        return "multi " + " ;; ".join(_bare_attachment_command(path) for path in paths)
     listing = "; ".join(paths)
     return (
         f"{command}\n\n[The user attached file(s) saved at: {listing}. "
         "Use the path(s) as the target for any file, image, audio, document, or indexing action.]"
     )
+
+
+def _bare_attachment_command(path: str) -> str:
+    """Best default command for a bare (no-message) upload. Images go through the
+    vision-first ``describe image`` path (which itself falls back to OCR) so an attached
+    photo is read by the configured vision model instead of dead-ending when the optional
+    Tesseract binary is absent."""
+    from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS
+
+    if Path(path).suffix.lower() in IMAGE_EXTENSIONS:
+        return f"describe image {path}"
+    return f"process file {path}"
 
 
 def _schedule_snapshot() -> dict:
