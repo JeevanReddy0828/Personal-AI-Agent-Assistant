@@ -99,6 +99,10 @@ class HeuristicPlannerProvider:
         if flights:
             return flights
 
+        written = self._document(raw)
+        if written:
+            return written
+
         picture = self._image(raw)
         if picture:
             return picture
@@ -412,6 +416,28 @@ class HeuristicPlannerProvider:
             dest = m.group(1).strip().strip("?.!,'\"")
             return self._command(f"web search flights to {dest}", "User wants flights.", 0.78) if dest else None
         return None
+
+    def _document(self, text: str) -> PlanDecision | None:
+        """'write a report on X as a pdf' -> the document tool. The named format is what
+        separates this from an ordinary request to write something in the chat."""
+        if not re.search(
+            r"\b(?:as|in|to|into)\s+(?:an?\s+)?(?:pdf|word|docx|doc|markdown|md)"
+            r"(?:\s+(?:file|doc|document|format))?\s*$",
+            text, re.IGNORECASE,
+        ):
+            return None
+        match = re.match(
+            r"^\s*(?:can you |could you |please )?"
+            r"(?:write|create|make|generate|draft|prepare|produce|export)\s+"
+            r"(?:me\s+)?(?:an?\s+|the\s+)?(.+)$",
+            text, re.IGNORECASE,
+        )
+        if not match:
+            return None
+        request = match.group(1).strip()
+        if not request:
+            return None
+        return self._command(f"document {request}", "User wants a written document file.", 0.85)
 
     def _image(self, text: str) -> PlanDecision | None:
         """'draw me a picture of a fox' -> the image tool, with no LLM round-trip."""

@@ -132,6 +132,12 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
+        document (`document <request> [as pdf|word|markdown]` — the model writes Markdown,
+            we render it: PDF through the same offline Chromium path as the resume export
+            (`render_html_to_pdf(..., single_page=False)`), Word through python-docx, or the
+            Markdown itself. Saved under `data_dir/documents/`, downloaded via
+            `/api/document?name=`. Note: the abandoned PyPI package named `docx` shadows
+            python-docx and fails on import — the failure message says so),
         imagegen (text-to-image via NVIDIA's hosted FLUX endpoint: `image <description>`
             plus a heuristic route for "draw me a picture of …"; the trailing word
             square/landscape/portrait/wide/tall picks the resolution. Saves under

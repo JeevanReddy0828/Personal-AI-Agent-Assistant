@@ -52,6 +52,7 @@ from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.config import load_config
+from laptop_agent.tools.document import DocumentTool
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
@@ -120,6 +121,7 @@ class AgentOrchestrator:
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
         self._image_tool_cache: ImageTool | None = None
+        self._document_tool_cache: DocumentTool | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -566,6 +568,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
+
+        if lowered.startswith("document "):
+            return self._document_tool().create(command[len("document ") :].strip())
 
         if lowered.startswith("image "):
             return self._generate_image(command[len("image ") :].strip())
@@ -1027,6 +1032,7 @@ class AgentOrchestrator:
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
+                "  document <request> [as pdf|word|markdown]  (write and render a real file)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
                 "  trip <stop1> to <stop2> to <stop3> …  (multi-stop route + totals)",
@@ -1355,6 +1361,7 @@ class AgentOrchestrator:
         # web & research
         "web search <query>",
         "image <description>",
+        "document <request> as pdf|word|markdown",
         "weather <location>",
         "distance <origin> to <destination>",
         "trip <stop1> to <stop2> to <stop3>",
@@ -1573,6 +1580,30 @@ class AgentOrchestrator:
             shape = match.group(1).lower()
             described = described[: match.start()].strip()
         return self._image_tool().generate(described, shape=shape)
+
+    def _document_tool(self) -> DocumentTool:
+        if self._document_tool_cache is None:
+            self._document_tool_cache = DocumentTool(
+                data_dir=load_config().data_dir,
+                writer=self._build_document_writer(),
+                approval_gate=self.context.web.approval_gate,
+            )
+        return self._document_tool_cache
+
+    def _build_document_writer(self):
+        """A document is long-form prose, so it goes to the best available tier with a
+        generous token budget — the chat default would truncate it mid-section."""
+        planner = self.smart_planner or self.planner
+        if planner is None:
+            return None
+        provider = getattr(planner, "provider", None)
+        if provider is None or not hasattr(provider, "answer"):
+            return None
+
+        def write(prompt: str) -> str:
+            return provider.answer(prompt, {}, max_tokens=6000) or ""
+
+        return write
 
     def _image_tool(self) -> ImageTool:
         if self._image_tool_cache is None:

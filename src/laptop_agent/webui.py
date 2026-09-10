@@ -64,6 +64,12 @@ _DESKTOP_MODE = False
 # Only the formats the image tool writes are servable, so the route can never be used
 # to read an arbitrary file that happens to sit in the images directory.
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+# Same rule for written documents: only the formats the document tool writes are servable.
+DOCUMENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".md": "text/markdown; charset=utf-8",
+}
 
 
 def _compose_command(command: str, attachments: object) -> str:
@@ -114,21 +120,33 @@ def _stt_engine() -> str | None:
     return _LLM_STATUS["stt"]  # type: ignore[return-value]
 
 
+def _safe_artifact(name: str, folder: str, types: dict[str, str]) -> Path | None:
+    """Resolve a generated file by bare filename, or None if it is not one of ours.
+
+    The name must be a plain filename in that folder with a format we write, so a route
+    can never be walked into an arbitrary file on disk."""
+    if not name or name != Path(name).name or name.startswith("."):
+        return None
+    if Path(name).suffix.lower() not in types:
+        return None
+    directory = (_CONFIG.data_dir / folder).resolve()
+    target = (directory / name).resolve()
+    if target.parent != directory or not target.is_file():
+        return None
+    return target
+
+
+def _document_path(name: str) -> Path | None:
+    return _safe_artifact(name, "documents", DOCUMENT_TYPES)
+
+
 def _image_path(name: str) -> Path | None:
     """Resolve a generated image by bare filename, or None if it is not one of ours.
 
     The name must be a plain filename in the images directory with a format the image
     tool writes, so the route can never be walked into an arbitrary file on disk.
     """
-    if not name or name != Path(name).name or name.startswith("."):
-        return None
-    if Path(name).suffix.lower() not in IMAGE_TYPES:
-        return None
-    directory = (_CONFIG.data_dir / "images").resolve()
-    target = (directory / name).resolve()
-    if target.parent != directory or not target.is_file():
-        return None
-    return target
+    return _safe_artifact(name, "images", IMAGE_TYPES)
 
 
 def _schedule_snapshot() -> dict:
@@ -359,6 +377,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_resume_pdf()
         elif path == "/api/image":
             self._serve_image()
+        elif path == "/api/document":
+            self._serve_document()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -627,6 +647,23 @@ class Handler(BaseHTTPRequestHandler):
             company=str(payload.get("company", "")), role=str(payload.get("role", "")),
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
+
+    def _serve_document(self) -> None:
+        """Hand back a written document as a download."""
+        from urllib.parse import parse_qs, urlparse
+
+        name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
+        target = _document_path(name)
+        if target is None:
+            self._send(404, b"no such document", "text/plain")
+            return
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", DOCUMENT_TYPES[target.suffix.lower()])
+        self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_image(self) -> None:
         """Serve a generated picture so the chat can embed it (CSP allows img-src 'self')."""
