@@ -44,7 +44,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A[User message] --> B{Exact command?}
+  A[User message] --> CTX["Session context<br/>recent turns verbatim · older turns summarized · BM25 chunks"]
+  CTX --> B{Exact command?}
   B -->|yes| RUN[Run one tool]
   B -->|no| C{Heuristic match?}
   C -->|yes| RUN
