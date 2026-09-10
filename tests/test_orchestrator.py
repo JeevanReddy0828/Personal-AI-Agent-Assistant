@@ -1047,8 +1047,9 @@ class OrchestratorTests(unittest.TestCase):
             orchestrator.planner = Planner(ChatPlanner())
             orchestrator.smart_planner = Planner(Tier("smart"))
             orchestrator.ultra_planner = Planner(Tier("ultra"))
-            # A non-greeting so it goes through the LLM router (greetings short-circuit it).
-            simple = asyncio.run(orchestrator.handle("tell me something fun"))
+            # Neither a greeting nor a plain question, so it goes through the LLM router
+            # (both of those short-circuit it).
+            simple = asyncio.run(orchestrator.handle("write me a two-line joke"))
             mid = asyncio.run(orchestrator.handle("explain how this works"))
             hard = asyncio.run(orchestrator.handle("give me a comprehensive in-depth analysis from scratch"))
             self.assertEqual(simple.message, "fast-reply")
@@ -1076,8 +1077,8 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(greeting.ok)
             self.assertEqual(counting.calls, 0)  # short-circuited — no routing LLM call
 
-            # A non-greeting chat still consults the LLM router.
-            asyncio.run(orchestrator.handle("tell me something fun"))
+            # Chat that is neither a greeting nor a plain question still consults the router.
+            asyncio.run(orchestrator.handle("write me a two-line joke"))
             self.assertEqual(counting.calls, 1)
 
     def test_smart_answer_receives_history(self) -> None:
@@ -1123,7 +1124,8 @@ class OrchestratorTests(unittest.TestCase):
             o.planner = Planner(FastRouting())
             o.smart_planner = Planner(CongestedSmart())
             o.ultra_planner = None
-            res = asyncio.run(o.handle("explain the tradeoffs of this design in depth"))
+            # Phrased so it reaches the LLM router: a plain question would skip it.
+            res = asyncio.run(o.handle("walk me through the tradeoffs of this design in depth"))
             self.assertTrue(res.ok)
             self.assertIn("fast routed answer", res.message)
             self.assertIn("smart model was busy", res.message)

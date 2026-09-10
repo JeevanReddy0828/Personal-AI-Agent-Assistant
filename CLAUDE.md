@@ -115,6 +115,14 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
    `unittest`, are dependency-free, and live in `tests/`.
 5. **Heuristic-first routing for latency.** Common requests route via
    `planner/heuristic.py` with zero network cost; the LLM is the fallback.
+   `is_plain_question()` adds a second short-circuit: a question that asks for
+   knowledge and names nothing to act on (no tool word, no path/URL, not a decision)
+   skips the routing call entirely and is answered directly. It is deliberately
+   conservative — anything else falls through to the router, so tool routing cannot
+   regress. Measured: median time-to-first-token fell from 6.5-13.0s to 0.8-1.8s,
+   routing from ~1000ms to ~5ms, and it removed a real defect where the LLM router
+   sent ordinary questions to the `solve` research pipeline (21s, 24s, 82s, never
+   streaming a token). Verify changes here with `latency` / `/api/traces`.
 6. **Never commit secrets.** `.env` is gitignored. Scan staged diffs for
    `nvapi-` (and the Gmail app password) before every push.
 7. **Match the surrounding style.** Concise comments, full type hints,

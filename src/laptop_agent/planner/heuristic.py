@@ -5,6 +5,57 @@ import re
 from laptop_agent.planner.core import PlanDecision
 
 
+# --- Is this a plain question, or a request to do something? -------------------------
+# Asking a model to classify a question costs a round-trip and carries the whole command
+# vocabulary (~1800 tokens) in the prompt. Worse, measured on real turns, the router sent
+# ordinary knowledge questions to the `solve` research pipeline: "how is a hash map
+# different from a b-tree index" took 82 seconds and never streamed a token. A question
+# with nothing actionable in it can be answered directly.
+_ASKING = re.compile(
+    r"^\s*(?:what|whats|what's|why|how|when|who|whom|whose|which|is|are|was|were|do|does|did"
+    r"|explain|compare|describe|define|tell me)\b",
+    re.IGNORECASE,
+)
+# Decisions belong to the advisor, which researches and recommends — do not shortcut those.
+_DECIDING = re.compile(
+    r"^\s*(?:should|would|could|can)\s+(?:i|we)\b"
+    r"|\bbest way to\b|\bpros and cons\b|\bworth (?:it|the)\b|\bis it better to\b",
+    re.IGNORECASE,
+)
+# Anything naming a tool, a destination, or the user's own data goes to the real router.
+_TOOL_SIGNALS = re.compile(
+    r"\b(?:file|files|folder|directory|path|inbox|email|mail|gmail|send|reply|draft|download"
+    r"|upload|open|launch|run|shell|terminal|browser|website|url|link|schedule|remind|reminder"
+    r"|calendar|task|todo|note|notes|vault|obsidian|remember|memory|knowledge|search|google"
+    r"|weather|forecast|temperature|distance|route|trip|map|directions|hotel|restaurant|job"
+    r"|jobs|resume|apply|application|pipeline|transcribe|ocr|screen|screenshot|webcam|camera"
+    r"|youtube|video|image|picture|draw|photo|document|pdf|docx|csv|spreadsheet|music|play"
+    r"|volume|agent|autopilot|workflow|research|solve|my|mine|our)\b",
+    re.IGNORECASE,
+)
+# A path, a URL or a filename is a target, not a topic.
+_TARGETY = re.compile(
+    r"[A-Za-z]:[\/]|(?:^|\s)[./~][\w./\-]+|https?://"
+    r"|\b\w+\.(?:py|md|txt|csv|pdf|docx|json|ya?ml|png|jpe?g|mp4|wav|log|ini|toml)\b",
+    re.IGNORECASE,
+)
+
+
+def is_plain_question(text: str) -> bool:
+    """True when the text asks for knowledge and names nothing to act on.
+
+    Deliberately conservative: it must *start* like a question, must not be a decision
+    (those belong to the advisor), and must mention no tool, target or personal data.
+    Anything else falls through to the normal router, so tool routing cannot regress.
+    """
+    stripped = (text or "").strip()
+    if not stripped or len(stripped) > 400:
+        return False
+    if not _ASKING.match(stripped) or _DECIDING.search(stripped):
+        return False
+    return not _TOOL_SIGNALS.search(stripped) and not _TARGETY.search(stripped)
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history

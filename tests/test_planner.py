@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from laptop_agent.planner import HeuristicPlannerProvider
+from laptop_agent.planner.heuristic import is_plain_question
 
 
 class HeuristicPlannerTests(unittest.TestCase):
@@ -114,6 +115,45 @@ class HeuristicPlannerTests(unittest.TestCase):
 
     def test_generate_an_image_phrasing_also_routes(self) -> None:
         self.assertEqual(self.plan("generate an image of a brass compass").command, "image a brass compass")
+
+    def test_a_plain_question_skips_the_router(self) -> None:
+        # These need no classification call: nothing in them names something to act on.
+        for text in (
+            "how does TCP congestion control work",
+            "what is the difference between a process and a thread",
+            "why do databases use write-ahead logging",
+            "explain what a bloom filter is good for",
+            "who was Ada Lovelace",
+            "tell me about quantum computing",
+        ):
+            self.assertTrue(is_plain_question(text), text)
+
+    def test_anything_actionable_still_goes_to_the_router(self) -> None:
+        for text in (
+            "what files are here",            # names the user's data
+            "what is the weather in Austin",  # names a tool
+            "what is in config.yaml",         # names a target
+            "summarize the readme",           # an instruction, not a question
+            "what do you remember about me",  # personal memory
+            "draw me a picture of a fox",
+            "email the team about the outage",
+        ):
+            self.assertFalse(is_plain_question(text), text)
+
+    def test_decisions_stay_with_the_advisor(self) -> None:
+        # The advisor researches and recommends; a fast chat reply would be worse.
+        for text in (
+            "should I use Postgres or MySQL",
+            "should we migrate to Kubernetes",
+            "what's the best way to learn Rust",
+            "is it better to cache or recompute",
+        ):
+            self.assertFalse(is_plain_question(text), text)
+
+    def test_an_empty_or_enormous_input_is_not_a_plain_question(self) -> None:
+        self.assertFalse(is_plain_question(""))
+        self.assertFalse(is_plain_question("   "))
+        self.assertFalse(is_plain_question("what is " + "x" * 500))
 
     def test_draw_without_a_subject_stays_chat(self) -> None:
         # "draw the diagram" is about something already in the conversation, not a prompt.
