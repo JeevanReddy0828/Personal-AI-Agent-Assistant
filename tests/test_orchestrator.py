@@ -1055,6 +1055,52 @@ class OrchestratorTests(unittest.TestCase):
             self.assertNotIn("indexed source(s).", result.message)
             self.assertIn("notes", result.message)
 
+    def test_a_question_does_not_become_an_action(self) -> None:
+        # Reported: "how do I start the app in a browser tab" came back as
+        # `open url http://localhost:3000` — a port nobody mentioned. The approval gate
+        # caught it, but a question should never become an action.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            invented = PlanDecision(
+                action="command", confidence=0.8, explanation="",
+                command="open url http://localhost:3000",
+            )
+            fixed = o._repair_target_command("how do I start the app in a browser tab", invented, [])
+            self.assertTrue(fixed.is_chat)
+
+    def test_a_target_the_user_named_still_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            for text, command in (
+                ("open youtube", "open url https://www.youtube.com"),
+                ("index file README.md", "index file README.md"),
+                ("read src/main.py", "read file src/main.py"),
+                ("analyze sales.csv", "analyze spreadsheet sales.csv"),
+            ):
+                planned = PlanDecision(action="command", confidence=0.8, explanation="", command=command)
+                self.assertTrue(
+                    o._repair_target_command(text, planned, []).is_command, command
+                )
+
+    def test_a_target_named_earlier_in_the_conversation_still_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            planned = PlanDecision(
+                action="command", confidence=0.8, explanation="",
+                command="summarize youtube https://youtu.be/abc123",
+            )
+            history = [{"role": "user", "text": "watch https://youtu.be/abc123"}]
+            self.assertTrue(o._repair_target_command("summarize that video", planned, history).is_command)
+
+    def test_a_file_extension_alone_is_not_permission(self) -> None:
+        # "what is a csv file" must not be read as permission to open data.csv.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            planned = PlanDecision(
+                action="command", confidence=0.8, explanation="", command="process file data.csv",
+            )
+            self.assertTrue(o._repair_target_command("what is a csv file", planned, []).is_chat)
+
     def test_a_diagram_request_never_reaches_image_generation(self) -> None:
         # Reported: after a conversation about TCP congestion control, "create an image for
         # this" produced an unreadable entity-relationship picture. The router had copied the

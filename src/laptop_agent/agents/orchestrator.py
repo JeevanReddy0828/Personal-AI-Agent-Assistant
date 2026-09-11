@@ -270,6 +270,7 @@ class AgentOrchestrator:
             # instant router turns "draw me a picture of this" into `image this`, which is
             # the same defect from the other direction.
             decision = self._repair_image_command(command, decision, history)
+            decision = self._repair_target_command(command, decision, history)
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -324,6 +325,62 @@ class AgentOrchestrator:
             if topic and not cls._META_REPLY.match(topic):
                 return topic
         return ""
+
+    # Commands whose argument is a concrete target the user must have named. The router
+    # fabricates these: "how do I start the app in a browser tab" came back as
+    # `open url http://localhost:3000` — a port nobody mentioned, for a question that only
+    # asked how something is done. The approval gate caught it, which is the gate working,
+    # but a question should never become an action in the first place.
+    _TARGET_COMMANDS = (
+        "open url", "download", "read file", "index file", "process file", "summarize file",
+        "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
+        "describe image", "summarize youtube", "organize folder", "scan files",
+    )
+    # The part of a target that identifies it: a host without www/TLD, or a filename stem.
+    _TARGET_TOKEN = re.compile(r"[A-Za-z0-9_-]{3,}")
+
+    @classmethod
+    def _target_tokens(cls, target: str) -> set[str]:
+        cleaned = re.sub(r"^[a-z]+://", "", target.strip(), flags=re.IGNORECASE)
+        cleaned = re.sub(r"^www\.", "", cleaned, flags=re.IGNORECASE)
+        parts = cls._TARGET_TOKEN.findall(cleaned)
+        # A file is identified by its stem, not its extension: "what is a csv file" must not
+        # be taken as permission to open data.csv.
+        skip = {
+            "http", "https", "www", "com", "org", "net", "index", "file",
+            "html", "htm", "php", "csv", "tsv", "txt", "pdf", "docx", "doc", "xlsx",
+            "md", "json", "yaml", "yml", "toml", "ini", "log", "zip", "png", "jpg",
+            "jpeg", "webp", "gif", "mp4", "mp3", "wav", "py", "js", "ts",
+        }
+        return {p.lower() for p in parts if p.lower() not in skip}
+
+    def _repair_target_command(self, text, planned, history):
+        """Refuse a command whose target the user never mentioned.
+
+        "open youtube" legitimately becomes `open url https://www.youtube.com` — the name is
+        right there in the request. `open url http://localhost:3000` for a question about
+        how to start the app is invented, and running it opens a browser the user did not
+        ask for. Anything the user or the conversation actually named still passes.
+        """
+        command = (planned.command or "") if planned.is_command else ""
+        lowered = command.lower()
+        prefix = next((p for p in self._TARGET_COMMANDS if lowered.startswith(p + " ")), None)
+        if prefix is None:
+            return planned
+        target = command[len(prefix) :].strip()
+        tokens = self._target_tokens(target)
+        if not tokens:
+            return planned
+        spoken = text.lower() + " " + " ".join(
+            str(turn.get("text", "")).lower() for turn in (history or [])[-6:]
+        )
+        if any(token in spoken for token in tokens):
+            return planned
+        return PlanDecision(
+            action="chat",
+            confidence=0.55,
+            explanation="The command named a target nobody mentioned; answer the question instead.",
+        )
 
     def _repair_image_command(self, text, planned, history):
         """The router invents image subjects, and sends diagrams to a diffusion model.
