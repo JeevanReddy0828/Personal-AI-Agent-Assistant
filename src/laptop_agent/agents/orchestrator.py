@@ -583,6 +583,9 @@ class AgentOrchestrator:
         if lowered in {"help", "/help"}:
             return ToolResult.success(self.help_text())
 
+        if lowered.startswith("remember note "):
+            return self.context.obsidian.append_memory(command[len("remember note ") :].strip())
+
         if lowered.startswith("remember "):
             return self._remember(command[len("remember ") :])
 
@@ -758,9 +761,6 @@ class AgentOrchestrator:
             else:
                 title, body = rest, rest
             return self.context.obsidian.save_note(title, body)
-
-        if lowered.startswith("remember note "):
-            return self.context.obsidian.append_memory(command[len("remember note ") :].strip())
 
         if lowered.startswith("file info "):
             return self.context.files.file_info(command[len("file info ") :].strip())
