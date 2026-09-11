@@ -73,10 +73,33 @@ def is_plain_question(text: str) -> bool:
     return not _TOOL_SIGNALS.search(stripped) and not _TARGETY.search(stripped)
 
 
+
+# People address an assistant by name, especially out loud, and every route here matches
+# from the start of the message - so "Hey Jarvis, draw me a fox" matched nothing and fell
+# through to the LLM, silently disabling the instant router and every guard built on it.
+_ADDRESS = re.compile(
+    r"^\s*(?:(?:hey|hi|hello|ok|okay|yo|so|um|uh|please)[\s,]+)*"
+    r"(?:j\.?a\.?r\.?v\.?i\.?s\.?|jarvis|assistant|computer)?"
+    r"\s*[,:!.\-]*\s*",
+    re.IGNORECASE,
+)
+
+
+def strip_address(text: str) -> str:
+    """Drop a leading greeting or wake name so routing sees the actual request.
+
+    Never strips the whole message: "hey" and "jarvis" on their own are greetings that
+    the chat path should answer, not requests with the subject removed.
+    """
+    raw = (text or "").strip()
+    trimmed = _ADDRESS.sub("", raw, count=1).strip()
+    return trimmed or raw
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
-        raw = text.strip()
+        raw = strip_address(text)
         lowered = raw.lower()
 
         if lowered in {"commands", "show commands", "command list", "syntax"}:
@@ -513,14 +536,17 @@ class HeuristicPlannerProvider:
         # "read the news article file.txt" names a target, so it belongs to the file path.
         if _TARGETY.search(text):
             return None
+        # "in" and "from" belong to the phrasing, not the topic: "news in india" was
+        # answered "Top stories about in india".
         about = re.search(
-            r"\b(?:news|headlines?)\b(?:\s+(?:about|on|regarding|for|re))?\s+(.+)$|"
-            r"(?:about|on|regarding)\s+(.+?)\s+\b(?:news|headlines?)\b",
+            r"\b(?:news|headlines?)\b(?:\s+(?:about|on|regarding|for|from|in|re))?\s+(.+)$|"
+            r"(?:about|on|regarding|in)\s+(.+?)\s+\b(?:news|headlines?)\b",
             text, re.IGNORECASE,
         )
         topic = ""
         if about:
             topic = (about.group(1) or about.group(2) or "").strip(" ?.!,'\"")
+        topic = re.sub(r"^(?:in|from|about|on|of|for|the|a)\b\s*", "", topic, flags=re.IGNORECASE).strip()
         topic = re.sub(
             r"^(?:today|now|right now|this (?:morning|afternoon|evening|week)|headlines?|stories)\b\s*",
             "", topic, flags=re.IGNORECASE,
