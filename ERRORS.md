@@ -3,6 +3,42 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## NVIDIA model survey (2026-09-11)
+
+- **The ultra tier failed every request and reported itself as busy.** NVIDIA moved the
+  endpoint to the V2 model runner, which rejects `reasoning_budget`:
+  `HTTP 400 ValueError: thinking_token_budget is not yet supported by the V2 model runner`.
+  Because an empty answer is treated as congestion, the tier degraded down on every turn and
+  health showed `ultra: degraded` - so a bad parameter looked exactly like a busy model for
+  as long as it took to benchmark something else. Fix: stop sending it; the configured budget
+  now only sizes `max_tokens` locally. Rule: when a tier is permanently "degraded", send it
+  one request by hand and read the HTTP body before believing the congestion story.
+- **`/v1/models` is a catalog, not an entitlement list.** It advertises 80 models on this
+  account; `llama3-chatqa-1.5-70b`, `codestral-22b`, `gemma-3-12b`, `nemotron-4-340b`,
+  `llama-3.1-nemotron-ultra-253b`, `nemotron-nano-3-30b`, `gemma-3-4b`, `mistral-nemo-12b`,
+  `minitron-8b`, `nemotron-51b`, `zamba2-7b`, `cosmos-reason2` and `phi-3-vision` all return
+  **404** on first call, and `llama-3.2-90b-vision`, `llama-guard-4-12b` and
+  `mistral-nemotron` time out. Rule: never wire a model in off the listing - call it first.
+- **An unpaced benchmark measures the throttle, not the model.** Twelve routing turns back to
+  back tripped the 60s degradation cooldown on all four tiers, after which `_route` stops
+  consulting the LLM entirely and unrouteable requests return the canned "I do not know the
+  right tool route yet". The first diagram measurement was therefore meaningless. Rule: pace
+  live-model measurements ~12s apart and assert tier health at the end of the run.
+- **`nemotron-parse` invents captions.** A screenshot of this app's own home view came back
+  with 37 `Caption` regions for 2 pictures, one reading "Figure 1: The S-color image of the
+  alpha-ray diffraction pattern..." - fabricated from training data. Captions are dropped;
+  extraction went from 2121 characters to 901, all real.
+- **A guard that refused every phrase broke the commoner phrasing.** #64 made `download`
+  reject any argument containing a space, which fixed `download it for me` and broke
+  `download it for me - https://gdoc.io/...`, link included. Fix: extract the first address
+  and refuse only when there is none. Rule: a validator should look for the thing it wants,
+  not reject the shape it dislikes.
+- **Dead config looks like configured config.** `OPENAI_SPEECH_MODEL` and
+  `OPENAI_REASONING_MODEL` were added to `.env` and read by nothing, and
+  `OPENAI_VISION_MODEL` appeared three times with different values (first wins, so the
+  working one survived by luck). Speech selects a model by Riva **function id**, never a
+  model name. Rule: a new env name needs a `config.py` field in the same change.
+
 ## Session context (2026-09-10)
 
 - **Follow-ups lost the conversation.** After the advisor produced a schema, "build a flow

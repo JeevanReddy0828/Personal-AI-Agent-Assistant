@@ -188,7 +188,21 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),
         youtube (transcript -> summary, indexed for Q&A; `youtube` extra),
-        transcribe (OCR + STT: Vosk lightweight or Whisper), webcam (vision extra),
+        transcribe (OCR + STT. **OCR** prefers hosted `nvidia/nemotron-parse` when a key is
+            present and falls back to Tesseract — same shape as the speech path, chosen by
+            `LAPTOP_AGENT_OCR=auto|parse|tesseract`, reported as `ocr.engine` in
+            `/api/health`. Tesseract returns characters; parse returns a laid-out page as
+            typed, positioned regions, so a heading survives extraction as a heading
+            (measured: 453KB screenshot, 2.6s, 54 regions). The request carries the **image
+            alone** — a text part is rejected with "The model does not support text input" —
+            and the result arrives as a `markdown_bbox` **tool call** with `content: null`.
+            `task_prompt` from the API snippet is ignored here; it belongs to the self-hosted
+            NIM. `Caption` regions are **dropped because the model invents them**: that same
+            screenshot returned 37 captions for 2 pictures, one reading "Figure 1: The
+            S-color image of the alpha-ray diffraction pattern...", fabricated from training
+            data — dropping them took the extraction from 2121 characters to 901, all real.
+            Any failure, including a blank extraction, falls through to Tesseract.
+            **STT**: Vosk lightweight or Whisper, see below), webcam (vision extra),
         obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
             alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
             for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
@@ -317,10 +331,35 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 
 The ultra tier is treated as an NVIDIA **reasoning** model: its provider is built with
 `reasoning=True` so `answer()`/`stream_answer()` send `chat_template_kwargs.enable_thinking`
-+ `reasoning_budget` (`OPENAI_REASONING_BUDGET`, default 16384) and read the separate
-streamed `reasoning_content` (kept internal — only the final answer is surfaced). Routing
-and narration stay thinking-OFF for speed/clean JSON. `answer()` takes a `max_tokens` param
-so long outputs (a full resume, 8000) aren't truncated at the 900-token chat default.
+and read the separate streamed `reasoning_content` (kept internal — only the final answer is
+surfaced). Routing and narration stay thinking-OFF for speed/clean JSON. `answer()` takes a
+`max_tokens` param so long outputs (a full resume, 8000) aren't truncated at the 900-token
+chat default.
+
+**Never send `reasoning_budget`.** NVIDIA's endpoint moved to the V2 model runner and
+rejects it — `HTTP 400 ValueError: thinking_token_budget is not yet supported by the V2
+model runner` — on *every* ultra turn. Since an empty answer counts as congestion, the tier
+degraded down on every request and health reported `ultra: degraded`, so an invalid
+parameter was indistinguishable from a busy model. `OPENAI_REASONING_BUDGET` (default 16384)
+now only sizes `max_tokens` locally, which is all it was ever needed for. Measured: with the
+parameter every call 400s; without it the same question answers correctly and still returns
+`reasoning_content`. `kimi-k3` rejects it too, with a different message, so this holds for
+any future ultra model.
+
+**`/v1/models` is a catalog, not an entitlement list.** It advertises 80 models on this
+account and most are not callable: `llama3-chatqa-1.5-70b`, `codestral-22b`, `gemma-3-12b`,
+`nemotron-4-340b`, `llama-3.1-nemotron-ultra-253b`, `nemotron-nano-3-30b`, `gemma-3-4b`,
+`mistral-nemo-12b`, `minitron-8b`, `nemotron-51b`, `zamba2-7b`, `cosmos-reason2` and
+`phi-3-vision` return **404**; `llama-3.2-90b-vision`, `llama-guard-4-12b` and
+`mistral-nemotron` time out. Reachable and measured: `nemotron-3-super-120b` 1.7s,
+`nemotron-3-ultra-550b` 20s, `nemotron-parse` 2.6s, `nemotron-3.5-content-safety` 0.2s,
+`kimi-k3` 2.9s short / 61s hard, `deepseek-v4-pro` 10–21s. Call a model before wiring it in.
+There are **no rerankers** on this account, and `riva-translate-4b-instruct-v2` answers in
+0.5s but ignores its target language through this endpoint (four conventions produced
+Japanese, Russian, an echoed tag and Dutch for a Telugu request) — it needs Riva gRPC like
+Parakeet does. Pace live measurements ~12s apart: twelve turns back to back trip the 60s
+degradation cooldown on all four tiers, after which `_route` stops consulting the LLM and
+the measurement describes the throttle instead of the change.
 
 Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a
 higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing)
@@ -482,6 +521,16 @@ so Space/Interrupt cut in). The two local engines:
 browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
+
+Riva selects its model by **function id**, never by a model name — an `OPENAI_SPEECH_MODEL`
+style variable reaches nothing. `parakeet-1.1b-rnnt-multilingual-asr`
+(`71203149-d3b7-4460-8231-1be2543a1fca`) is available and works, but measured on an English
+clip it is *worse* than the English default: "comm music" for "calm music", and it drops
+proper-noun casing ("youtube", "readme" where English gives "YouTube", "README"). Both ran
+in ~0.9s. So English stays the default and `RIVA_ASR_FUNCTION_ID` / `RIVA_ASR_LANGUAGE`
+switch to multilingual for dictating in another language. It has **not** been tested on
+non-English audio — this machine has English-only voices to synthesise a clip with, so
+someone needs to record themselves before claiming it helps.
 
 The web app is now **multi-page**: a header nav + hash router (`#/chat`, `#/overview`,
 `#/jobs`, `#/pipeline`) toggles `body[data-view]` to swap full-width routed pages (Chat
