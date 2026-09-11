@@ -16,6 +16,7 @@ from unittest.mock import patch
 import laptop_agent.webui as webui
 
 NEWLINE = chr(10)
+BACKSLASH = chr(92)
 from laptop_agent.tools.base import ToolResult
 
 
@@ -230,6 +231,38 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(all(h is None or h.startswith(('/', 'http')) for h in hrefs), hrefs)
         self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
+
+    def test_display_maths_becomes_a_real_fraction(self):
+        # A division arrived as literal "\[ \frac{754}{86982} \approx 0.008668 \]".
+        block = "Gives:" + NEWLINE * 2 + BACKSLASH + "[" + NEWLINE + BACKSLASH + "frac{754}{86982} "             + BACKSLASH + "approx 0.008668" + NEWLINE + BACKSLASH + "]"
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        md = self.page.locator('.msg .md')
+        self.assertEqual(md.locator('.mathblock .frac').count(), 1)
+        self.assertEqual(md.locator('.frac .num').inner_text(), "754")
+        self.assertEqual(md.locator('.frac .den').inner_text(), "86982")
+        self.assertIn("≈ 0.008668", md.inner_text())
+        self.assertNotIn(BACKSLASH, md.inner_text())
+
+    def test_inline_maths_renders_within_a_sentence(self):
+        block = "Exact value: " + BACKSLASH + "( " + BACKSLASH + "frac{377}{43491} " + BACKSLASH + ")"
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        md = self.page.locator('.msg .md')
+        self.assertEqual(md.locator('.math .frac').count(), 1)
+        self.assertIn("Exact value:", md.inner_text())
+        self.assertNotIn(BACKSLASH, md.inner_text())
+
+    def test_maths_symbols_and_scripts_convert(self):
+        block = BACKSLASH + "( 3 " + BACKSLASH + "times 5 " + BACKSLASH + "le 20, x^{2}, "             + BACKSLASH + "sqrt{16} " + BACKSLASH + ")"
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        text = self.page.locator('.msg .md').inner_text()
+        for token in ("×", "≤", "x²", "√(16)"):
+            self.assertIn(token, text)
+
+    def test_a_windows_path_outside_maths_is_left_alone(self):
+        # Conversion is deliberately confined to delimiters: a path is not an equation.
+        block = "Open " + BACKSLASH.join(["C:", "new", "table.txt"]) + " to check."
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        self.assertIn(BACKSLASH.join(["C:", "new", "table.txt"]), self.page.locator('.msg .md').inner_text())
 
     def test_an_er_diagram_is_drawn_as_svg(self):
         block = (
