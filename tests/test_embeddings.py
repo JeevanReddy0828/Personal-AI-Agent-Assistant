@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
+from laptop_agent.knowledge import KnowledgeBase
+
+# A stand-in for meaning: documents and questions about the same thing get the same axis,
+# and they deliberately share no vocabulary, which is the case keyword scoring misses.
+AXES = {
+    "safety": ("approval", "risky", "delete", "permission"),
+    "weather": ("forecast", "open-meteo", "temperature", "sign up"),
+    "network": ("congestion", "round trip", "packet", "slow"),
+}
+
+
+def fake_backend(texts, input_type):
+    vectors = []
+    for text in texts:
+        low = text.lower()
+        vector = [1.0 if any(word in low for word in words) else 0.0 for words in AXES.values()]
+        vectors.append(vector if any(vector) else [0.0, 0.0, 0.0])
+    return vectors
+
+
+class EmbedderTests(unittest.TestCase):
+    def test_documents_and_queries_use_different_input_types(self) -> None:
+        seen: list[str] = []
+
+        def backend(texts, input_type):
+            seen.append(input_type)
+            return [[1.0, 0.0]] * len(texts)
+
+        embedder = Embedder(backend=backend)
+        embedder.document("a passage")
+        embedder.query("a question")
+        # The model is asymmetric; using one type for both quietly costs accuracy.
+        self.assertEqual(seen, ["passage", "query"])
+
+    def test_an_unreachable_service_returns_none_rather_than_raising(self) -> None:
+        def dead(texts, input_type):
+            raise TimeoutError("no route")
+
+        self.assertIsNone(Embedder(backend=dead).query("anything"))
+
+    def test_a_short_batch_is_refused_rather_than_misaligned(self) -> None:
+        # Fewer vectors than texts would silently pair the wrong vector with a document.
+        self.assertIsNone(Embedder(backend=lambda t, k: [[1.0]]).documents(["a", "b"]))
+
+    def test_no_key_means_unavailable(self) -> None:
+        self.assertFalse(Embedder(api_key="").available())
+        self.assertIsNone(Embedder(api_key="").query("anything"))
+
+    def test_blank_text_is_not_embedded(self) -> None:
+        self.assertIsNone(Embedder(backend=fake_backend).query("   "))
+
+    def test_cosine_handles_degenerate_input(self) -> None:
+        self.assertEqual(cosine([], [1.0]), 0.0)
+        self.assertEqual(cosine([0.0, 0.0], [0.0, 0.0]), 0.0)
+        self.assertEqual(cosine([1.0, 2.0], [1.0]), 0.0)
+        self.assertAlmostEqual(cosine([1.0, 0.0], [1.0, 0.0]), 1.0)
+
+    def test_fusion_ranks_by_position_not_score(self) -> None:
+        fused = reciprocal_rank_fusion([[1, 2, 3], [3, 1, 2]])
+        # 1 is first then second; 3 is last then first — 1 should still lead.
+        self.assertGreater(fused[1], fused[3])
+        self.assertGreater(fused[3], fused[2])
+
+
+class HybridSearchTests(unittest.TestCase):
+    DOCS = (
+        ("safety", "The approval gate stops risky actions; nothing is deleted without permission."),
+        ("weather", "Open-Meteo supplies the forecast, free and with no sign up."),
+        ("network", "Slow start doubles the congestion window each round trip."),
+    )
+
+    def store(self, embedder: Embedder | None) -> KnowledgeBase:
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json", embedder=embedder)
+        for source, text in self.DOCS:
+            base.add(source, text)
+        return base
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_a_paraphrase_finds_nothing_without_vectors(self) -> None:
+        # The behaviour this replaces: no shared word, so no result at all.
+        self.assertEqual(self.store(None).search("will it erase my documents unasked"), [])
+
+    def test_a_paraphrase_is_found_with_vectors(self) -> None:
+        hits = self.store(Embedder(backend=fake_backend)).search("will it delete my documents unasked")
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]["source"], "safety")
+        self.assertEqual(hits[0]["matched_terms"], 0)   # purely semantic
+        self.assertGreater(hits[0]["similarity"], 0.5)
+
+    def test_a_vector_is_stored_once_with_the_document(self) -> None:
+        calls: list[str] = []
+
+        def counting(texts, input_type):
+            calls.append(input_type)
+            return fake_backend(texts, input_type)
+
+        base = self.store(Embedder(backend=counting))
+        self.assertEqual(calls, ["passage"] * len(self.DOCS))
+        base.search("anything about permission")
+        # searching adds one query embedding, never re-embeds the documents
+        self.assertEqual(calls.count("passage"), len(self.DOCS))
+        self.assertEqual(calls.count("query"), 1)
+
+    def test_keyword_matches_still_win_on_exact_terms(self) -> None:
+        hits = self.store(Embedder(backend=fake_backend)).search("congestion window")
+        self.assertEqual(hits[0]["source"], "network")
+
+    def test_a_failing_embedder_falls_back_to_keywords(self) -> None:
+        def dead(texts, input_type):
+            raise TimeoutError("offline")
+
+        base = self.store(Embedder(backend=dead))
+        hits = base.search("congestion window")
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]["source"], "network")
+
+
+if __name__ == "__main__":
+    unittest.main()

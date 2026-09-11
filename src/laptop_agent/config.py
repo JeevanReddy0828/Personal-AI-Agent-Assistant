@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from laptop_agent.embeddings import DEFAULT_MODEL as DEFAULT_EMBED_MODEL
 from laptop_agent.tools.imagegen import BASE_URL as IMAGE_BASE_URL, DEFAULT_MODEL as DEFAULT_IMAGE_MODEL
 
 
@@ -40,6 +41,8 @@ class AppConfig:
     llm_api_key: str | None
     obsidian_vault: str | None
     llm_image_model: str = DEFAULT_IMAGE_MODEL
+    llm_embed_model: str = DEFAULT_EMBED_MODEL
+    llm_embed_api_key: str | None = None
     llm_image_api_key: str | None = None
     llm_image_base_url: str = IMAGE_BASE_URL
     llm_image_fallback_model: str | None = None
@@ -164,6 +167,9 @@ def load_config() -> AppConfig:
         # Image generation lives on a different NVIDIA host, so it may carry its own key.
         llm_image_api_key=os.environ.get("OPENAI_IMAGE_KEY", "").strip() or os.environ.get("OPENAI_API_KEY"),
         llm_image_base_url=os.environ.get("OPENAI_IMAGE_BASE_URL", "").strip() or IMAGE_BASE_URL,
+        # Semantic retrieval shares the chat host and key; both are overridable.
+        llm_embed_model=os.environ.get("OPENAI_EMBED_MODEL", "").strip() or DEFAULT_EMBED_MODEL,
+        llm_embed_api_key=os.environ.get("OPENAI_EMBED_KEY", "").strip() or os.environ.get("OPENAI_API_KEY"),
         # A second image model, tried when the first is queued or refuses.
         llm_image_fallback_model=os.environ.get("OPENAI_IMAGE_FALLBACK_MODEL", "").strip() or None,
         llm_image_fallback_api_key=os.environ.get("OPENAI_IMAGE_FALLBACK_KEY", "").strip() or None,

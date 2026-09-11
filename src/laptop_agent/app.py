@@ -7,6 +7,7 @@ from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
 from laptop_agent.jobs import JobTracker
+from laptop_agent.embeddings import Embedder
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
@@ -67,7 +68,14 @@ def build_orchestrator(
         tasks=TaskTracker(config.data_dir / "tasks.json"),
         workflows=WorkflowTracker(config.data_dir / "workflows.json"),
         reminders=ReminderStore(config.data_dir / "reminders.json"),
-        knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
+        knowledge=KnowledgeBase(
+            config.data_dir / "knowledge.json",
+            embedder=Embedder(
+                api_key=config.llm_embed_api_key,
+                model=config.llm_embed_model,
+                base_url=config.llm_base_url,
+            ),
+        ),
         obsidian=ObsidianVault(config.obsidian_vault),
         jobs=JobTracker(config.data_dir / "jobs.json"),
         jobright=JobrightTool(

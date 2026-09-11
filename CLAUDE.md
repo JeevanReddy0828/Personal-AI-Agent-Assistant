@@ -189,7 +189,20 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
         `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the
         right turn. Read it with `latency` or `/api/traces`),
-        knowledge.py (TF-IDF index + Q&A), tasks.py (parallel + retry),
+        embeddings.py (semantic retrieval: `nvidia/nemotron-3-embed-1b` on the chat host and
+            key — `OPENAI_EMBED_MODEL` / `OPENAI_EMBED_KEY` override. The model is
+            **asymmetric**: a document embeds as `passage`, a question as `query`; using one
+            type for both quietly costs accuracy. Every method returns None instead of
+            raising, so a dead network drops back to keyword scoring. Measured on six short
+            documents and five paraphrased questions: lexical 1/5 (three returned *nothing* —
+            no word overlapped), vectors 5/5),
+        knowledge.py (TF-IDF index + Q&A, fused with vectors when an `Embedder` is passed.
+            Documents embed once in `add()` and the vector is stored beside the text, so
+            search costs one query embedding and never re-embeds. The two rankings are
+            merged by **reciprocal rank fusion**, not by adding scores: a TF-IDF score and a
+            cosine are not comparable, and normalising them makes the blend depend on
+            whichever spread is wider. Keyword hits still win on exact tokens — filenames,
+            model ids, error codes), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool),
         advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
