@@ -83,9 +83,27 @@ class LlmPlannerParsingTests(unittest.TestCase):
         out = prov.answer("explain transformers", {})
         self.assertEqual(out, "the answer")
         self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": True})
-        self.assertEqual(captured.get("reasoning_budget"), 16384)
         self.assertEqual(captured.get("top_p"), 0.95)
         self.assertEqual(captured.get("temperature"), 1.0)
+        self.assertGreaterEqual(captured.get("max_tokens"), 16384)
+
+    def test_reasoning_budget_is_never_sent_to_the_endpoint(self) -> None:
+        # NVIDIA moved to the V2 model runner and rejects it: every ultra turn came back
+        # HTTP 400 "thinking_token_budget is not yet supported by the V2 model runner",
+        # which health read as congestion. The budget now only sizes max_tokens locally.
+        captured: dict = {}
+
+        def capture(payload: dict) -> str:
+            captured.update(payload)
+            return "the answer"
+
+        provider = OpenAICompatiblePlannerProvider(
+            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture, reasoning=True, reasoning_budget=16384,
+        )
+        provider.answer("explain transformers", {})
+        self.assertNotIn("reasoning_budget", captured)
+        self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": True})
         self.assertGreaterEqual(captured.get("max_tokens"), 16384)
 
     def test_reasoning_tier_still_routes_without_thinking(self) -> None:
