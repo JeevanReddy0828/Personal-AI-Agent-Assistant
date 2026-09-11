@@ -186,3 +186,52 @@ class OrganizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResultMessagesTests(unittest.TestCase):
+    """A count is not an answer. `search files approval src` said "Found 50 matches."
+    and `file info README.md` said "File info for README.md." — both parked everything
+    useful in `data`, which the chat page never renders, so the user saw a number."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.base = Path(self._tmp.name)
+        (self.base / "a.py").write_text("alpha\nneedle here\ngamma\n", encoding="utf-8")
+        (self.base / "b.md").write_text("nothing\n", encoding="utf-8")
+
+    def test_search_shows_the_matches(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        message = FileTool().search_text("needle", str(self.base)).message
+        self.assertIn("1 match(es)", message)
+        self.assertIn("a.py:2", message)
+        self.assertIn("needle here", message)
+
+    def test_no_matches_says_so_plainly(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        message = FileTool().search_text("absent", str(self.base)).message
+        self.assertIn("No matches", message)
+
+    def test_a_capped_search_marks_itself(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        (self.base / "many.py").write_text("needle\n" * 80, encoding="utf-8")
+        result = FileTool().search_text("needle", str(self.base), limit=5)
+        self.assertIn("5+ match(es)", result.message)
+        self.assertEqual(len(result.data["matches"]), 5)
+
+    def test_file_info_describes_the_file(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        message = FileTool().file_info(str(self.base / "a.py")).message
+        self.assertIn("**a.py**", message)
+        self.assertIn("lines", message)
+        self.assertIn("words", message)
+
+    def test_the_data_is_still_there_for_callers_that_want_it(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        data = FileTool().search_text("needle", str(self.base)).data
+        self.assertEqual(data["matches"][0]["line"], 2)

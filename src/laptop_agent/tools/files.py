@@ -12,6 +12,8 @@ from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
+NL = chr(10)
+
 
 TEXT_EXTENSIONS = {
     ".txt",
@@ -63,6 +65,35 @@ class FileSummary:
 # Counting a tree is cheap; counting an unbounded one is not. Past this many entries the
 # scan reports that it stopped rather than pretending the number is the total.
 _SCAN_WALK_CEILING = 50_000
+
+
+
+
+def _readable_size(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} GB"
+
+
+def _describe_matches(matches: list[dict[str, object]], query: str, base: Path, capped: bool = False) -> str:
+    """Show what was found. "Found 50 matches." left the matches in `data`, where the
+    chat page never renders them - the user saw a number and nothing else."""
+    if not matches:
+        return f"No matches for {query!r} under {base}."
+    shown = matches[:12]
+    lines = [f"**{len(matches)}{'+' if capped else ''} match(es) for `{query}`**", ""]
+    for entry in shown:
+        try:
+            where = Path(str(entry["path"])).relative_to(base)
+        except (ValueError, TypeError):
+            where = Path(str(entry.get("path", ""))).name
+        lines.append(f"- `{where}:{entry.get('line')}` — {str(entry.get('text', '')).strip()[:120]}")
+    if len(matches) > len(shown):
+        lines.append(f"- …and {len(matches) - len(shown)} more")
+    return NL.join(lines)
 
 
 class FileTool:
@@ -150,8 +181,10 @@ class FileTool:
                     if lowered in line.lower():
                         matches.append({"path": str(path), "line": number, "text": line.strip()[:300]})
                         if len(matches) >= limit:
-                            return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
-        return ToolResult.success(f"Found {len(matches)} matches.", matches=matches)
+                            return ToolResult.success(
+                                _describe_matches(matches, query, base, capped=True), matches=matches
+                            )
+        return ToolResult.success(_describe_matches(matches, query, base), matches=matches)
 
     def extract_document_text(self, path: str) -> ToolResult:
         target = Path(path).expanduser().resolve()
@@ -276,7 +309,19 @@ class FileTool:
                 info["char_count"] = len(content)
             except OSError as exc:
                 info["read_error"] = str(exc)
-        return ToolResult.success(f"File info for {target.name}.", **info)
+        described = [
+            f"**{target.name}**",
+            f"- {_readable_size(stat.st_size)} · {info['mime_type']} · {info['category']}",
+            f"- `{target}`",
+        ]
+        if "line_count" in info:
+            described.append(
+                f"- {info['line_count']:,} lines · {info['word_count']:,} words · "
+                f"{info['char_count']:,} characters"
+            )
+        if info.get("read_error"):
+            described.append(f"- could not read it: {info['read_error']}")
+        return ToolResult.success(NL.join(described), **info)
 
     def extract_tables(self, path: str, max_rows: int = 100) -> ToolResult:
         target = Path(path).expanduser().resolve()
