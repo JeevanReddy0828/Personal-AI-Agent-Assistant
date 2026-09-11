@@ -175,6 +175,10 @@ class HeuristicPlannerProvider:
         if flights:
             return flights
 
+        clock = self._clock(raw)
+        if clock:
+            return clock
+
         sum_ = self._arithmetic(raw)
         if sum_:
             return sum_
@@ -524,6 +528,17 @@ class HeuristicPlannerProvider:
         if topic.lower() in {"", "today", "now", "please", "headlines", "stories", "update", "updates"}:
             return self._command("news", "User wants the latest headlines.", 0.85)
         return self._command(f"news {topic}", "User wants headlines on a topic.", 0.85)
+
+    def _clock(self, text: str) -> PlanDecision | None:
+        """'what time is it in EST' -> the machine's clock, with no model and no search.
+
+        Routed to the web this answered 1:00 PM against a real local time of 6:26 PM,
+        then invented a citation to defend it."""
+        from laptop_agent.tools.clock import asks_the_time
+
+        if not asks_the_time(text):
+            return None
+        return self._command(f"time {text.strip()}", "Asking what time or date it is.", 0.95)
 
     def _arithmetic(self, text: str) -> PlanDecision | None:
         """'what is 67458363*37834872' -> the calculator, with no model in the loop.

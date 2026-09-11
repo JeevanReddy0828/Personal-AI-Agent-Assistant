@@ -170,6 +170,16 @@ PAGE = r"""<!doctype html>
   .msg .content{flex:1;min-width:0}
   .msg.user .content{flex:0 1 auto;max-width:78%}
   .msg .who{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  /* Per-message timestamp. Monospace because the tokens reserve it for timings, and
+     muted so it never competes with the reply. Hidden until the message is hovered on
+     narrow screens, where the column is tight. */
+  .msg .stamp{margin-top:6px;font:400 11px/1.3 var(--mono);color:var(--faint);
+    letter-spacing:.02em;user-select:none}
+  .msg.user .stamp{text-align:right}
+  @media (max-width:560px){
+    .msg .stamp{opacity:0;transition:opacity var(--fast) var(--ease)}
+    .msg:hover .stamp,.msg:focus-within .stamp{opacity:1}
+  }
   .md{font:400 15px/1.7 var(--sans);color:var(--text);word-wrap:break-word;overflow-wrap:anywhere;min-width:0}
   .msg.user .md{background:var(--surface-3);border-radius:18px 18px 6px 18px;padding:11px 16px;color:var(--text)}
   .md p{margin:.45em 0} .md p:first-child{margin-top:0} .md p:last-child{margin-bottom:0}
@@ -1384,7 +1394,7 @@ PAGE = r"""<!doctype html>
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts));}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts,m.at));}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
@@ -1399,13 +1409,27 @@ PAGE = r"""<!doctype html>
     if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));}
     else{try{const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();done(true);}catch(e){done(false);}}
   }
-  function renderMsg(role,text,atts){
+  // A replayed message must show when it was sent, not when the page was reloaded, so
+  // the moment is stored with the message and passed back in here.
+  function stampText(at){
+    const d=at?new Date(at):new Date();
+    if(isNaN(d.getTime()))return '';
+    const today=new Date(); const sameDay=d.toDateString()===today.toDateString();
+    const clock=d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+    return sameDay?clock:d.toLocaleDateString([],{month:'short',day:'numeric'})+' · '+clock;
+  }
+  function renderMsg(role,text,atts,at){
     clearEmpty();
     const m=document.createElement('div');m.className='msg '+role;
     m.innerHTML=(role==='user'?'':'<div class="av">J</div>')+'<div class="content"><div class="who">'+(role==='user'?'You':'J.A.R.V.I.S')+'</div><div class="md"></div></div>';
     if(role==='user')m.querySelector('.md').innerHTML=esc(text).replace(/\n/g,'<br>');else setMd(m.querySelector('.md'),text);
     if(atts&&atts.length){const box=document.createElement('div');atts.forEach(a=>{const s=document.createElement('span');s.className='att';s.innerHTML='<span class="ic">&#128196;</span>'+esc(a);box.appendChild(s);});m.querySelector('.content').appendChild(box);}
     if(role!=='user'){const cp=document.createElement('button');cp.type='button';cp.className='copybtn';cp.textContent='⧉ Copy';cp.setAttribute('aria-label','Copy this reply');cp.onclick=()=>copyOut(m.querySelector('.md').innerText,cp);m.querySelector('.content').appendChild(cp);}
+    const stamp=document.createElement('div');stamp.className='stamp';
+    const when=at?new Date(at):new Date();
+    stamp.textContent=stampText(at);
+    if(!isNaN(when.getTime()))stamp.title=when.toLocaleString();
+    m.querySelector('.content').appendChild(stamp);
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="think" role="status" aria-label="Working"><i></i></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
@@ -1517,7 +1541,7 @@ PAGE = r"""<!doctype html>
     const s=curSession();
     const history=sessionHistory(s);
     renderMsg('user',text||'(sent attachment)',attNames);
-    if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
+    if(s){s.msgs.push({role:'user',text:text||'(sent attachment)',atts:attNames,at:Date.now()});if(!s.title)s.title=(text||'Attachment').slice(0,32);saveSessions();renderSessions();}
     const predicted=estimateTier(text); activeTier=predicted;
     ta.value='';auto();attachments=[];renderChips();setBusy(true,predicted);
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
@@ -1559,10 +1583,10 @@ PAGE = r"""<!doctype html>
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data)});saveSessions();}
+      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()});saveSessions();}
       loadVault();
     }catch(err){
-      if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed});saveSessions();}}
+      if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed,at:Date.now()});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
     finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
@@ -1574,7 +1598,7 @@ PAGE = r"""<!doctype html>
     if(!current)newSession();
     const s=curSession();
     const history=sessionHistory(s);   // captured before this goal is added, like send()
-    renderMsg('user',goal); if(s){s.msgs.push({role:'user',text:goal});if(!s.title)s.title=goal.slice(0,32);saveSessions();renderSessions();}
+    renderMsg('user',goal); if(s){s.msgs.push({role:'user',text:goal,at:Date.now()});if(!s.title)s.title=goal.slice(0,32);saveSessions();renderSessions();}
     ta.value='';auto();setBusy(true,'smart');
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
     const trace=document.createElement('div');trace.className='trace';
@@ -1602,7 +1626,7 @@ PAGE = r"""<!doctype html>
             node.querySelector('.content').appendChild(ans);}
         }
       }
-      const ss=s;if(ss&&reply){ss.msgs.push({role:'bot',text:reply});saveSessions();}
+      const ss=s;if(ss&&reply){ss.msgs.push({role:'bot',text:reply,at:Date.now()});saveSessions();}
       loadVault();
     }catch(err){
       if(err&&err.name==='AbortError'){trace.classList.add('fail');trace.querySelector('.thead').innerHTML='<span class="gdot"></span> Agent · stopped';}
