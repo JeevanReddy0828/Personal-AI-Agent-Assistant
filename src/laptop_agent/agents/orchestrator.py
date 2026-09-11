@@ -2403,8 +2403,13 @@ class AgentOrchestrator:
         summary_result = self.context.files.summarize_text(text, source=f"research: {cleaned}", sentences=6)
         summary = str(summary_result.data.get("summary", "")) if summary_result.ok else ""
         indexed = self.context.knowledge.add(f"research: {cleaned}", text)
+        sources = gathered.data.get("sources", []) or []
+        # The summary was already in `data` and the message announced a count instead.
+        headline = f"**{cleaned}** — from {len(sources)} source(s)"
+        body = summary.strip() or "No summary could be drawn from the sources."
+        cited = NL.join(f"- {str(s)[:110]}" for s in sources[:5])
         return ToolResult.success(
-            f"Researched '{cleaned}' across {len(gathered.data.get('sources', []))} source(s) and indexed the findings.",
+            NL.join([headline, "", body] + (["", "**Sources**", cited] if cited else [])),
             topic=cleaned,
             summary=summary,
             sources=gathered.data.get("sources", []),
@@ -2934,9 +2939,14 @@ class AgentOrchestrator:
         dashboard = self.context.tasks.record_run(records, retry_of=retry_of)
         verb = "Retried" if retry_of is not None else "Ran"
         succeeded = sum(1 for item in payload if item["ok"])
+        lines = [f"**{verb} {len(payload)} subtask(s)** — {succeeded} succeeded", ""]
+        for item in payload:
+            mark = "ok" if item["ok"] else "failed"
+            first = str(item.get("message", "")).strip().splitlines()
+            lines.append(f"- `{item['command']}` — {mark}: {(first[0] if first else '')[:110]}")
         return ToolResult(
             ok=succeeded == len(payload),
-            message=f"{verb} {len(payload)} subtasks: {succeeded} succeeded.",
+            message=NL.join(lines),
             data={"results": payload, "dashboard": dashboard},
         )
 
