@@ -266,6 +266,16 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
         `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
+        failures.py (FailureLog: every `except` that swallows also records here -
+            `failures` command, `/api/failures`. This exists because graceful
+            degradation hid two outages: a tier returning HTTP 400 on every request
+            reported itself as *busy* (the provider caught URLError, returned None, and
+            the orchestrator reads None as congestion), and the same None became "the
+            model returned an empty document" when the API 503'd. The transport now
+            retries 5xx/429/timeouts three times and **never retries a 4xx** - the
+            request itself is wrong, and the ultra bug was a 400 on every attempt, so a
+            blind retry would have tripled its cost while hiding it just as well.
+            **Do not add an `except` that only returns a fallback: record the reason.**),
         approvals.py (ApprovalBroker: bridges the blocking approval gate to an HTTP
             answer so a risky action can be approved **in the web app**. The browser could
             not answer the gate, so `_guarded_approval` auto-denied everything above

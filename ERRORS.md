@@ -3,6 +3,34 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Reliability pass (2026-09-11)
+
+- **Graceful degradation hid two outages.** The provider caught `URLError` (which
+  `HTTPError` subclasses) and returned None. The orchestrator read None as congestion, so
+  a tier returning HTTP 400 on *every* request reported itself as merely busy; and the
+  document tool turned the same None into "The model returned an empty document" when the
+  API 503'd. Neither was visible anywhere. Fix: retry 5xx/429/timeouts three times, never
+  retry 4xx, and `failures.py` records every caught failure (`failures` command,
+  `/api/failures`). **Rule: an `except` that swallows must also record. A boundary that
+  loses its reason converts a loud failure into a silent wrong answer.**
+- **The approval bridge was wired into one handler.** Risky actions became approvable in
+  the web app, but only `/api/stream` registered a listener, so `agent run` denied every
+  risky step immediately while the user watched it. Both streaming handlers now share one
+  `_approval_bridge` context manager. Rule: when a capability depends on registration,
+  register it in a shared helper, not per call site.
+- **The agent gave three different confident wrong numbers.** "Count the python files in
+  src" answered 27, then 6, then 42, against a true 65 that `scan files src` had all
+  along. Three separate omissions: `scan` capped its listing at 200 and reported the cap
+  as the total; nothing tallied by file type, so the question was unanswerable; and the
+  agent's observation named its data's keys (`[data: files, root]`) and clipped the
+  message without saying so. Fix: `scan` returns `total_files`/`listed`/`complete` and a
+  `by_extension` tally over the whole walk, and `_observe` reports a list's length, a
+  small mapping's **contents**, and states when a message was clipped. Rule: if a model
+  is expected to reason about a quantity, hand it the quantity - never a sample and a
+  hope. And a truncation the model cannot see is a lie by omission.
+- **Committed to `main` again.** Second time this session. Moved to a branch and reset.
+  Check `git branch --show-current` before the first commit of any change.
+
 ## NVIDIA model survey (2026-09-11)
 
 - **The ultra tier failed every request and reported itself as busy.** NVIDIA moved the
