@@ -335,6 +335,15 @@ nothing model-authored is interpolated into HTML. Chats in the rail have a delet
 and **Incognito chat** creates a session `saveSessions()` filters out of `localStorage` on
 both the normal and the over-quota retry path.
 
+**Maths is rendered, not printed raw.** `\( … \)`, `\[ … \]` and `$$ … $$` go through
+`mathToHtml`: `\frac` becomes a stacked fraction, `^`/`_` become scripts (Unicode where it
+exists, `<sup>`/`<sub>` otherwise), and a symbol table covers the operators and Greek that
+chat arithmetic uses. No KaTeX or MathJax, for the same CSP reason as the diagrams. A
+division once showed as literal `\[ \frac{754}{86982} \approx 0.008668 \]`.
+Conversion is **confined to the delimiters on purpose**: applying it to bare prose would
+eat a Windows path like `C:\new\table`, so the chat prompt asks the model to delimit
+instead, and undelimited LaTeX is shown as typed.
+
 **Diagrams are drawn, not described.** A fenced ```mermaid block is rendered to inline SVG
 by `mermaidSvg` in `webui_page.py` — not the Mermaid library: the CSP is
 `script-src 'nonce-…'` with **no `'self'`**, so no extra script can load, and vendoring

@@ -186,6 +186,12 @@ PAGE = r"""<!doctype html>
   .md th,.md td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
   .md th{font-weight:600;color:var(--text-2);background:rgba(255,255,255,.03);white-space:nowrap}
   .md tbody tr:last-child td{border-bottom:none}
+  .md .mathblock{margin:.55em 0;font-size:1.04em;color:var(--text);overflow-x:auto}
+  .md .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;
+    font-size:.92em;line-height:1.15;margin:0 .18em}
+  .md .frac .num{border-bottom:1px solid currentColor;padding:0 .28em}
+  .md .frac .den{padding:0 .28em}
+  .md sup,.md sub{font-size:.72em;line-height:0}
   .md .dgm{margin:.7em 0;padding:10px 12px;border:1px solid var(--hair);border-radius:var(--r-md);background:var(--surface);overflow-x:auto}
   /* save / copy / export actions attached to a picture or a table */
   .md .figure{position:relative;display:inline-block;max-width:100%}
@@ -888,7 +894,104 @@ PAGE = r"""<!doctype html>
 
   /* markdown */
   function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  /* ---- Maths ----------------------------------------------------------------------
+     Models write arithmetic in LaTeX, and the renderer showed it raw: a division came out
+     as "\[ \frac{754}{86982} \approx 0.008668 \]". No KaTeX or MathJax — the CSP is
+     script-src 'nonce-...' with no 'self', so nothing extra can load, the same reason the
+     diagrams are drawn by hand. This covers what chat arithmetic actually uses and leaves
+     anything else as plain text rather than backslashes. */
+  const MATH_SYMBOLS = {
+    approx:'≈', times:'×', div:'÷', cdot:'·', pm:'±', mp:'∓',
+    le:'≤', leq:'≤', ge:'≥', geq:'≥', ne:'≠', neq:'≠',
+    equiv:'≡', sim:'∼', propto:'∝', infty:'∞', sum:'∑',
+    prod:'∏', int:'∫', partial:'∂', nabla:'∇', deg:'°',
+    alpha:'α', beta:'β', gamma:'γ', delta:'δ', epsilon:'ε',
+    theta:'θ', lambda:'λ', mu:'μ', pi:'π', rho:'ρ', sigma:'σ',
+    tau:'τ', phi:'φ', omega:'ω', Delta:'Δ', Sigma:'Σ',
+    Omega:'Ω', rightarrow:'→', leftarrow:'←', Rightarrow:'⇒',
+    leftrightarrow:'↔', in:'∈', notin:'∉', subset:'⊂', cup:'∪',
+    cap:'∩', forall:'∀', exists:'∃', ldots:'…', cdots:'⋯',
+  };
+  const SUPERS = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵',
+    '6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','n':'ⁿ'};
+  const SUBS = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅',
+    '6':'₆','7':'₇','8':'₈','9':'₉','+':'₊','-':'₋'};
+
+  // Take {...} after an index, honouring nesting, so \frac{a{b}}{c} does not split early.
+  function mathGroup(src, at){
+    if (src[at] !== '{') return null;
+    let depth = 0;
+    for (let i = at; i < src.length; i++){
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}' && --depth === 0) return {body: src.slice(at + 1, i), end: i + 1};
+    }
+    return null;
+  }
+
+  function mathScript(body, table){
+    const mapped = [...body].map(ch => table[ch]);
+    return mapped.every(Boolean) ? mapped.join('') : null;   // fall back to a real tag
+  }
+
+  // `tex` arrives already HTML-escaped, and every tag below is one we add ourselves.
+  function mathToHtml(tex){
+    let out = '', i = 0;
+    const src = String(tex || '');
+    while (i < src.length){
+      const ch = src[i];
+      if (ch === '\\'){
+        const name = /^[a-zA-Z]+/.exec(src.slice(i + 1));
+        if (name){
+          const word = name[0];
+          if (word === 'frac' || word === 'dfrac' || word === 'tfrac'){
+            const a = mathGroup(src, i + 1 + word.length);
+            const b = a && mathGroup(src, a.end);
+            if (b){
+              out += '<span class="frac"><span class="num">' + mathToHtml(a.body)
+                   + '</span><span class="den">' + mathToHtml(b.body) + '</span></span>';
+              i = b.end;
+              continue;
+            }
+          }
+          if (word === 'sqrt'){
+            const a = mathGroup(src, i + 1 + word.length);
+            if (a){ out += '√(' + mathToHtml(a.body) + ')'; i = a.end; continue; }
+          }
+          if (word === 'text' || word === 'mathrm' || word === 'operatorname'){
+            const a = mathGroup(src, i + 1 + word.length);
+            if (a){ out += mathToHtml(a.body); i = a.end; continue; }
+          }
+          if (MATH_SYMBOLS[word]){ out += MATH_SYMBOLS[word]; i += 1 + word.length; continue; }
+          if (word === 'left' || word === 'right' || word === 'displaystyle'){ i += 1 + word.length; continue; }
+          out += word; i += 1 + word.length; continue;          // unknown macro: its name is closer than a backslash
+        }
+        if (src[i + 1] === '\\'){ out += '<br>'; i += 2; continue; }
+        i += 1; continue;                                        // a lone escape adds nothing
+      }
+      if (ch === '^' || ch === '_'){
+        const table = ch === '^' ? SUPERS : SUBS;
+        const tag = ch === '^' ? 'sup' : 'sub';
+        const group = mathGroup(src, i + 1);
+        const body = group ? group.body : (src[i + 1] || '');
+        const next = group ? group.end : i + 2;
+        const unicode = mathScript(body, table);
+        out += unicode !== null ? unicode : ('<' + tag + '>' + mathToHtml(body) + '</' + tag + '>');
+        i = next;
+        continue;
+      }
+      if (ch === '{' || ch === '}' || ch === '$'){ i += 1; continue; }
+      if (ch === '&'){                                           // keep &amp; and friends whole
+        const entity = /^&[a-z]+;|^&#\d+;/i.exec(src.slice(i));
+        if (entity){ out += entity[0]; i += entity[0].length; continue; }
+      }
+      out += ch; i += 1;
+    }
+    return out;
+  }
+
   function inline(s){s=esc(s);
+    // before the emphasis rules, whose braces and underscores would chew up TeX
+    s=s.replace(/\\\(([\s\S]*?)\\\)/g,(m,tex)=>'<span class="math">'+mathToHtml(tex)+'</span>');
     s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
     s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
@@ -1166,6 +1269,10 @@ PAGE = r"""<!doctype html>
   }
 
   function mdToHtml(src){
+    // Display maths is lifted out first for the same reason as a fence: it spans lines.
+    const maths=[]; src=String(src)
+      .replace(/\\\[([\s\S]*?)\\\]/g,(m,x)=>{maths.push(x);return '@@M'+(maths.length-1)+'@@';})
+      .replace(/\$\$([\s\S]*?)\$\$/g,(m,x)=>{maths.push(x);return '@@M'+(maths.length-1)+'@@';});
     const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push({lang:(l||'').toLowerCase(),code:c});return '@@F'+(fences.length-1)+'@@';});
     let html='',list=null; const close=()=>{if(list){html+='</'+list+'>';list=null;}};
     const rows=src.split('\n');
@@ -1184,6 +1291,7 @@ PAGE = r"""<!doctype html>
         html+='<div class="tw"><table><thead><tr>'+head.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
         continue;
       }
+      if(/^@@M\d+@@$/.test(t)){close();html+='<div class="mathblock">'+mathToHtml(esc(maths[+t.slice(3,-2)]))+'</div>';continue;}
       if(/^@@F\d+@@$/.test(t)){close();const f=fences[+t.slice(3,-2)];
         const drawn=f.lang==='mermaid'?mermaidSvg(f.code):null;
         // An unsupported diagram stays a readable code block rather than vanishing.
