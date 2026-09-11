@@ -1806,3 +1806,20 @@ class HonestScanTests(unittest.TestCase):
             observation = _observe(self.scan(self.tree(tmp), limit=2))
             self.assertIn("total_files=10", observation)
             self.assertIn("complete=False", observation)
+
+
+class SubtaskReportTests(unittest.TestCase):
+    """`multi weather X ;; news Y` answered "Ran 2 subtasks: 2 succeeded." — the results
+    were in `data`, which the chat page never renders, so a batch told you a score."""
+
+    # Borrow the suite's builder without inheriting its ~110 tests.
+    build = OrchestratorTests.build
+
+    def test_each_subtask_is_named_with_its_outcome(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            result = asyncio.run(o.handle("multi memory ;; read file missing.txt"))
+            self.assertIn("`memory`", result.message)
+            self.assertIn("`read file missing.txt`", result.message)
+            self.assertIn("failed", result.message)
+            self.assertIn("2 subtask(s)", result.message)
