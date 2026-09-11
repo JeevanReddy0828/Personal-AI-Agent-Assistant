@@ -5,12 +5,20 @@ from laptop_agent.cancellation import check_cancelled, interruptible_response
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
+from laptop_agent.failures import record_failure
 from laptop_agent.planner.core import PlanDecision
+
+# Transient statuses the free hosted endpoints actually return. A 400/401/404 is the
+# request being wrong, so retrying it only makes the user wait twice for the same answer.
+_RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+_HTTP_ATTEMPTS = 3
+_RETRY_DELAY = 0.8
 
 # A transport takes the chat-completions payload and returns the assistant's
 # message content string. Injectable so plan() can be tested without a network.
@@ -234,7 +242,8 @@ class OpenAICompatiblePlannerProvider:
         self._apply_provider_params(payload, think=False)
         try:
             content = self._transport(payload)
-        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            record_failure("llm/narrate", exc, model=self.model)
             return None
         narrated = self._strip_reasoning(content).strip()
         return narrated or None
@@ -272,7 +281,8 @@ class OpenAICompatiblePlannerProvider:
         self._apply_provider_params(payload, think=True)
         try:
             content = self._transport(payload)
-        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            record_failure("llm/answer", exc, model=self.model)
             return None
         return self._strip_reasoning(content).strip() or None
 
@@ -359,7 +369,8 @@ class OpenAICompatiblePlannerProvider:
         self._apply_provider_params(payload, think=False)
         try:
             content = self._transport(payload)
-        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError):
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            record_failure("llm/answer", exc, model=self.model)
             return None
         return self._strip_reasoning(content).strip() or None
 
@@ -380,15 +391,49 @@ class OpenAICompatiblePlannerProvider:
             return False
 
     def _http_transport(self, payload: dict) -> str:
-        request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return str(data["choices"][0]["message"]["content"] or "")
+        """One chat completion, retrying the errors that are worth retrying.
+
+        The free hosted endpoints return 503 "Service temporarily overloaded" and 429
+        often enough to matter, and the caller turns an exception into None - which the
+        document tool then reported as "the model returned an empty document" and the
+        orchestrator read as a congested tier. Measured: the same request that returned
+        0 characters in 0.3s succeeded on the next attempt. A retry is the honest fix; a
+        400 or 401 is not retried, because the request itself is wrong and repeating it
+        only wastes the user's time.
+        """
+        body = json.dumps(payload).encode("utf-8")
+        last: BaseException | None = None
+        for attempt in range(_HTTP_ATTEMPTS):
+            request = urllib.request.Request(
+                f"{self.base_url}/chat/completions",
+                data=body,
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                return str(data["choices"][0]["message"]["content"] or "")
+            except urllib.error.HTTPError as exc:
+                last = exc
+                detail = ""
+                try:
+                    detail = exc.read()[:300].decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                record_failure(
+                    "llm/http", exc, model=payload.get("model"), status=exc.code,
+                    attempt=attempt + 1, detail=detail,
+                )
+                if exc.code not in _RETRY_STATUS or attempt == _HTTP_ATTEMPTS - 1:
+                    raise
+            except (TimeoutError, urllib.error.URLError) as exc:
+                last = exc
+                record_failure("llm/http", exc, model=payload.get("model"), attempt=attempt + 1)
+                if attempt == _HTTP_ATTEMPTS - 1:
+                    raise
+            time.sleep(_RETRY_DELAY * (attempt + 1))
+        raise last if last is not None else RuntimeError("no attempt was made")
 
     @classmethod
     def _interpret(cls, content: str) -> PlanDecision:

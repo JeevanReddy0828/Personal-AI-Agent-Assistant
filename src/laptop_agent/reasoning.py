@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from laptop_agent.failures import record_failure
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import FOLLOW_UP_RULE
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
@@ -216,8 +217,10 @@ class AutonomousAgent:
                 return
             try:
                 on_step(step)
-            except Exception:
-                pass
+            except Exception as exc:
+                # A broken progress callback must not abort the run, but losing every
+                # step notification silently makes a live agent look frozen.
+                record_failure("agent/on_step", exc, command=step.command[:80])
 
         steps: list[AgentStep] = []
         for index in range(self.max_steps):
@@ -282,8 +285,10 @@ class AutonomousAgent:
             decision = parse_agent_decision(reply)
             if decision.final_answer:
                 return decision.final_answer
-        except Exception:
-            pass
+        except Exception as exc:
+            # The step limit message below is the fallback; without this the reason the
+            # agent stopped reasoning was thrown away.
+            record_failure("agent/final", exc, goal=goal[:80])
         ran = "; ".join(f"{step.command} -> {step.status}" for step in steps) or "no steps ran"
         return f"Reached the {self.max_steps}-step limit on: {goal}. Progress: {ran}."
 

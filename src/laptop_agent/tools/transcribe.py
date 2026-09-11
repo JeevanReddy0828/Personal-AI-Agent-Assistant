@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
 
@@ -225,8 +226,11 @@ def _default_ocr_backend(target: Path) -> str:
             text = _nemotron_parse_ocr_backend(target)
             if text.strip():
                 return text
-        except Exception:
-            pass
+            record_failure("ocr/hosted", "empty extraction", file=target.name)
+        except Exception as exc:
+            # Falling back is right; falling back silently means a persistently broken
+            # hosted engine looks exactly like Tesseract being the configured choice.
+            record_failure("ocr/hosted", exc, file=target.name)
     return _builtin_ocr_backend(target)
 
 

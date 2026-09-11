@@ -45,6 +45,7 @@ from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
@@ -879,6 +880,9 @@ class AgentOrchestrator:
         if lowered in {"capabilities", "what can you do"}:
             return self._capabilities()
 
+        if lowered in {"failures", "errors", "what broke", "recent errors"}:
+            return self._failure_report()
+
         if lowered.startswith(("calculate ", "calc ", "compute ")):
             rest = command.split(" ", 1)[1]
             return self._calculator.compute(rest)
@@ -1317,6 +1321,37 @@ class AgentOrchestrator:
         )
 
     @staticmethod
+    def _failure_report() -> ToolResult:
+        """`failures` — what has been caught and swallowed this session.
+
+        Every `except` that returns a fallback also records here, because the two worst
+        bugs found in this codebase both hid behind code that handled an error politely:
+        a permanently 400-ing ultra tier reported itself as "busy", and a 503 from the
+        chat endpoint was shown to the user as "the model returned an empty document"."""
+        summary = FAILURES.summary()
+        recent = FAILURES.recent(12)
+        if not recent:
+            return ToolResult.success("Nothing has failed this session.", **summary)
+        lines = [
+            f"**{summary['kept']} failure(s) recorded**, {summary['distinct']} distinct.",
+            "",
+            "| where | what | age | detail |",
+            "|---|---|---|---|",
+        ]
+        for entry in recent:
+            detail = str(entry.get("message", "")).replace("|", "/")[:80]
+            lines.append(
+                f"| `{entry['where']}` | {entry['kind']} | {entry['age_seconds']}s ago | {detail} |"
+            )
+        frequent = summary.get("most_frequent") or []
+        if frequent:
+            lines.append("")
+            lines.append("**Most frequent:** " + " · ".join(
+                f"{item['what']} ×{item['count']}" for item in frequent[:5]
+            ))
+        return ToolResult.success(NL.join(lines), **summary)
+
+    @staticmethod
     def _capabilities() -> ToolResult:
         """A grouped tour rather than the raw command list.
 
@@ -1420,6 +1455,7 @@ class AgentOrchestrator:
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
+                "  failures  (what has been caught and swallowed this session)",
                 "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",

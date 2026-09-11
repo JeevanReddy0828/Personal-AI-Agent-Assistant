@@ -20,6 +20,7 @@ from laptop_agent.cancellation import operation, cancel, check_cancelled, Operat
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import re
@@ -40,6 +41,7 @@ from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.approvals import ApprovalBroker
+from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 from laptop_agent.webui_page import PAGE
@@ -117,7 +119,8 @@ def _stt_engine() -> str | None:
 
         try:
             _LLM_STATUS["stt"] = stt_engine_name()
-        except Exception:  # pragma: no cover - a broken engine must not break health
+        except Exception as exc:  # a broken engine must not break health
+            record_failure("stt/probe", exc)
             _LLM_STATUS["stt"] = None
     return _LLM_STATUS["stt"]  # type: ignore[return-value]
 
@@ -129,7 +132,8 @@ def _ocr_engine() -> str | None:
 
         try:
             _LLM_STATUS["ocr"] = ocr_engine_name()
-        except Exception:  # pragma: no cover - a broken engine must not break health
+        except Exception as exc:  # a broken engine must not break health
+            record_failure("ocr/probe", exc)
             _LLM_STATUS["ocr"] = None
     return _LLM_STATUS["ocr"]  # type: ignore[return-value]
 
@@ -305,8 +309,11 @@ def _schedule_ticker(interval: float = 60.0) -> None:
         while not stop.wait(interval):
             try:
                 asyncio.run(_orchestrator.run_due_schedules())
-            except Exception:
-                pass  # never let a scheduled run take down the ticker
+            except Exception as exc:
+                # Never let one scheduled run take down the ticker - but a ticker that
+                # swallows failures silently means scheduled jobs can stop working and
+                # nobody finds out until they are missed.
+                record_failure("scheduler/tick", exc)
 
     threading.Thread(target=loop, daemon=True).start()
 
@@ -396,6 +403,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
+        elif path == "/api/failures":
+            self._json(200, {"ok": True, "summary": FAILURES.summary(), "recent": FAILURES.recent(40)})
         elif path == "/api/approvals":
             self._json(200, {"ok": True, "pending": _APPROVALS.pending()})
         elif path == "/api/traces":
@@ -574,6 +583,24 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             _APPROVALS.remove_listener(on_approval)
 
+    @staticmethod
+    @contextlib.contextmanager
+    def _approval_bridge(emit: Callable[[dict], None]):
+        """Push approval requests down an open SSE stream for as long as it lasts.
+
+        Every streaming handler needs this, not just chat: without it the broker sees no
+        listener and denies immediately, which meant `agent run` could not perform a
+        single risky step even though the user was sitting there watching it.
+        """
+        def on_approval(request: dict) -> None:
+            emit({"type": "approval", "request": request})
+
+        _APPROVALS.add_listener(on_approval)
+        try:
+            yield
+        finally:
+            _APPROVALS.remove_listener(on_approval)
+
     def _handle_agent(self) -> None:
         """Run the autonomous agent, streaming each plan/act/observe step over SSE."""
         try:
@@ -602,13 +629,19 @@ class Handler(BaseHTTPRequestHandler):
         emit({"type": "start", "goal": goal})
         history = payload.get("history") or []  # validated by _read_json
         try:
-            result = asyncio.run(
-                _orchestrator.run_agent(
-                    goal, on_step=lambda step: emit({"type": "step", "step": step.__dict__}), history=history
+            with self._approval_bridge(emit):
+                result = asyncio.run(
+                    _orchestrator.run_agent(
+                        goal, on_step=lambda step: emit({"type": "step", "step": step.__dict__}), history=history
+                    )
                 )
-            )
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
-        except Exception as exc:  # pragma: no cover - defensive for the preview server.
+        except OperationCancelled:
+            return
+        except ApprovalDenied as exc:
+            emit({"type": "done", "ok": False, "message": f"Not approved — {exc}", "data": {}})
+        except Exception as exc:
+            record_failure("api/agent", exc, goal=goal[:120])
             emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
 
     def _handle_upload(self) -> None:
@@ -1031,7 +1064,7 @@ def main() -> None:
     _keep_warm()
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat running at {url}")
-    print("Guarded mode: high-risk actions blocked; read/search/research allowed. Ctrl+C to stop.")
+    print("Guarded mode: high-risk actions ask for approval; read/search/research run freely. Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
