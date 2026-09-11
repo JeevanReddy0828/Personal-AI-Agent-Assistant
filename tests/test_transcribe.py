@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import importlib.util
 import os
 
 import laptop_agent.tools.transcribe as transcribe_module
@@ -225,6 +226,168 @@ class TranscribeMediaTests(unittest.TestCase):
             result = tool.transcribe_media(str(clip))
             self.assertFalse(result.ok)
             self.assertIn("pip install", result.message)
+
+
+def _payload(regions):
+    """The shape nemotron-parse actually returns: a markdown_bbox tool call, with
+    message content null."""
+    import json
+
+    return {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "markdown_bbox",
+                                "arguments": json.dumps([regions]),
+                            }
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+
+
+def _region(text, kind, ymin, xmin=0.0):
+    return {"text": text, "type": kind, "bbox": {"ymin": ymin, "xmin": xmin}}
+
+
+class HostedOcrTests(unittest.TestCase):
+    """nemotron-parse reads a laid-out page rather than a line of characters."""
+
+    def markdown(self, regions):
+        from laptop_agent.tools.transcribe import _parse_regions_to_markdown
+
+        return _parse_regions_to_markdown(_payload(regions))
+
+    def test_regions_are_ordered_top_to_bottom_then_left_to_right(self) -> None:
+        out = self.markdown([
+            _region("second", "Text", 0.5),
+            _region("first", "Text", 0.1),
+            _region("third-left", "Text", 0.8, xmin=0.1),
+            _region("third-right", "Text", 0.8, xmin=0.6),
+        ])
+        self.assertEqual(
+            out.split("\n\n"), ["first", "second", "third-left", "third-right"]
+        )
+
+    def test_region_types_become_markdown(self) -> None:
+        out = self.markdown([
+            _region("The title", "Title", 0.1),
+            _region("A section", "Section-header", 0.2),
+            _region("a bullet", "List-item", 0.3),
+            _region("plain words", "Text", 0.4),
+        ])
+        self.assertIn("# The title", out)
+        self.assertIn("## A section", out)
+        self.assertIn("- a bullet", out)
+        self.assertIn("plain words", out)
+
+    def test_invented_captions_are_dropped(self) -> None:
+        # Measured: a screenshot of this app's own home view returned 37 caption
+        # regions for 2 pictures, one reading "Figure 1: The S-color image of the
+        # alpha-ray diffraction pattern..." — fabricated from training data.
+        out = self.markdown([
+            _region("Real body text", "Text", 0.2),
+            _region("Figure 1: The S-color image of the alpha-ray pattern.", "Caption", 0.3),
+            _region("J.A.R.V.I.S YOUR LOCAL ASSISTANT", "Page-header", 0.01),
+            _region("READY", "Page-footer", 0.99),
+        ])
+        self.assertEqual(out, "Real body text")
+
+    def test_a_response_without_tool_calls_falls_back_to_content(self) -> None:
+        from laptop_agent.tools.transcribe import _parse_regions_to_markdown
+
+        self.assertEqual(
+            _parse_regions_to_markdown({"choices": [{"message": {"content": "plain"}}]}),
+            "plain",
+        )
+
+    def test_malformed_arguments_yield_nothing_rather_than_raising(self) -> None:
+        from laptop_agent.tools.transcribe import _parse_regions_to_markdown
+
+        broken = {
+            "choices": [{"message": {"content": None, "tool_calls": [
+                {"function": {"name": "markdown_bbox", "arguments": "{not json"}}
+            ]}}]
+        }
+        self.assertEqual(_parse_regions_to_markdown(broken), "")
+
+
+class OcrEngineSelectionTests(unittest.TestCase):
+    """Same shape as the speech path: prefer the hosted engine, fall through to local
+    so an offline laptop still reads its own screenshots."""
+
+    def setUp(self) -> None:
+        from laptop_agent.tools import transcribe
+
+        self.module = transcribe
+        self._env = os.environ.get("LAPTOP_AGENT_OCR")
+        self.addCleanup(self._restore)
+
+    def _restore(self) -> None:
+        if self._env is None:
+            os.environ.pop("LAPTOP_AGENT_OCR", None)
+        else:
+            os.environ["LAPTOP_AGENT_OCR"] = self._env
+
+    def test_a_failing_hosted_call_falls_back_to_the_local_engine(self) -> None:
+        os.environ["LAPTOP_AGENT_OCR"] = "auto"
+        calls: list[str] = []
+        original_hosted = self.module._nemotron_parse_ocr_backend
+        original_local = self.module._builtin_ocr_backend
+        original_available = self.module._parse_available
+
+        def dead(target):
+            calls.append("hosted")
+            raise TimeoutError("offline")
+
+        self.module._parse_available = lambda: True
+        self.module._nemotron_parse_ocr_backend = dead
+        self.module._builtin_ocr_backend = lambda target: calls.append("local") or "local text"
+        try:
+            self.assertEqual(self.module._default_ocr_backend(Path("x.png")), "local text")
+            self.assertEqual(calls, ["hosted", "local"])
+        finally:
+            self.module._nemotron_parse_ocr_backend = original_hosted
+            self.module._builtin_ocr_backend = original_local
+            self.module._parse_available = original_available
+
+    def test_an_empty_hosted_result_also_falls_back(self) -> None:
+        # A blank extraction is a failure wearing a success's clothes.
+        os.environ["LAPTOP_AGENT_OCR"] = "auto"
+        original_hosted = self.module._nemotron_parse_ocr_backend
+        original_local = self.module._builtin_ocr_backend
+        original_available = self.module._parse_available
+        self.module._parse_available = lambda: True
+        self.module._nemotron_parse_ocr_backend = lambda target: "   "
+        self.module._builtin_ocr_backend = lambda target: "local text"
+        try:
+            self.assertEqual(self.module._default_ocr_backend(Path("x.png")), "local text")
+        finally:
+            self.module._nemotron_parse_ocr_backend = original_hosted
+            self.module._builtin_ocr_backend = original_local
+            self.module._parse_available = original_available
+
+    def test_the_env_var_pins_an_engine(self) -> None:
+        original_local = self.module._builtin_ocr_backend
+        original_available = self.module._parse_available
+        self.module._parse_available = lambda: True
+        self.module._builtin_ocr_backend = lambda target: "local text"
+        try:
+            os.environ["LAPTOP_AGENT_OCR"] = "tesseract"
+            self.assertEqual(self.module._default_ocr_backend(Path("x.png")), "local text")
+            self.assertEqual(self.module.ocr_engine_name(), "tesseract"
+                             if importlib.util.find_spec("pytesseract") else None)
+            os.environ["LAPTOP_AGENT_OCR"] = "parse"
+            self.assertEqual(self.module.ocr_engine_name(), "nemotron-parse")
+        finally:
+            self.module._builtin_ocr_backend = original_local
+            self.module._parse_available = original_available
 
 
 if __name__ == "__main__":

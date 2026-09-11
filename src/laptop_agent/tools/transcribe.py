@@ -36,7 +36,7 @@ class TranscribeTool:
     """
 
     def __init__(self, ocr_backend: OcrBackend | None = None, asr_backend: AsrBackend | None = None) -> None:
-        self._ocr_backend = ocr_backend or _builtin_ocr_backend
+        self._ocr_backend = ocr_backend or _default_ocr_backend
         self._asr_backend = asr_backend or _default_asr_backend
 
     def ocr_image(self, path: str, max_chars: int = 20000) -> ToolResult:
@@ -95,13 +95,161 @@ class TranscribeTool:
         )
 
 
+# nemotron-parse reads a page rather than a line of characters: it returns typed,
+# positioned regions, so a heading stays a heading. Measured on a 453KB screenshot:
+# 2.6s, 54 regions, types Page-header/Title/Section-header/Text/Table/Picture/Caption.
+_PARSE_MODEL = "nvidia/nemotron-parse"
+# Base64 inflates by 4/3 and the endpoint rejects very large bodies; a page scan is
+# comfortably under this.
+_PARSE_MAX_BYTES = 6_000_000
+_PARSE_MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp",
+    ".tif": "image/tiff", ".tiff": "image/tiff",
+}
+# How a region type becomes Markdown. Anything unlisted is emitted as a plain line.
+_PARSE_PREFIX = {"Title": "# ", "Section-header": "## ", "List-item": "- "}
+# Furniture that repeats on every page and adds nothing to the extracted text.
+# "Caption" is dropped for a different reason: the model invents them. A 453KB
+# screenshot of this app's own home view returned 37 caption regions for 2 pictures,
+# one of which read "Figure 1: The S-color image of the alpha-ray diffraction
+# pattern..." - fabricated from a paper it was trained on. A caption without its
+# figure adds nothing here even when it is real.
+_PARSE_SKIP = {"Page-header", "Page-footer", "Picture", "Caption"}
+
+
+def _parse_available() -> bool:
+    return bool(_riva_key())
+
+
+def _nemotron_parse_ocr_backend(target: Path) -> str:
+    """Hosted NVIDIA document parsing, the OCR counterpart to Riva for speech.
+
+    Tesseract returns characters; this returns a laid-out page, which is what makes an
+    extracted document readable afterwards. It needs the network, so the caller falls
+    back to the local engine - losing the network should cost quality, not the feature.
+    """
+    import base64
+    import json
+    import urllib.error
+    import urllib.request
+
+    key = _riva_key()
+    if not key:
+        raise MissingDependencyError("Hosted OCR needs an NVIDIA API key (OPENAI_API_KEY in .env).")
+    raw = target.read_bytes()
+    if len(raw) > _PARSE_MAX_BYTES:
+        raise MissingDependencyError(
+            f"{target.name} is {len(raw) // 1_000_000}MB; hosted OCR takes images under "
+            f"{_PARSE_MAX_BYTES // 1_000_000}MB."
+        )
+    mime = _PARSE_MIME.get(target.suffix.lower(), "image/png")
+    encoded = base64.b64encode(raw).decode("ascii")
+    base = "https://integrate.api.nvidia.com/v1"
+    try:
+        from laptop_agent.config import load_config
+
+        base = (load_config().llm_base_url or base).rstrip("/")
+    except Exception:  # pragma: no cover - config is optional for this tool
+        pass
+    body = {
+        "model": _PARSE_MODEL,
+        # The model takes an image and nothing else: a text part is rejected outright
+        # with "The model does not support text input".
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
+            ]}
+        ],
+        "max_tokens": 4000,
+        "stream": False,
+    }
+    request = urllib.request.Request(
+        base + "/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        payload = json.load(response)
+    return _parse_regions_to_markdown(payload)
+
+
+def _parse_regions_to_markdown(payload: dict) -> str:
+    """Turn the model's regions into Markdown, top to bottom.
+
+    The result arrives as a `markdown_bbox` tool call rather than message content -
+    content is null - and each region carries a normalised bbox and a type.
+    """
+    import json
+
+    message = (payload.get("choices") or [{}])[0].get("message") or {}
+    calls = message.get("tool_calls") or []
+    if not calls:
+        return str(message.get("content") or "")
+    try:
+        regions = json.loads(calls[0]["function"]["arguments"])
+    except (KeyError, ValueError, TypeError):
+        return ""
+    # The arguments are a list holding one list of regions.
+    if regions and isinstance(regions[0], list):
+        regions = regions[0]
+
+    def position(region: object) -> tuple[float, float]:
+        box = region.get("bbox") or {} if isinstance(region, dict) else {}
+        return (float(box.get("ymin", 0.0) or 0.0), float(box.get("xmin", 0.0) or 0.0))
+
+    lines: list[str] = []
+    for region in sorted((r for r in regions if isinstance(r, dict)), key=position):
+        kind = str(region.get("type") or "")
+        if kind in _PARSE_SKIP:
+            continue
+        text = " ".join(str(region.get("text") or "").split())
+        if text:
+            lines.append(_PARSE_PREFIX.get(kind, "") + text)
+    return "\n\n".join(lines)
+
+
+def _default_ocr_backend(target: Path) -> str:
+    """Hosted parsing when a key is present, the local engine otherwise.
+
+    Same shape as the speech path: prefer the accurate hosted engine, fall through to
+    local on any failure so an offline laptop still reads its own screenshots.
+    """
+    engine = os.environ.get("LAPTOP_AGENT_OCR", "auto").strip().lower()
+    if engine == "tesseract":
+        return _builtin_ocr_backend(target)
+    if engine == "parse":
+        return _nemotron_parse_ocr_backend(target)
+    if _parse_available():
+        try:
+            text = _nemotron_parse_ocr_backend(target)
+            if text.strip():
+                return text
+        except Exception:
+            pass
+    return _builtin_ocr_backend(target)
+
+
+def ocr_engine_name() -> str | None:
+    """Which OCR engine an image would actually reach, for /api/health."""
+    engine = os.environ.get("LAPTOP_AGENT_OCR", "auto").strip().lower()
+    if engine == "parse":
+        return "nemotron-parse" if _parse_available() else None
+    if engine == "tesseract":
+        return "tesseract" if importlib.util.find_spec("pytesseract") is not None else None
+    if _parse_available():
+        return "nemotron-parse"
+    return "tesseract" if importlib.util.find_spec("pytesseract") is not None else None
+
+
 def _builtin_ocr_backend(target: Path) -> str:
     try:
         import pytesseract  # type: ignore
         from PIL import Image  # type: ignore
     except ImportError as exc:
         raise MissingDependencyError(
-            "Image OCR requires: pip install pytesseract pillow (and the Tesseract OCR binary on PATH)."
+            "Image OCR requires: pip install pytesseract pillow (and the Tesseract OCR binary on PATH), "
+            "or set an NVIDIA API key in .env to use hosted OCR instead."
         ) from exc
     try:
         with Image.open(target) as image:
