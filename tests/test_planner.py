@@ -495,3 +495,74 @@ class HeuristicPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AddressStrippingTests(unittest.TestCase):
+    """Every heuristic route matches from the start of the message, so addressing the
+    assistant by name defeated all of them: "Hey Jarvis, draw me a fox" fell through to
+    the LLM, which silently disabled the instant router and every guard built on it.
+    People say the name out loud constantly."""
+
+    def setUp(self) -> None:
+        from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
+        self.planner = HeuristicPlannerProvider()
+
+    def strip(self, text: str) -> str:
+        from laptop_agent.planner.heuristic import strip_address
+
+        return strip_address(text)
+
+    def test_a_wake_name_is_dropped_before_routing(self) -> None:
+        for text, expected in (
+            ("Hey Jarvis, news india", "news india"),
+            ("Jarvis, scan files .", "scan files ."),
+            ("J.A.R.V.I.S. news india", "news india"),
+            ("ok computer, scan files .", "scan files ."),
+            ("hey jarvis what time is it", "what time is it"),
+        ):
+            self.assertEqual(self.strip(text), expected, text)
+
+    def test_routes_work_with_the_name_attached(self) -> None:
+        for text, command in (
+            ("Hey Jarvis, news india", "news india"),
+            ("Jarvis, scan files .", "scan files ."),
+            ("hey jarvis what time is it", "time what time is it"),
+        ):
+            self.assertEqual(self.planner.plan(text, "", {}).command, command, text)
+
+    def test_a_bare_greeting_is_not_emptied(self) -> None:
+        # "hey" and "jarvis" alone are greetings for the chat path, not requests with
+        # their subject deleted.
+        for text in ("hello", "hey", "jarvis", "hi there"):
+            self.assertTrue(self.strip(text), text)
+            self.assertFalse(self.planner.plan(text, "", {}).is_command, text)
+
+    def test_an_ordinary_request_is_untouched(self) -> None:
+        for text in ("news india", "scan files .", "what time is it", "draw a red fox"):
+            self.assertEqual(self.strip(text), text)
+
+
+class NewsTopicTests(unittest.TestCase):
+    """"what's the news in india" was answered "Top stories about in india" — the
+    preposition was being kept as part of the topic."""
+
+    def setUp(self) -> None:
+        from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
+        self.planner = HeuristicPlannerProvider()
+
+    def command(self, text: str) -> str:
+        return self.planner.plan(text, "", {}).command or ""
+
+    def test_a_preposition_is_not_part_of_the_topic(self) -> None:
+        for text in ("what's the news in india", "news in india", "news from india",
+                     "news about india", "Hey Jarvis, news in the india"):
+            self.assertEqual(self.command(text), "news india", text)
+
+    def test_a_bare_request_still_gets_everything(self) -> None:
+        for text in ("news", "what's the news", "headlines"):
+            self.assertEqual(self.command(text), "news", text)
+
+    def test_a_real_topic_survives(self) -> None:
+        self.assertEqual(self.command("latest news on ukraine"), "news ukraine")

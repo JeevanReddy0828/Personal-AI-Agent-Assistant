@@ -44,10 +44,11 @@ from laptop_agent.reminders import ReminderStore
 from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
-from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
+from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -111,6 +112,25 @@ def _short_topic(text: str, words: int = 8) -> str:
     parts = (text or "").strip().rstrip(".").split()
     return " ".join(parts[:words]) + ("..." if len(parts) > words else "")
 
+
+
+
+# Words that carry no subject on their own. A request built only from these is pointing
+# at something earlier; one with a real noun in it is describing what to draw.
+_SUBJECT_FILLER = {
+    "it", "this", "that", "these", "those", "them", "one", "ones", "thing", "stuff",
+    "the", "a", "an", "of", "for", "on", "in", "with", "about", "from", "my", "your",
+    "me", "you", "please", "again", "same", "above", "below", "here", "there",
+    "image", "picture", "photo", "drawing", "pic", "and", "to", "as", "like", "show",
+    "can", "could", "would", "will", "make", "draw", "create", "generate", "give",
+    "render", "produce", "another", "new", "some", "based",
+}
+
+
+def _has_own_subject(text: str) -> bool:
+    """Whether the user's own words name something to draw, rather than point at it."""
+    words = re.findall(r"[a-z0-9']+", (text or "").lower())
+    return any(word not in _SUBJECT_FILLER for word in words)
 
 
 def _readable_size(size: int) -> str:
@@ -445,7 +465,14 @@ class AgentOrchestrator:
         resolved = False
         # Resolve the subject before judging it: the router's invention says nothing about
         # what the user actually pointed at.
-        if refers_back(text):
+        # "it" is only a back-reference when the USER'S OWN words name no subject. The
+        # router's subject is never the test: it fabricates one every time, which is why
+        # this guard exists at all. "can you generate an image with the current time on
+        # it?" names its subject — the "it" is the image being made — and reading that as
+        # a back-reference sent a first-message drawing request to chat, where a freshness
+        # keyword web-searched it and the model then asked the user to confirm, twice,
+        # before printing its own tool JSON.
+        if refers_back(text) and not _has_own_subject(text):
             topic = self._referent_topic(history)
             if not topic:
                 return PlanDecision(
@@ -459,6 +486,16 @@ class AgentOrchestrator:
                 action="chat",
                 confidence=0.55,
                 explanation="A technical diagram belongs in the reply, not in a generated picture.",
+            )
+        # Same principle as the diagram guard, one step further: when the point of the
+        # picture IS exact text, a diffusion model cannot spell it. "an image with the
+        # current time on it" is drawn locally instead, so the time on it is the time.
+        if wants_text_rendered(subject) or wants_text_rendered(text):
+            return PlanDecision(
+                action="command",
+                command=f"timecard {subject}".strip(),
+                confidence=0.9,
+                explanation="The image is exact text, so draw it rather than generating it.",
             )
         if resolved:
             # A referent is prose, not an image prompt. Handing the sentence "TCP congestion
@@ -878,6 +915,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
+
+        if lowered == "timecard" or lowered.startswith("timecard "):
+            return self._time_card(command[len("timecard "):].strip() if " " in command else "")
 
         # One prefix, because the clock parses the zone out of the whole phrase itself —
         # the heuristic hands it `time what time is it in EST` verbatim.
@@ -1334,6 +1374,44 @@ class AgentOrchestrator:
             sources=sources,
             query=search.data.get("query", command),
             planner={"source_text": command, "model": "web+llm", "explanation": "Answered from live web search."},
+        )
+
+    def _time_card(self, request: str) -> ToolResult:
+        """`timecard [zone]` — an image whose text is the actual time.
+
+        A diffusion model cannot spell, so asking FLUX for "the current time" yields
+        clock-shaped glyph soup. This draws the real thing.
+        """
+        from laptop_agent.tools.textcard import render_card
+
+        clock = self._clock.now(request)
+        if not clock.ok:
+            return clock
+        moment = datetime.fromisoformat(str(clock.data["iso"]))
+        zone = str(clock.data.get("zone") or "")
+        headline = moment.strftime("%I:%M %p").lstrip("0")
+        # datetime.fromisoformat keeps the offset but loses the zone *name*, so %Z
+        # returns "UTC-04:00" here and pairing it with the offset printed it twice. The
+        # readable name is already in the clock's data; it goes in the footer.
+        lines = [
+            headline,
+            moment.strftime("%A, %d %B %Y").replace(" 0", " "),
+            str(clock.data.get("offset", "")),
+        ]
+        directory = load_config().data_dir / "images"
+        path = reserve_new_path(directory, f"time-{int(moment.timestamp())}", ".png")
+        drawn = render_card([line for line in lines if line], path, footer=zone)
+        if not drawn.ok:
+            # Honest failure beats a picture of nonsense: give them the time itself.
+            return ToolResult.failure(f"{drawn.message}{NL}{NL}{clock.message}")
+        url = f"/api/image?name={path.name}"
+        return ToolResult.success(
+            f"![The time is {headline}]({url}){NL}{NL}{clock.message}",
+            image=str(path),
+            name=path.name,
+            url=url,
+            **{k: v for k, v in clock.data.items() if k != "iso"},
+            iso=clock.data["iso"],
         )
 
     @staticmethod

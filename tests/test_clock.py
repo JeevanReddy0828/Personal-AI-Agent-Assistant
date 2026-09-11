@@ -127,3 +127,69 @@ class RenderingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimeCardTests(unittest.TestCase):
+    """Reported: "can you generate an image with the current time on it?" web-searched
+    (sources about building a Jarvis), asked for approval twice, and then printed its own
+    tool JSON to the user. Four separate faults, and underneath them a real one: a
+    diffusion model cannot spell, so the time on a generated clock is never the time."""
+
+    def test_a_text_image_request_is_recognised(self) -> None:
+        from laptop_agent.tools.textcard import wants_text_rendered
+
+        for subject in (
+            "the current time on it",
+            "a digital clock showing the time",
+            "an image with the current date",
+            "a clock display with the time",
+        ):
+            self.assertTrue(wants_text_rendered(subject), subject)
+
+    def test_an_ordinary_picture_is_left_to_the_image_model(self) -> None:
+        from laptop_agent.tools.textcard import wants_text_rendered
+
+        for subject in ("a red fox in snow", "a mountain lake at dawn", "a cat wearing a hat"):
+            self.assertFalse(wants_text_rendered(subject), subject)
+
+    def test_the_card_draws_the_lines_given(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from laptop_agent.tools.textcard import render_card
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "card.png"
+            result = render_card(["6:26 PM", "Friday, 11 September 2026", "EDT UTC-04:00"], target)
+            if not result.ok:
+                self.skipTest("Pillow is not installed here: " + result.message)
+            self.assertTrue(target.exists())
+            self.assertGreater(target.stat().st_size, 1500)
+            self.assertEqual(result.data["width"], 1200)
+
+    def test_an_empty_card_is_refused(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from laptop_agent.tools.textcard import render_card
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(render_card([], Path(tmp) / "x.png").ok)
+
+
+class BackReferenceSubjectTests(unittest.TestCase):
+    """The router invents a subject every time, so the test for "is this a back-reference"
+    has to read the user's own words, not the router's output."""
+
+    def test_a_request_that_names_its_subject_is_not_a_back_reference(self) -> None:
+        from laptop_agent.agents.orchestrator import _has_own_subject
+
+        self.assertTrue(_has_own_subject("can you generate an image with the current time on it?"))
+        self.assertTrue(_has_own_subject("draw a red fox in snow"))
+
+    def test_a_request_that_only_points_is(self) -> None:
+        from laptop_agent.agents.orchestrator import _has_own_subject
+
+        for text in ("create an image for this", "draw me a picture of this",
+                     "make another one", "image it", "same again please"):
+            self.assertFalse(_has_own_subject(text), text)
