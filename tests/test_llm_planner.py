@@ -206,10 +206,10 @@ class ChatGuardTests(unittest.TestCase):
         provider.answer("hello", {})
         return captured[0]["messages"][0]["content"]
 
-    def test_chat_is_told_it_cannot_make_files(self) -> None:
-        system = self.chat_system_prompt()
-        self.assertIn("cannot create images", system)
-        self.assertIn("Markdown image link", system)
+    def test_chat_is_told_not_to_claim_it_already_made_a_file(self) -> None:
+        system = " ".join(self.chat_system_prompt().split())
+        self.assertIn("never say you have already made or attached one", system.lower())
+        self.assertIn("never write a markdown image link", system.lower())
         self.assertIn("JSON of a tool result", " ".join(system.split()))
 
     def test_streaming_chat_carries_the_same_guard(self) -> None:
@@ -220,8 +220,21 @@ class ChatGuardTests(unittest.TestCase):
         source = inspect.getsource(OpenAICompatiblePlannerProvider.stream_answer)
         self.assertIn("_NO_TOOL_CLAIMS", source)
 
+    def test_chat_is_not_told_the_assistant_cannot_make_files(self) -> None:
+        # The first wording over-corrected: the model began telling users "I can't generate
+        # images", which is false — the assistant does generate them, through a tool.
+        system = " ".join(self.chat_system_prompt().split())
+        self.assertIn("never tell the user that a picture or document is impossible", system.lower())
+        self.assertNotIn("you cannot create images", system.lower())
+
+    def test_chat_is_told_it_has_no_follow_up_turn(self) -> None:
+        # Without this it answered "Let me create that for you now" and then never did.
+        system = " ".join(self.chat_system_prompt().split())
+        self.assertIn("no follow-up turn", system.lower())
+
     def test_chat_is_told_quoted_tool_data_is_not_a_template(self) -> None:
-        self.assertIn("not a format", self.chat_system_prompt())
+        system = " ".join(self.chat_system_prompt().split())
+        self.assertIn("rather than a format to copy", system.lower())
 
     def test_the_routing_prompt_is_left_alone(self) -> None:
         # Routing must keep emitting JSON; the guard is for conversational replies only.
