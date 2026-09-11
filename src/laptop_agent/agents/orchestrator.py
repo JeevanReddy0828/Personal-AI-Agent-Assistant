@@ -108,6 +108,15 @@ def _short_topic(text: str, words: int = 8) -> str:
     return " ".join(parts[:words]) + ("..." if len(parts) > words else "")
 
 
+
+def _readable_size(size: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} GB"
+
+
 class AgentOrchestrator:
     def __init__(
         self,
@@ -2563,7 +2572,28 @@ class AgentOrchestrator:
         if data.get("summary"):
             return str(data["summary"])
         if "files" in data and "root" in data:
-            return f"I found {len(data['files'])} file(s) in {data['root']}."
+            # A count is not an answer. "what files are here" used to reply "I found 200
+            # file(s) in E:\projects\..." and name none of them.
+            files = data["files"] if isinstance(data["files"], list) else []
+            if not files:
+                return f"There are no files in {data['root']}."
+            shown = files[:12]
+            lines = [f"**{len(files)} file(s) in {data['root']}**", ""]
+            for entry in shown:
+                if not isinstance(entry, dict):
+                    continue
+                name = Path(str(entry.get("path", ""))).name or str(entry.get("path", ""))
+                size = entry.get("size_bytes")
+                lines.append(f"- `{name}`" + (f" — {_readable_size(size)}" if isinstance(size, int) else ""))
+            if len(files) > len(shown):
+                lines.append(f"- …and {len(files) - len(shown)} more")
+            return "\n".join(lines)
+        if isinstance(data.get("text"), str) and data["text"].strip() and "path" in data:
+            # `read file` / `extract text` put the content in data and the message named
+            # only the path, so the thing the user asked to see was never shown.
+            body = data["text"].strip()
+            head = f"**{Path(str(data['path'])).name}**\n\n"
+            return head + (body if len(body) <= 6000 else body[:6000] + "\n\n_(truncated)_")
         if isinstance(data.get("results"), list):
             results = data["results"]
             query = str(data.get("query", "")).strip()

@@ -1704,3 +1704,36 @@ class OrchestratorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HumanizedResultTests(unittest.TestCase):
+    """A count is not an answer. "what files are here" replied "I found 200 file(s) in
+    the project folder" and named none of them, and a routed `read file` named the path
+    without ever showing the text the user asked to see."""
+
+    def humanize(self, data):
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+        from laptop_agent.tools.base import ToolResult
+
+        return AgentOrchestrator._humanize(ToolResult.success("terse message", **data))
+
+    def test_a_file_listing_names_the_files(self) -> None:
+        files = [{"path": f"/tmp/file{i}.txt", "size_bytes": 1024 * (i + 1)} for i in range(20)]
+        out = self.humanize({"files": files, "root": "/tmp"})
+        self.assertIn("20 file(s) in /tmp", out)
+        self.assertIn("file0.txt", out)
+        self.assertIn("1.0 KB", out)
+        self.assertIn("and 8 more", out)          # 12 shown, 8 elided
+
+    def test_an_empty_folder_says_so(self) -> None:
+        self.assertIn("no files", self.humanize({"files": [], "root": "/tmp"}))
+
+    def test_file_text_is_shown_not_just_its_path(self) -> None:
+        out = self.humanize({"path": "/tmp/README.md", "text": "# Title\n\nSome body text."})
+        self.assertIn("README.md", out)
+        self.assertIn("Some body text.", out)
+
+    def test_very_long_text_is_truncated_visibly(self) -> None:
+        out = self.humanize({"path": "/tmp/big.txt", "text": "x" * 9000})
+        self.assertIn("truncated", out)
+        self.assertLess(len(out), 6200)
