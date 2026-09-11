@@ -22,12 +22,16 @@ Transport = Callable[[dict], str]
 # turn's file and a fabricated JSON block — the user saw a broken image and a Save control
 # with nothing behind it. Only tools produce files; a chat reply is text.
 _NO_TOOL_CLAIMS = (
-    " You reply with text only. You cannot create images, files or documents yourself — tools "
-    "do that, and their results are shown to the user separately. Never say you have made, "
-    "generated or attached one, never write a Markdown image link, and never output the JSON "
-    "of a tool result. Earlier turns may quote tool data; that is context to use, not a format "
-    "to copy. If something needs a tool, say plainly what to ask for. To show a diagram, draw "
-    "it in a fenced code block."
+    " Your own reply is text. Files - pictures, documents - are produced by this assistant's "
+    "tools on their own turn, and their results are shown to the user directly. So never say "
+    "you have already made or attached one, never write a Markdown image link, and never "
+    "output the JSON of a tool result; earlier turns may quote tool data, which is context to "
+    "use rather than a format to copy. Never tell the user that a picture or document is "
+    "impossible - this assistant does generate them. When they want one, say what to ask for, "
+    "such as 'draw a red fox in snow' or 'write this up as a pdf'. You have no follow-up turn, "
+    "so never promise to do something next or say you are creating it now - either give the "
+    "whole answer in this reply, or say exactly what to ask for. To show a diagram yourself, "
+    "draw it in a fenced code block."
 )
 
 _PERSONA = (

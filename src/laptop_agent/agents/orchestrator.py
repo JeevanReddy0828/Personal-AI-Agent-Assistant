@@ -307,12 +307,20 @@ class AgentOrchestrator:
             )
         return decided("llm", self.planner.plan(command, help_text, profile, history))
 
-    @staticmethod
-    def _referent_topic(history: list[dict[str, str]] | None) -> str:
-        """What the latest assistant turn was about, in a few words."""
+    # An assistant turn that opens with talk about itself describes no topic. Using one gave
+    # the user: 'I read "this" as I can't generate or attach images directly...'.
+    _META_REPLY = re.compile(r"^\s*(?:i\s+(?:can|cannot|can't|could|will|am|have|read|understand)\b|sorry\b|here is\b|certainly\b)", re.IGNORECASE)
+
+    @classmethod
+    def _referent_topic(cls, history: list[dict[str, str]] | None) -> str:
+        """What the latest assistant turn was about, in a few words, skipping turns that only
+        talk about the assistant."""
         for turn in reversed(history or []):
-            if turn.get("role") == "assistant" and turn.get("text"):
-                return topic_of(str(turn["text"]))
+            if turn.get("role") != "assistant" or not turn.get("text"):
+                continue
+            topic = topic_of(str(turn["text"]))
+            if topic and not cls._META_REPLY.match(topic):
+                return topic
         return ""
 
     def _repair_image_command(self, text, planned, history):

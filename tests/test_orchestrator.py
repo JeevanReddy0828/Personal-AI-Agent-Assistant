@@ -1127,6 +1127,23 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("idea rather than a scene", result.message)
             self.assertNotIn("cannot create images", result.message)
 
+    def test_a_referent_skips_the_assistants_own_meta_reply(self) -> None:
+        # A turn that only talks about the assistant names no topic. Using one produced:
+        # 'I read "this" as I can't generate or attach images directly...'
+        history = [
+            {"role": "user", "text": "how does a schema work"},
+            {"role": "assistant", "text": "A schema is a blueprint defining tables, columns and relationships."},
+            {"role": "user", "text": "give me an image explaining the structure"},
+            {"role": "assistant", "text": "I can't generate or attach images directly, Jeevan."},
+        ]
+        topic = AgentOrchestrator._referent_topic(history)
+        self.assertIn("blueprint", topic)
+        self.assertNotIn("can't generate", topic)
+
+    def test_a_referent_with_only_meta_replies_is_empty(self) -> None:
+        history = [{"role": "assistant", "text": "Sorry, that failed."}]
+        self.assertEqual(AgentOrchestrator._referent_topic(history), "")
+
     def test_a_visual_referent_becomes_a_concrete_prompt(self) -> None:
         class Rewrites:
             def answer(self, text, profile, model=None, history=None, max_tokens=900):

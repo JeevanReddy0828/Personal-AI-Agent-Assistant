@@ -345,7 +345,13 @@ the traces proved no image command ever ran (`kind=chat`). `_NO_TOOL_CLAIMS` in 
 system prompt (both `answer` and `stream_answer`) forbids claiming a file was made, writing
 an image link, or emitting tool JSON, and says a diagram belongs in a fenced code block.
 The digest is labelled in `dataDigest` for the same reason. The **routing** prompt is
-deliberately left alone — it must keep emitting JSON.
+deliberately left alone — it must keep emitting JSON. Two things that wording must keep
+getting right, both learned by breaking them: it must **not** say the assistant cannot make
+images (the first version did, and the model started telling users so — it is false, the
+image tool exists), and it must say there is **no follow-up turn** (without that the model
+answered "Let me create that for you now" and then never did). `_referent_topic` also skips
+an assistant turn that only talks about itself, which is how a back-reference once resolved
+to `I read "this" as I can't generate or attach images directly...`.
 
 **Voice, and why it used to answer itself.** `clean_for_speech` (server) and `speakable()`
 (client, same rules) must drop embedded images, code fences and bare URLs *before* the
