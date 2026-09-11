@@ -245,6 +245,18 @@ class ChatGuardTests(unittest.TestCase):
         self.assertIn("never tell the user that a picture or document is impossible", system.lower())
         self.assertNotIn("you cannot create images", system.lower())
 
+    def test_a_diagram_is_drawn_in_the_reply_not_requested_again(self) -> None:
+        # Measured after the capability statement landed: "draw a flowchart of how a pull
+        # request gets merged" was answered "I'll provide the Mermaid syntax for you to
+        # request the actual drawing. To draw this flowchart, please ask me to: draw a
+        # flowchart of how a pull request gets merged" — the model handed the request back.
+        # "Say what to ask for" is right for a picture or a document and wrong for a
+        # diagram, which this reply is supposed to contain.
+        system = " ".join(self.chat_system_prompt().split()).lower()
+        self.assertIn("you draw it yourself, in this reply", system)
+        self.assertIn("never repeat their own request back at them", system)
+        self.assertIn("they already asked, so draw it now", system)
+
     def test_chat_is_told_what_the_assistant_can_actually_do(self) -> None:
         # Reported: "can you download something for me" was answered "I can't directly
         # download files from the internet or access external resources", and "is it safe to

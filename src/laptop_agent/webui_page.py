@@ -212,6 +212,25 @@ PAGE = r"""<!doctype html>
   .md a.doclink .dockind{font:600 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--accent);
     border:1px solid var(--accent-line);border-radius:5px;padding:3px 5px}
   .msg.err .md{color:var(--danger)}
+  /* Approval card: a risky action waits here for a yes. Warn-coloured, never the accent —
+     the accent means "interactive", this means "stop and read". */
+  #approvals{position:fixed;right:18px;bottom:18px;z-index:70;display:flex;flex-direction:column;gap:10px;max-width:min(420px,calc(100vw - 36px))}
+  .apcard{background:var(--surface-2);border:1px solid var(--warn);border-radius:var(--r-lg);
+    padding:14px 16px;box-shadow:var(--shadow-2);animation:apin var(--med) var(--ease)}
+  @keyframes apin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.apcard{animation:none}}
+  .apcard h4{margin:0 0 6px;font:600 13px/1.3 var(--display);color:var(--warn);
+    text-transform:uppercase;letter-spacing:.08em}
+  .apact{font:500 14px/1.45 var(--sans);color:var(--text);word-break:break-word;margin-bottom:6px}
+  .apwhy{font:400 12.5px/1.45 var(--sans);color:var(--muted);margin-bottom:4px}
+  .appre{font:400 11.5px/1.4 var(--mono);color:var(--faint);word-break:break-all;margin-bottom:10px}
+  .aprow{display:flex;gap:8px;justify-content:flex-end}
+  .apbtn{font:600 12.5px/1 var(--sans);padding:8px 14px;border-radius:var(--r-sm);cursor:pointer;
+    border:1px solid var(--hair-2);background:transparent;color:var(--text-2);transition:all var(--fast) var(--ease)}
+  .apbtn:hover{border-color:var(--hair-3);color:var(--text)}
+  .apbtn.yes{background:var(--warn);border-color:var(--warn);color:#1a1206}
+  .apbtn.yes:hover{filter:brightness(1.08)}
+
   .att{display:inline-flex;align-items:center;gap:6px;margin:8px 6px 0 0;background:rgba(255,255,255,.04);border:1px solid var(--hair-2);border-radius:8px;padding:5px 10px;font:12.5px var(--sans);color:var(--text-2)}
   .att .ic{color:var(--muted)}
   .copybtn{display:inline-block;margin-top:6px;border:0;background:transparent;color:var(--faint);font:12px var(--sans);padding:4px 8px;margin-left:-8px;border-radius:6px;opacity:0;transition:opacity var(--fast),color var(--fast),background var(--fast)}
@@ -1397,6 +1416,39 @@ PAGE = r"""<!doctype html>
   // Typewriter reveal for instant (non-streamed) results — local command output
   // arrives as one block, so animate it like a streamed reply for a consistent feel.
   let twCancel=false;
+
+  // A risky action asks before it runs. The server is already blocking a worker thread on
+  // the answer, and no answer means no — so this must not be dismissable by accident.
+  function showApproval(req){
+    if(!req||!req.id)return;
+    let host=document.getElementById('approvals');
+    if(!host){host=document.createElement('div');host.id='approvals';document.body.appendChild(host);}
+    if(host.querySelector('[data-ap="'+req.id+'"]'))return;
+    const card=document.createElement('div');
+    card.className='apcard';card.setAttribute('data-ap',req.id);
+    card.setAttribute('role','alertdialog');card.setAttribute('aria-live','assertive');
+    const head=document.createElement('h4');
+    head.textContent=(req.risk||'high')+' risk — approve?';
+    const act=document.createElement('div');act.className='apact';act.textContent=req.action||'';
+    card.appendChild(head);card.appendChild(act);
+    if(req.reason){const why=document.createElement('div');why.className='apwhy';why.textContent=req.reason;card.appendChild(why);}
+    if(req.preview){const pre=document.createElement('div');pre.className='appre';pre.textContent=req.preview;card.appendChild(pre);}
+    const row=document.createElement('div');row.className='aprow';
+    const no=document.createElement('button');no.className='apbtn';no.textContent='Deny';
+    const yes=document.createElement('button');yes.className='apbtn yes';yes.textContent='Approve';
+    let answered=false;
+    async function answer(ok){
+      if(answered)return; answered=true;
+      yes.disabled=no.disabled=true;
+      try{await fetch('/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:req.id,approved:ok})});}catch(e){}
+      card.remove();
+    }
+    no.onclick=()=>answer(false); yes.onclick=()=>answer(true);
+    row.appendChild(no);row.appendChild(yes);card.appendChild(row);
+    host.appendChild(card);
+    yes.focus();
+  }
+
   function typewriter(el,text){
     twCancel=false;
     const total=text.length;
@@ -1488,6 +1540,7 @@ PAGE = r"""<!doctype html>
           if(ev.type==='token'){if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
           else if(ev.type==='reset'){streamed='';md.innerHTML='';ttsQueue=[];}
           else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
+          else if(ev.type==='approval'){showApproval(ev.request);}
           else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
         }
       }

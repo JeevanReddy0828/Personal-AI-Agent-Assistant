@@ -2,8 +2,9 @@
 
 A stdlib-only HTTP server that serves a workstation-style chat interface and
 wires it to the same AgentOrchestrator the CLI uses. It binds to localhost only.
-High-risk actions (sending email, moving/overwriting files, downloads, browser
-form fills) are blocked here; read/search/research actions are allowed.
+Read/search/research actions run straight through. High-risk actions (sending email,
+moving/overwriting files, downloads, launching apps, shell, browser form fills) put an
+approval card in front of the user and wait for an answer; no answer means no.
 
 Panes: chat sessions, a Markdown-rendered conversation with file upload and
 voice, live system metrics (CPU/GPU/RAM), and the Obsidian memory vault.
@@ -38,6 +39,7 @@ from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
+from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 from laptop_agent.webui_page import PAGE
@@ -228,8 +230,22 @@ def _vision_label() -> str:
     return "—"
 
 
+# Reading is waved through; anything that changes the outside world is put to the user.
+# Before this, the browser could not answer the gate at all, so every HIGH/CRITICAL action
+# was auto-denied and downloads, shell commands and sending mail did not work in the app's
+# main interface.
+_APPROVALS = ApprovalBroker()
+
+
 def _guarded_approval(request: ApprovalRequest) -> bool:
-    return request.risk == RiskLevel.MEDIUM
+    if request.risk == RiskLevel.MEDIUM:
+        return True
+    return _APPROVALS.request(
+        action=request.action,
+        risk=request.risk.value,
+        reason=request.reason,
+        preview=request.preview,
+    )
 
 
 _orchestrator = build_orchestrator(approval_callback=_guarded_approval)
@@ -380,6 +396,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
+        elif path == "/api/approvals":
+            self._json(200, {"ok": True, "pending": _APPROVALS.pending()})
         elif path == "/api/traces":
             self._json(200, {"ok": True, "summary": _orchestrator.traces.summary(),
                              "recent": _orchestrator.traces.recent(40)})
@@ -443,6 +461,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"ok": False, "message": "Could not access local data. Check disk space and permissions."})
 
     def _dispatch_post(self) -> None:
+        if self.path == "/api/approve":
+            self._handle_approve()
+            return
         if self.path == "/api/cancel":
             payload = self._read_json()
             request_id = payload.get("request_id", "")
@@ -526,6 +547,13 @@ class Handler(BaseHTTPRequestHandler):
                 chunker.flush()
             emit({"type": "reset"})
         on_token.reset = reset_tokens
+
+        # A risky action asks the user mid-turn: push the request down this stream so the
+        # page can show it while the worker thread waits on the answer.
+        def on_approval(request: dict) -> None:
+            emit({"type": "approval", "request": request})
+
+        _APPROVALS.add_listener(on_approval)
         agent_id = _orchestrator.control_room.start(command)
         try:
             result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
@@ -539,10 +567,12 @@ class Handler(BaseHTTPRequestHandler):
             _orchestrator.control_room.finish(agent_id, "Stopped by user", ok=False)
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
-            emit({"type": "done", "ok": False, "message": f"Blocked — that high-risk action requires interactive approval in the CLI or Tkinter interface: {exc}", "data": {}})
+            emit({"type": "done", "ok": False, "message": f"Not approved — {exc}", "data": {}})
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             emit({"type": "done", "ok": False, "message": f"Error: {exc}", "data": {}})
+        finally:
+            _APPROVALS.remove_listener(on_approval)
 
     def _handle_agent(self) -> None:
         """Run the autonomous agent, streaming each plan/act/observe step over SSE."""
@@ -774,7 +804,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "message": "Unknown action."})
                 return
         except ApprovalDenied as exc:
-            ok, message = False, f"Blocked — that action requires interactive approval in the CLI or Tkinter interface: {exc}"
+            ok, message = False, f"Not approved — {exc}"
         except (ValueError, TypeError) as exc:
             ok, message = False, str(exc)
         snap = _pipeline_snapshot()
@@ -948,6 +978,25 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._json(200, {"ok": True, "native": True, "applied": applied})
 
+    def _handle_approve(self) -> None:
+        """Answer one pending approval. The id must match exactly, and an id is single-use,
+        so approving a download can never authorise the shell command behind it."""
+        try:
+            payload = self._read_json()
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        request_id = payload.get("id", "")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_id):
+            self._json(400, {"ok": False, "message": "Invalid approval id."})
+            return
+        approved = payload.get("approved") is True
+        if _APPROVALS.resolve(request_id, approved):
+            self._json(200, {"ok": True, "approved": approved})
+        else:
+            # Already answered, timed out, or never existed — all the same to the caller.
+            self._json(409, {"ok": False, "message": "That approval is no longer pending."})
+
     def _handle_command(self) -> None:
         try:
             payload = self._read_json()
@@ -968,7 +1017,7 @@ class Handler(BaseHTTPRequestHandler):
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
-            body = {"ok": False, "message": f"Blocked — that high-risk action requires interactive approval in the CLI or Tkinter interface: {exc}", "data": {}}
+            body = {"ok": False, "message": f"Not approved — {exc}", "data": {}}
         except Exception as exc:  # pragma: no cover - defensive for the preview server.
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             body = {"ok": False, "message": f"Error: {exc}", "data": {}}
