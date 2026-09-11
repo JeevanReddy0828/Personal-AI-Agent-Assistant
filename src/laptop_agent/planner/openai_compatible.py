@@ -30,8 +30,8 @@ _NO_TOOL_CLAIMS = (
     "impossible - this assistant does generate them. When they want one, say what to ask for, "
     "such as 'draw a red fox in snow' or 'write this up as a pdf'. You have no follow-up turn, "
     "so never promise to do something next or say you are creating it now - either give the "
-    "whole answer in this reply, or say exactly what to ask for. To show a diagram yourself, "
-    r"write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. To show a diagram, "
+    "whole answer in this reply, or say exactly what to ask for. "
+    r"Write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. To show a diagram, "
     "put it in a fenced ```mermaid block - erDiagram for tables and relationships, flowchart TD for a process - and it is drawn as a real diagram for the user."
 )
 
