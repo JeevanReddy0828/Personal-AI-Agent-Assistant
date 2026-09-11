@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,13 @@ from urllib.parse import urlparse
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
+# localhost, an IPv4 address, or a name ending in a real TLD. Without the TLD rule a
+# sentence's last word ("me.") parses as a host.
+_HOSTLIKE = re.compile(
+    r"localhost|\d{1,3}(?:\.\d{1,3}){3}|[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.[A-Za-z]{2,}",
+    re.IGNORECASE,
+)
+
 
 class WebTool:
     def __init__(self, approval_gate: ApprovalGate, downloads_dir: Path) -> None:
@@ -19,12 +27,13 @@ class WebTool:
         self.downloads_dir = downloads_dir
 
     def open_url(self, url: str) -> ToolResult:
-        if not self._looks_like_url(url):
+        found = self._extract_url(url)
+        if found is None:
             return ToolResult.failure(
                 f"That is not an address I can open: {url!r}. Give me a link, "
                 "for example: open url https://example.com"
             )
-        normalized = self._normalize_url(url)
+        normalized = self._normalize_url(found)
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Open URL: {normalized}",
@@ -63,12 +72,13 @@ class WebTool:
                 return False
 
     def download(self, url: str, filename: str | None = None) -> ToolResult:
-        if not self._looks_like_url(url):
+        found = self._extract_url(url)
+        if found is None:
             return ToolResult.failure(
                 f"That is not an address I can download: {url!r}. Give me a link, "
                 "for example: download https://example.com/data.csv"
             )
-        normalized = self._normalize_url(url)
+        normalized = self._normalize_url(found)
         parsed = urlparse(normalized)
         guessed_name = filename or Path(parsed.path).name or "download.bin"
         target = (self.downloads_dir / guessed_name).resolve()
@@ -93,14 +103,31 @@ class WebTool:
 
     @staticmethod
     def _looks_like_url(raw: str) -> bool:
-        """Whether this is an address at all.
+        """Whether this single token is an address.
 
         "download it for me" reached the approval gate as `https://it for me`: the words
-        were pasted straight into a URL. A host has no spaces, and either carries a dot or
-        is localhost.
+        were pasted straight into a URL. A host has no spaces, and it is localhost, an
+        IPv4 address, or a name ending in a real top-level domain — "me." is a sentence
+        ending, not a host.
         """
         candidate = (raw or "").strip()
         if not candidate or len(candidate.split()) > 1:
             return False
-        host = urlparse(WebTool._normalize_url(candidate)).netloc.split("@")[-1].split(":")[0]
-        return bool(host) and ("." in host or host.lower() == "localhost")
+        host = urlparse(WebTool._normalize_url(candidate)).netloc.split("@")[-1]
+        host = host.rsplit(":", 1)[0] if ":" in host else host
+        return bool(_HOSTLIKE.fullmatch(host))
+
+    @staticmethod
+    def _extract_url(raw: str) -> str | None:
+        """The first address inside a phrase, or None when there isn't one.
+
+        Refusing anything containing a space broke the commoner phrasing: "download it
+        for me - https://gdoc.io/..." was rejected with the link sitting right there, and
+        so was a link pasted on its own line. Only a request with no address at all should
+        be refused.
+        """
+        for token in (raw or "").split():
+            candidate = token.strip("<>()[]{}\"'`,;").rstrip(".!?")
+            if WebTool._looks_like_url(candidate):
+                return candidate
+        return None
