@@ -2667,7 +2667,23 @@ class AgentOrchestrator:
             if not files:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
-            lines = [f"**{len(files)} file(s) in {data['root']}**", ""]
+            total = data.get("total_files")
+            headline = (
+                f"**{total} file(s) in {data['root']}**"
+                if isinstance(total, int) and total != len(files)
+                else f"**{len(files)} file(s) in {data['root']}**"
+            )
+            lines = [headline, ""]
+            # The breakdown is the answer to "how many python files are here", and
+            # counting names out of a truncated listing is how that got answered wrong.
+            breakdown = data.get("by_extension")
+            if isinstance(breakdown, dict) and len(breakdown) > 1:
+                top = list(breakdown.items())[:6]
+                summary = " · ".join(f"`{ext}` {count}" for ext, count in top)
+                if len(breakdown) > len(top):
+                    summary += f" · +{len(breakdown) - len(top)} other types"
+                lines.append("By type: " + summary)
+                lines.append("")
             for entry in shown:
                 if not isinstance(entry, dict):
                     continue
