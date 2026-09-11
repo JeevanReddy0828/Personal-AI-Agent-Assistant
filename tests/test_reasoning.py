@@ -221,3 +221,68 @@ class AgentRunTrackerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObservationTests(unittest.TestCase):
+    """Asked to count the Python files in src, the agent answered 27 for a list of 131.
+    The tool was right; the observation it was given named the data's keys and clipped the
+    message without saying so, and the agent counted the few names it could still see."""
+
+    def observe(self, result):
+        from laptop_agent.reasoning import _observe
+
+        return _observe(result)
+
+    def test_a_list_reports_its_length(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        out = self.observe(ToolResult.success("Scanned files.", files=[{"p": i} for i in range(131)], root="src"))
+        self.assertIn("files: 131 items", out)
+        self.assertIn("root=src", out)
+
+    def test_clipping_is_stated_not_implied(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        out = self.observe(ToolResult.success("x" * 900))
+        self.assertIn("message clipped", out)
+        self.assertIn("of 900 characters", out)
+
+    def test_a_short_message_is_not_marked_clipped(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        self.assertNotIn("clipped", self.observe(ToolResult.success("all done")))
+
+    def test_long_text_reports_its_size_rather_than_its_content(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        out = self.observe(ToolResult.success("Read it.", text="y" * 5000))
+        self.assertIn("text: 5000 chars", out)
+        self.assertNotIn("yyyy", out)
+
+    def test_a_failure_still_reads_as_failed(self) -> None:
+        from laptop_agent.tools.base import ToolResult
+
+        self.assertTrue(self.observe(ToolResult.failure("nope")).startswith("[failed]"))
+
+
+class SmallMappingObservationTests(unittest.TestCase):
+    """`by_extension: 4 fields` told the agent nothing; `by_extension={.py=65}` is the
+    answer to the question it was asked."""
+
+    def observe(self, **data):
+        from laptop_agent.reasoning import _observe
+        from laptop_agent.tools.base import ToolResult
+
+        return _observe(ToolResult.success("Scanned.", **data))
+
+    def test_a_small_mapping_of_scalars_is_shown_whole(self) -> None:
+        out = self.observe(by_extension={".py": 65, ".pyc": 66})
+        self.assertIn(".py=65", out)
+
+    def test_a_large_mapping_reports_its_size_instead(self) -> None:
+        out = self.observe(counts={f"k{i}": i for i in range(40)})
+        self.assertIn("counts: 40 fields", out)
+
+    def test_a_mapping_of_objects_reports_its_size(self) -> None:
+        out = self.observe(nested={"a": {"deep": 1}, "b": {"deep": 2}})
+        self.assertIn("nested: 2 fields", out)

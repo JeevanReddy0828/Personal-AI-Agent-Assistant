@@ -126,15 +126,54 @@ def parse_agent_decision(text: str) -> AgentDecision:
     return AgentDecision(thought=thought, command="", final_answer=answer or raw, is_final=True)
 
 
+def _describe_datum(key: str, value: object) -> str:
+    """One fact about a piece of tool data, chosen so the agent can reason about it.
+
+    Naming the keys was not enough. Asked to count the Python files in src, the agent
+    saw "[data: files, root]" against a truncated message and answered 27 for a list of
+    131 — it had no way to know the size of what it was looking at, and no hint that the
+    message had been cut, so it counted the few names it could see and stated the result
+    as fact. A length is the one fact that makes a list answerable.
+    """
+    if isinstance(value, (list, tuple)):
+        return f"{key}: {len(value)} items"
+    if isinstance(value, dict):
+        # A small mapping of scalars *is* the fact - `by_extension={'.py': 65, ...}` is the
+        # answer to "how many python files are in src", where "by_extension: 4 fields"
+        # sent the agent back to counting names and it said 42 against a true 65.
+        scalars = {
+            str(k): v for k, v in list(value.items())[:10]
+            if isinstance(v, (int, float, bool, str)) and len(str(v)) <= 40
+        }
+        if scalars and len(scalars) == len(value):
+            rendered = ", ".join(f"{k}={v}" for k, v in scalars.items())
+            if len(rendered) <= 220:
+                return f"{key}={{{rendered}}}"
+        return f"{key}: {len(value)} fields"
+    if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
+        return f"{key}={value}"
+    text = str(value)
+    if len(text) > 60:
+        return f"{key}: {len(text)} chars"
+    return f"{key}={text}"
+
+
 def _observe(result: ToolResult) -> str:
-    """Compress a tool result into a short observation line for the scratchpad."""
+    """Compress a tool result into a short observation line for the scratchpad.
+
+    Truncation is stated rather than implied: an agent that cannot tell a complete
+    observation from a clipped one will answer confidently from the visible fragment.
+    """
     status = "ok" if result.ok else "failed"
     message = (result.message or "").strip().replace("\n", " ")
+    cut = ""
     if len(message) > 320:
+        cut = f" [message clipped: showing 317 of {len(message)} characters]"
         message = message[:317] + "…"
-    keys = ", ".join(sorted(result.data.keys())) if isinstance(result.data, dict) and result.data else ""
-    suffix = f" [data: {keys}]" if keys else ""
-    return f"[{status}] {message}{suffix}"
+    data = result.data if isinstance(result.data, dict) else {}
+    facts = ", ".join(_describe_datum(key, value) for key, value in sorted(data.items()))
+    suffix = f" [data: {facts}]" if facts else ""
+    return f"[{status}] {message}{cut}{suffix}"
 
 
 class AutonomousAgent:

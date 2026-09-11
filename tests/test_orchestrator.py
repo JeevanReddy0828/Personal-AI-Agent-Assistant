@@ -1737,3 +1737,72 @@ class HumanizedResultTests(unittest.TestCase):
         out = self.humanize({"path": "/tmp/big.txt", "text": "x" * 9000})
         self.assertIn("truncated", out)
         self.assertLess(len(out), 6200)
+
+
+class HonestScanTests(unittest.TestCase):
+    """`scan files .` reported "Scanned 200 files." for a tree of thousands, and that cap
+    read as the total — to the user and to the autonomous agent, which answered "27
+    Python files in src" and then "6" against a true 65."""
+
+    def scan(self, root, limit=200):
+        from laptop_agent.tools.files import FileTool
+
+        return FileTool().scan(str(root), limit=limit)
+
+    def tree(self, tmp, py=7, txt=3):
+        from pathlib import Path
+
+        base = Path(tmp) / "tree"
+        (base / "nested").mkdir(parents=True)
+        for i in range(py):
+            (base / "nested" / f"m{i}.py").write_text("x", encoding="utf-8")
+        for i in range(txt):
+            (base / f"n{i}.txt").write_text("x", encoding="utf-8")
+        return base
+
+    def test_the_total_is_the_total_even_when_the_listing_is_capped(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.scan(self.tree(tmp), limit=4)
+            self.assertEqual(result.data["total_files"], 10)
+            self.assertEqual(result.data["listed"], 4)
+            self.assertFalse(result.data["complete"])
+            self.assertIn("listing the first 4", result.message)
+
+    def test_a_complete_scan_says_so(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.scan(self.tree(tmp))
+            self.assertTrue(result.data["complete"])
+            self.assertEqual(result.message, "Scanned 10 files.")
+
+    def test_counting_by_type_is_answerable_without_the_listing(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.scan(self.tree(tmp), limit=2)
+            self.assertEqual(result.data["by_extension"][".py"], 7)
+            self.assertEqual(result.data["by_extension"][".txt"], 3)
+
+    def test_the_breakdown_reaches_the_reply(self) -> None:
+        import tempfile
+
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.scan(self.tree(tmp), limit=2)
+            text = AgentOrchestrator._humanize(result)
+            self.assertIn("10 file(s)", text)
+            self.assertIn("`.py` 7", text)
+
+    def test_the_agent_is_told_the_size_of_what_it_is_looking_at(self) -> None:
+        import tempfile
+
+        from laptop_agent.reasoning import _observe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            observation = _observe(self.scan(self.tree(tmp), limit=2))
+            self.assertIn("total_files=10", observation)
+            self.assertIn("complete=False", observation)

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
 
@@ -59,6 +60,11 @@ class FileSummary:
     mime_type: str
 
 
+# Counting a tree is cheap; counting an unbounded one is not. Past this many entries the
+# scan reports that it stopped rather than pretending the number is the total.
+_SCAN_WALK_CEILING = 50_000
+
+
 class FileTool:
     def __init__(self, approval_gate: ApprovalGate | None = None) -> None:
         self.approval_gate = approval_gate or ApprovalGate()
@@ -70,13 +76,47 @@ class FileTool:
         if base.is_file():
             return ToolResult.success("Scanned one file.", files=[self._summarize(base).__dict__])
 
+        # The cap used to be invisible: "Scanned 200 files." for a tree of thousands read
+        # as the total, to the user and to the autonomous agent alike. Walk the whole tree
+        # to count and tally by type, and return only `limit` summaries — so a question
+        # like "how many python files are in src" is answerable from a fact rather than by
+        # counting the handful of names that survived truncation. The agent answered that
+        # one 27, then 6, against a true 65.
         files: list[dict[str, object]] = []
+        by_extension: dict[str, int] = {}
+        total = 0
+        walked_all = True
         for path in base.rglob("*"):
-            if path.is_file():
+            if total >= _SCAN_WALK_CEILING:
+                walked_all = False
+                break
+            try:
+                if not path.is_file():
+                    continue
+            except OSError as exc:  # a vanished or unreadable entry must not end the scan
+                record_failure("files/scan", exc, path=str(path)[:120])
+                continue
+            total += 1
+            suffix = path.suffix.lower() or "(no extension)"
+            by_extension[suffix] = by_extension.get(suffix, 0) + 1
+            if len(files) < limit:
                 files.append(self._summarize(path).__dict__)
-                if len(files) >= limit:
-                    break
-        return ToolResult.success(f"Scanned {len(files)} files.", files=files, root=str(base))
+        shown = len(files)
+        if not walked_all:
+            message = f"Scanned {shown} files; stopped counting at {total} (the tree is very large)."
+        elif shown < total:
+            message = f"Scanned {total} files, listing the first {shown}."
+        else:
+            message = f"Scanned {total} files."
+        return ToolResult.success(
+            message,
+            files=files,
+            root=str(base),
+            total_files=total,
+            listed=shown,
+            complete=walked_all and shown == total,
+            by_extension=dict(sorted(by_extension.items(), key=lambda item: -item[1])),
+        )
 
     def read_text(self, path: str, max_chars: int = 12000) -> ToolResult:
         target = Path(path).expanduser().resolve()
