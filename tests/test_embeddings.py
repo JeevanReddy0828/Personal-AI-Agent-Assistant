@@ -146,6 +146,23 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(outcome["embedded"], 0)
         self.assertEqual(outcome["pending"], len(self.DOCS))
 
+    def test_an_answer_is_drawn_from_the_ranked_documents_only(self) -> None:
+        # Previously every sentence in the corpus competed on word overlap, which is how a
+        # question about databases was answered out of a README table. The answer now comes
+        # from the documents the ranking chose, so its sources stay bounded.
+        base = self.store(Embedder(backend=fake_backend))
+        for index in range(8):
+            base.add(f"filler{index}", f"Document number {index} mentions permission in passing.")
+        out = base.answer("what stops risky actions without permission")
+        self.assertTrue(out["ok"])
+        self.assertLessEqual(len(out["sources"]), 4)
+        self.assertTrue(str(out["answer"]).strip())
+
+    def test_a_paraphrase_with_no_shared_words_still_answers(self) -> None:
+        out = self.store(Embedder(backend=fake_backend)).answer("will it erase my documents unprompted")
+        self.assertTrue(out["ok"])
+        self.assertTrue(str(out["answer"]).strip())
+
     def test_keyword_matches_still_win_on_exact_terms(self) -> None:
         hits = self.store(Embedder(backend=fake_backend)).search("congestion window")
         self.assertEqual(hits[0]["source"], "network")

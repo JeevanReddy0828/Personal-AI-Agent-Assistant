@@ -105,6 +105,9 @@ class KnowledgeBase:
 
     @synchronized
     def search(self, query: str, limit: int = 5) -> list[dict[str, object]]:
+        return self._search_unlocked(query, limit)
+
+    def _search_unlocked(self, query: str, limit: int = 5) -> list[dict[str, object]]:
         terms = set(_content_terms(query))
         query_vector = None
         if self.embedder is not None and self.embedder.available():
@@ -194,11 +197,36 @@ class KnowledgeBase:
     @synchronized
     def answer(self, question: str, limit: int = 6) -> dict[str, object]:
         terms = set(_content_terms(question))
-        if not terms:
-            return {"ok": False, "reason": "question has no searchable terms", "question": question}
         store = self._load()
+        # Pick the documents with the ranking that knows about meaning, then pull sentences
+        # from those. Scoring every sentence in the corpus by word overlap alone answered
+        # "when should I pick a document store over tables" out of a README table, because
+        # "store", "tables" and "pick" appear there.
+        ranked = self._search_unlocked(question, limit=4)
+        allowed = {row["id"] for row in ranked}
+        pool = [d for d in store["documents"] if d.get("id") in allowed] or store["documents"]
+        def lead_with_best() -> dict[str, object]:
+            """Ranking found the document; sentence scoring cannot pick a line out of it
+            when the question shares no word with it. Quote the opening instead."""
+            excerpts = [
+                {"id": d.get("id"), "source": d.get("source"),
+                 "sentence": " ".join(str(d.get("text", "")).split())[:400], "score": 0.0}
+                for d in pool[:2]
+            ]
+            return {
+                "ok": True,
+                "question": question,
+                "answer": " ".join(str(e["sentence"]) for e in excerpts),
+                "excerpts": excerpts,
+                "sources": [str(e["source"]) for e in excerpts if e.get("source")],
+            }
+
+        if not terms:
+            if not ranked:
+                return {"ok": False, "reason": "question has no searchable terms", "question": question}
+            return lead_with_best()
         candidates: list[tuple[float, int, int, dict[str, object]]] = []
-        for doc_index, doc in enumerate(store["documents"]):
+        for doc_index, doc in enumerate(pool):
             source = str(doc.get("source") or "")
             doc_id = int(doc.get("id") or 0)
             for sentence_index, sentence in enumerate(self._split_sentences(str(doc.get("text", "")))):
@@ -221,6 +249,8 @@ class KnowledgeBase:
                     )
                 )
         if not candidates:
+            if ranked:
+                return lead_with_best()
             return {"ok": False, "reason": "no relevant indexed text", "question": question}
         wanted = max(1, min(limit, 12))
         selected = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))[:wanted]
