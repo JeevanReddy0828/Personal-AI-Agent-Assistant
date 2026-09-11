@@ -47,6 +47,7 @@ from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
+from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -158,6 +159,7 @@ class AgentOrchestrator:
         self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
         self._calculator_cache: CalculatorTool | None = None
+        self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
@@ -877,6 +879,15 @@ class AgentOrchestrator:
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
 
+        # One prefix, because the clock parses the zone out of the whole phrase itself —
+        # the heuristic hands it `time what time is it in EST` verbatim.
+        if lowered.startswith(("time ", "date ", "clock ")):
+            return self._clock.now(command.split(" ", 1)[1])
+
+        if lowered in {"time", "date", "clock", "what time is it", "what is the time",
+                       "current time", "today", "what day is it", "datetime"}:
+            return self._clock.now("")
+
         if lowered in {"capabilities", "what can you do"}:
             return self._capabilities()
 
@@ -1255,6 +1266,11 @@ class AgentOrchestrator:
     def _needs_fresh_info(self, text: str) -> bool:
         if self.context.websearch is None:
             return False
+        # The time is on the clock, not on the web. Asked "what is the current date and
+        # time in EST" this searched, scraped a stale page, and answered 1:00 PM while
+        # the machine's own clock read 6:26 PM.
+        if asks_the_time(text):
+            return False
         lowered = " " + text.lower()
         if any(keyword in lowered for keyword in self._FRESH_KEYWORDS):
             return True
@@ -1454,6 +1470,7 @@ class AgentOrchestrator:
                 "  news [topic]  (real headlines from free feeds, with article text)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file)",
+                "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",
                 "  latency  (where recent turns spent their time)",
@@ -2075,6 +2092,12 @@ class AgentOrchestrator:
         if pending:
             message += f" {pending} could not be reached; run it again to finish them."
         return ToolResult.success(message, **outcome)
+
+    @property
+    def _clock(self) -> ClockTool:
+        if self._clock_cache is None:
+            self._clock_cache = ClockTool()
+        return self._clock_cache
 
     @property
     def _calculator(self) -> CalculatorTool:

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
 from laptop_agent.planner.core import PlanDecision
+from laptop_agent.tools.clock import prompt_stamp
 
 # Transient statuses the free hosted endpoints actually return. A 400/401/404 is the
 # request being wrong, so retrying it only makes the user wait twice for the same answer.
@@ -271,7 +272,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
@@ -307,7 +308,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
