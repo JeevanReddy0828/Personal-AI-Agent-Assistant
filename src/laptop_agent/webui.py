@@ -120,6 +120,18 @@ def _stt_engine() -> str | None:
     return _LLM_STATUS["stt"]  # type: ignore[return-value]
 
 
+def _ocr_engine() -> str | None:
+    """Name of the OCR engine an image would reach. Cached for the same reason."""
+    if "ocr" not in _LLM_STATUS:
+        from laptop_agent.tools.transcribe import ocr_engine_name
+
+        try:
+            _LLM_STATUS["ocr"] = ocr_engine_name()
+        except Exception:  # pragma: no cover - a broken engine must not break health
+            _LLM_STATUS["ocr"] = None
+    return _LLM_STATUS["ocr"]  # type: ignore[return-value]
+
+
 def _safe_artifact(name: str, folder: str, types: dict[str, str]) -> Path | None:
     """Resolve a generated file by bare filename, or None if it is not one of ours.
 
@@ -348,6 +360,7 @@ class Handler(BaseHTTPRequestHandler):
             report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
             # The page decides between its own recognizer and posting audio here.
             report["stt"] = {"engine": _stt_engine()}
+            report["ocr"] = {"engine": _ocr_engine()}
             self._json(200, report)
         elif path == "/api/metrics":
             self._json(200, system_metrics())
