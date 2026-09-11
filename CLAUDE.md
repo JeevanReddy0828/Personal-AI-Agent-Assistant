@@ -335,6 +335,17 @@ nothing model-authored is interpolated into HTML. Chats in the rail have a delet
 and **Incognito chat** creates a session `saveSessions()` filters out of `localStorage` on
 both the normal and the over-quota retry path.
 
+**Diagrams are drawn, not described.** A fenced ```mermaid block is rendered to inline SVG
+by `mermaidSvg` in `webui_page.py` — not the Mermaid library: the CSP is
+`script-src 'nonce-…'` with **no `'self'`**, so no extra script can load, and vendoring
+3MB would fight the same "no chart CDN, offline-friendly" rule the Overview charts follow.
+It covers the two shapes that actually come up — `erDiagram` (entity boxes, columns,
+labelled relationships) and `flowchart`/`graph`/`stateDiagram` (nodes and labelled edges) —
+and anything else falls back to a readable code block rather than vanishing. Flow layering
+is breadth-first **from the entry point, ignoring back-edges**: longest-path layering put
+TCP's Slow Start at the bottom once the timeout edge closed the cycle. Markdown images are
+restricted to same-origin paths — a model sent a fabricated `data:image/png;base64` blob.
+
 **Why the chat tier is told it cannot make files.** A tool result reaches the next turn as
 part of the transcript — the web client appends a bounded digest of `result.data` to the
 assistant turn it sends back — so the model learned the tool's own output shape and

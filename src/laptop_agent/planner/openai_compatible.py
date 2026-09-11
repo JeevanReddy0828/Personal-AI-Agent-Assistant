@@ -31,7 +31,7 @@ _NO_TOOL_CLAIMS = (
     "such as 'draw a red fox in snow' or 'write this up as a pdf'. You have no follow-up turn, "
     "so never promise to do something next or say you are creating it now - either give the "
     "whole answer in this reply, or say exactly what to ask for. To show a diagram yourself, "
-    "draw it in a fenced code block."
+    "put it in a fenced ```mermaid block - erDiagram for tables and relationships, flowchart TD for a process - and it is drawn as a real diagram for the user."
 )
 
 _PERSONA = (
