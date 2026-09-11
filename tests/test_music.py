@@ -45,5 +45,21 @@ class MusicPlayTests(unittest.TestCase):
         self.assertFalse(tool.play("   ").ok)
 
 
+
+class BackReferenceTests(unittest.TestCase):
+    """Reported: "play songs in the youtube you just opened" searched YouTube for
+    "in you just opened" — the cleanup stripped the real words and kept the filler."""
+
+    def test_a_back_reference_asks_instead_of_searching(self) -> None:
+        self.assertEqual(MusicTool._youtube_query("songs in the youtube you just opened"), "")
+        self.assertEqual(MusicTool._youtube_query("it"), "")
+        self.assertEqual(MusicTool._youtube_query("that one again"), "")
+
+    def test_a_real_request_still_becomes_a_query(self) -> None:
+        self.assertEqual(MusicTool._youtube_query("new telugu songs"), "new telugu")
+        self.assertEqual(MusicTool._youtube_query("despacito"), "despacito")
+        self.assertEqual(MusicTool._youtube_query("some youtube music"), "music")
+
+
 if __name__ == "__main__":
     unittest.main()
