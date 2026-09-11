@@ -43,6 +43,7 @@ from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -144,6 +145,7 @@ class AgentOrchestrator:
         self._image_tool_cache: ImageTool | None = None
         self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
+        self._calculator_cache: CalculatorTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
@@ -863,6 +865,10 @@ class AgentOrchestrator:
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
 
+        if lowered.startswith(("calculate ", "calc ", "compute ")):
+            rest = command.split(" ", 1)[1]
+            return self._calculator.compute(rest)
+
         if lowered in {"latency", "traces", "why slow", "speed"}:
             return self._latency_report()
 
@@ -1351,6 +1357,7 @@ class AgentOrchestrator:
                 "  news [topic]  (real headlines from free feeds, with article text)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file)",
+                "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
@@ -1971,6 +1978,12 @@ class AgentOrchestrator:
             message += f" {pending} could not be reached; run it again to finish them."
         return ToolResult.success(message, **outcome)
 
+    @property
+    def _calculator(self) -> CalculatorTool:
+        if self._calculator_cache is None:
+            self._calculator_cache = CalculatorTool()
+        return self._calculator_cache
+
     def _news_tool(self) -> NewsTool:
         if self._news_tool_cache is None:
             from laptop_agent.tools.research import fetch_page_text
@@ -2257,9 +2270,13 @@ class AgentOrchestrator:
         return str(gathered.data.get("text", "")), list(gathered.data.get("sources", []))
 
     def _solve(self, problem: str, history: list[dict[str, str]] | None = None) -> ToolResult:
-        cleaned = problem.strip().strip("'\"")
+        cleaned = problem.strip().strip("'\"").lstrip("-").strip()
         if not cleaned:
             return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
+        # A sum is not a dilemma. `solve - 67458363*37834872` spent 40s producing framing,
+        # options and a recommendation, and never reached 2,552,278,529,434,536.
+        if looks_like_arithmetic(cleaned):
+            return self._calculator.compute(cleaned)
         agent_id = self.control_room.start(f"advisor: {cleaned}")
         session = build_context(history or [], cleaned, budget=ADVISOR_BUDGET)
         # A follow-up ("is option B safer for this?") is researched in its standalone

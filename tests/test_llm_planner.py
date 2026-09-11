@@ -245,6 +245,39 @@ class ChatGuardTests(unittest.TestCase):
         self.assertIn("never tell the user that a picture or document is impossible", system.lower())
         self.assertNotIn("you cannot create images", system.lower())
 
+    def test_chat_is_told_what_the_assistant_can_actually_do(self) -> None:
+        # Reported: "can you download something for me" was answered "I can't directly
+        # download files from the internet or access external resources", and "is it safe to
+        # run risky commands" with "I do not have direct access to your system's shell or
+        # file system". Both false — there is a download tool and a shell tool, each behind
+        # the approval gate. Told only what it must not claim, the model guessed low.
+        system = " ".join(self.chat_system_prompt().split()).lower()
+        for ability in (
+            "download files",
+            "run shell commands",
+            "send and search email",
+            "search the web",
+            "ocr images",
+        ):
+            self.assertIn(ability, system, ability)
+        self.assertIn("never tell the user you cannot reach the internet", system)
+        self.assertIn("asks the user to approve it first", system)
+
+    def test_chat_knows_how_the_app_is_actually_started(self) -> None:
+        # Reported: "how do I start the app in a browser tab" was answered with
+        # "try http://localhost:3000" — a port nobody uses. #63 stopped it *acting* on
+        # invented targets; it could still say them.
+        system = " ".join(self.chat_system_prompt().split())
+        self.assertIn("python -m laptop_agent.webui", system)
+        self.assertIn("8770", system)
+        self.assertNotIn("3000", system)
+
+    def test_streaming_chat_carries_the_capability_statement_too(self) -> None:
+        import inspect
+
+        source = inspect.getsource(OpenAICompatiblePlannerProvider.stream_answer)
+        self.assertIn("_CAPABILITIES", source)
+
     def test_chat_is_told_it_has_no_follow_up_turn(self) -> None:
         # Without this it answered "Let me create that for you now" and then never did.
         system = " ".join(self.chat_system_prompt().split())
