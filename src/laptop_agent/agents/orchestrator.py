@@ -271,6 +271,7 @@ class AgentOrchestrator:
             # the same defect from the other direction.
             decision = self._repair_image_command(command, decision, history)
             decision = self._repair_target_command(command, decision, history)
+            decision = self._repair_diagram_command(command, decision, history)
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -380,6 +381,35 @@ class AgentOrchestrator:
             action="chat",
             confidence=0.55,
             explanation="The command named a target nobody mentioned; answer the question instead.",
+        )
+
+    # An explicit ask for a file. Without this, "write up our ERD as a pdf" would be
+    # dragged back into the chat reply for containing the word ERD.
+    _WANTS_A_FILE = re.compile(
+        r"\b(?:pdf|word|docx|markdown|\.md|document|report|write[\s-]?up|file|download|export|save)\b",
+        re.IGNORECASE,
+    )
+
+    def _repair_diagram_command(self, text, planned, history):
+        """A diagram is drawn in the reply, not written to a file.
+
+        The document tool landed after the diagram renderer, and the router started
+        preferring it: "draw a flowchart of how a pull request gets merged" produced a
+        Markdown file containing a table 3 times out of 4, and a diagram none of the
+        time. The user asked for a picture of a process and got a download.
+
+        Only a request that never names a file is redirected, so "write up our ERD as a
+        pdf" still writes the pdf.
+        """
+        command = (planned.command or "") if planned.is_command else ""
+        if not command.lower().startswith("document "):
+            return planned
+        if not is_diagram_subject(text) or self._WANTS_A_FILE.search(text):
+            return planned
+        return PlanDecision(
+            action="chat",
+            confidence=0.55,
+            explanation="A diagram belongs in the reply as Mermaid, not in a generated file.",
         )
 
     def _repair_image_command(self, text, planned, history):

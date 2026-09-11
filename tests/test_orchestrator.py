@@ -1106,6 +1106,50 @@ class OrchestratorTests(unittest.TestCase):
             )
             self.assertTrue(o._repair_target_command("what is a csv file", planned, []).is_chat)
 
+    def test_a_diagram_request_is_not_written_to_a_file(self) -> None:
+        # Measured: "draw a flowchart of how a pull request gets merged" produced a
+        # Markdown document containing a table 3 runs out of 4, and a diagram in none of
+        # them. The document tool landed after the diagram renderer and the router
+        # started preferring it.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            for text in (
+                "draw a flowchart of how a pull request gets merged",
+                "draw an ERD for a users and orders schema",
+                "show me a flowchart of TCP slow start",
+            ):
+                planned = PlanDecision(
+                    action="command", confidence=0.8, explanation="",
+                    command=f"document {text}",
+                )
+                self.assertTrue(o._repair_diagram_command(text, planned, []).is_chat, text)
+
+    def test_a_document_that_happens_to_mention_a_diagram_is_still_written(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            for text in (
+                "write up our ERD as a pdf",
+                "create a report on the architecture diagram as word",
+                "export the flowchart notes as markdown",
+            ):
+                planned = PlanDecision(
+                    action="command", confidence=0.8, explanation="", command=f"document {text}",
+                )
+                self.assertTrue(o._repair_diagram_command(text, planned, []).is_command, text)
+
+    def test_an_ordinary_document_is_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            planned = PlanDecision(
+                action="command", confidence=0.8, explanation="",
+                command="document a one page summary of TCP congestion control",
+            )
+            self.assertTrue(
+                o._repair_diagram_command(
+                    "write a one page summary of TCP congestion control as pdf", planned, []
+                ).is_command
+            )
+
     def test_a_diagram_request_never_reaches_image_generation(self) -> None:
         # Reported: after a conversation about TCP congestion control, "create an image for
         # this" produced an unreadable entity-relationship picture. The router had copied the
