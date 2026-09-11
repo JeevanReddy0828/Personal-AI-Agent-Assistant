@@ -785,7 +785,9 @@ class OrchestratorTests(unittest.TestCase):
         # sound confident.
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
-            result = asyncio.run(orchestrator.handle("what is the latest news on the election"))
+            # Not phrased as news: that now routes to the news feed, which is a different
+            # path. This test is about the warning when a fresh answer cannot be grounded.
+            result = asyncio.run(orchestrator.handle("what is the current status of the merger"))
             self.assertTrue(result.ok)
             self.assertTrue(result.data.get("stale_warning"))
             self.assertIn("out of date", result.message.lower())

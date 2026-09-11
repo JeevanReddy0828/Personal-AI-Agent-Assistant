@@ -140,6 +140,14 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files, file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
+        news (`news [topic]` — real headlines, free and key-less. A generic web search for
+            "latest news" returns cnn.com and foxnews.com with their taglines, which is not
+            the news. Google News RSS gives breadth and arbitrary topic search; **its own
+            links are consent pages that fetch to 0 chars**, so publisher feeds (BBC) lead —
+            they carry real summaries and their article pages do fetch, and the top few are
+            enriched with `research.fetch_page_text`. Measured: 8 headlines, 3 with article
+            text, in ~0.7s. A topic search is Google-only, so it gives headline + source +
+            age without article text — still the story rather than a homepage),
         document (`document <request> [as pdf|word|markdown]` — the model writes Markdown,
             we render it: PDF through the same offline Chromium path as the resume export
             (`render_html_to_pdf(..., single_page=False)`), Word through python-docx, or the

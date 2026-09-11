@@ -59,6 +59,7 @@ from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool
 from laptop_agent.tools.imagegen import ImageTool
+from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
@@ -141,6 +142,7 @@ class AgentOrchestrator:
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
         self._image_tool_cache: ImageTool | None = None
+        self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
@@ -774,6 +776,12 @@ class AgentOrchestrator:
         if lowered in {"latency", "traces", "why slow", "speed"}:
             return self._latency_report()
 
+        if lowered == "news":
+            return self._news_tool().headlines()
+
+        if lowered.startswith("news "):
+            return self._news_tool().headlines(command[len("news ") :].strip())
+
         if lowered.startswith("document "):
             return self._document_tool().create(command[len("document ") :].strip())
 
@@ -1249,6 +1257,7 @@ class AgentOrchestrator:
                 "  remember note <text>",
                 "  search files <query> <path>",
                 "  web search <query>",
+                "  news [topic]  (real headlines from free feeds, with article text)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file)",
                 "  latency  (where recent turns spent their time)",
@@ -1579,6 +1588,7 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         # web & research
         "web search <query>",
+        "news [topic]",
         "image <description>",
         "document <request> as pdf|word|markdown",
         "weather <location>",
@@ -1852,6 +1862,16 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=6000) or ""
 
         return write
+
+    def _news_tool(self) -> NewsTool:
+        if self._news_tool_cache is None:
+            from laptop_agent.tools.research import fetch_page_text
+
+            self._news_tool_cache = NewsTool(
+                page_reader=lambda url: fetch_page_text(url, max_chars=1500),
+                approval_gate=self.context.web.approval_gate,
+            )
+        return self._news_tool_cache
 
     def _image_tool(self) -> ImageTool:
         if self._image_tool_cache is None:
