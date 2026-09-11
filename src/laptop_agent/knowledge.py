@@ -17,8 +17,20 @@ _STOPWORDS = {
 }
 
 
+# A dotted acronym is one word. Without this the app could not find itself: the README is
+# titled "J.A.R.V.I.S", which tokenized to six single letters and then to nothing at all
+# (every token is dropped below two characters), so "what is JARVIS" had zero overlap with
+# the document that answers it and the query landed on an unrelated research scrape.
+_DOTTED_ACRONYM = re.compile(r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?")
+
+
+def _collapse_acronyms(text: str) -> str:
+    return _DOTTED_ACRONYM.sub(lambda match: match.group(0).replace(".", ""), text or "")
+
+
 def _tokenize(text: str) -> list[str]:
-    return [token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) > 1]
+    joined = _collapse_acronyms(text)
+    return [token for token in re.findall(r"[a-z0-9]+", joined.lower()) if len(token) > 1]
 
 
 def _content_terms(text: str) -> list[str]:
