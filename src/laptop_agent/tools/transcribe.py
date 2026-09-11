@@ -10,6 +10,8 @@ from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
 
+NL = chr(10)
+
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"}
@@ -24,6 +26,21 @@ class MissingDependencyError(RuntimeError):
 OcrBackend = Callable[[Path], str]
 # An ASR backend turns a media path into a dict with at least a "text" key.
 AsrBackend = Callable[[Path], dict[str, object]]
+
+
+
+def _describe_extraction(name: str, text: str, max_chars: int, limit: int = 4000) -> str:
+    """Show the text, not a count of it.
+
+    OCR answered "Extracted 804 character(s) of text from mobile.png." and left the text
+    in `data`, which the chat page never renders - so reading an image gave you a number
+    and nothing you could read.
+    """
+    if not text:
+        return f"No readable text in {name}."
+    body = text[:limit]
+    suffix = "" if len(text) <= limit else f"{NL}{NL}_…{len(text) - limit:,} more characters._"
+    return f"**Text from {name}** ({len(text):,} characters){NL}{NL}{body}{suffix}"
 
 
 class TranscribeTool:
@@ -58,7 +75,7 @@ class TranscribeTool:
 
         cleaned = text.strip()
         return ToolResult.success(
-            f"Extracted {len(cleaned)} character(s) of text from {target.name}.",
+            _describe_extraction(target.name, cleaned, max_chars),
             path=str(target),
             text=cleaned[:max_chars],
             char_count=len(cleaned),
@@ -84,7 +101,7 @@ class TranscribeTool:
         text = str(result.get("text", "")).strip()
         segments = result.get("segments") or []
         return ToolResult.success(
-            f"Transcribed {target.name} into {len(text)} character(s).",
+            _describe_extraction(target.name, text, max_chars),
             path=str(target),
             kind="video" if target.suffix.lower() in VIDEO_EXTENSIONS else "audio",
             text=text[:max_chars],

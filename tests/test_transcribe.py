@@ -392,3 +392,47 @@ class OcrEngineSelectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtractionMessageTests(unittest.TestCase):
+    """OCR answered "Extracted 804 character(s) of text from mobile.png." and left the
+    text in `data`, which the chat page never renders — so reading an image gave you a
+    number and nothing you could read."""
+
+    def image(self, tmp):
+        path = Path(tmp) / "page.png"
+        path.write_bytes(b"x")
+        return path
+
+    def test_ocr_shows_the_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = TranscribeTool(ocr_backend=lambda p: "Invoice 12345\nTotal due: 40.00")
+            message = tool.ocr_image(str(self.image(tmp))).message
+            self.assertIn("Invoice 12345", message)
+            self.assertIn("Total due", message)
+            self.assertIn("page.png", message)
+
+    def test_an_empty_extraction_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = TranscribeTool(ocr_backend=lambda p: "   ")
+            self.assertIn("No readable text", tool.ocr_image(str(self.image(tmp))).message)
+
+    def test_a_very_long_extraction_is_trimmed_visibly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = TranscribeTool(ocr_backend=lambda p: "z" * 9000)
+            message = tool.ocr_image(str(self.image(tmp))).message
+            self.assertIn("more characters", message)
+            self.assertLess(len(message), 4400)
+
+    def test_the_text_is_still_in_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = TranscribeTool(ocr_backend=lambda p: "hello")
+            self.assertEqual(tool.ocr_image(str(self.image(tmp))).data["text"], "hello")
+
+    def test_transcription_shows_the_words_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "a.mp3"
+            clip.write_bytes(b"x")
+            tool = TranscribeTool(asr_backend=lambda p: {"text": "the meeting starts at nine"})
+            message = tool.transcribe_media(str(clip)).message
+            self.assertIn("meeting starts at nine", message)
