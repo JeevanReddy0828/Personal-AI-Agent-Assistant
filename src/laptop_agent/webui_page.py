@@ -616,7 +616,7 @@ PAGE = r"""<!doctype html>
         </button>
         <button class="sendbtn" id="sendBtn" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
-      <div class="hint" id="hint">Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
+      <div class="hint" id="hint">Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
     </div>
     <input type="file" id="file" multiple style="display:none" />
     <div class="drop" id="drop">Drop files to attach</div>
@@ -1474,7 +1474,7 @@ PAGE = r"""<!doctype html>
   // agent-mode toggle
   function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
     ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file to auto-process it, or tap the mic)';
-    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk actions still blocked here.':'Guarded mode — high-risk actions blocked here. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
+    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
