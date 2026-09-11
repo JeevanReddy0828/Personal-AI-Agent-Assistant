@@ -237,13 +237,24 @@ class KnowledgeBase:
             if not ranked:
                 return {"ok": False, "reason": "question has no searchable terms", "question": question}
             return lead_with_best()
+        # Weight each query term by how rare it is in the pool. Every term counted the
+        # same before, so "what is JARVIS" ranked a sentence that says "is" three times
+        # above the one that actually says JARVIS, and the answer came out of an unrelated
+        # research scrape even though the ranking had put the README first by 14.5 to 5.9.
+        pool_counts = [self._term_counts(str(doc.get("text", ""))) for doc in pool]
+        total_docs = len(pool) or 1
+        weights = {
+            term: math.log((total_docs + 1) / (sum(1 for c in pool_counts if term in c) + 0.5))
+            for term in terms
+        }
+
         candidates: list[tuple[float, int, int, dict[str, object]]] = []
         for doc_index, doc in enumerate(pool):
             source = str(doc.get("source") or "")
             doc_id = int(doc.get("id") or 0)
             for sentence_index, sentence in enumerate(self._split_sentences(str(doc.get("text", "")))):
                 counts = self._term_counts(sentence)
-                overlap = sum(counts.get(term, 0) for term in terms)
+                overlap = sum(counts.get(term, 0) * weights[term] for term in terms)
                 if overlap <= 0:
                     continue
                 score = overlap / (sum(counts.values()) ** 0.35)
