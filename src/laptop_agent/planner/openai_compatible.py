@@ -116,17 +116,25 @@ class OpenAICompatiblePlannerProvider:
         field, gated by ``chat_template_kwargs.enable_thinking``. Routing and narration pass
         ``think=False`` (fast, parse-clean). Deep answers pass ``think=True``; thinking only
         actually turns on when this provider was built with ``reasoning=True`` (the ultra
-        tier), and then we also send NVIDIA's ``reasoning_budget`` and recommended sampling,
-        widening ``max_tokens`` so the budget can't crowd out the final answer."""
+        tier), and then we also send the recommended sampling and widen ``max_tokens`` so a
+        long reasoning pass can't crowd out the final answer.
+
+        ``reasoning_budget`` is deliberately **not** sent. NVIDIA's endpoint moved to the
+        V2 model runner and now rejects it outright - every ultra turn came back
+        ``HTTP 400: thinking_token_budget is not yet supported by the V2 model runner`` -
+        which read as congestion in health and degraded the tier away on every request.
+        Measured: with the parameter the call always fails; without it the same question
+        answers correctly and still returns ``reasoning_content``. The configured budget
+        now only sizes ``max_tokens`` locally, which is all it was ever needed for.
+        """
         if "nvidia" not in self.base_url:
             return
         enable = bool(think and self.reasoning)
         payload["chat_template_kwargs"] = {"enable_thinking": enable}
         if enable:
-            payload["reasoning_budget"] = self.reasoning_budget
             payload["top_p"] = self.top_p
             payload["temperature"] = 1.0
-            # Leave room for the final answer above the chain-of-thought budget so a long
+            # Leave room for the final answer above the chain-of-thought so a long
             # reasoning pass can't truncate the output.
             payload["max_tokens"] = max(int(payload.get("max_tokens", 0) or 0), self.reasoning_budget + 4096)
 
