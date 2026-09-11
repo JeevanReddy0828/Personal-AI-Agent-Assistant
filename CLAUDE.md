@@ -171,6 +171,14 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             to phrase the refusal itself, the model claimed the app cannot generate images,
             which is false. The repair runs on every route, not just the LLM one, because
             the instant router turns "draw me a picture of this" into `image this`.
+            `_repair_target_command` is the same idea for every command that names a
+            concrete target (`open url`, `download`, `read file`, `process file`, …): the
+            router answered "how do I start the app in a browser tab" with
+            `open url http://localhost:3000`, a port nobody mentioned. A target whose
+            identifying token — host without www/TLD, or filename **stem**, never the
+            extension — appears in neither the message nor the last six turns is refused and
+            answered as chat. "open youtube" still expands to youtube.com, because the name
+            is in the request.
             `image <description>`
             plus a heuristic route for "draw me a picture of …"; the trailing word
             square/landscape/portrait/wide/tall picks the resolution. Saves under
