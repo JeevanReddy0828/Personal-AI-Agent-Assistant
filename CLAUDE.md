@@ -202,7 +202,9 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             merged by **reciprocal rank fusion**, not by adding scores: a TF-IDF score and a
             cosine are not comparable, and normalising them makes the blend depend on
             whichever spread is wider. Keyword hits still win on exact tokens — filenames,
-            model ids, error codes), tasks.py (parallel + retry),
+            model ids, error codes. Documents saved before this existed have no vector:
+            `knowledge reindex` backfills them in batches, skipping a failed batch rather
+            than aborting, and is idempotent), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool),
         advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured

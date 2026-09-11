@@ -606,6 +606,9 @@ class AgentOrchestrator:
         if lowered.startswith("knowledge export "):
             return self._knowledge_export(command[len("knowledge export ") :].strip())
 
+        if lowered in {"knowledge reindex", "reindex knowledge", "knowledge backfill"}:
+            return self._knowledge_reindex()
+
         if lowered.startswith("knowledge forget "):
             return self._knowledge_forget(command[len("knowledge forget ") :].strip())
 
@@ -1248,6 +1251,7 @@ class AgentOrchestrator:
                 "  ask knowledge <question>",
                 "  knowledge list",
                 "  knowledge stats",
+                "  knowledge reindex  (embed documents stored before semantic search)",
                 "  knowledge export <path>",
                 "  knowledge forget <id>",
                 "  notes status | notes list | notes search <query>",
@@ -1862,6 +1866,23 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=6000) or ""
 
         return write
+
+    def _knowledge_reindex(self) -> ToolResult:
+        """`knowledge reindex` — give older documents the vector newer ones get on save."""
+        outcome = self.context.knowledge.backfill_vectors()
+        if not outcome.get("ok"):
+            return ToolResult.failure(
+                f"Cannot reindex: {outcome.get('reason')}. Set OPENAI_API_KEY in .env.", **outcome
+            )
+        embedded, pending = outcome.get("embedded", 0), outcome.get("pending", 0)
+        if not embedded and not pending:
+            return ToolResult.success(
+                f"All {outcome.get('total', 0)} document(s) already have vectors.", **outcome
+            )
+        message = f"Embedded {embedded} of {outcome.get('total', 0)} document(s)."
+        if pending:
+            message += f" {pending} could not be reached; run it again to finish them."
+        return ToolResult.success(message, **outcome)
 
     def _news_tool(self) -> NewsTool:
         if self._news_tool_cache is None:

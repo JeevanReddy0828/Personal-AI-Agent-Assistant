@@ -72,6 +72,38 @@ class KnowledgeBase:
         return {"ok": True, "id": entry["id"], "source": source, "char_count": entry["char_count"]}
 
     @synchronized
+    def backfill_vectors(self, batch_size: int = 8) -> dict[str, object]:
+        """Embed documents stored before semantic search existed.
+
+        Batched because one request per document would be a round trip each; a batch that
+        fails is simply left for the next run rather than aborting the rest.
+        """
+        if self.embedder is None or not self.embedder.available():
+            return {"ok": False, "reason": "no embedding model is configured"}
+        store = self._load()
+        documents = store["documents"]
+        pending = [d for d in documents if not d.get("vector") and str(d.get("text", "")).strip()]
+        if not pending:
+            return {"ok": True, "embedded": 0, "pending": 0, "total": len(documents)}
+        embedded = 0
+        for start in range(0, len(pending), max(1, batch_size)):
+            batch = pending[start : start + max(1, batch_size)]
+            vectors = self.embedder.documents([str(d.get("text", "")) for d in batch])
+            if not vectors:
+                continue
+            for doc, vector in zip(batch, vectors):
+                doc["vector"] = vector
+                embedded += 1
+        if embedded:
+            self._save(store)
+        return {
+            "ok": True,
+            "embedded": embedded,
+            "pending": len(pending) - embedded,
+            "total": len(documents),
+        }
+
+    @synchronized
     def search(self, query: str, limit: int = 5) -> list[dict[str, object]]:
         terms = set(_content_terms(query))
         query_vector = None
