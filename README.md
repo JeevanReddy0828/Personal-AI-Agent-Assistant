@@ -9,17 +9,19 @@ email, an autonomous task layer, and Obsidian-backed memory — all behind an
 runs fully offline with a heuristic router, smarter with an LLM key · MIT licensed.
 
 > Not an unrestricted autopilot. Anything that can leak data, send messages, run
-> commands, move files, or download goes through an explicit approval gate.
+> commands, move files, or download goes through an explicit approval gate — in the
+> web app it puts an approval card in front of you and waits. No answer means no.
 
 ---
 
 ## Highlights
 
 - 🧠 **Tiered LLM brain** — fast → smart → ultra, with graceful fallback (and optional cross-provider OpenRouter) so chat keeps answering when a tier is busy.
-- 🛡️ **Approval gate** — every risky action is risk-classified and confirmed; read-only/local work runs freely.
+- 🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. A timeout denies.
 - 🗂️ **Obsidian memory** — durable, human-readable notes with link-aware retrieval (`ask vault`) and a health `audit`.
 - 🤖 **Autonomy** — `solve` (researched advisor), `agent run` (plan→act→observe loop), `autopilot` (safe), scheduler.
-- 👁️ **Vision & media** — screen/webcam/image OCR, audio/video transcription, YouTube summaries.
+- 👁️ **Vision & media** — screen/webcam vision, **layout-aware OCR** (hosted `nemotron-parse`, falling back to Tesseract offline), audio/video transcription, YouTube summaries.
+- 🔢 **Exact arithmetic** — a real parser, not the model: `67458363*37834872` is `2,552,278,529,434,536`, and `754/86982` keeps its exact fraction.
 - 🌍 **Free tools, no keys** — real weather, driving distance/trips, maps, places near you.
 - 🎙️ **Polished UX** — native desktop window (`JARVIS.exe`), streaming + typewriter replies, real-time voice, a calm dark workspace built around the animated orb, and a System-status drawer with panels (map, trip, vault browser, schedules, agent runs).
 
@@ -98,6 +100,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Autonomous goal loop (plan→act→observe) | `agent run <goal>` · `agent runs` / `agent last` |
 | Unattended **safe** work only | `autopilot <goal>` |
 | Parallel subtasks / sequential workflows | `multi a ;; b` · `workflow a ;; b` (retry on failure) |
+| Exact arithmetic (never the model) | `calculate <expression>`, or just "what is 754/86982" |
 
 ### 🗂️ Files & documents
 | Capability | How |
@@ -114,11 +117,12 @@ Talk naturally — most of these are reached by plain language; the explicit com
 |---|---|
 | Generate a picture | `image <description>`, or "draw me a picture of …"; **Save** it from the reply |
 | Write a document | `document <request> as pdf|word|markdown`, or "write a brief on X as a pdf" |
-| Image OCR | `ocr image <path>` |
+| Image & document OCR | `ocr image <path>` — hosted `nemotron-parse` keeps headings, tables and reading order; falls back to Tesseract offline (`LAPTOP_AGENT_OCR`) |
 | Audio/video transcription | `transcribe <path>` — hosted Parakeet (~1s) or offline Vosk/Whisper |
 | Understand your screen | `read screen [question]` |
 | Webcam vision | `look at webcam [question]` |
 | YouTube transcript → summary (+ Q&A) | `summarize youtube <url>` |
+| Play a song or video | `play music <song, artist, path or url>` — resolves the top YouTube hit and opens the video itself, not a page of search results |
 
 ### 🧩 Knowledge & memory
 | Capability | How |
@@ -134,6 +138,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 |---|---|
 | Web search (DuckDuckGo, or Brave/Serper/SerpApi) | `web search <q>` |
 | Autonomous research + report | `research <topic>` · `research report <topic>` |
+| Real headlines with article text | `news [topic]` — publisher feeds plus Google News, no key |
 | Real weather (Open-Meteo) | `weather <location>` |
 | Driving distance/ETA · multi-stop trip | `distance <a> to <b>` · `trip <a> to <b> to <c>` |
 | Places near you (IP-located) · map | `around <category>` · `<x> near me` · `map <place\|A to B>` |
@@ -181,7 +186,8 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 | **Web search** | `SEARCH_PROVIDER`, `SEARCH_API_KEY` (or `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) | No key → DuckDuckGo. Provider inferred from whichever key is set. |
 | **Email** | `SMTP_*`, `IMAP_*`, `GOOGLE_CLIENT_*`, `MICROSOFT_CLIENT_*` | Drafts work with no creds; SMTP/IMAP/OAuth unlock send/read. |
 | **Memory** | `OBSIDIAN_VAULT` | Path to an Obsidian vault folder used as durable memory. |
-| **Speech** | `LAPTOP_AGENT_STT=auto` | `auto` prefers lightweight Vosk if a model is present, else Whisper. |
+| **Speech** | `LAPTOP_AGENT_STT=auto`, `RIVA_ASR_FUNCTION_ID` | `auto` prefers hosted Parakeet, then lightweight Vosk if a model is present, else Whisper. Riva selects a model by **function id**, never a model name. |
+| **OCR** | `LAPTOP_AGENT_OCR=auto` | `auto` uses hosted `nemotron-parse` when a key is present and falls back to Tesseract offline; `parse` / `tesseract` pin one. |
 | **Web server** | `LAPTOP_AGENT_HOST`, `LAPTOP_AGENT_PORT` | Loopback by default — see [Security](#security--deployment). |
 
 ### Model tiers
@@ -190,7 +196,7 @@ Copy `.env.example` → `.env` (gitignored, auto-loaded) and fill in what you ne
 |---|---|---|
 | fast | `OPENAI_MODEL` | routing + simple turns (kept warm) |
 | smart | `OPENAI_SMART_MODEL` | complex questions |
-| ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout); NVIDIA reasoning models think first (`OPENAI_REASONING_BUDGET`) |
+| ultra | `OPENAI_ULTRA_MODEL` | hardest / deep work (long timeout); NVIDIA reasoning models think first, and `OPENAI_REASONING_BUDGET` sizes the room left for the answer. The budget is deliberately **not** sent to the endpoint — NVIDIA's V2 model runner rejects it and every ultra turn 400s |
 | vision | `OPENAI_VISION_MODEL` | screen + images |
 | image | `OPENAI_IMAGE_MODEL` | text-to-image (FLUX, own key + base URL; `OPENAI_IMAGE_FALLBACK_MODEL` stands in when it is queued) |
 | backup | `OPENROUTER_API_KEY` | cross-provider last resort |
@@ -213,7 +219,10 @@ Risk-classified approval gate — only **external state changes** and **data egr
 | critical | SMTP/OAuth send, OAuth token exchange, terminal commands |
 
 `autopilot` is restricted to the safe read-only allowlist; `agent run` can act but
-risky steps still hit the gate (and are auto-denied in the guarded web UI). Audit
+risky steps still hit the gate. In the web app a high-risk action raises an approval
+card naming the exact action and waits: an answer must match that request's id, an id
+is single-use, and a timeout denies — silence is never consent. With no interface
+connected to answer, the action is denied immediately rather than left hanging. Audit
 events are written to `.agent_data/audit.jsonl`.
 
 **Deployment posture.** Local-first, single-user. The web server binds to loopback

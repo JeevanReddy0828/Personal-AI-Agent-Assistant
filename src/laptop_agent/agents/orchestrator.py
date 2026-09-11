@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+NL = chr(10)
+
 from laptop_agent.advisor import ProblemSolver
 from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.audit import AuditLogger
@@ -874,6 +876,9 @@ class AgentOrchestrator:
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
 
+        if lowered in {"capabilities", "what can you do"}:
+            return self._capabilities()
+
         if lowered.startswith(("calculate ", "calc ", "compute ")):
             rest = command.split(" ", 1)[1]
             return self._calculator.compute(rest)
@@ -1310,6 +1315,54 @@ class AgentOrchestrator:
             query=search.data.get("query", command),
             planner={"source_text": command, "model": "web+llm", "explanation": "Answered from live web search."},
         )
+
+    @staticmethod
+    def _capabilities() -> ToolResult:
+        """A grouped tour rather than the raw command list.
+
+        "what can you do" is the first thing anyone asks, and it used to return a hundred
+        lines of command syntax. `help` still does, for reference."""
+        text = NL.join([
+            "I run on your laptop and I can act on it, not just talk about it. "
+            "Plain language works for all of this — the commands are just shortcuts.",
+            "",
+            "**Files and documents**",
+            "Read, search, convert and organise your files · summarise a PDF, DOCX or "
+            "spreadsheet · answer questions about one file · pull tables out · per-column stats.",
+            "_Try:_ `summarize the readme` · `what files are here` · `analyze spreadsheet sales.csv`",
+            "",
+            "**See and hear**",
+            "OCR an image or scan with layout preserved · transcribe audio and video · "
+            "look at your screen or webcam · summarise a YouTube video.",
+            "_Try:_ `read screen` · `ocr image receipt.png` · `summarize youtube <url>`",
+            "",
+            "**Make things**",
+            "Draw a picture · write a real PDF, Word or Markdown document · draw a diagram "
+            "or flowchart · build a table you can copy or export as CSV.",
+            "_Try:_ `draw a red fox in snow` · `write a one page brief on X as a pdf` · "
+            "`draw an ERD for a users and orders schema`",
+            "",
+            "**Know things**",
+            "Real headlines and weather · web search and multi-source research · a searchable "
+            "knowledge base of anything you index · your Obsidian vault as memory · exact arithmetic.",
+            "_Try:_ `news` · `weather Hyderabad` · `research local-first AI agents` · "
+            "`what is 67458363*37834872`",
+            "",
+            "**Do things**",
+            "Open URLs and download files · open apps · run shell commands · send and search "
+            "email · play a song or video on YouTube · driving distances, trips and maps.",
+            "_Anything that changes the outside world asks you first._",
+            "_Try:_ `play music despacito` · `distance Hyderabad to Kurnool` · `email unread`",
+            "",
+            "**Think ahead**",
+            "Weigh a decision with researched options and a plan · run an autonomous "
+            "multi-step goal · schedule recurring jobs · reminders · a daily briefing.",
+            "_Try:_ `should I use Postgres or MongoDB for this` · `agent run tidy my downloads folder` · "
+            "`daily at 08:00 :: briefing`",
+            "",
+            "Ask `help` for the full command list, or `latency` to see where time went.",
+        ])
+        return ToolResult.success(text, kind="capabilities")
 
     @staticmethod
     def help_text() -> str:

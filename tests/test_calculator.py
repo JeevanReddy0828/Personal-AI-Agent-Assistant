@@ -126,3 +126,43 @@ class CalculatorToolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CapabilitiesAnswerTests(unittest.TestCase):
+    """"what can you do" is the first thing anyone asks, and it used to return a hundred
+    lines of raw command syntax."""
+
+    def answer(self) -> str:
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+
+        return AgentOrchestrator._capabilities().message
+
+    def test_it_is_grouped_prose_not_the_command_list(self) -> None:
+        text = self.answer()
+        self.assertIn("Files and documents", text)
+        self.assertIn("Make things", text)
+        self.assertIn("Do things", text)
+        # The raw list starts this way; the tour must not just reproduce it.
+        self.assertNotIn("remember <key> = <value>", text)
+
+    def test_it_says_risky_things_ask_first(self) -> None:
+        self.assertIn("asks you first", self.answer())
+
+    def test_it_points_at_help_for_the_full_list(self) -> None:
+        self.assertIn("help", self.answer())
+
+
+class CapabilityRoutingTests(unittest.TestCase):
+    def test_capability_questions_route_to_the_tour(self) -> None:
+        from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
+        planner = HeuristicPlannerProvider()
+        for text in ("what can you do", "what can you do?", "what are you capable of",
+                     "how can you help", "what can I ask you"):
+            decision = planner.plan(text, "", {})
+            self.assertEqual(decision.command, "capabilities", text)
+
+    def test_asking_for_the_command_list_still_gets_it(self) -> None:
+        from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
+        self.assertEqual(HeuristicPlannerProvider().plan("commands", "", {}).command, "help")
