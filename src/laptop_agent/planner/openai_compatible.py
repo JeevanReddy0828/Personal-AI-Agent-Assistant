@@ -31,8 +31,14 @@ _NO_TOOL_CLAIMS = (
     "such as 'draw a red fox in snow' or 'write this up as a pdf'. You have no follow-up turn, "
     "so never promise to do something next or say you are creating it now - either give the "
     "whole answer in this reply, or say exactly what to ask for. "
-    r"Write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. To show a diagram, "
-    "put it in a fenced ```mermaid block - erDiagram for tables and relationships, flowchart TD for a process - and it is drawn as a real diagram for the user."
+    r"Write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. "
+    "A DIAGRAM is the exception to all of the above: you draw it yourself, in this reply. "
+    "When the user asks for a diagram, flowchart, ERD, sequence or state machine, write a "
+    "fenced ```mermaid block straight away - erDiagram for tables and relationships, "
+    "flowchart TD for a process - and it is rendered as a real diagram for them. Never "
+    "answer a diagram request by telling the user what to ask for, never offer to provide "
+    "the syntax so they can request it, and never repeat their own request back at them: "
+    "they already asked, so draw it now."
 )
 
 _PERSONA = (
