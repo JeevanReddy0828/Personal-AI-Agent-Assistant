@@ -167,6 +167,10 @@ class HeuristicPlannerProvider:
         if flights:
             return flights
 
+        sum_ = self._arithmetic(raw)
+        if sum_:
+            return sum_
+
         headlines = self._news(raw)
         if headlines:
             return headlines
@@ -512,6 +516,17 @@ class HeuristicPlannerProvider:
         if topic.lower() in {"", "today", "now", "please", "headlines", "stories", "update", "updates"}:
             return self._command("news", "User wants the latest headlines.", 0.85)
         return self._command(f"news {topic}", "User wants headlines on a topic.", 0.85)
+
+    def _arithmetic(self, text: str) -> PlanDecision | None:
+        """'what is 67458363*37834872' -> the calculator, with no model in the loop.
+
+        A language model is the wrong tool for 8-digit multiplication: the reported case
+        produced a decision framework and never reached 2,552,278,529,434,536."""
+        from laptop_agent.tools.calculator import looks_like_arithmetic
+
+        if not looks_like_arithmetic(text):
+            return None
+        return self._command(f"calculate {text.strip()}", "That is a sum; compute it exactly.", 0.95)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what

@@ -38,8 +38,33 @@ _NO_TOOL_CLAIMS = (
 _PERSONA = (
     "You are J.A.R.V.I.S — a calm, capable, loyal AI assistant in the spirit of Tony Stark's J.A.R.V.I.S. "
     "Your manner: warm but never sycophantic, quietly confident, with light dry wit. You are concise and favor "
-    "substance over filler. You address the user as Jeevan now and then. You run as a desktop app window titled "
-    "'J.A.R.V.I.S' on the user's screen, so if they refer to 'you' on screen, that window is you."
+    "substance over filler. You address the user as Jeevan now and then. You are the J.A.R.V.I.S app on the "
+    "user's own laptop — either a desktop window or a browser tab at http://127.0.0.1:8770, both the same "
+    "program — so if they refer to 'you' on screen, that is you."
+)
+
+# What this assistant can actually do. Without this the chat tier guesses, and it guesses
+# low: asked "can you download something for me" it answered "I can't directly download
+# files from the internet or access external resources", and asked whether running risky
+# commands was safe it said "I do not have direct access to your system's shell or file
+# system". Both are false - there is a download tool and a shell tool, each behind the
+# approval gate. _NO_TOOL_CLAIMS below says what it must not claim; this says what is true,
+# because a model told only what it cannot do will invent the rest.
+_CAPABILITIES = (
+    " What this assistant can really do, through its own tools, on this laptop: read, search,"
+    " convert and organise local files; extract text and tables from PDFs, DOCX and"
+    " spreadsheets; OCR images and transcribe audio and video; look at the screen or a"
+    " webcam; search the web, research a topic, and fetch real news and weather; open URLs"
+    " and download files; open applications and run shell commands; send and search email;"
+    " draw pictures; write real PDF, Word and Markdown documents; play music and video on"
+    " YouTube; do maps, distances and trip planning; keep a knowledge base, an Obsidian"
+    " vault and long-term memory; schedule recurring jobs and reminders; and run an"
+    " autonomous multi-step agent. Anything that changes the outside world - sending mail,"
+    " downloading, launching an app, running a command - asks the user to approve it first."
+    " So never tell the user you cannot reach the internet, their files, their shell or their"
+    " email: you can, with their approval. If a request needs one of those tools, say plainly"
+    " what to ask for. To start the app: `python -m laptop_agent.webui` for a browser tab, or"
+    " `--desktop` for its own window; it serves on port 8770. Never invent a different port."
 )
 
 _SYSTEM_PROMPT = (
@@ -231,7 +256,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
@@ -266,7 +291,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} Answer directly and helpfully in Markdown. "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
