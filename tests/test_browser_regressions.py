@@ -14,6 +14,8 @@ from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 import laptop_agent.webui as webui
+
+NEWLINE = chr(10)
 from laptop_agent.tools.base import ToolResult
 
 
@@ -228,6 +230,50 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(all(h is None or h.startswith(('/', 'http')) for h in hrefs), hrefs)
         self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
+
+    def test_an_er_diagram_is_drawn_as_svg(self):
+        block = (
+            "```mermaid" + NEWLINE + "erDiagram" + NEWLINE
+            + "    USERS {" + NEWLINE + "        int id PK" + NEWLINE + "        varchar name" + NEWLINE + "    }" + NEWLINE
+            + "    ORDERS {" + NEWLINE + "        int id PK" + NEWLINE + "        int user_id FK" + NEWLINE + "    }" + NEWLINE
+            + "    USERS ||--o{ ORDERS : places" + NEWLINE + "```"
+        )
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        self.assertEqual(self.page.locator('.msg .dgm svg').count(), 1)
+        text = self.page.locator('.msg .dgm').inner_text()
+        for token in ("USERS", "ORDERS", "id : int PK", "places"):
+            self.assertIn(token, text)
+        # the relationship is a real line, not just a label
+        self.assertGreaterEqual(self.page.locator('.msg .dgm svg > path').count(), 1)
+
+    def test_a_flowchart_reads_from_its_entry_point(self):
+        # A cycle used to invert the layering and put the entry state at the bottom.
+        block = (
+            "```mermaid" + NEWLINE + "flowchart TD" + NEWLINE
+            + "    A[Slow Start] --> B[Congestion Avoidance]" + NEWLINE
+            + "    B -->|3 dup ACKs| C[Fast Retransmit]" + NEWLINE
+            + "    C --> B" + NEWLINE
+            + "    B -->|timeout| A" + NEWLINE + "```"
+        )
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        order = self.page.evaluate("""() => [...document.querySelectorAll('.msg .dgm text')]
+            .filter(t=>['Slow Start','Congestion Avoidance','Fast Retransmit'].includes(t.textContent))
+            .sort((a,b)=>(+a.getAttribute('y'))-(+b.getAttribute('y')))
+            .map(t=>t.textContent)""")
+        self.assertEqual(order, ["Slow Start", "Congestion Avoidance", "Fast Retransmit"])
+
+    def test_an_unsupported_diagram_stays_a_readable_code_block(self):
+        block = "```mermaid" + NEWLINE + "pie title Votes" + NEWLINE + '    "A" : 10' + NEWLINE + "```"
+        self.page.evaluate("md=>renderMsg('bot', md)", block)
+        self.assertEqual(self.page.locator('.msg .dgm').count(), 0)
+        self.assertIn("pie title Votes", self.page.locator('.msg .md pre').inner_text())
+
+    def test_a_model_cannot_smuggle_a_base64_image(self):
+        # One reply arrived carrying a fabricated data:image/png;base64 blob.
+        self.page.evaluate("""() => {
+            renderMsg('bot', '![fake](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)');
+        }""")
+        self.assertEqual(self.page.locator('.msg .md img').count(), 0)
 
     def test_a_broken_generated_image_leaves_no_phantom_save(self):
         # A model sometimes writes its own image link to a file that was never generated.

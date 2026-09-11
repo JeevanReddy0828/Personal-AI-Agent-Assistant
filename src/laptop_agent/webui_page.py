@@ -186,6 +186,7 @@ PAGE = r"""<!doctype html>
   .md th,.md td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
   .md th{font-weight:600;color:var(--text-2);background:rgba(255,255,255,.03);white-space:nowrap}
   .md tbody tr:last-child td{border-bottom:none}
+  .md .dgm{margin:.7em 0;padding:10px 12px;border:1px solid var(--hair);border-radius:var(--r-md);background:var(--surface);overflow-x:auto}
   /* save / copy / export actions attached to a picture or a table */
   .md .figure{position:relative;display:inline-block;max-width:100%}
   .md .figure img{margin:.6em 0}
@@ -891,7 +892,9 @@ PAGE = r"""<!doctype html>
     s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
     s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
-    s=s.replace(/!\[([^\]]*)\]\(((?:\/|data:image\/)[^)\s]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
+    // Same-origin paths only. A model that invents a data:image/...;base64 blob is
+    // fabricating a picture, and one arrived as a 40KB blob of noise.
+    s=s.replace(/!\[([^\]]*)\]\((\/[^)\s"]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     // Our own routes are links too — a generated document is handed back as one, and
     // without this it rendered as literal "[Title](/api/document?name=…)" text.
@@ -965,8 +968,205 @@ PAGE = r"""<!doctype html>
     });
   }
   function setMd(el,text){el.innerHTML=mdToHtml(text);decorate(el);return el;}
+  /* ---- Diagrams -------------------------------------------------------------------
+     A ```mermaid block is drawn as real inline SVG. Not the Mermaid library: the CSP is
+     script-src 'nonce-...' with no 'self', so no extra script can load, and vendoring 3MB
+     for this would fight the "no chart CDN, offline-friendly" rule the charts already
+     follow. This covers the two shapes that actually come up in conversation — entity
+     relationships and node/edge flows — and falls back to the code block for anything else,
+     so an unsupported diagram is still readable rather than broken. */
+  const MM_FONT = 12, MM_PAD = 10, MM_GAPX = 54, MM_GAPY = 34;
+
+  function mmText(s){return String(s||'').replace(/^["'`]|["'`]$/g,'').trim();}
+  function mmWidth(s,size){return Math.ceil(String(s).length*size*0.62);}
+
+  // Split "A --|label|--> B" style edges without a real parser: good enough for the
+  // flowchart/state syntax models actually emit.
+  const MM_EDGE = /^\s*([A-Za-z0-9_.-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})?\s*(-{1,3}>|-{2,3}|==>|\.\.>|-->)\s*(?:\|([^|]*)\|)?\s*([A-Za-z0-9_.-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})?\s*$/;
+  const MM_NODE = /^\s*([A-Za-z0-9_.-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})\s*$/;
+
+  function mmParseFlow(lines){
+    const nodes = new Map(), edges = [];
+    const label = (id, ...alts) => {
+      const text = alts.find(a => a != null);
+      if (text != null && text !== '') nodes.set(id, mmText(text));
+      else if (!nodes.has(id)) nodes.set(id, id);
+    };
+    for (const raw of lines){
+      const line = raw.trim();
+      if (!line || /^(flowchart|graph|stateDiagram(-v2)?|direction|classDef|class |click |%%)/i.test(line)) continue;
+      let m = MM_EDGE.exec(line);
+      if (m){
+        const [, a, a1, a2, a3, , elabel, b, b1, b2, b3] = m;
+        label(a, a1, a2, a3); label(b, b1, b2, b3);
+        edges.push({from: a, to: b, label: mmText(elabel || '')});
+        continue;
+      }
+      m = MM_NODE.exec(line);
+      if (m) label(m[1], m[2], m[3], m[4]);
+    }
+    return {nodes, edges};
+  }
+
+  // Breadth-first from the entry point, ignoring edges that lead back to a node already
+  // placed. Longest-path layering looks right until the flow has a cycle: TCP's timeout
+  // edge back to Slow Start pushed the entry state to the bottom of the picture.
+  function mmLayers(nodes, edges){
+    const order = [...nodes.keys()];
+    const indegree = new Map(order.map(id => [id, 0]));
+    edges.forEach(e => { if (indegree.has(e.to)) indegree.set(e.to, indegree.get(e.to) + 1); });
+    const depth = new Map(), queue = [];
+    order.forEach(id => { if (indegree.get(id) === 0){ depth.set(id, 0); queue.push(id); } });
+    // Every node in a cycle has an incoming edge, so start from the one declared first —
+    // which is how whoever wrote the diagram reads it.
+    if (!queue.length){ depth.set(order[0], 0); queue.push(order[0]); }
+    while (queue.length){
+      const id = queue.shift();
+      edges.forEach(e => {
+        if (e.from === id && !depth.has(e.to)){ depth.set(e.to, depth.get(id) + 1); queue.push(e.to); }
+      });
+    }
+    order.forEach(id => { if (!depth.has(id)) depth.set(id, 0); });   // unreachable: top row
+    const rows = [];
+    order.forEach(id => { const d = depth.get(id); (rows[d] = rows[d] || []).push(id); });
+    return rows.filter(Boolean);
+  }
+
+  function mmFlowSvg(code, horizontal){
+    const {nodes, edges} = mmParseFlow(code.split('\n'));
+    if (!nodes.size) return null;
+    const rows = mmLayers(nodes, edges);
+    const box = new Map();
+    let y = MM_PAD, maxX = 0;
+    rows.forEach(row => {
+      const h = 30;
+      let x = MM_PAD;
+      row.forEach(id => {
+        const w = Math.max(64, mmWidth(nodes.get(id), MM_FONT) + 26);
+        box.set(id, {x, y, w, h, label: nodes.get(id)});
+        x += w + MM_GAPX;
+      });
+      maxX = Math.max(maxX, x - MM_GAPX);
+      y += h + MM_GAPY;
+    });
+    // centre each row so the drawing reads as a column rather than a left-aligned ragged list
+    rows.forEach(row => {
+      const width = row.reduce((t, id) => t + box.get(id).w, 0) + MM_GAPX * (row.length - 1);
+      const shift = (maxX - MM_PAD - width) / 2;
+      row.forEach(id => { box.get(id).x += shift; });
+    });
+    const W = maxX + MM_PAD, H = y - MM_GAPY + MM_PAD;
+    let out = '';
+    edges.forEach(e => {
+      const a = box.get(e.from), b = box.get(e.to);
+      if (!a || !b) return;
+      const x1 = a.x + a.w / 2, y1 = a.y + a.h, x2 = b.x + b.w / 2, y2 = b.y;
+      const mid = (y1 + y2) / 2;
+      const path = (y2 > y1)
+        ? 'M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + mid + ' ' + x2 + ' ' + mid + ' ' + x2 + ' ' + y2
+        : 'M' + (a.x + a.w) + ' ' + (a.y + a.h / 2) + ' C' + (a.x + a.w + 30) + ' ' + (a.y + a.h / 2)
+          + ' ' + (b.x + b.w + 30) + ' ' + (b.y + b.h / 2) + ' ' + (b.x + b.w) + ' ' + (b.y + b.h / 2);
+      out += '<path d="' + path + '" fill="none" stroke="var(--hair-3)" stroke-width="1.2" marker-end="url(#mmArrow)"/>';
+      if (e.label){
+        const lx = (x1 + x2) / 2, ly = (y2 > y1) ? mid : a.y - 6;
+        out += '<text x="' + lx + '" y="' + ly + '" text-anchor="middle" font-size="10.5" fill="var(--muted)">' + esc(e.label) + '</text>';
+      }
+    });
+    box.forEach(b => {
+      out += '<rect x="' + b.x + '" y="' + b.y + '" width="' + b.w + '" height="' + b.h + '" rx="8" '
+           + 'fill="var(--surface-2)" stroke="var(--hair-2)"/>'
+           + '<text x="' + (b.x + b.w / 2) + '" y="' + (b.y + b.h / 2 + 4) + '" text-anchor="middle" '
+           + 'font-size="' + MM_FONT + '" fill="var(--text)">' + esc(b.label) + '</text>';
+    });
+    return mmWrap(out, W, H);
+  }
+
+  // erDiagram: USERS { int id PK } and USERS ||--o{ ORDERS : places
+  function mmErSvg(code){
+    const lines = code.split('\n');
+    const entities = new Map(), rels = [];
+    let current = null;
+    for (const raw of lines){
+      const line = raw.trim();
+      if (!line || /^erDiagram/i.test(line) || line.startsWith('%%')) continue;
+      if (current){
+        if (line === '}'){ current = null; continue; }
+        const parts = line.replace(/"[^"]*"/g, '').split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) entities.get(current).push(parts[1] + ' : ' + parts[0] + (parts[2] ? ' ' + parts[2] : ''));
+        else if (parts.length === 1) entities.get(current).push(parts[0]);
+        continue;
+      }
+      const open = /^([A-Za-z0-9_.-]+)\s*\{$/.exec(line);
+      if (open){ current = open[1]; if (!entities.has(current)) entities.set(current, []); continue; }
+      const rel = /^([A-Za-z0-9_.-]+)\s*([|{}o<>-]{2,})[-.]*([|{}o<>-]{2,})?\s*([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(line);
+      if (rel){
+        if (!entities.has(rel[1])) entities.set(rel[1], []);
+        if (!entities.has(rel[4])) entities.set(rel[4], []);
+        rels.push({from: rel[1], to: rel[4], label: mmText(rel[5])});
+      }
+    }
+    if (!entities.size) return null;
+    const ids = [...entities.keys()];
+    const perRow = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(ids.length))));
+    const box = new Map();
+    let x = MM_PAD, y = MM_PAD, rowH = 0, maxX = 0, col = 0;
+    ids.forEach(id => {
+      const rowsText = entities.get(id);
+      const w = Math.max(140, mmWidth(id, MM_FONT + 1) + 30,
+                         ...rowsText.map(r => mmWidth(r, MM_FONT - 1) + 24));
+      const h = 26 + rowsText.length * 17 + 8;
+      box.set(id, {x, y, w, h, rows: rowsText});
+      x += w + MM_GAPX; rowH = Math.max(rowH, h); maxX = Math.max(maxX, x - MM_GAPX);
+      if (++col % perRow === 0){ x = MM_PAD; y += rowH + MM_GAPY; rowH = 0; }
+    });
+    const H = (rowH ? y + rowH : y - MM_GAPY) + MM_PAD, W = maxX + MM_PAD;
+    let out = '';
+    rels.forEach(r => {
+      const a = box.get(r.from), b = box.get(r.to);
+      if (!a || !b) return;
+      const x1 = a.x + a.w / 2, y1 = a.y + a.h / 2, x2 = b.x + b.w / 2, y2 = b.y + b.h / 2;
+      out += '<path d="M' + x1 + ' ' + y1 + ' L' + x2 + ' ' + y2 + '" stroke="var(--accent-line)" '
+           + 'stroke-width="1.2" fill="none" marker-end="url(#mmArrow)"/>';
+      if (r.label){
+        out += '<text x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 4) + '" text-anchor="middle" '
+             + 'font-size="10" fill="var(--muted)">' + esc(r.label) + '</text>';
+      }
+    });
+    box.forEach((b, id) => {
+      out += '<rect x="' + b.x + '" y="' + b.y + '" width="' + b.w + '" height="' + b.h + '" rx="9" '
+           + 'fill="var(--surface-2)" stroke="var(--hair-2)"/>'
+           + '<rect x="' + b.x + '" y="' + b.y + '" width="' + b.w + '" height="26" rx="9" fill="var(--surface-3)"/>'
+           + '<text x="' + (b.x + 11) + '" y="' + (b.y + 17) + '" font-size="' + (MM_FONT + 1) + '" '
+           + 'font-weight="600" fill="var(--accent-2)">' + esc(id) + '</text>';
+      b.rows.forEach((r, i) => {
+        out += '<text x="' + (b.x + 11) + '" y="' + (b.y + 26 + 16 + i * 17) + '" font-size="'
+             + (MM_FONT - 1) + '" fill="var(--text-2)" font-family="var(--mono)">' + esc(r) + '</text>';
+      });
+    });
+    return mmWrap(out, W, H);
+  }
+
+  function mmWrap(body, w, h){
+    return '<div class="dgm"><svg viewBox="0 0 ' + Math.ceil(w) + ' ' + Math.ceil(h) + '" '
+         + 'width="100%" preserveAspectRatio="xMidYMid meet" role="img" '
+         + 'style="font-family:var(--sans);max-height:' + Math.ceil(h) + 'px">'
+         + '<defs><marker id="mmArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" '
+         + 'markerHeight="7" orient="auto-start-reverse">'
+         + '<path d="M0 0 L8 4 L0 8 z" fill="var(--hair-3)"/></marker></defs>'
+         + body + '</svg></div>';
+  }
+
+  function mermaidSvg(code){
+    try{
+      const head = (code || '').trim().split('\n')[0] || '';
+      if (/^erDiagram/i.test(head)) return mmErSvg(code);
+      if (/^(flowchart|graph|stateDiagram)/i.test(head)) return mmFlowSvg(code, /\bLR\b|\bRL\b/i.test(head));
+      return null;
+    }catch(e){ return null; }      // a diagram we cannot draw must not break the message
+  }
+
   function mdToHtml(src){
-    const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push(c);return '@@F'+(fences.length-1)+'@@';});
+    const fences=[]; src=String(src).replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>{fences.push({lang:(l||'').toLowerCase(),code:c});return '@@F'+(fences.length-1)+'@@';});
     let html='',list=null; const close=()=>{if(list){html+='</'+list+'>';list=null;}};
     const rows=src.split('\n');
     const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
@@ -984,7 +1184,10 @@ PAGE = r"""<!doctype html>
         html+='<div class="tw"><table><thead><tr>'+head.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
         continue;
       }
-      if(/^@@F\d+@@$/.test(t)){close();html+='<pre><code>'+esc(fences[+t.slice(3,-2)])+'</code></pre>';continue;}
+      if(/^@@F\d+@@$/.test(t)){close();const f=fences[+t.slice(3,-2)];
+        const drawn=f.lang==='mermaid'?mermaidSvg(f.code):null;
+        // An unsupported diagram stays a readable code block rather than vanishing.
+        html+=drawn||('<pre><code>'+esc(f.code)+'</code></pre>');continue;}
       if((m=raw.match(/^(#{1,3})\s+(.*)$/))){close();const lv=Math.min(m[1].length+2,4);html+='<h'+lv+'>'+inline(m[2])+'</h'+lv+'>';continue;}
       if((m=raw.match(/^\s*[-*]\s+(.*)$/))){if(list!=='ul'){close();html+='<ul>';list='ul';}html+='<li>'+inline(m[1])+'</li>';continue;}
       if((m=raw.match(/^\s*\d+\.\s+(.*)$/))){if(list!=='ol'){close();html+='<ol>';list='ol';}html+='<li>'+inline(m[1])+'</li>';continue;}
