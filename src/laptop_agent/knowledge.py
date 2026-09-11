@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
 from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
 
 import json
@@ -33,9 +34,16 @@ class KnowledgeBase:
     services - everything stays on disk next to the other agent data.
     """
 
-    def __init__(self, path: Path, max_text_chars: int = 200_000) -> None:
+    def __init__(
+        self,
+        path: Path,
+        max_text_chars: int = 200_000,
+        embedder: "Embedder | None" = None,
+    ) -> None:
         self.path = path
         self.max_text_chars = max_text_chars
+        # Optional: keyword scoring only finds a document that reuses the asker's words.
+        self.embedder = embedder
 
     @synchronized
     def add(self, source: str, text: str) -> dict[str, object]:
@@ -51,6 +59,12 @@ class KnowledgeBase:
             "preview": " ".join(cleaned.split())[:160],
             "text": cleaned[: self.max_text_chars],
         }
+        # Embed here rather than at search time: a document is written once and searched
+        # many times, so the round trip belongs on this side.
+        if self.embedder is not None and self.embedder.available():
+            vector = self.embedder.document(entry["text"])
+            if vector:
+                entry["vector"] = vector
         documents.append(entry)
         store["documents"] = documents
         store["next_id"] = store["next_id"] + 1
@@ -60,7 +74,10 @@ class KnowledgeBase:
     @synchronized
     def search(self, query: str, limit: int = 5) -> list[dict[str, object]]:
         terms = set(_content_terms(query))
-        if not terms:
+        query_vector = None
+        if self.embedder is not None and self.embedder.available():
+            query_vector = self.embedder.query(query)
+        if not terms and not query_vector:
             return []
         store = self._load()
         documents = store["documents"]
@@ -92,7 +109,55 @@ class KnowledgeBase:
                 )
             )
         scored.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]["id"] or 0))
-        return [item[3] for item in scored[: max(1, min(limit, 25))]]
+        results = [item[3] for item in scored]
+        if query_vector:
+            results = self._fuse_with_vectors(results, indexed, query_vector)
+        return results[: max(1, min(limit, 25))]
+
+    def _fuse_with_vectors(
+        self,
+        lexical: list[dict[str, object]],
+        indexed: list[tuple[dict[str, object], str, dict[str, int]]],
+        query_vector: list[float],
+    ) -> list[dict[str, object]]:
+        """Merge the keyword ranking with a vector ranking by rank, not by score.
+
+        A TF-IDF score and a cosine similarity are not comparable numbers, so fusing them
+        arithmetically makes the blend depend on whichever spread happens to be wider.
+        """
+        similar: list[tuple[float, dict[str, object]]] = []
+        for doc, text, counts in indexed:
+            vector = doc.get("vector")
+            if not vector:
+                continue
+            similar.append((cosine(query_vector, vector), doc))
+        if not similar:
+            return lexical
+        similar.sort(key=lambda pair: -pair[0])
+
+        by_id = {row["id"]: row for row in lexical}
+        for score, doc in similar:
+            doc_id = doc.get("id")
+            if doc_id in by_id:
+                by_id[doc_id]["similarity"] = round(score, 4)
+                continue
+            # A document the keyword pass scored at zero: this is the case vectors exist for.
+            text = str(doc.get("text", ""))
+            by_id[doc_id] = {
+                "id": doc_id,
+                "source": doc.get("source"),
+                "score": 0.0,
+                "similarity": round(score, 4),
+                "matched_terms": 0,
+                "snippet": " ".join(text.split())[:240],
+                "char_count": doc.get("char_count"),
+            }
+        fused = reciprocal_rank_fusion(
+            [[row["id"] for row in lexical], [doc.get("id") for _, doc in similar]]
+        )
+        merged = list(by_id.values())
+        merged.sort(key=lambda row: (-fused.get(row["id"], 0.0), row["id"] or 0))
+        return merged
 
     @synchronized
     def answer(self, question: str, limit: int = 6) -> dict[str, object]:
