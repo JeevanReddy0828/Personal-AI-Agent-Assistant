@@ -2292,8 +2292,16 @@ class AgentOrchestrator:
                 f"I could not answer from indexed knowledge: {answer.get('reason', 'no relevant text')}.",
                 question=cleaned,
             )
+        text = str(answer.get("answer", "")).strip()
+        sources = answer.get("sources", [])
+        # The answer belongs in the message. _humanize only runs for planner-routed
+        # commands, so typing `ask knowledge ...` showed nothing but a count.
+        lines = [text] if text else ["I found related material but could not summarise it."]
+        if sources:
+            lines.append("")
+            lines.append("**From:** " + " · ".join(str(s)[:70] for s in sources[:4]))
         return ToolResult.success(
-            f"Answered from {len(answer.get('sources', []))} indexed source(s).",
+            "\n".join(lines),
             question=cleaned,
             answer=answer.get("answer", ""),
             excerpts=answer.get("excerpts", []),

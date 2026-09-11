@@ -1043,6 +1043,18 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(AgentOrchestrator._complexity(text), 2, text)  # reasoning tier
         self.assertEqual(AgentOrchestrator._complexity("hey there"), 0)  # small talk stays simple
 
+    def test_ask_knowledge_shows_the_answer_not_a_count(self) -> None:
+        # _humanize only runs for planner-routed commands, so typing the command directly
+        # displayed "Answered from 6 indexed source(s)." and nothing else.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.context.knowledge.add("notes", "The approval gate stops risky actions before they run.")
+            result = asyncio.run(o.handle("ask knowledge what stops risky actions"))
+            self.assertTrue(result.ok)
+            self.assertIn("approval gate", result.message.lower())
+            self.assertNotIn("indexed source(s).", result.message)
+            self.assertIn("notes", result.message)
+
     def test_a_diagram_request_never_reaches_image_generation(self) -> None:
         # Reported: after a conversation about TCP congestion control, "create an image for
         # this" produced an unreadable entity-relationship picture. The router had copied the
