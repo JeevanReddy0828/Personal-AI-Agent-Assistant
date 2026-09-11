@@ -105,7 +105,12 @@ class OrchestratorTests(unittest.TestCase):
                 browser=BrowserAutomationTool(gate),
                 desktop=desktop,
                 email=EmailTool(gate, config),
-                music=MusicTool(gate, desktop, web),
+                music=MusicTool(
+                    gate,
+                    desktop,
+                    web,
+                    resolver=lambda query: [{"id": "kJQP7kiw5Fk", "title": f"{query} - top hit"}],
+                ),
                 research=ResearchTool(
                     gate,
                     search_backend=lambda query, limit: [
