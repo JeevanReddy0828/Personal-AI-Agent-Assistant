@@ -167,6 +167,10 @@ class HeuristicPlannerProvider:
         if flights:
             return flights
 
+        headlines = self._news(raw)
+        if headlines:
+            return headlines
+
         written = self._document(raw)
         if written:
             return written
@@ -484,6 +488,30 @@ class HeuristicPlannerProvider:
             dest = m.group(1).strip().strip("?.!,'\"")
             return self._command(f"web search flights to {dest}", "User wants flights.", 0.78) if dest else None
         return None
+
+    def _news(self, text: str) -> PlanDecision | None:
+        """'what is the latest news' -> real headlines. A generic web search for this
+        returns the homepages of CNN and Fox with their taglines, not the news."""
+        if not re.search(r"\b(?:news|headlines?)\b", text, re.IGNORECASE):
+            return None
+        # "read the news article file.txt" names a target, so it belongs to the file path.
+        if _TARGETY.search(text):
+            return None
+        about = re.search(
+            r"\b(?:news|headlines?)\b(?:\s+(?:about|on|regarding|for|re))?\s+(.+)$|"
+            r"(?:about|on|regarding)\s+(.+?)\s+\b(?:news|headlines?)\b",
+            text, re.IGNORECASE,
+        )
+        topic = ""
+        if about:
+            topic = (about.group(1) or about.group(2) or "").strip(" ?.!,'\"")
+        topic = re.sub(
+            r"^(?:today|now|right now|this (?:morning|afternoon|evening|week)|headlines?|stories)\b\s*",
+            "", topic, flags=re.IGNORECASE,
+        ).strip(" ?.!,")
+        if topic.lower() in {"", "today", "now", "please", "headlines", "stories", "update", "updates"}:
+            return self._command("news", "User wants the latest headlines.", 0.85)
+        return self._command(f"news {topic}", "User wants headlines on a topic.", 0.85)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what

@@ -155,6 +155,22 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertFalse(is_plain_question("   "))
         self.assertFalse(is_plain_question("what is " + "x" * 500))
 
+    def test_news_questions_route_to_the_news_feed(self) -> None:
+        # A generic web search for these returned cnn.com and foxnews.com with taglines.
+        self.assertEqual(self.plan("what is the latest news today").command, "news")
+        self.assertEqual(self.plan("give me the news").command, "news")
+        self.assertEqual(self.plan("what are the top headlines").command, "news")
+
+    def test_a_news_topic_is_carried_through(self) -> None:
+        self.assertEqual(self.plan("any news on nvidia").command, "news nvidia")
+        self.assertEqual(self.plan("headlines on nvidia").command, "news nvidia")
+        self.assertEqual(self.plan("tell me the news on openai").command, "news openai")
+
+    def test_a_named_file_is_not_a_news_request(self) -> None:
+        decision = self.plan("read the news article file.txt")
+        self.assertNotEqual(decision.command, "news")
+        self.assertIn("file", decision.command)
+
     def test_technical_diagrams_are_recognised(self) -> None:
         for text in (
             "ERD diagram of the database schema",
