@@ -19,6 +19,11 @@ class WebTool:
         self.downloads_dir = downloads_dir
 
     def open_url(self, url: str) -> ToolResult:
+        if not self._looks_like_url(url):
+            return ToolResult.failure(
+                f"That is not an address I can open: {url!r}. Give me a link, "
+                "for example: open url https://example.com"
+            )
         normalized = self._normalize_url(url)
         self.approval_gate.require(
             ApprovalRequest(
@@ -58,6 +63,11 @@ class WebTool:
                 return False
 
     def download(self, url: str, filename: str | None = None) -> ToolResult:
+        if not self._looks_like_url(url):
+            return ToolResult.failure(
+                f"That is not an address I can download: {url!r}. Give me a link, "
+                "for example: download https://example.com/data.csv"
+            )
         normalized = self._normalize_url(url)
         parsed = urlparse(normalized)
         guessed_name = filename or Path(parsed.path).name or "download.bin"
@@ -80,3 +90,17 @@ class WebTool:
         if "://" not in url:
             return "https://" + url
         return url
+
+    @staticmethod
+    def _looks_like_url(raw: str) -> bool:
+        """Whether this is an address at all.
+
+        "download it for me" reached the approval gate as `https://it for me`: the words
+        were pasted straight into a URL. A host has no spaces, and either carries a dot or
+        is localhost.
+        """
+        candidate = (raw or "").strip()
+        if not candidate or len(candidate.split()) > 1:
+            return False
+        host = urlparse(WebTool._normalize_url(candidate)).netloc.split("@")[-1].split(":")[0]
+        return bool(host) and ("." in host or host.lower() == "localhost")

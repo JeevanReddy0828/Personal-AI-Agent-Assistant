@@ -29,6 +29,12 @@ class MusicTool:
             return self.desktop.open_app_or_file(str(path.resolve()))
         # Otherwise treat it as a search and open it on YouTube (no API key needed).
         query = self._youtube_query(target)
+        if not query:
+            return ToolResult.failure(
+                "What should I play? Name a song, artist or playlist - for example: "
+                "play music new telugu hits.",
+                asked=target,
+            )
         opened = self.web.open_url(f"https://www.youtube.com/results?search_query={quote_plus(query)}")
         if not opened.ok:
             return opened
@@ -42,7 +48,16 @@ class MusicTool:
         query = re.sub(r"\b(?:on\s+)?(?:youtube|yt|youtube music)\b", " ", target, flags=re.IGNORECASE)
         query = re.sub(r"\b(?:some|a|an|the|please|for me|songs?|tracks?)\b", " ", query, flags=re.IGNORECASE)
         query = re.sub(r"\s+", " ", query).strip(" ,'\"")
-        return query or "music"
+        # What survives the cleanup has to still name something. "play songs in the
+        # youtube you just opened" was reduced to "in you just opened" and searched
+        # verbatim; a back-reference is a question to ask, not a query to run.
+        FILLER = {
+            "in", "on", "at", "of", "to", "and", "or", "it", "that", "this", "these",
+            "those", "you", "your", "just", "opened", "open", "here", "there", "now",
+            "me", "my", "please", "again", "more", "one", "up", "from", "with", "same",
+        }
+        words = [w for w in re.findall(r"[a-z0-9']+", query.lower()) if w not in FILLER]
+        return query if words else ""
 
     def media_key(self, key: str) -> ToolResult:
         if not sys.platform.startswith("win"):
