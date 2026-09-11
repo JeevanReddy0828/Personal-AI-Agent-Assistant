@@ -111,6 +111,41 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(calls.count("passage"), len(self.DOCS))
         self.assertEqual(calls.count("query"), 1)
 
+    def test_backfill_embeds_documents_stored_without_vectors(self) -> None:
+        plain = self.store(None)                       # saved before semantic search existed
+        raw = plain._load()
+        self.assertTrue(all(not d.get("vector") for d in raw["documents"]))
+
+        with_vectors = KnowledgeBase(Path(self._tmp.name) / "kb.json", embedder=Embedder(backend=fake_backend))
+        outcome = with_vectors.backfill_vectors()
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(outcome["embedded"], len(self.DOCS))
+        self.assertEqual(outcome["pending"], 0)
+        self.assertTrue(all(d.get("vector") for d in with_vectors._load()["documents"]))
+
+    def test_backfill_is_idempotent(self) -> None:
+        base = self.store(Embedder(backend=fake_backend))   # already embedded on add
+        outcome = base.backfill_vectors()
+        self.assertEqual(outcome["embedded"], 0)
+        self.assertEqual(outcome["pending"], 0)
+
+    def test_backfill_without_a_model_says_so(self) -> None:
+        outcome = self.store(None).backfill_vectors()
+        self.assertFalse(outcome["ok"])
+        self.assertIn("no embedding model", outcome["reason"])
+
+    def test_a_failed_batch_leaves_those_documents_for_next_time(self) -> None:
+        self.store(None)                                    # documents exist, no vectors
+
+        def dead(texts, input_type):
+            raise TimeoutError("offline")
+
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json", embedder=Embedder(backend=dead))
+        outcome = base.backfill_vectors()
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(outcome["embedded"], 0)
+        self.assertEqual(outcome["pending"], len(self.DOCS))
+
     def test_keyword_matches_still_win_on_exact_terms(self) -> None:
         hits = self.store(Embedder(backend=fake_backend)).search("congestion window")
         self.assertEqual(hits[0]["source"], "network")
