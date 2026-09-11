@@ -79,8 +79,16 @@ class HeuristicPlannerProvider:
         raw = text.strip()
         lowered = raw.lower()
 
-        if lowered in {"what can you do", "what can you do?", "commands", "show commands"}:
-            return self._command("help", "User asked for available capabilities.", 0.95)
+        if lowered in {"commands", "show commands", "command list", "syntax"}:
+            return self._command("help", "User asked for the command list.", 0.95)
+        # "what can you do" used to dump a hundred lines of command syntax, which is the
+        # first thing anyone asks and the worst possible first impression.
+        if lowered.rstrip("?!. ") in {
+            "what can you do", "what do you do", "what are you capable of",
+            "capabilities", "what can i ask you", "what can you help with",
+            "what can you help me with", "how can you help", "what are your features",
+        }:
+            return self._command("capabilities", "User asked what the assistant can do.", 0.95)
 
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
