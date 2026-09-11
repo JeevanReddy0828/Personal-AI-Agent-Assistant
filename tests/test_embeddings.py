@@ -179,3 +179,45 @@ class HybridSearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DottedAcronymTests(unittest.TestCase):
+    """The app could not find itself. The README is titled "J.A.R.V.I.S", which tokenized
+    to six single letters and then to nothing (tokens under two characters are dropped),
+    so "what is JARVIS" had zero overlap with the document that answers it."""
+
+    def test_a_dotted_acronym_is_one_word(self) -> None:
+        from laptop_agent.knowledge import _tokenize
+
+        self.assertEqual(_tokenize("J.A.R.V.I.S"), ["jarvis"])
+        self.assertIn("usa", _tokenize("U.S.A. exports"))
+
+    def test_the_query_now_overlaps_the_title(self) -> None:
+        from laptop_agent.knowledge import _content_terms, _tokenize
+
+        title = _tokenize("J.A.R.V.I.S — Local-First Personal Agent")
+        self.assertIn("jarvis", set(_content_terms("what is JARVIS")) & set(title))
+
+    def test_ordinary_text_and_numbers_are_untouched(self) -> None:
+        from laptop_agent.knowledge import _tokenize
+
+        self.assertEqual(
+            _tokenize("The approval gate stops risky actions."),
+            ["the", "approval", "gate", "stops", "risky", "actions"],
+        )
+        self.assertIn("10", _tokenize("version 10.2"))
+        self.assertEqual(_tokenize("read file src/main.py"), ["read", "file", "src", "main", "py"])
+
+    def test_a_document_is_found_by_its_dotted_name(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from laptop_agent.knowledge import KnowledgeBase
+
+        with tempfile.TemporaryDirectory() as raw:
+            base = KnowledgeBase(Path(raw) / "kb.json")
+            base.add("README.md", "# J.A.R.V.I.S — Local-First Personal Agent\n\nIt runs on your laptop.")
+            base.add("other.md", "Unrelated notes about statistical significance and sigma.")
+            hits = base.search("what is JARVIS")
+            self.assertTrue(hits)
+            self.assertEqual(hits[0]["source"], "README.md")

@@ -107,7 +107,9 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
    downloads, launching apps, shell, browser state changes → go through
    `safety.ApprovalGate` with the right `RiskLevel`. Read-only/local = LOW/none;
    network read (web search, inbox read) = MEDIUM; external state change =
-   HIGH/CRITICAL.
+   HIGH/CRITICAL. MEDIUM runs through in the web app; HIGH/CRITICAL raises an approval
+   card and waits (`approvals.py`). Getting the level right therefore decides whether a
+   demo stops for a click, so do not reach for HIGH on a read.
 3. **Tools return `ToolResult`** (`tools/base.py`): `ok`, `message`, `data`.
 4. **Testable network/IO.** Put network/engine calls behind an **injectable
    backend** (see `transcribe.py`, `websearch.py`, `research.py`, the LLM
@@ -184,6 +186,16 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             square/landscape/portrait/wide/tall picks the resolution. Saves under
             `data_dir/images/`, returns Markdown that embeds the picture, and the chat
             renders it inline through `/api/image?name=`),
+        calculator (`calculate <expression>` - exact arithmetic, because a language model is
+            the wrong tool for it: `solve - 67458363*37834872` produced a decision framework
+            and never reached 2,552,278,529,434,536. A hand-written recursive-descent parser,
+            **never `eval`** (that would be arbitrary code execution on user text); integers
+            stay exact and division uses `Fraction`, so `1/3*3` is 1 and `754/86982` keeps
+            its exact form - the model's own answer to that was wrong from the 8th digit.
+            `looks_like_arithmetic` is strict on purpose so "should I use 2 or 3 replicas"
+            still reaches the advisor, and `solve` hands a sum straight to the calculator.
+            Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
+            inside power gave 4),
         travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),
@@ -254,6 +266,17 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
         `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
         agents/control_room.py (specialist roster), safety.py, audit.py,
+        approvals.py (ApprovalBroker: bridges the blocking approval gate to an HTTP
+            answer so a risky action can be approved **in the web app**. The browser could
+            not answer the gate, so `_guarded_approval` auto-denied everything above
+            MEDIUM and downloads, shell commands, opening apps and sending mail simply did
+            not work there. A HIGH/CRITICAL request is registered, pushed to the page as an
+            SSE `approval` event, and the worker thread waits. Nothing is auto-approved,
+            an answer must name the exact request id, an id is single-use (so approving a
+            download cannot authorise the command behind it), `/api/approve` is a
+            token-checked mutation, and a **timeout denies** - silence is never consent.
+            With no listener attached it denies immediately rather than waiting: nobody
+            could answer, and waiting once took the test suite from 18s to 138s),
         memory.py, token_vault.py (DPAPI), config.py,
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
@@ -424,6 +447,20 @@ and anything else falls back to a readable code block rather than vanishing. Flo
 is breadth-first **from the entry point, ignoring back-edges**: longest-path layering put
 TCP's Slow Start at the bottom once the timeout edge closed the cycle. Markdown images are
 restricted to same-origin paths — a model sent a fabricated `data:image/png;base64` blob.
+
+**Why the chat tier is told what it CAN do.** `_NO_TOOL_CLAIMS` said only what the model
+must not claim, so it filled the gap by guessing and guessed low: "can you download
+something for me" was answered "I can't directly download files from the internet or
+access external resources", and "is it safe to run risky commands" with "I do not have
+direct access to your system's shell or file system". Both false. `_CAPABILITIES` now
+states what the tools actually do, that risky ones ask first, and that the app is
+`python -m laptop_agent.webui` on port **8770** — the persona previously asserted it was
+always a desktop window, which is how "how do I start the app in a browser tab" became
+"try http://localhost:3000". Two rules that wording has already broken once each: it must
+say what to ask for **only** for pictures and documents, because applied to a diagram it
+produced a loop ("I'll provide the Mermaid syntax for you to request the actual drawing.
+To draw this flowchart, please ask me to: draw a flowchart…" — handing the request back);
+a diagram is now explicitly the exception, drawn in that reply.
 
 **Why the chat tier is told it cannot make files.** A tool result reaches the next turn as
 part of the transcript — the web client appends a bounded digest of `result.data` to the
