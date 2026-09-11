@@ -221,3 +221,27 @@ class DottedAcronymTests(unittest.TestCase):
             hits = base.search("what is JARVIS")
             self.assertTrue(hits)
             self.assertEqual(hits[0]["source"], "README.md")
+
+
+class SentenceWeightingTests(unittest.TestCase):
+    """Every query term counted the same, so a sentence saying a common word three times
+    outranked the one that actually answered the question."""
+
+    def base(self, tmp):
+        from pathlib import Path
+
+        from laptop_agent.knowledge import KnowledgeBase
+
+        base = KnowledgeBase(Path(tmp) / "kb.json")
+        base.add("README.md", "The project is called Zebracorn. It is a local agent. It is useful.")
+        base.add("noise.md", "This is a thing. It is another thing. It is also a thing here.")
+        return base
+
+    def test_a_rare_term_outweighs_a_common_one(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.base(tmp).answer("what is Zebracorn")
+            self.assertTrue(out["ok"])
+            self.assertIn("Zebracorn", str(out["answer"]))
+            self.assertEqual(out["sources"][0], "README.md")
