@@ -191,3 +191,35 @@ class NoCorruptionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceIntegrityTests(unittest.TestCase):
+    """The page guard above catches mangled edits in webui_page.py. The same corruption
+    reaches ordinary Python source: writing a regex through a shell heredoc turned every
+    `\b` into a literal backspace character, so `_THINKING_OPENERS` compiled fine and
+    matched nothing. The file imported, the tests ran, and the guard silently did nothing.
+    """
+
+    def source_files(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent / "src"
+        return sorted(root.rglob("*.py"))
+
+    def test_no_control_characters_in_any_source_file(self) -> None:
+        offenders = []
+        for path in self.source_files():
+            text = path.read_text(encoding="utf-8")
+            bad = sorted({ord(c) for c in text if ord(c) < 32 and c not in "\n\r\t"})
+            if bad:
+                line = next(
+                    (i for i, l in enumerate(text.splitlines(), 1)
+                     if any(chr(b) in l for b in bad)), 0)
+            if bad:
+                offenders.append(f"{path.name}:{line} contains {bad}")
+        self.assertEqual(offenders, [], "control characters in source: " + "; ".join(offenders))
+
+    def test_no_replacement_characters_in_any_source_file(self) -> None:
+        offenders = [p.name for p in self.source_files()
+                     if "\ufffd" in p.read_text(encoding="utf-8")]
+        self.assertEqual(offenders, [], f"lost encoding in: {offenders}")
