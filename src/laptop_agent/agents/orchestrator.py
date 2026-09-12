@@ -586,55 +586,8 @@ class AgentOrchestrator:
             except OSError:
                 pass  # a trace is diagnostics; never fail a turn over one
 
-    @staticmethod
-    def _traced_tokens(on_token, trace: TurnTrace):
-        """Wrap the stream callback to capture time-to-first-token, preserving .reset."""
-        if on_token is None:
-            return None
-
-        def traced(text):
-            trace.first_token()
-            return on_token(text)
-
-        reset = getattr(on_token, "reset", None)
-        if reset is not None:
-            traced.reset = reset
-        return traced
-
-    def _command_verbs(self) -> frozenset[str]:
-        if self._command_verbs_cache is None:
-            self._command_verbs_cache = frozenset(
-                entry.strip().split(" ", 1)[0].lower()
-                for entry in self._AGENT_COMMANDS
-                if entry and not entry.startswith("#")
-            )
-        return self._command_verbs_cache
-
-    async def _handle(
-        self,
-        text: str,
-        _allow_planner: bool = True,
-        history: list[dict[str, str]] | None = None,
-        on_token=None,
-    ) -> ToolResult:
-        check_cancelled()
-        command = text.strip()
-        lowered = command.lower()
-        history_turns = history or []
-        if not command:
-            return ToolResult.success("Say something and I will route it.")
-        # A 300,000-character message was accepted and spent 41.5s in the advisor before
-        # answering. Nothing a person types is this long; a paste this big belongs in a
-        # file, where `ask file` and `summarize file` handle it properly and cheaply.
-        if len(command) > MAX_COMMAND_CHARS:
-            return ToolResult.failure(
-                f"That message is {len(command):,} characters, past the "
-                f"{MAX_COMMAND_CHARS:,} I take in one turn. Save it to a file and ask me "
-                f"about that — try `summarize file <path>` or `ask file <path> about …`.",
-                length=len(command),
-                limit=MAX_COMMAND_CHARS,
-            )
-
+    async def _dispatch_meta(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for help, memory, audit, the daily briefing."""
         if lowered in {"help", "/help"}:
             return ToolResult.success(self.help_text())
 
@@ -652,7 +605,10 @@ class AgentOrchestrator:
 
         if lowered in {"briefing", "daily briefing", "status briefing", "morning briefing"}:
             return self._briefing()
+        return None
 
+    async def _dispatch_jobs(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for the job tracker, Jobright and resume tailoring."""
         if lowered in {"jobs", "job list", "list jobs", "job tracker"}:
             return self._jobs_list()
 
@@ -674,7 +630,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("job remove ") or lowered.startswith("job delete "):
             return self._job_remove(command.split(None, 2)[2].strip() if len(command.split(None, 2)) > 2 else "")
+        return None
 
+    async def _dispatch_automation(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for autopilot, reminders, schedules and the agent loop."""
         if lowered in {"autopilot status", "autonomous status"}:
             return self._autopilot_status()
 
@@ -732,7 +691,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("agent "):
             return self._agent_detail(command[len("agent ") :].strip())
+        return None
 
+    async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for reading, scanning and indexing files."""
         if lowered.startswith("scan files "):
             return self.context.files.scan(command[len("scan files ") :].strip() or ".")
 
@@ -750,7 +712,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("index file "):
             return self._index_file(command[len("index file ") :].strip())
+        return None
 
+    async def _dispatch_knowledge(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for the knowledge base."""
         if lowered in {"knowledge list", "knowledge"}:
             documents = self.context.knowledge.list_documents()
             return ToolResult.success(f"{len(documents)} document(s) indexed.", documents=documents)
@@ -786,7 +751,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("recall "):
             return self._knowledge_search(command[len("recall ") :].strip())
+        return None
 
+    async def _dispatch_vault(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for the Obsidian vault."""
         if lowered in {"notes", "vault", "notes status", "vault status", "obsidian", "obsidian status"}:
             return self.context.obsidian.status()
 
@@ -816,7 +784,10 @@ class AgentOrchestrator:
             else:
                 title, body = rest, rest
             return self.context.obsidian.save_note(title, body)
+        return None
 
+    async def _dispatch_file_intelligence(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for file inspection, conversion and extraction."""
         if lowered.startswith("file info "):
             return self.context.files.file_info(command[len("file info ") :].strip())
 
@@ -845,7 +816,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("transcribe "):
             return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
+        return None
 
+    async def _dispatch_vision(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for screen, image and webcam vision."""
         if lowered in {"read screen", "screen text", "what is on my screen", "what's on my screen", "look at my screen"}:
             return self._read_screen()
 
@@ -872,7 +846,10 @@ class AgentOrchestrator:
 
         if lowered in {"capture webcam", "webcam capture", "take a photo"}:
             return self.context.webcam.capture()
+        return None
 
+    async def _dispatch_tasks(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for task dashboards, workflows and folder operations."""
         if lowered in {"tasks", "task dashboard", "show tasks"}:
             dashboard = self.context.tasks.latest()
             if dashboard is None:
@@ -918,7 +895,10 @@ class AgentOrchestrator:
             if len(parts) < 2:
                 return ToolResult.failure("Use: search files <query> <root>")
             return self.context.files.search_text(parts[0], parts[1])
+        return None
 
+    async def _dispatch_research(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for research and the advisor."""
         if lowered.startswith("save research report "):
             return self._save_research_report(command[len("save research report ") :].strip())
 
@@ -931,7 +911,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("research "):
             return self._research(command[len("research ") :].strip())
+        return None
 
+    async def _dispatch_utilities(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for the clock, calculator, capabilities and diagnostics."""
         if lowered == "timecard" or lowered.startswith("timecard "):
             return self._time_card(command[len("timecard "):].strip() if " " in command else "")
 
@@ -956,7 +939,10 @@ class AgentOrchestrator:
 
         if lowered in {"latency", "traces", "why slow", "speed"}:
             return self._latency_report()
+        return None
 
+    async def _dispatch_generate(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for news, weather, documents and pictures."""
         if lowered == "news":
             return self._news_tool().headlines()
 
@@ -971,7 +957,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("weather "):
             return self._weather_tool().forecast(command[len("weather ") :].strip())
+        return None
 
+    async def _dispatch_travel(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for distance, trips, maps and places."""
         if lowered.startswith("distance "):
             rest = command[len("distance ") :].strip()
             match = re.search(r"\s+(?:to|and|->|→)\s+", rest, re.IGNORECASE)
@@ -1009,7 +998,10 @@ class AgentOrchestrator:
             if not match:
                 return ToolResult.failure("Use: nearby <category> near <place>")
             return self._travel_tool().nearby(rest[: match.start()].strip(), rest[match.end() :].strip())
+        return None
 
+    async def _dispatch_web(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for YouTube, search, URLs, downloads and the browser."""
         if lowered.startswith("summarize youtube "):
             return self._youtube_summary(command[len("summarize youtube ") :].strip())
 
@@ -1045,7 +1037,10 @@ class AgentOrchestrator:
                 command[len("fill form ") :].strip(),
                 self.context.memory.get_profile(),
             )
+        return None
 
+    async def _dispatch_desktop(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for apps, screenshots, the shell and media keys."""
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
@@ -1066,6 +1061,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("media "):
             return self.context.music.media_key(command[len("media ") :].strip())
+        return None
+
+    async def _dispatch_email(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for reading, drafting and sending mail."""
 
         if lowered in {"email digest", "summarize inbox", "summarize my inbox", "summarize my emails", "summarize my unread", "inbox digest"}:
             return self._email_digest("UNSEEN")
@@ -1135,7 +1134,10 @@ class AgentOrchestrator:
             if not draft_result.ok:
                 return draft_result
             return self.context.email.send_smtp(draft_result.data["draft"])
+        return None
 
+    async def _dispatch_batch(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for job applications and multi-command batches."""
         if lowered.startswith("plan apply job "):
             return await self.context.browser.prepare_job_application(
                 command[len("plan apply job ") :].strip(),
@@ -1147,6 +1149,86 @@ class AgentOrchestrator:
 
         if lowered.startswith("multi "):
             return await self._run_many(command[len("multi ") :])
+        return None
+
+    # Dispatch order, as data. A group returns a ToolResult or None; the first
+    # non-None wins, exactly as the original if/elif chain did.
+    _DISPATCH = (
+        _dispatch_meta,
+        _dispatch_jobs,
+        _dispatch_automation,
+        _dispatch_files,
+        _dispatch_knowledge,
+        _dispatch_vault,
+        _dispatch_file_intelligence,
+        _dispatch_vision,
+        _dispatch_tasks,
+        _dispatch_research,
+        _dispatch_utilities,
+        _dispatch_generate,
+        _dispatch_travel,
+        _dispatch_web,
+        _dispatch_desktop,
+        _dispatch_email,
+        _dispatch_batch,
+    )
+
+    @staticmethod
+    def _traced_tokens(on_token, trace: TurnTrace):
+        """Wrap the stream callback to capture time-to-first-token, preserving .reset."""
+        if on_token is None:
+            return None
+
+        def traced(text):
+            trace.first_token()
+            return on_token(text)
+
+        reset = getattr(on_token, "reset", None)
+        if reset is not None:
+            traced.reset = reset
+        return traced
+
+    def _command_verbs(self) -> frozenset[str]:
+        if self._command_verbs_cache is None:
+            self._command_verbs_cache = frozenset(
+                entry.strip().split(" ", 1)[0].lower()
+                for entry in self._AGENT_COMMANDS
+                if entry and not entry.startswith("#")
+            )
+        return self._command_verbs_cache
+
+    async def _handle(
+        self,
+        text: str,
+        _allow_planner: bool = True,
+        history: list[dict[str, str]] | None = None,
+        on_token=None,
+    ) -> ToolResult:
+        check_cancelled()
+        command = text.strip()
+        lowered = command.lower()
+        history_turns = history or []
+        if not command:
+            return ToolResult.success("Say something and I will route it.")
+        # A 300,000-character message was accepted and spent 41.5s in the advisor before
+        # answering. Nothing a person types is this long; a paste this big belongs in a
+        # file, where `ask file` and `summarize file` handle it properly and cheaply.
+        if len(command) > MAX_COMMAND_CHARS:
+            return ToolResult.failure(
+                f"That message is {len(command):,} characters, past the "
+                f"{MAX_COMMAND_CHARS:,} I take in one turn. Save it to a file and ask me "
+                f"about that — try `summarize file <path>` or `ask file <path> about …`.",
+                length=len(command),
+                limit=MAX_COMMAND_CHARS,
+            )
+
+        # The dispatch is a table, not a 500-line chain. Each group returns a result or
+        # None to mean 'not mine'; order is preserved exactly as it was, and the
+        # shadowing test in tests/test_command_dispatch.py still reads every prefix.
+        for dispatch in self._DISPATCH:
+            handled = await dispatch(self, command, lowered, history_turns)
+            if handled is not None:
+                return handled
 
         if _allow_planner:
             planned = self._route(command, self.context.memory.get_profile(), history_turns)
