@@ -8,6 +8,11 @@ import math
 import re
 from pathlib import Path
 
+# How many consecutive sentences make a passage. One sentence is too small a unit to
+# answer a question with: the line that defines a thing rarely repeats the words the
+# question used, while a short line that mentions them often says nothing.
+PASSAGE_SENTENCES = 3
+
 # Small stopword set so common words do not dominate ranking.
 _STOPWORDS = {
     "the", "and", "for", "are", "but", "not", "you", "all", "any", "can", "has", "had",
@@ -35,6 +40,29 @@ def _tokenize(text: str) -> list[str]:
 
 def _content_terms(text: str) -> list[str]:
     return [token for token in _tokenize(text) if token not in _STOPWORDS]
+
+
+
+# Markers of a passage that is instructions or markup rather than an explanation.
+_CODE_FENCE = re.compile(r"```")
+_COMMAND_LINE = re.compile(r"(?m)^\s*(?:\$|>|python -m |pip install |npm |git |curl )")
+
+
+def _prose_weight(passage: str) -> float:
+    """How much of this reads like an explanation rather than a command or a table.
+
+    Never zero: a code block can still be the best available answer, it should just stop
+    outranking the sentence that actually defines the thing.
+    """
+    weight = 1.0
+    if _CODE_FENCE.search(passage):
+        weight *= 0.45
+    if _COMMAND_LINE.search(passage):
+        weight *= 0.6
+    letters = sum(1 for ch in passage if ch.isalpha() or ch.isspace())
+    if passage and letters / len(passage) < 0.7:
+        weight *= 0.75      # mostly punctuation, pipes or symbols: a table or a diagram
+    return weight
 
 
 class KnowledgeBase:
@@ -248,25 +276,42 @@ class KnowledgeBase:
             for term in terms
         }
 
+        # Score a PASSAGE, not a lone sentence. Two failures came out of scoring
+        # sentences: a short line that merely mentions the word beat the line that
+        # answers the question ("Optional browser checks need Playwright... JARVIS_BROWSE"
+        # scored 0.651 against 0.467 for "J.A.R.V.I.S - Local-First Personal Agent"),
+        # because dividing by length rewarded brevity that hard; and the best six
+        # sentences came from different documents, so the answer read as a collage of a
+        # README and an unrelated TCP scrape. A window of consecutive sentences carries
+        # enough context to be an answer, and stays in one document.
         candidates: list[tuple[float, int, int, dict[str, object]]] = []
         for doc_index, doc in enumerate(pool):
             source = str(doc.get("source") or "")
             doc_id = int(doc.get("id") or 0)
-            for sentence_index, sentence in enumerate(self._split_sentences(str(doc.get("text", "")))):
-                counts = self._term_counts(sentence)
+            sentences = self._split_sentences(str(doc.get("text", "")))
+            for start in range(len(sentences)):
+                window = sentences[start:start + PASSAGE_SENTENCES]
+                passage = " ".join(window)
+                counts = self._term_counts(passage)
                 overlap = sum(counts.get(term, 0) * weights[term] for term in terms)
                 if overlap <= 0:
                     continue
-                score = overlap / (sum(counts.values()) ** 0.35)
+                # A gentler length penalty: enough to stop a whole document winning,
+                # not enough for a passing mention to outrank the explanation.
+                score = overlap / (max(sum(counts.values()), 1) ** 0.18)
+                # A shell snippet is rarely the answer to "what is X". The passage that
+                # beat the README's own definition of itself was an install command that
+                # happened to contain JARVIS_BROWSER_TESTS.
+                score *= _prose_weight(passage)
                 candidates.append(
                     (
                         score,
                         doc_index,
-                        sentence_index,
+                        start,
                         {
                             "id": doc_id,
                             "source": source,
-                            "sentence": sentence,
+                            "sentence": passage,
                             "score": round(score, 4),
                         },
                     )
@@ -275,10 +320,30 @@ class KnowledgeBase:
             if ranked:
                 return lead_with_best()
             return {"ok": False, "reason": "no relevant indexed text", "question": question}
-        wanted = max(1, min(limit, 12))
-        selected = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))[:wanted]
+        # Answer out of ONE document. Taking the best sentences globally stitched a README
+        # and an unrelated TCP scrape into a single paragraph: every piece defensible, the
+        # whole thing incoherent. The ranking already decided which document answers this;
+        # quoting across that decision only undoes it.
+        ordered = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))
+        best_doc = ordered[0][1]
+        wanted = max(1, min(limit, 4))
+        selected: list[tuple[float, int, int, dict[str, object]]] = []
+        used_positions: set[int] = set()
+        for candidate in ordered:
+            if candidate[1] != best_doc:
+                continue
+            start = candidate[2]
+            # Consecutive windows overlap heavily; a second passage should be new text.
+            if any(abs(start - taken) < PASSAGE_SENTENCES for taken in used_positions):
+                continue
+            used_positions.add(start)
+            selected.append(candidate)
+            if len(selected) >= wanted:
+                break
+        # Read in document order, not score order, so the passages flow.
+        selected.sort(key=lambda item: item[2])
         excerpts = [item[3] for item in selected]
-        answer = " ".join(str(item["sentence"]) for item in excerpts)
+        answer = " … ".join(str(item["sentence"]) for item in excerpts)
         sources = []
         seen = set()
         for item in excerpts:

@@ -245,3 +245,70 @@ class SentenceWeightingTests(unittest.TestCase):
             self.assertTrue(out["ok"])
             self.assertIn("Zebracorn", str(out["answer"]))
             self.assertEqual(out["sources"][0], "README.md")
+
+
+class PassageAnswerTests(unittest.TestCase):
+    """Two failures came out of scoring lone sentences. A short line that merely mentions
+    the word beat the line that answers the question — "Optional browser checks need
+    Playwright… JARVIS_BROWSER_TESTS" scored 0.651 against 0.467 for "J.A.R.V.I.S —
+    Local-First Personal Agent" — and the best six sentences came from different
+    documents, so the answer read as a README spliced to an unrelated scrape."""
+
+    def base(self, tmp):
+        from pathlib import Path
+
+        from laptop_agent.knowledge import KnowledgeBase
+
+        base = KnowledgeBase(Path(tmp) / "kb.json")
+        base.add("README.md", (
+            "# Zebracorn is a local-first assistant. "
+            "It runs entirely on your own laptop and needs no server. "
+            "It keeps your data where it is. "
+            "Some unrelated middle content about widgets and gears follows here. "
+            "More filler about entirely different subjects continues for a while. "
+            "Optional browser checks need Playwright: ```powershell pip install ZEBRACORN_TESTS``` "
+        ))
+        base.add("other.md", "A different document that also mentions Zebracorn once in passing.")
+        return base
+
+    def test_the_definition_beats_an_install_snippet_that_mentions_the_word(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.base(tmp).answer("what is Zebracorn")
+            self.assertTrue(out["ok"])
+            answer = str(out["answer"])
+            self.assertIn("local-first assistant", answer)
+            lead = str((out["excerpts"] or [{}])[0].get("sentence", ""))
+            self.assertNotIn("pip install", lead, "an install snippet must not lead the answer")
+
+    def test_the_answer_comes_from_one_document(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.base(tmp).answer("what is Zebracorn")
+            self.assertEqual(len(out["sources"]), 1, "an answer stitched across documents reads as a collage")
+
+    def test_a_passage_carries_more_than_one_sentence(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.base(tmp).answer("what is Zebracorn")
+            first = str((out["excerpts"] or [{}])[0].get("sentence", ""))
+            self.assertGreater(first.count("."), 1, "a lone sentence is too small to answer with")
+
+    def test_passages_do_not_overlap_each_other(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.base(tmp).answer("what is Zebracorn", limit=4)
+            texts = [str(e.get("sentence", "")) for e in out["excerpts"]]
+            self.assertEqual(len(texts), len(set(texts)), "the same window was returned twice")
+
+    def test_prose_outweighs_a_code_fence(self) -> None:
+        from laptop_agent.knowledge import _prose_weight
+
+        self.assertGreater(_prose_weight("A plain explanation of the thing."),
+                           _prose_weight("```powershell\npip install thing\n```"))
+        self.assertGreater(_prose_weight("A plain explanation."), 0.9)
+        self.assertGreater(_prose_weight("```code```"), 0.0, "a code block can still be the best answer")
