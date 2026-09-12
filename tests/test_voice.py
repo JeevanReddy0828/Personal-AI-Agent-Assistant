@@ -82,3 +82,39 @@ class SpeechEchoLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpeechParityTests(unittest.TestCase):
+    """`clean_for_speech` (server) and `speakable()` (client) are two implementations of
+    the same rules, and they had already drifted: "- a bullet point" kept its marker on
+    the client and lost it on the server, so the two halves of the voice loop would say
+    different things about the same reply.
+
+    Both now assert against one shared file. This side checks Python; the opt-in browser
+    suite runs the identical cases through the real `speakable()` in a real JS engine."""
+
+    def cases(self) -> dict[str, str]:
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent / "data" / "speech_cases.json"
+        return json.loads(path.read_text(encoding="utf-8"))["cases"]
+
+    def test_the_shared_cases_exist_and_are_not_trivial(self) -> None:
+        cases = self.cases()
+        self.assertGreaterEqual(len(cases), 10)
+        self.assertTrue(any("![" in case for case in cases), "no image case")
+        self.assertTrue(any("http" in case for case in cases), "no URL case")
+        self.assertTrue(any("```" in case for case in cases), "no code-fence case")
+
+    def test_the_server_matches_the_shared_expectations(self) -> None:
+        from laptop_agent.voice import clean_for_speech
+
+        for case, expected in self.cases().items():
+            self.assertEqual(clean_for_speech(case), expected, repr(case[:50]))
+
+    def test_a_bullet_marker_is_never_spoken(self) -> None:
+        from laptop_agent.voice import clean_for_speech
+
+        for case in ("- a bullet point", "* another bullet", "• a third"):
+            self.assertFalse(clean_for_speech(case).startswith(("-", "*", "•")), case)

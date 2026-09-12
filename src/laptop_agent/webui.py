@@ -729,6 +729,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if suffix not in {"webm", "ogg", "wav", "m4a", "mp4", "mp3"}:
             suffix = "webm"
+        # Believe the bytes, not the label. The extension decides the engine - Riva takes
+        # PCM WAV only, so `auto` skips it for anything else - and it arrives as a client
+        # field with a silent default. A WAV posted without `ext` was written as .webm and
+        # quietly transcribed by the slower local engine: measured, the same clip gave
+        # "Kernoal" through Riva and "Cornule" through Whisper, with no sign anything had
+        # been downgraded.
+        if raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+            suffix = "wav"
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(prefix="voice_", suffix="." + suffix, dir=UPLOAD_DIR, delete=False) as handle:
             clip = Path(handle.name)

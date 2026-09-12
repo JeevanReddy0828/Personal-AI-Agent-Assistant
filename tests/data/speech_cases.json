@@ -1,0 +1,18 @@
+{
+ "_why": "clean_for_speech (Python) and speakable() (JS) are two implementations of the same rules, and they had already drifted: '- a bullet point' kept its marker on the client and lost it on the server, so the two halves of the voice loop would say different things. Both sides assert against this file.",
+ "cases": {
+  "![a red fox](/api/image?name=a-red-fox-1789.jpg)\n\nHere is *a red fox*.": "Here is a red fox.",
+  "See https://example.com/data.csv for the file.": "See for the file.",
+  "```python\nprint('hi')\n```\nThat prints hi.": "That prints hi.",
+  "## Heading\nSome body text.": "Heading Some body text.",
+  "The answer is **9** - see [the docs](https://example.com/docs).": "The answer is 9 - see the docs.",
+  "Visit www.example.com now.": "Visit now.",
+  "A table | with | pipes | in it.": "A table with pipes in it.",
+  "Path /api/image?name=x.jpg should not be read aloud.": "Path should not be read aloud.",
+  "Use `code` inline and _emphasis_ here.": "Use code inline and emphasis here.",
+  "> A quoted line.": "A quoted line.",
+  "- a bullet point": "a bullet point",
+  "* another bullet": "another bullet",
+  "Nothing special at all.": "Nothing special at all."
+ }
+}

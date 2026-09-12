@@ -406,3 +406,49 @@ class BrowserRegressions(unittest.TestCase):
             result = pool.submit(lambda: asyncio.run(render_html_to_pdf(overflow, path))).result()
             self.assertFalse(result.ok)
             self.assertEqual(path.read_bytes(), previous)
+
+    def test_speakable_matches_the_server_word_for_word(self):
+        """`clean_for_speech` (Python) and `speakable()` (JS) implement the same rules and
+        had already drifted: "- a bullet point" kept its marker on the client and lost it
+        on the server, so the two halves of the voice loop said different things about the
+        same reply. Both sides now assert against tests/data/speech_cases.json."""
+        import json
+
+        shared = json.loads(
+            (Path(__file__).resolve().parent / "data" / "speech_cases.json").read_text(encoding="utf-8")
+        )["cases"]
+        produced = self.page.evaluate(
+            "cases => Object.fromEntries(cases.map(c => [c, speakable(c)]))",
+            arg=list(shared.keys()),
+        )
+        mismatched = {
+            case: {"server": expected, "client": produced.get(case)}
+            for case, expected in shared.items()
+            if produced.get(case) != expected
+        }
+        self.assertEqual(mismatched, {}, f"speakable() has drifted from clean_for_speech: {mismatched}")
+
+    def test_the_echo_guard_rejects_our_own_voice_and_keeps_the_users(self):
+        """Reading an image URL aloud produced "slash api slash image question mark name
+        equals…", which the echo guard could not match, so the microphone heard it, counted
+        it as a spoken interruption, and drew the picture again — one request became four."""
+        outcome = self.page.evaluate(
+            """() => {
+                rememberSpoken('Here is a red fox in snow.');
+                rememberSpoken('The weather in Kurnool is overcast.');
+                return {
+                    exact:      isEcho('Here is a red fox in snow'),
+                    partial:    isEcho('here is a red fox'),
+                    mostWords:  isEcho('here is a red fox in the snow'),
+                    userSpeech: isEcho('stop and draw a cat instead'),
+                    shortWord:  isEcho('stop'),
+                    empty:      isEcho('')
+                };
+            }"""
+        )
+        self.assertTrue(outcome["exact"], "our own sentence must be recognised as echo")
+        self.assertTrue(outcome["partial"], "a fragment of our own sentence is still echo")
+        self.assertTrue(outcome["mostWords"], "a near-match of our own sentence is echo")
+        self.assertFalse(outcome["userSpeech"], "the user's own interruption must get through")
+        self.assertFalse(outcome["shortWord"], "a single word must not be eaten as echo")
+        self.assertFalse(outcome["empty"])
