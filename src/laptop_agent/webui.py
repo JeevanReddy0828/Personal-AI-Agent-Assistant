@@ -40,6 +40,7 @@ from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
 from laptop_agent.health import system_health
 from laptop_agent.metrics import system_metrics
+from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
@@ -301,6 +302,31 @@ def _keep_warm(interval: float = 200.0) -> None:
     threading.Thread(target=loop, daemon=True).start()
 
 
+
+# Generated artifacts and upload scratch folders were never cleaned: one day of use left
+# 7.1MB of images and a temp directory with one folder per attachment, forever.
+_LAST_SWEEP = [0.0]
+_SWEEP_EVERY = 3600.0
+
+
+def _housekeeping() -> None:
+    """Trim generated artifacts, at most once an hour, on the ticker thread."""
+    now = time.time()
+    if now - _LAST_SWEEP[0] < _SWEEP_EVERY:
+        return
+    _LAST_SWEEP[0] = now
+    try:
+        outcome = sweep(_CONFIG.data_dir)
+        stale = sweep_uploads(UPLOAD_DIR)
+        if outcome.get("removed") or stale:
+            record_failure(
+                "retention/swept",
+                f"removed {outcome.get('removed')} artifacts and {stale} upload folder(s)",
+            )
+    except Exception as exc:  # housekeeping must never take the ticker down
+        record_failure("retention/sweep", exc)
+
+
 def _schedule_ticker(interval: float = 60.0) -> None:
     """Fire any due scheduled jobs once a minute. Daemon thread so it stops with the app."""
 
@@ -309,6 +335,7 @@ def _schedule_ticker(interval: float = 60.0) -> None:
         while not stop.wait(interval):
             try:
                 asyncio.run(_orchestrator.run_due_schedules())
+                _housekeeping()
             except Exception as exc:
                 # Never let one scheduled run take down the ticker - but a ticker that
                 # swallows failures silently means scheduled jobs can stop working and
@@ -316,6 +343,22 @@ def _schedule_ticker(interval: float = 60.0) -> None:
                 record_failure("scheduler/tick", exc)
 
     threading.Thread(target=loop, daemon=True).start()
+
+
+
+class _Server(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a realistic listen backlog.
+
+    The stdlib default is 5 pending connections, and anything past that is refused by the
+    OS before Python ever sees it - measured: 30 simultaneous requests produced one hard
+    ECONNREFUSED. The page itself opens several at once (the SSE stream, health polls,
+    images), so two tabs can reach this.
+    """
+
+    request_queue_size = 128
+    daemon_threads = True
+    # A socket left in TIME_WAIT should not stop a restart from binding the same port.
+    allow_reuse_address = True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1058,7 +1101,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server = _Server((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     _warmup()
     _keep_warm()
@@ -1121,7 +1164,7 @@ def run_desktop() -> None:
     """Serve the chat and open it in a dedicated desktop window (no browser chrome)."""
     global _DESKTOP_MODE
     _DESKTOP_MODE = True  # enable real HUD window effects (opacity / always-on-top)
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server = _Server((HOST, PORT), Handler)
     port = server.server_address[1]
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()

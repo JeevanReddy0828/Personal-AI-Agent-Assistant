@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from laptop_agent.failures import record_failure
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 import json
@@ -21,9 +22,25 @@ class AuditLogger:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    # The audit log is append-only and was never rotated, so it grew for the life of the
+    # install. Every approval, every risky action, forever. Rotating keeps one previous
+    # generation, which is what an audit trail is actually read for - what happened
+    # recently - without turning a local app into a disk-space problem.
+    MAX_BYTES = 8 * 1024 * 1024
+
+    def _rotate_if_large(self) -> None:
+        try:
+            if self.path.exists() and self.path.stat().st_size >= self.MAX_BYTES:
+                previous = self.path.with_suffix(self.path.suffix + ".1")
+                previous.unlink(missing_ok=True)
+                self.path.replace(previous)
+        except OSError as exc:  # never let housekeeping lose the event being recorded
+            record_failure("audit/rotate", exc, path=str(self.path))
+
     @synchronized
     def record(self, event_type: str, **payload: Any) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._rotate_if_large()
         event = AuditEvent(
             event_type=event_type,
             payload=payload,

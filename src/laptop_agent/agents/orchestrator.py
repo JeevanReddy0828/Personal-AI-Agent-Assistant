@@ -133,6 +133,11 @@ def _has_own_subject(text: str) -> bool:
     return any(word not in _SUBJECT_FILLER for word in words)
 
 
+# The longest thing a person types in a chat box. An attached file is the right home for
+# anything bigger, and the file tools read it without pushing it through a model prompt.
+MAX_COMMAND_CHARS = 24_000
+
+
 def _readable_size(size: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -618,6 +623,17 @@ class AgentOrchestrator:
         history_turns = history or []
         if not command:
             return ToolResult.success("Say something and I will route it.")
+        # A 300,000-character message was accepted and spent 41.5s in the advisor before
+        # answering. Nothing a person types is this long; a paste this big belongs in a
+        # file, where `ask file` and `summarize file` handle it properly and cheaply.
+        if len(command) > MAX_COMMAND_CHARS:
+            return ToolResult.failure(
+                f"That message is {len(command):,} characters, past the "
+                f"{MAX_COMMAND_CHARS:,} I take in one turn. Save it to a file and ask me "
+                f"about that — try `summarize file <path>` or `ask file <path> about …`.",
+                length=len(command),
+                limit=MAX_COMMAND_CHARS,
+            )
 
         if lowered in {"help", "/help"}:
             return ToolResult.success(self.help_text())
