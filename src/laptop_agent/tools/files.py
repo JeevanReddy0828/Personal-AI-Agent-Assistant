@@ -10,6 +10,7 @@ from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
+from laptop_agent.terms import collapse_acronyms
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
@@ -604,7 +605,9 @@ class FileTool:
 
     @staticmethod
     def _content_words(text: str) -> list[str]:
-        words = re.findall(r"[A-Za-z']+", text.lower())
+        # Its own pattern, not terms.words(): apostrophes belong inside a word here
+        # ("can't", "user's"), and version numbers do not belong in a frequency count.
+        words = re.findall(r"[A-Za-z']+", collapse_acronyms(text).lower())
         return [word for word in words if len(word) > 2 and word not in STOPWORDS]
 
     @classmethod
@@ -613,17 +616,16 @@ class FileTool:
             return list(range(len(sentences)))
         frequencies = Counter(cls._content_words(" ".join(sentences)))
 
-        def words_of(sentence: str) -> list[str]:
-            return [word for word in re.findall(r"[A-Za-z']+", sentence.lower()) if len(word) > 2 and word not in STOPWORDS]
-
         # Prefer substantial sentences so fragments (common in scraped web text)
         # like "loop." cannot dominate purely by repeating a frequent word.
-        candidates = [index for index, sentence in enumerate(sentences) if len(words_of(sentence)) >= min_words]
+        candidates = [
+            index for index, sentence in enumerate(sentences) if len(cls._content_words(sentence)) >= min_words
+        ]
         pool = candidates if len(candidates) >= wanted else list(range(len(sentences)))
 
         scored: list[tuple[float, int]] = []
         for index in pool:
-            words = words_of(sentences[index])
+            words = cls._content_words(sentences[index])
             # Dampen by sqrt(length) to reward informative sentences without
             # always picking the longest one.
             score = sum(frequencies[word] for word in words) / (len(words) ** 0.5) if words else 0.0

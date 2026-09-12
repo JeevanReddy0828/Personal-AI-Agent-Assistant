@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from laptop_agent.terms import words
 from laptop_agent.tools.base import ToolResult
 
 
@@ -286,7 +287,7 @@ _STOPWORDS = frozenset(
 def _query_terms(query: str) -> list[str]:
     """Meaningful search terms: drop stopwords and very short tokens. Falls back to
     any 2+ char token if a query is all stopwords (e.g. a bare 'who')."""
-    tokens = re.findall(r"[a-z0-9]+", query.lower())
+    tokens = words(query)
     terms = [t for t in tokens if len(t) >= 3 and t not in _STOPWORDS]
     return terms or [t for t in tokens if len(t) >= 2]
 

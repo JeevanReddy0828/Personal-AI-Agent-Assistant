@@ -32,6 +32,8 @@ from collections import Counter, OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from laptop_agent.terms import content_terms
+
 _ROLE_LABEL = {"user": "User", "assistant": "J.A.R.V.I.S"}
 
 # Character budgets per consumer (roughly chars/4 tokens). Routing stays lean so it
@@ -78,7 +80,6 @@ _COMMAND_VERBS = frozenset(
 )
 _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 _FENCE_OPEN = re.compile(r"^\s{0,3}(```|~~~)")
-_WORD = re.compile(r"[a-z0-9]+")
 
 # BM25 parameters (the usual defaults) and the size of the rolling summary.
 _BM25_K1 = 1.2
@@ -119,7 +120,7 @@ def normalize_history(history: list[dict[str, str]] | None) -> list[tuple[str, s
 
 
 def terms(text: str) -> list[str]:
-    return [token for token in _WORD.findall(text.lower()) if len(token) > 1 and token not in _STOPWORDS]
+    return content_terms(text, _STOPWORDS, 2)
 
 
 def refers_back(query: str) -> bool:

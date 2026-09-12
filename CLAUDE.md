@@ -288,6 +288,20 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             With no listener attached it denies immediately rather than waiting: nobody
             could answer, and waiting once took the test suite from 18s to 138s),
         memory.py, token_vault.py (DPAPI), config.py,
+        terms.py (the one word splitter the retrieval paths share — `knowledge`, `context`,
+            `tools.obsidian`, `tools.files`. Four near-identical tokenizers meant a fix
+            applied to one never reached the others: `knowledge` learned to keep
+            "J.A.R.V.I.S" whole, while a vault search for that exact title returned
+            **nothing** — and phrased as "what is J.A.R.V.I.S" it fell back to ranking on
+            "what"/"is" and matched an unrelated note. Session retrieval had no term at all
+            (`terms()` returned `[]`), and a file Q&A came back empty. Only the *splitting*
+            is shared: each caller keeps its own stopword list and minimum length, which
+            are tuned differently on purpose. `tools.files` borrows `collapse_acronyms`
+            alone and keeps its `[A-Za-z']+` pattern — measured over this repo's prose,
+            moving it onto `words()` changed 53 of 134 paragraphs, gaining 130 kinds of
+            version number ("2026", "120b", "404") and losing 52 contractions, because
+            "can't" splits at the apostrophe. Collapsing also turns "e.g." into "eg",
+            which every 3+ character caller drops and which carries no ranking weight),
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
 ```
@@ -610,8 +624,8 @@ Both Claude and Codex edit this repo. To avoid collisions:
 - **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
   they live only in gitignored `.env`).
 - GPU metrics need an elevated launch on this laptop (Optimus dGPU).
-- `context.py` carries its own tokenizer/stopword list — the repo's fifth copy (knowledge,
-  obsidian, files, copilot). Consolidate when any of them is next touched.
+- `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
+  "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
   discard those changes (`git checkout -- docs/review`) unless a review PR wants new evidence.
 - The user keeps durable project memory in an Obsidian vault at
