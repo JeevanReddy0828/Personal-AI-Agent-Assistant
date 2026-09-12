@@ -50,6 +50,51 @@ _NO_TOOL_CLAIMS = (
     "they already asked, so draw it now."
 )
 
+
+# A reply that is the model thinking out loud, not answering. Reported: the assistant
+# printed "The user is noting a discrepancy... I'll respond accordingly" instead of
+# responding.
+#
+# Measured cause: when a reasoning model is cut off mid-thought its reasoning arrives as
+# `content` rather than `reasoning_content`. The same prompt at 16/40/120/400 tokens all
+# came back "Okay, the user is pointing out a contradiction..." with finish_reason
+# "length"; at 900 it finished and answered properly. The fallback provider is the usual
+# way to reach this, because `_apply_provider_params` returns early for any non-NVIDIA
+# host, so OpenRouter's reasoning model never receives enable_thinking=False and thinks
+# by default inside a 900-token budget.
+#
+# The markers are deliberately narrow. "The user interface is..." and "The users table
+# has..." are ordinary sentences; only the third-person narration of the request itself
+# counts, and only at the very start.
+_THINKING_OPENERS = re.compile(
+    r"^\s*(?:okay|ok|alright|hmm|so)?[,\s]*"
+    r"(?:the user (?:is|wants|says|asks|seems|noting|pointing|expects|means)\b"
+    r"|we (?:need|should|must) to\b"
+    r"|i (?:need|should|have) to (?:respond|answer|reply|explain|clarify)\b"
+    r"|let me think\b"
+    r"|first,? i\b"
+    r"|the question is asking\b)",
+    re.IGNORECASE,
+)
+# A monologue that ran to completion usually ends by promising the answer it never gave.
+_THINKING_PLEDGE = re.compile(
+    r"\b(?:i(?:'?ll| will| should| am going to) (?:respond|answer|reply|explain|clarify|address)"
+    r"|let'?s (?:respond|answer)"
+    r"|so (?:i|we) (?:will|should) (?:respond|answer|say))\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_thinking(text: str, truncated: bool = False) -> bool:
+    """Whether this reply is the model narrating the request rather than answering it."""
+    candidate = (text or "").strip()
+    if not candidate or not _THINKING_OPENERS.match(candidate):
+        return False
+    # Opening this way and then being cut off is the measured signature. Opening this way
+    # and promising to answer is the completed version of the same failure.
+    return truncated or bool(_THINKING_PLEDGE.search(candidate[:600]))
+
+
 _PERSONA = (
     "You are J.A.R.V.I.S — a calm, capable, loyal AI assistant in the spirit of Tony Stark's J.A.R.V.I.S. "
     "Your manner: warm but never sycophantic, quietly confident, with light dry wit. You are concise and favor "
@@ -414,7 +459,20 @@ class OpenAICompatiblePlannerProvider:
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     data = json.loads(response.read().decode("utf-8"))
-                return str(data["choices"][0]["message"]["content"] or "")
+                choice = (data.get("choices") or [{}])[0]
+                content = str((choice.get("message") or {}).get("content") or "")
+                truncated = choice.get("finish_reason") == "length"
+                if looks_like_thinking(self._strip_reasoning(content), truncated):
+                    # Returning it would show the user the model's notes instead of an
+                    # answer. Empty means "this tier gave nothing", which the orchestrator
+                    # already handles by degrading to the next one.
+                    record_failure(
+                        "llm/monologue", "reply was the model thinking, not answering",
+                        model=payload.get("model"), truncated=truncated,
+                        preview=" ".join(content.split())[:120],
+                    )
+                    return ""
+                return content
             except urllib.error.HTTPError as exc:
                 last = exc
                 detail = ""
@@ -466,7 +524,11 @@ class OpenAICompatiblePlannerProvider:
 
     @staticmethod
     def _strip_reasoning(content: str) -> str:
-        return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+        cleaned = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE)
+        # A truncated reply leaves the tag open, and the pair regex above needs the close
+        # to match at all — so without this the whole chain of thought is shown.
+        cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+        return cleaned.strip()
 
     @classmethod
     def _extract_json(cls, content: str) -> dict | None:
