@@ -224,16 +224,28 @@ class KnowledgeBase:
         return merged
 
     @synchronized
-    def answer(self, question: str, limit: int = 6) -> dict[str, object]:
+    def answer(self, question: str, limit: int = 6, retrieval_query: str | None = None) -> dict[str, object]:
+        """``retrieval_query`` picks the document; ``question`` picks the passage inside it.
+
+        A follow-up is looked up in its standalone form ("… (referring to: J.A.R.V.I.S is
+        a local-first …)"), which is what finds the right document. Scoring passages with
+        that same text answers the *referent* instead of the question: it matched the
+        README's opening blurb almost verbatim and returned "J.A.R.V.I.S is a local-first
+        personal agent" to someone who asked which models it uses.
+        """
         terms = set(_content_terms(question))
         store = self._load()
         # Pick the documents with the ranking that knows about meaning, then pull sentences
         # from those. Scoring every sentence in the corpus by word overlap alone answered
         # "when should I pick a document store over tables" out of a README table, because
         # "store", "tables" and "pick" appear there.
-        ranked = self._search_unlocked(question, limit=4)
-        allowed = {row["id"] for row in ranked}
-        pool = [d for d in store["documents"] if d.get("id") in allowed] or store["documents"]
+        ranked = self._search_unlocked(retrieval_query or question, limit=4)
+        # In ranked order, not store order. `doc_index` below is used as the tiebreaker
+        # that decides which document the answer is quoted from, and it was carrying
+        # document-id order instead of relevance — so the ranking's decision was thrown
+        # away at the moment it was supposed to be honoured.
+        by_id = {d.get("id"): d for d in store["documents"]}
+        pool = [by_id[row["id"]] for row in ranked if row["id"] in by_id] or store["documents"]
         def lead_with_best() -> dict[str, object]:
             """Ranking found the document; sentence scoring cannot pick a line out of it
             when the question shares no word with it. Quote the opening instead."""
@@ -314,7 +326,12 @@ class KnowledgeBase:
         # whole thing incoherent. The ranking already decided which document answers this;
         # quoting across that decision only undoes it.
         ordered = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))
-        best_doc = ordered[0][1]
+        # Quote the highest-RANKED document that has a usable passage, not the one holding
+        # the highest-scoring passage. Picking by passage score re-decided the document
+        # and undid the ranking: asked which models the app uses, the README ranked first
+        # and the answer still came out of an NVIDIA RAG scrape, because a 24,000-character
+        # scrape that says "models" 36 times always outscores the file that says it once.
+        best_doc = min(candidate[1] for candidate in candidates)
         wanted = max(1, min(limit, 4))
         selected: list[tuple[float, int, int, dict[str, object]]] = []
         used_positions: set[int] = set()
