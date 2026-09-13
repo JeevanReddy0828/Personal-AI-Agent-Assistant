@@ -1549,8 +1549,10 @@ PAGE = r"""<!doctype html>
     let reply='', streamed='';
     const t0=performance.now(); let tFirst=0;
     currentAbort=new AbortController();currentRequest=crypto.randomUUID();
+    let myEpoch=ttsEpoch;                                // this turn's speech; a stop invalidates it
     try{
       const speakStream=voiceActive; if(speakStream)voiceTurnReset();
+      myEpoch=ttsEpoch;
       const r=await fetch('/api/stream',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({command:text,attachments:sent.map(a=>a.path),history,voice:speakStream})});
       if(!r.ok)throw new Error((await r.json()).message||'Request failed');
       const reader=r.body.getReader(), dec=new TextDecoder(); let buf='', done=null;
@@ -1563,7 +1565,7 @@ PAGE = r"""<!doctype html>
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
           if(ev.type==='token'){if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
           else if(ev.type==='reset'){streamed='';md.innerHTML='';ttsQueue=[];}
-          else if(ev.type==='tts'){if(speakStream)enqueueTTS(ev.text);}
+          else if(ev.type==='tts'){if(speakStream&&myEpoch===ttsEpoch)enqueueTTS(ev.text);}
           else if(ev.type==='approval'){showApproval(ev.request);}
           else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
         }
@@ -1589,7 +1591,7 @@ PAGE = r"""<!doctype html>
       if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed,at:Date.now()});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
-    finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply);}
+    finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply,myEpoch);}
     return reply;
   }
 
@@ -2108,10 +2110,10 @@ PAGE = r"""<!doctype html>
   // API, so voice records audio and uses the server (/api/transcribe + /api/tts).
   const NATIVE=location.search.indexOf('app=1')>=0;
   // Server speech: record here, transcribe on the server (hosted Parakeet ~1s, or a local
-  // engine). More accurate than the browser recognizer and it cannot hear the reply,
-  // because the microphone is only open while we choose to record — but it gives up
-  // spoken barge-in, so Space and Interrupt are how you cut in. Off means the browser's
-  // own recognizer, which is flakier but can be interrupted by voice.
+  // engine). More accurate than the browser recognizer. It has no recognizer running while
+  // we speak, so spoken barge-in works on microphone *level* instead (serverBargeStart):
+  // the mic stays open with echo cancellation and sustained sound above our own leakage
+  // cuts the reply off. Space and Interrupt remain the guaranteed manual fallback.
   let typeAnim=true;
   try{typeAnim=localStorage.getItem('jarvis_typeanim')!=='off';}catch(e){}
   let sttServer=false, sttEngine=null;
@@ -2133,7 +2135,7 @@ PAGE = r"""<!doctype html>
     const note=document.getElementById('sttNote');
     if(note)note.textContent=NATIVE?'The app window always transcribes on the server.'
       :!sttEngine?'No server engine installed — using the browser recognizer.'
-      :sttServer?(sttEngine+' — accurate, and it cannot hear itself. Press Space to cut in.')
+      :sttServer?(sttEngine+' — accurate. Just start talking to cut in, or press Space.')
       :(sttEngine+' available. The browser recognizer is flakier but can be interrupted by voice.');
   }
   (function(){
@@ -2173,9 +2175,14 @@ PAGE = r"""<!doctype html>
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
-  let ttsQueue=[], streamComplete=false, spokeAny=false;
+  // Bumped every time speech is stopped. A turn that is still streaming keeps sending
+  // `tts` events, and clearing the queue does not stop the next one arriving: pressing
+  // Space silenced the current sentence and then the reply carried straight on with the
+  // next. An event from a turn that was interrupted is dropped rather than spoken.
+  let ttsQueue=[], streamComplete=false, spokeAny=false, ttsEpoch=0;
   function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;speaking=false;}   // no cancel(): Chrome drops the next speak() if cancel() ran just before it
-  function voiceTurnDone(reply){
+  function voiceTurnDone(reply,epoch){
+    if(epoch!==undefined&&epoch!==ttsEpoch)return;        // this turn was interrupted; do not speak its reply
     streamComplete=true;
     if(!spokeAny){ if(reply){enqueueTTS(reply);} else { afterTurn(); } }   // no streamed sentences (e.g. a tool result) — speak the whole reply
     else pumpTTS();                                                        // resume check in case the queue already drained
@@ -2187,7 +2194,7 @@ PAGE = r"""<!doctype html>
     if(!ttsQueue.length){if(streamComplete)afterTurn();return;}
     speakChunk(ttsQueue.shift());
   }
-  function afterTurn(){if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay
+  function afterTurn(){bargeStop();if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay; release the barge mic before listening reopens it
   // What is actually worth saying out loud. A picture, a link target or a code block has
   // nothing speakable in it, and reading a URL aloud used to feed a garbled "slash api
   // slash image question mark name equals…" back into the microphone — which the echo
@@ -2244,9 +2251,96 @@ PAGE = r"""<!doctype html>
     return true;
   }
   function bargeReset(){bargeOff=false;bargeCount=0;bargeWindow=performance.now();}
-  function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}}
+  function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}serverBargeStop();}
+
+  // --- barge-in when speech is transcribed on the server -----------------------------
+  // Server STT records rather than running the browser recognizer, so there is no
+  // recognizer listening while we speak and nothing could interrupt by voice at all —
+  // `bargeStart` used to return immediately whenever `useServerStt()` was true, which is
+  // the default as soon as the server has an engine. Listen for *energy* instead: hold the
+  // microphone open with echo cancellation while J.A.R.V.I.S talks, learn how loud our own
+  // output still leaks through, and treat sustained sound well above that as the user
+  // starting to speak. The capture keeps running through the interruption, so the words
+  // said before the trigger are transcribed too — otherwise re-opening the microphone
+  // swallowed the first half of the sentence.
+  let sBarge=null;
+  function serverBargeStop(){
+    if(!sBarge)return;
+    const s=sBarge; sBarge=null;
+    try{s.proc.onaudioprocess=null;s.proc.disconnect();}catch(e){}
+    try{s.src.disconnect();}catch(e){}
+    try{s.ac.close();}catch(e){}
+    try{s.stream.getTracks().forEach(t=>t.stop());}catch(e){}
+  }
+  async function serverBargeStart(){
+    if(sBarge||!voiceActive||bargeOff||!navigator.mediaDevices)return;
+    const generation=voiceGeneration;
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
+    catch(e){return;}                                    // no microphone: Space and Interrupt still cut in
+    if(!voiceActive||generation!==voiceGeneration||!speaking){stream.getTracks().forEach(t=>t.stop());return;}
+    let ac;
+    try{ac=new (window.AudioContext||window.webkitAudioContext)();}
+    catch(e){stream.getTracks().forEach(t=>t.stop());return;}
+    const src=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();
+    sink.gain.value=0;                                   // a muted sink keeps the graph running without feedback
+    sBarge={stream,ac,src,proc};
+    barged=false;
+    const rate=ac.sampleRate||48000, MAX=rate*12;
+    const samples=[]; let held=0;
+    let floor=0.015, learned=0, loudMs=0, lastLoud=0, fired=false, firedAt=0;
+    const level=()=>Math.max(0.045,floor*2.2);           // never trust a threshold below room noise
+    const finishBarge=async()=>{
+      const chunks=samples.slice(); serverBargeStop();
+      if(!voiceActive||generation!==voiceGeneration)return;
+      vSet('thinking','Transcribing…');
+      let q='';
+      try{
+        const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({audio:encodeWavB64(flattenF32(chunks),rate),ext:'wav'})});
+        const d=await r.json(); q=(d.text||'').trim();
+      }catch(e){}
+      if(!voiceActive||generation!==voiceGeneration)return;
+      if(q.length<2||isEcho(q)){listen();return;}        // heard ourselves after all, or nothing usable
+      vtrans.textContent=q; vSet('thinking','Thinking');
+      send(q);
+    };
+    proc.onaudioprocess=e=>{
+      if(!sBarge)return;
+      const ch=e.inputBuffer.getChannelData(0);
+      samples.push(new Float32Array(ch)); held+=ch.length;
+      while(held>MAX&&samples.length>1){held-=samples[0].length;samples.shift();}
+      let peak=0;for(let i=0;i<ch.length;i+=4){const v=Math.abs(ch[i]);if(v>peak)peak=v;}
+      const now=performance.now();
+      if(!fired){
+        // The first frames are our own voice leaking past echo cancellation: measure it.
+        if(learned++<6){floor=Math.max(floor,peak);return;}
+        if(peak>level()){loudMs+=ch.length/rate*1000;lastLoud=now;}
+        else if(now-lastLoud>250)loudMs=0;               // a cough or a door is not a sentence
+        if(loudMs<220)return;
+        if(!bargeAllowed()){serverBargeStop();return;}
+        // Stop talking immediately. Not stopSpeaking(), which would tear down this very
+        // capture — the rest of what the user is saying still has to be recorded.
+        fired=true; barged=true; firedAt=now; lastLoud=now; ttsEpoch++;
+        try{speechSynthesis.cancel();}catch(_){}
+        try{if(activeAudio)activeAudio.pause();}catch(_){}
+        releaseAudio(); ttsQueue=[]; speaking=false; streamComplete=true;
+        if(busy)stopGen();
+        setCore('listening'); vSet('listening','Listening'); vtrans.textContent='Listening — go ahead';
+        return;
+      }
+      if(peak>level())lastLoud=now;
+      else if(now-lastLoud>1000)return finishBarge();     // ~1s of silence ends the sentence
+      if(now-firedAt>14000)finishBarge();                 // hard cap
+    };
+    try{src.connect(proc);proc.connect(sink);sink.connect(ac.destination);}
+    catch(e){serverBargeStop();}
+  }
+
   function bargeStart(){
-    if(!voiceActive||useServerStt()||!SR||bargeOff)return; bargeStop(); barged=false;
+    if(!voiceActive||bargeOff)return;
+    if(useServerStt()){serverBargeStart();return;}        // no recognizer to listen with — watch the microphone level
+    if(!SR)return; bargeStop(); barged=false;
     try{barge=new SR();}catch(e){return;}
     barge.lang='en-US';barge.interimResults=true;barge.continuous=true;
     barge.onresult=e=>{if(barged)return;let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;
@@ -2256,8 +2350,10 @@ PAGE = r"""<!doctype html>
     barge.onend=()=>{if(barge&&voiceActive&&speaking&&!barged){try{barge.start();}catch(e){}}};
     try{barge.start();}catch(e){}
   }
-  function stopSpeaking(){try{speechSynthesis.cancel();}catch(e){}ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
-  function interruptNow(){if(!voiceActive)return;bargeReset();stopSpeaking();vSet('listening','Listening');listen();}  // manual: stop speaking, listen (and trust the mic again)
+  function stopSpeaking(){ttsEpoch++;try{speechSynthesis.cancel();}catch(e){}try{if(activeAudio)activeAudio.pause();}catch(e){}releaseAudio();ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
+  // Manual cut-in: stop speaking AND stop generating, then listen. Without stopGen the
+  // reply kept being written server-side and its next sentence was spoken over the top.
+  function interruptNow(){if(!voiceActive)return;bargeReset();stopSpeaking();if(busy)stopGen();vSet('listening','Listening');listen();}
   function userInterrupt(q){if(!voiceActive)return;stopSpeaking();if(busy)stopGen();vSet('thinking','Thinking');setTimeout(()=>{if(voiceActive)send(q);},200);}  // spoken barge-in: abort any in-flight turn, then answer with context
   // --- voice timing HUD: marks where each turn spends time so latency is visible ---
   let vT0=0, vMarks=[];
@@ -2358,6 +2454,7 @@ PAGE = r"""<!doctype html>
   async function playTTS(text){
     const generation=voiceGeneration;
     speaking=true;
+    bargeStart();                                        // the app window can be interrupted by voice too
     const clean=speakable(text);
     if(!clean){speaking=false;pumpTTS();return;}
     rememberSpoken(clean);
@@ -2367,7 +2464,7 @@ PAGE = r"""<!doctype html>
       if(!r.ok)throw new Error('tts '+r.status);
       const bytes=await r.arrayBuffer();if(!voiceActive||generation!==voiceGeneration)return;
       releaseAudio();activeAudioURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));const a=activeAudio=new Audio(activeAudioURL);
-      a.onended=a.onerror=()=>{releaseAudio();speechEndedAt=performance.now();speaking=false;pumpTTS();};
+      a.onended=a.onerror=()=>{if(barged)return;releaseAudio();speechEndedAt=performance.now();speaking=false;pumpTTS();};
       vmark('speak');await a.play();
     }catch(e){speaking=false;pumpTTS();}
   }
@@ -2386,8 +2483,10 @@ PAGE = r"""<!doctype html>
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
     u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
-    u.onend=()=>{if(barged)return;bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
-    u.onerror=()=>{if(barged)return;bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};
+    // Keep the server-mode barge microphone open across sentences: reopening it per
+    // sentence costs a getUserMedia round trip and leaves a deaf gap between them.
+    u.onend=()=>{if(barged)return;if(!useServerStt())bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};   // next sentence, or resume listening when the queue drains
+    u.onerror=()=>{if(barged)return;if(!useServerStt())bargeStop();speechEndedAt=performance.now();speaking=false;pumpTTS();};
     speechSynthesis.speak(u);
   }catch(e){bargeStop();speaking=false;pumpTTS();}}
 
