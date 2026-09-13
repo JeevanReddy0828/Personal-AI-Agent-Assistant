@@ -321,7 +321,15 @@ def _resolve_vosk_model_path() -> str | None:
         return explicit
     bases = []
     if getattr(sys, "frozen", False):
+        # A model the user dropped beside the .exe wins over the bundled one.
         bases.append(Path(sys.executable).parent)
+        # ...but `--onefile` extracts `--add-data "models;models"` into _MEIPASS, not next
+        # to the executable, so without this the packaged app cannot see the model it
+        # ships with. `build_app_small.ps1` bundles Vosk *instead of* Whisper/PyTorch, so
+        # missing it left the small build with no working speech-to-text at all.
+        bundled = getattr(sys, "_MEIPASS", None)
+        if bundled:
+            bases.append(Path(bundled))
     bases.append(Path.cwd())
     bases.append(Path(__file__).resolve().parents[3])  # repo root (src/laptop_agent/tools/..)
     for base in bases:

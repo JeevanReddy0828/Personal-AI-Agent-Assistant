@@ -603,6 +603,17 @@ browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
 bundles the Vosk path for a far smaller `JARVIS.exe`.
 
+**A packaged app searches `sys._MEIPASS` too.** `--onefile` extracts `--add-data
+"models;models"` into the temporary `_MEIPASS` directory, *not* next to the executable, so
+`_resolve_vosk_model_path` looked only beside the .exe and never found the model the build
+had just bundled. Since the small build ships Vosk **instead of** Whisper/PyTorch, that
+left it with no working speech-to-text at all — and it is invisible to the unit suite,
+because it only exists in a frozen build. Verified against a real artifact: the model is an
+entry *inside* the exe and `dist/` holds nothing but `JARVIS.exe`. Order matters — a model
+the user drops beside the .exe still wins over the bundled one. Measured on a build with
+`torch`/`whisper` excluded: 3m40s to build, 162MB, boots and serves `/api/health` in 3s.
+Use `LAPTOP_AGENT_PORT` to test a packaged build without colliding with a running app.
+
 Riva selects its model by **function id**, never by a model name — an `OPENAI_SPEECH_MODEL`
 style variable reaches nothing. `parakeet-1.1b-rnnt-multilingual-asr`
 (`71203149-d3b7-4460-8231-1be2543a1fca`) is available and works, but measured on an English
