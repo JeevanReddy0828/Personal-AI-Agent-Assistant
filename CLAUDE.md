@@ -150,12 +150,26 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             enriched with `research.fetch_page_text`. Measured: 8 headlines, 3 with article
             text, in ~0.7s. A topic search is Google-only, so it gives headline + source +
             age without article text — still the story rather than a homepage),
-        document (`document <request> [as pdf|word|markdown]` — the model writes Markdown,
-            we render it: PDF through the same offline Chromium path as the resume export
-            (`render_html_to_pdf(..., single_page=False)`), Word through python-docx, or the
-            Markdown itself. Saved under `data_dir/documents/`, downloaded via
-            `/api/document?name=`. Note: the abandoned PyPI package named `docx` shadows
-            python-docx and fails on import — the failure message says so),
+        document (`document <request> [as pdf|word|powerpoint|markdown]` — the model writes
+            Markdown, we render it: PDF through the same offline Chromium path as the resume
+            export (`render_html_to_pdf(..., single_page=False)`), Word through python-docx,
+            PowerPoint through python-pptx, or the Markdown itself. Saved under
+            `data_dir/documents/`, downloaded via `/api/document?name=`. Note: the abandoned
+            PyPI package named `docx` shadows python-docx and fails on import — the failure
+            message says so.
+            **A deck names its format at the FRONT**, a document at the end. `split_format`
+            only ever looked for a tail ("… as a pdf"), so "create a ppt for sun and planets"
+            matched nothing, fell through to the default, and shipped a **PDF** for a request
+            that said PPT. `_DECK_HEAD` ("a ppt for X", "slides on X", "a deck for X") is
+            checked after the tail, and the same phrasing is mirrored in
+            `heuristic._DECK_ASK` — whose document route also required a trailing format, so
+            a deck request never routed instantly either. The heuristic passes the **whole
+            sentence** through as `document <text>` so the tool can still read the format
+            off it. A deck also gets its own prompt (`_DECK_PROMPT`): asked for slides
+            against the document prompt, the model writes essay paragraphs. `deck_outline`
+            turns `#` into the title slide and each `##` + bullets into a slide, drops a
+            heading with no body, and keeps a stray prose line as a bullet rather than
+            emitting an empty slide),
         imagegen (text-to-image via NVIDIA's hosted FLUX endpoint. Two guards live in
             `orchestrator._repair_image_command`, because the router does not resolve image
             subjects reliably: it emitted a users/orders/products **ERD** for "create an
