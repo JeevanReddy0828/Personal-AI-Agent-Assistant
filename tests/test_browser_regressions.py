@@ -452,3 +452,104 @@ class BrowserRegressions(unittest.TestCase):
         self.assertFalse(outcome["userSpeech"], "the user's own interruption must get through")
         self.assertFalse(outcome["shortWord"], "a single word must not be eaten as echo")
         self.assertFalse(outcome["empty"])
+
+    def test_stopping_speech_stops_the_rest_of_the_answer(self):
+        """Pressing Space silenced the sentence being spoken and then carried straight on
+        with the next one: the turn was still streaming, and clearing the queue did nothing
+        about the `tts` events still arriving. Drives the real send() loop against a
+        synthetic stream, so the epoch gate in the shipped code is what is under test."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10);
+                const spoken = [];
+                speechSynthesis.speak = (u) => { spoken.push(u.text); setTimeout(() => { if (u.onend) u.onend(); }, 5); };
+                listen = () => {};                       // the microphone is not what this tests
+                let push = null, close = null;
+                const realFetch = window.fetch;
+                window.fetch = (url, opts) => {
+                    if (String(url).indexOf('/api/stream') >= 0) {
+                        const body = new ReadableStream({ start(c) {
+                            const enc = new TextEncoder();
+                            push = (ev) => c.enqueue(enc.encode('data: ' + JSON.stringify(ev) + NL + NL));
+                            close = () => { try { c.close(); } catch (e) {} };
+                        }});
+                        return Promise.resolve(new Response(body, { status: 200 }));
+                    }
+                    return realFetch(url, opts);
+                };
+                voiceActive = true;
+                const turn = send('explain csv files');
+                await new Promise(r => setTimeout(r, 200));
+                push({ type: 'tts', text: 'First sentence of the answer.' });
+                await new Promise(r => setTimeout(r, 200));
+                const beforeStop = spoken.length;
+
+                interruptNow();                          // Space / the Interrupt button
+
+                push({ type: 'tts', text: 'Second sentence that must never be spoken.' });
+                push({ type: 'tts', text: 'Third sentence that must never be spoken.' });
+                push({ type: 'done', ok: true, message: 'A whole reply that must not be spoken either.' });
+                close();
+                await new Promise(r => setTimeout(r, 400));
+                try { await turn; } catch (e) {}
+                await new Promise(r => setTimeout(r, 300));
+                window.fetch = realFetch; voiceActive = false;
+                return { beforeStop: beforeStop, after: spoken.length, spoken: spoken };
+            }"""
+        )
+        self.assertEqual(outcome["beforeStop"], 1, "the first sentence should have been spoken")
+        self.assertEqual(
+            outcome["after"], 1,
+            "speech continued after the stop: " + repr(outcome["spoken"]),
+        )
+
+    def test_server_speech_can_be_interrupted_by_talking(self):
+        """Server STT records instead of running the browser recognizer, so `bargeStart`
+        returned immediately whenever `useServerStt()` was true — which is the default as
+        soon as the server has an engine. Nothing could interrupt by voice at all. Barge-in
+        now watches the microphone level, learning how loud our own output leaks past echo
+        cancellation before treating anything as the user."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const FRAME = 4096, RATE = 48000;
+                navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop() {} }] });
+                let proc = null;
+                window.AudioContext = function () {
+                    this.sampleRate = RATE;
+                    this.createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+                    this.createGain = () => ({ gain: { value: 0 }, connect() {}, disconnect() {} });
+                    this.createScriptProcessor = () => { proc = { onaudioprocess: null, connect() {}, disconnect() {} }; return proc; };
+                    this.close = () => {};
+                };
+                window.webkitAudioContext = window.AudioContext;
+                const feed = (peak, frames) => {
+                    for (let i = 0; i < frames; i++) {
+                        const ch = new Float32Array(FRAME);
+                        for (let j = 0; j < FRAME; j++) ch[j] = (j % 2) ? peak : -peak;
+                        proc.onaudioprocess({ inputBuffer: { getChannelData: () => ch } });
+                    }
+                };
+                sttServer = true; sttChosen = true; sttEngine = 'test-engine';   // the server-STT path
+                voiceActive = true; speaking = true; bargeReset();
+                bargeStart();
+                await new Promise(r => setTimeout(r, 60));
+                const armed = !!proc;
+                if (!armed) { voiceActive = false; speaking = false;
+                    return { armed: false, heldThroughOurOwnVoice: false, stopped: false }; }
+                const epoch0 = ttsEpoch;
+                feed(0.02, 6);                       // our own voice, learned as the floor
+                feed(0.02, 6);                       // still only us: must not trigger
+                const heldThroughOurOwnVoice = (ttsEpoch === epoch0 && speaking === true);
+                feed(0.35, 4);                       // the user starts talking
+                const stopped = (ttsEpoch > epoch0 && speaking === false);
+                try { bargeStop(); } catch (e) {}
+                voiceActive = false; speaking = false;
+                return { armed: armed, heldThroughOurOwnVoice: heldThroughOurOwnVoice, stopped: stopped };
+            }"""
+        )
+        self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
+        self.assertTrue(
+            outcome["heldThroughOurOwnVoice"],
+            "our own speech leaking into the mic triggered a barge-in",
+        )
+        self.assertTrue(outcome["stopped"], "talking over the reply did not stop it")

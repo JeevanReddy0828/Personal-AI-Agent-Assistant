@@ -536,6 +536,29 @@ for 400ms, and a third spoken interruption inside 25s turns spoken barge-in off 
 session. With open speakers full duplex is never fully reliable; Space and Interrupt are the
 manual fallback.
 
+**Stopping has to stop the turn, not just the sentence.** `stopSpeaking()` cleared the queue
+but the request was still streaming, and every later `tts` event was enqueued and spoken —
+so pressing Space silenced one sentence and the reply carried straight on with the next.
+Two things fix it and both are needed: `interruptNow()` now calls `stopGen()` as well (the
+spoken-barge-in path always did; the manual one never did), and a `ttsEpoch` counter,
+bumped by every stop, is captured when a turn starts streaming — `tts` events and
+`voiceTurnDone` from a superseded turn are dropped instead of spoken.
+
+**Barge-in in server-STT mode listens to level, not words.** `bargeStart` used to return
+immediately when `useServerStt()` was true, and since `setSttEngine` turns server STT on by
+default as soon as the server has an engine, *talking could not interrupt at all* — the gear
+note even promised "it cannot hear itself. Press Space to cut in." `serverBargeStart` now
+holds the microphone open (echoCancellation + noiseSuppression + autoGainControl) while
+J.A.R.V.I.S speaks, spends the first ~6 frames learning how loud our own output still leaks
+through, and treats **220ms of sustained sound above `max(0.045, floor*2.2)`** as the user.
+On trigger it cancels speech, clears the queue, bumps `ttsEpoch` and calls `stopGen()` —
+deliberately *not* `stopSpeaking()`, which would tear down the very capture still recording
+the rest of the sentence. The capture keeps running and is transcribed as the next turn, so
+the words said before the trigger are not lost (re-opening the mic swallowed them). It
+reuses the same three-strikes protection, and it works in the pywebview window too, which
+has no Web Speech API at all. The 0.045 floor is the one number worth re-tuning from real
+rooms: too low and the app hears itself, too high and a quiet voice cannot cut in.
+
 ## Running it
 
 ```powershell
@@ -596,8 +619,8 @@ falls back to `OPENAI_API_KEY`). It takes PCM WAV only, so `auto` skips it for o
 and a failed cloud call falls through to a local engine — losing the network costs quality,
 not the transcription. `/api/health` reports the chosen engine as `stt.engine`, and the web
 page uses that to record-and-post instead of trusting the browser's recognizer (a gear
-toggle overrides; server speech gives up spoken barge-in, since the recorder owns the mic,
-so Space/Interrupt cut in). The two local engines:
+toggle overrides; server speech has no recognizer running while we talk, so it barges in on
+microphone **level** instead — see below). The two local engines:
 **Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
 browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
