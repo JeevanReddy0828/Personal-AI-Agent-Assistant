@@ -238,7 +238,27 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             whichever spread is wider. Keyword hits still win on exact tokens — filenames,
             model ids, error codes. Documents saved before this existed have no vector:
             `knowledge reindex` backfills them in batches, skipping a failed batch rather
-            than aborting, and is idempotent), tasks.py (parallel + retry),
+            than aborting, and is idempotent.
+            **A follow-up is looked up in its standalone form**, like every other path:
+            `ask knowledge which models does it use` queried the index with the pronoun and
+            answered out of an NVIDIA RAG scrape, because the README says "model" 26 times
+            and "models" once while the scrape says "models" 36. `_dispatch_knowledge`
+            already received `history_turns` and ignored them. But the rewritten query
+            carries the referent, which matches the README's opening blurb almost verbatim
+            — scoring passages with it answered the *referent* instead of the question — so
+            `answer(question, retrieval_query=…)` splits the two: **the referent picks the
+            document, the question picks the passage inside it.**
+            The answer is quoted from the highest-**ranked** document that has a usable
+            passage, not the one holding the highest-scoring passage; `pool` is built in
+            ranked order because `doc_index` decides that, and it was carrying document ids.
+            Ranking changes measured over 13 queries with a known-correct document and
+            **rejected**: BM25 length normalisation drops top-1 from 10/13 to 8/13, sorting
+            by score instead of matched-term count drops it to 9/13, and plural folding plus
+            a bigger stopword list is a wash (fixes one query, breaks another). The
+            `matched`-first sort key is right — do not "improve" it without re-measuring.
+            Known limit: "models" does not match `OPENAI_MODEL`, so the passage chosen
+            inside the README is not the model table; closing that needs stemming, which
+            measured as the wash above), tasks.py (parallel + retry),
         workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
         agent loop — plan/act/observe/replan over any tool),
         advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
