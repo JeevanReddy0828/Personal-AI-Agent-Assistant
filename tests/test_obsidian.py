@@ -109,6 +109,35 @@ class ObsidianTests(unittest.TestCase):
             self.assertIn("Island", audit["missing_summary"])
             self.assertEqual(audit["broken_links"], [{"note": "Hub", "link": "Ghost"}])
 
+    def test_a_link_inside_code_is_not_a_link(self) -> None:
+        """The vault's own instruction note documents the convention — "every concept uses
+        `[[wikilinks]]`" — and was audited as pointing at a missing note called
+        "wikilinks"."""
+        with tempfile.TemporaryDirectory() as raw:
+            vault = ObsidianVault(raw)
+            vault.save_note(
+                "Conventions",
+                "---\nsummary: House rules.\n---\n"
+                "Every concept uses `[[wikilinks]]` so the graph is traversable.\n\n"
+                "```\nSee [[Fenced Example]] for the shape.\n```\n\n"
+                "A real link to [[Hub]].",
+                folder="",
+            )
+            vault.save_note("Hub", "---\nsummary: A hub.\n---\nThe hub.", folder="")
+            audit = vault.audit().data
+            self.assertEqual(audit["broken_links"], [])
+
+    def test_a_folder_qualified_link_resolves(self) -> None:
+        """Obsidian resolves ``[[Folder/Note]]`` to the note at that path. Keeping the
+        folder made the link audit as broken *and* left its target counted as an orphan."""
+        with tempfile.TemporaryDirectory() as raw:
+            vault = ObsidianVault(raw)
+            vault.save_note("Index", "---\nsummary: Index.\n---\nSee [[Logs/2026-07-02]].", folder="")
+            vault.save_note("2026-07-02", "---\nsummary: A day.\n---\nWhat happened.", folder="Logs")
+            audit = vault.audit().data
+            self.assertEqual(audit["broken_links"], [])
+            self.assertNotIn("2026-07-02", audit["orphans"])
+
 
 class MetricsTests(unittest.TestCase):
     def test_metrics_shape(self) -> None:

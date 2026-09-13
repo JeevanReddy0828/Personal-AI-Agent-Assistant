@@ -628,6 +628,11 @@ Both Claude and Codex edit this repo. To avoid collisions:
   "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
   discard those changes (`git checkout -- docs/review`) unless a review PR wants new evidence.
-- The user keeps durable project memory in an Obsidian vault at
-  `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem\Personal AI Agent`.
-  Keep those notes in sync when shipping features.
+- The user keeps durable project memory in an Obsidian vault. **The vault root is
+  `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem`** — that is where `.obsidian`
+  lives and what `OBSIDIAN_VAULT` is set to (53 notes). This project's notes are the ten
+  in its `Personal AI Agent\` subfolder; keep those in sync when shipping features.
+  Do **not** point `ObsidianVault` at that subfolder to audit it: wiki-links resolve
+  vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
+  broken when the tool only sees one folder. That mistake invented four broken links
+  that were never broken.

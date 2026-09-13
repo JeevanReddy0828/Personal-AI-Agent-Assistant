@@ -292,11 +292,38 @@ def _query_terms(query: str) -> list[str]:
     return terms or [t for t in tokens if len(t) >= 2]
 
 
+_FENCE = re.compile(r"^\s{0,3}(?:```|~~~)")
+_INLINE_CODE = re.compile(r"`[^`\n]*`")
+
+
+def _strip_code(text: str) -> str:
+    """Text with fenced blocks and inline code removed.
+
+    A note that *documents* the convention — "every concept uses `[[wikilinks]]`" — was
+    audited as linking to a missing note called "wikilinks". Code is prose about links,
+    not a link.
+    """
+    kept: list[str] = []
+    in_fence = False
+    for line in (text or "").splitlines():
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        kept.append("" if in_fence else _INLINE_CODE.sub("", line))
+    return "\n".join(kept)
+
+
 def _wikilinks(text: str) -> list[str]:
-    """Note names referenced by ``[[Name]]`` / ``[[Name|alias]]`` / ``[[Name#heading]]``."""
+    """Note names referenced by ``[[Name]]`` / ``[[Name|alias]]`` / ``[[Name#heading]]`` /
+    ``[[Folder/Name]]``.
+
+    Obsidian resolves a folder-qualified link to the note at that path, so only the last
+    segment names the note. Keeping the folder made ``[[Logs/2026-07-02]]`` audit as a
+    broken link *and* left the note it points at counted as an orphan.
+    """
     links = []
-    for raw in re.findall(r"\[\[([^\]]+)\]\]", text):
-        name = raw.split("|", 1)[0].split("#", 1)[0].strip()
+    for raw in re.findall(r"\[\[([^\]]+)\]\]", _strip_code(text)):
+        name = raw.split("|", 1)[0].split("#", 1)[0].rsplit("/", 1)[-1].strip()
         if name:
             links.append(name)
     return links

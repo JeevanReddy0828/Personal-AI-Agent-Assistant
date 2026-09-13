@@ -160,3 +160,20 @@ near-miss. Newest first.
 - **False resume confidence.** Lexical overlap approved invented employers and metrics.
   Export now requires exact source excerpts and grounded factual fields; generated
   application drafts explicitly require user review.
+
+- **Reported four broken vault links that were never broken.** Audited the vault by
+  pointing `ObsidianVault` at `…\Claude Mem\Personal AI Agent`, the *project subfolder*.
+  Obsidian resolves wiki-links across the whole vault, so `[[Memory log]]`,
+  `[[Concepts MOC]]`, `[[Obsidian Memory]]` and `[[Knowledge Base]]` — which live in
+  sibling folders — looked missing. All four exist, `.obsidian` sits at `Claude Mem`, and
+  `OBSIDIAN_VAULT` was already set correctly. Root cause: trusted a path written in
+  CLAUDE.md instead of reading the configured one. Fix/rule: resolve a vault through
+  `load_config().obsidian_vault`, and confirm a root by finding `.obsidian` before
+  concluding anything is missing. CLAUDE.md now records the root, not the subfolder.
+- **The audit's own link extractor produced both false positives it then found.**
+  Scanning the real vault turned up two genuine-looking failures, both wrong:
+  `` `[[wikilinks]]` `` inside inline code in a note that *documents* the convention was
+  read as a link to a missing note, and `[[Logs/2026-07-02]]` failed to resolve because
+  the folder prefix was kept — which also left its target counted as an orphan, so one
+  bug produced a contradiction (a note both linked and orphaned). Fix: `_wikilinks`
+  strips fenced/inline code first and takes the last path segment.
