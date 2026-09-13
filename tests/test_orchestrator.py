@@ -159,6 +159,65 @@ class OrchestratorTests(unittest.TestCase):
             memory = asyncio.run(orchestrator.handle("memory"))
             self.assertEqual(memory.data["memory"]["profile"]["name"], "Ada")
 
+    def test_forget_removes_a_remembered_fact(self) -> None:
+        """Anything it was told, it could never be told to drop: there was no `forget`, so a
+        wrong answer or a stray write stayed in "what do you remember about me?" forever."""
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            asyncio.run(orchestrator.handle("remember name = Ada"))
+            asyncio.run(orchestrator.handle("remember favourite editor = neovim"))
+
+            gone = asyncio.run(orchestrator.handle("forget favourite editor"))
+            self.assertTrue(gone.ok, gone.message)
+
+            memory = asyncio.run(orchestrator.handle("memory"))
+            profile = memory.data["memory"]["profile"]
+            self.assertNotIn("favourite editor", profile)
+            self.assertEqual(profile["name"], "Ada", "forgetting one fact dropped another")
+
+    def test_forget_matches_however_the_key_was_written(self) -> None:
+        """`remember` stores whatever shape the phrasing produced — "favourite editor" from
+        one sentence, "favorite_color" from another — so forgetting matches on the words."""
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            asyncio.run(orchestrator.handle("remember favorite_color = teal"))
+            gone = asyncio.run(orchestrator.handle("forget my favorite color"))
+            self.assertTrue(gone.ok, gone.message)
+            memory = asyncio.run(orchestrator.handle("memory"))
+            self.assertEqual(memory.data["memory"]["profile"], {})
+
+    def test_forgetting_something_unknown_says_what_is_stored(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            asyncio.run(orchestrator.handle("remember name = Ada"))
+            missing = asyncio.run(orchestrator.handle("forget shoe size"))
+            self.assertFalse(missing.ok)
+            self.assertIn("name", missing.message)
+
+    def test_forget_knowledge_still_clears_the_index(self) -> None:
+        """`forget <key>` is handled in _dispatch_meta, which runs before the knowledge
+        dispatcher — it must not swallow `forget knowledge`."""
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            orchestrator.context.knowledge.add("note.md", "The approval gate stops risky actions.")
+            cleared = asyncio.run(orchestrator.handle("forget knowledge"))
+            self.assertTrue(cleared.ok, cleared.message)
+            self.assertIn("removed", cleared.data)
+            self.assertEqual(orchestrator.context.knowledge.list_documents(), [])
+
+    def test_many_remembered_facts_are_listed_not_run_together(self) -> None:
+        """"Here's what I remember: a = 1, b = 2, …" stopped being readable past a few
+        facts, and it is read aloud in voice mode too."""
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            for key, value in (("name", "Ada"), ("favorite_color", "teal"),
+                               ("favorite_language", "Python"), ("favourite editor", "neovim")):
+                asyncio.run(orchestrator.handle(f"remember {key} = {value}"))
+            message = orchestrator._humanize(asyncio.run(orchestrator.handle("memory")))
+            self.assertIn("favorite color", message, "the underscore should not be read aloud")
+            self.assertEqual(message.count("- **"), 4, message)
+            self.assertNotIn(" = ", message)
+
     def test_search_files(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
