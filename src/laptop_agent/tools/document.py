@@ -16,17 +16,32 @@ Writer = Callable[[str], str]
 
 FORMATS = {"pdf": "application/pdf",
            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+           "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
            "md": "text/markdown; charset=utf-8"}
 # "as a word doc", "in pdf", "as markdown" — the format is usually the tail of the request.
 _FORMAT_WORDS = {
     "pdf": "pdf", "word": "docx", "docx": "docx", "doc": "docx",
     "markdown": "md", "md": "md", "text": "md",
+    "ppt": "pptx", "pptx": "pptx", "powerpoint": "pptx", "power point": "pptx",
+    "deck": "pptx", "slide deck": "pptx", "slides": "pptx", "slide": "pptx",
+    "presentation": "pptx",
 }
 _FORMAT_TAIL = re.compile(
     # ^ as well as \s+, so "document as a pdf" is recognised as having no subject at all
     # rather than being written up as a document about the words "as a pdf".
-    r"(?:^|\s+)(?:as|in|to|into)\s+(?:an?\s+)?(pdf|word(?:\s+doc(?:ument)?)?|docx|doc|markdown|md|text)"
+    r"(?:^|\s+)(?:as|in|to|into)\s+(?:an?\s+)?"
+    r"(pdf|word(?:\s+doc(?:ument)?)?|docx|doc|markdown|md|text"
+    r"|pptx|ppt|power\s*point|slide\s*deck|slides?|deck|presentation)"
     r"(?:\s+(?:file|doc|document|format))?\s*$",
+    re.IGNORECASE,
+)
+# A deck is named at the FRONT — "a ppt for the solar system", "slides on rust" — where a
+# document's format is named at the end. Asked to "create a ppt for sun and planets" the
+# tool wrote a PDF: "ppt" never appeared in a tail position, and nothing else looked for it.
+_DECK_HEAD = re.compile(
+    r"^(?:can\s+you\s+|please\s+)?(?:make|create|build|write|prepare|generate|do)?\s*(?:me\s+)?(?:an?\s+)?"
+    r"(?:pptx|ppt|power\s*point|slide\s*deck|slides|deck|presentation)"
+    r"(?:\s+(?:file|deck|presentation|slides))?\s+(?:for|on|about|of|covering|regarding)\s+(.+)$",
     re.IGNORECASE,
 )
 
@@ -38,6 +53,19 @@ _PROMPT = (
     "- Use `##` sections, short paragraphs, `-` bullets and Markdown tables where they earn "
     "their place.\n"
     "- Be specific and complete. Do not leave placeholders like [insert X]."
+)
+
+# A deck is not a document with page breaks. Asked for slides, the model writes essay
+# paragraphs unless it is told the shape it is writing into.
+_DECK_PROMPT = (
+    "Write the content of a slide deck about this:\n\n{spec}\n\n"
+    "Rules:\n"
+    "- Output Markdown only. No preamble, no commentary, no code fence around the whole thing.\n"
+    "- Start with a single `# Title` line. That becomes the title slide.\n"
+    "- Then one `## Slide heading` per slide, each followed by 3 to 5 `-` bullets.\n"
+    "- A bullet is a single line of at most about 14 words. No paragraphs, no tables, "
+    "no sub-bullets, no speaker notes.\n"
+    "- Between 6 and 10 slides. Be specific and concrete; no placeholders like [insert X]."
 )
 
 # A print stylesheet, not the app's: this is read on paper, so serif body text, real
@@ -68,13 +96,17 @@ def _slug(text: str, limit: int = 48) -> str:
 
 
 def split_format(spec: str, default: str = "pdf") -> tuple[str, str]:
-    """Pull a trailing format off the request: ('a report on rust', 'pdf')."""
+    """Pull the format off the request: ('a report on rust', 'pdf')."""
     text = (spec or "").strip()
     match = _FORMAT_TAIL.search(text)
-    if not match:
-        return text, default
-    word = re.sub(r"\s+doc(ument)?$", "", match.group(1).strip().lower())
-    return text[: match.start()].strip(), _FORMAT_WORDS.get(word, default)
+    if match:
+        word = re.sub(r"\s+doc(ument)?$", "", match.group(1).strip().lower())
+        word = re.sub(r"\s+", " ", word)
+        return text[: match.start()].strip(), _FORMAT_WORDS.get(word, default)
+    deck = _DECK_HEAD.match(text)
+    if deck:
+        return deck.group(1).strip(), "pptx"
+    return text, default
 
 
 def _inline(text: str) -> str:
@@ -171,6 +203,89 @@ def _title_of(md: str, fallback: str) -> str:
     return fallback
 
 
+def _plain(text: str) -> str:
+    """Markdown emphasis stripped — a slide shows the words, not the asterisks."""
+    text = re.sub(r"`([^`]*)`", r"\1", text or "")
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    return text.strip()
+
+
+def deck_outline(md: str) -> tuple[str, list[tuple[str, list[str]]]]:
+    """(deck title, [(slide heading, bullets)]) from the Markdown the model wrote.
+
+    Anything under a heading counts as a bullet even when the model forgot the dash, since
+    a slide with a heading and no body is worse than one with a prose line on it.
+    """
+    title = ""
+    slides: list[tuple[str, list[str]]] = []
+    current: tuple[str, list[str]] | None = None
+    for raw in (md or "").replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("```"):
+            continue
+        heading = re.match(r"^(#{1,4})\s+(.*)$", line)
+        if heading:
+            text = _plain(heading.group(2))
+            if len(heading.group(1)) == 1 and not title:
+                title = text
+                continue
+            if current:
+                slides.append(current)
+            current = (text, [])
+            continue
+        if current is None:
+            continue
+        bullet = re.match(r"^[-*+]\s+(.*)$", line)
+        text = _plain(bullet.group(1) if bullet else line)
+        if text:
+            current[1].append(text)
+    if current:
+        slides.append(current)
+    return title or "Presentation", [(head, bullets) for head, bullets in slides if bullets]
+
+
+def _write_pptx(md: str, out_path: Path) -> ToolResult:
+    try:
+        from pptx import Presentation  # type: ignore
+        from pptx.util import Pt
+    except ImportError as exc:
+        return ToolResult.failure(
+            f"PowerPoint export needs python-pptx and could not import it ({exc}). "
+            "Run: pip install python-pptx. Ask for it as a PDF instead and it works now."
+        )
+    title, slides = deck_outline(md)
+    if not slides:
+        return ToolResult.failure(
+            "The model did not return anything slide-shaped. Try again, or narrow the request."
+        )
+    deck = Presentation()
+    cover = deck.slides.add_slide(deck.slide_layouts[0])
+    cover.shapes.title.text = title
+    for placeholder in cover.placeholders:
+        if placeholder.placeholder_format.idx == 1:
+            placeholder.text = "J.A.R.V.I.S"
+    for heading, bullets in slides:
+        slide = deck.slides.add_slide(deck.slide_layouts[1])
+        slide.shapes.title.text = heading
+        frame = slide.placeholders[1].text_frame
+        frame.clear()
+        frame.word_wrap = True
+        for index, bullet in enumerate(bullets):
+            para = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+            para.text = bullet
+            para.level = 0
+            for run in para.runs:
+                run.font.size = Pt(18)
+    try:
+        deck.save(str(out_path))
+    except OSError as exc:
+        return ToolResult.failure(f"Could not save the presentation: {exc}")
+    count = len(slides) + 1
+    return ToolResult.success(f"Wrote {out_path.name} ({count} slides).", path=str(out_path), slides=count)
+
+
 def _write_docx(md: str, out_path: Path) -> ToolResult:
     try:
         from docx import Document  # type: ignore
@@ -262,7 +377,7 @@ class DocumentTool:
                 "What should the document say? Try 'document a one-page brief on our API rate limits as a pdf'."
             )
         if chosen not in FORMATS:
-            return ToolResult.failure(f"I can write pdf, docx or md — not {chosen}.")
+            return ToolResult.failure(f"I can write pdf, docx, pptx or md — not {chosen}.")
         if not self.available():
             return ToolResult.failure("Writing a document needs a language model, and none is configured.")
         if self._gate is not None:  # model call + a file on disk -> MEDIUM, like the image tool
@@ -274,7 +389,8 @@ class DocumentTool:
                 )
             )
         try:
-            body = (self._writer or (lambda _: ""))(_PROMPT.format(spec=request)) or ""
+            template = _DECK_PROMPT if chosen == "pptx" else _PROMPT
+            body = (self._writer or (lambda _: ""))(template.format(spec=request)) or ""
         except Exception as exc:  # a model outage must not raise out of a tool
             return ToolResult.failure(f"The model could not write that document: {exc}")
         body = body.strip()
@@ -290,6 +406,8 @@ class DocumentTool:
             result = ToolResult.success(f"Wrote {name}.", path=str(out_path))
         elif chosen == "docx":
             result = _write_docx(body, out_path)
+        elif chosen == "pptx":
+            result = _write_pptx(body, out_path)
         else:
             from laptop_agent.tools.resume_pdf import render_html_to_pdf
 
@@ -325,4 +443,5 @@ class DocumentTool:
             format=chosen,
             request=request,
             **({"pages": result.data["pages"]} if "pages" in result.data else {}),
+            **({"slides": result.data["slides"]} if "slides" in result.data else {}),
         )

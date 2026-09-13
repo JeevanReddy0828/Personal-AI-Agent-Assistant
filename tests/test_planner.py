@@ -18,6 +18,19 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "process file C:/reports/q3.pdf")
 
+    def test_routes_a_slide_deck_request(self) -> None:
+        """The document route needed a trailing format ("... as a pdf"), which a deck
+        request never has — so "create a ppt for sun and planets" fell through to the LLM
+        router, which asked for a document and got a PDF."""
+        decision = self.plan("can you create a ppt for sun and planets")
+        self.assertTrue(decision.is_command)
+        self.assertTrue(decision.command.startswith("document "), decision.command)
+        self.assertIn("ppt", decision.command, "the format word has to survive for the tool to read it")
+
+    def test_a_question_about_presentations_is_not_a_deck_request(self) -> None:
+        decision = self.plan("what makes a good presentation")
+        self.assertFalse(decision.is_command and (decision.command or "").startswith("document "))
+
     def test_routes_whats_in_file(self) -> None:
         decision = self.plan("what's in budget.csv")
         self.assertTrue(decision.is_command)

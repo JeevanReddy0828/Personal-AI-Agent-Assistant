@@ -4,6 +4,17 @@ import re
 
 from laptop_agent.planner.core import PlanDecision
 
+# "a ppt for the solar system", "slides on rust" — a deck names its format at the front,
+# where a document names it at the end ("... as a pdf"). Kept in step with
+# `tools.document._DECK_HEAD`, which is what actually splits the subject off.
+_DECK_ASK = re.compile(
+    r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?"
+    r"(?:make|create|build|write|prepare|generate|do)?\s*(?:me\s+)?(?:an?\s+)?"
+    r"(?:pptx|ppt|power\s*point|slide\s*deck|slides|deck|presentation)"
+    r"(?:\s+(?:file|deck|presentation|slides))?\s+(?:for|on|about|of|covering|regarding)\s+\S",
+    re.IGNORECASE,
+)
+
 
 # --- Is this a plain question, or a request to do something? -------------------------
 # Asking a model to classify a question costs a round-trip and carries the whole command
@@ -581,10 +592,15 @@ class HeuristicPlannerProvider:
         """'write a report on X as a pdf' -> the document tool. The named format is what
         separates this from an ordinary request to write something in the chat."""
         if not re.search(
-            r"\b(?:as|in|to|into)\s+(?:an?\s+)?(?:pdf|word|docx|doc|markdown|md)"
+            r"\b(?:as|in|to|into)\s+(?:an?\s+)?(?:pdf|word|docx|doc|markdown|md|pptx|ppt"
+            r"|power\s*point|slide\s*deck|slides?|deck|presentation)"
             r"(?:\s+(?:file|doc|document|format))?\s*$",
             text, re.IGNORECASE,
         ):
+            # A deck names its format at the front instead — "a ppt for the solar system".
+            # Pass the whole sentence through so the tool can still read the format off it.
+            if _DECK_ASK.match(text or ""):
+                return self._command(f"document {text.strip()}", "User wants a slide deck file.", 0.85)
             return None
         match = re.match(
             r"^\s*(?:can you |could you |please )?"

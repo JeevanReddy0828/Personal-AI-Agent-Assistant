@@ -6,7 +6,19 @@ from pathlib import Path
 
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.document import DocumentTool, markdown_to_html, split_format
+from laptop_agent.tools.document import DocumentTool, deck_outline, markdown_to_html, split_format
+
+DECK = """# The Sun and the Planets
+
+## The Sun
+- A G2V star holding 99.86% of the system's mass
+- Fuses **hydrogen** into helium at about 15 million kelvin
+
+## Mercury
+- Smallest planet and closest to the Sun
+- One orbit takes 88 Earth days
+- No substantial atmosphere
+"""
 
 SAMPLE = """# Rate Limit Brief
 
@@ -29,6 +41,27 @@ class FormatParsingTests(unittest.TestCase):
         self.assertEqual(split_format("a brief as a word doc"), ("a brief", "docx"))
         self.assertEqual(split_format("a brief as markdown"), ("a brief", "md"))
         self.assertEqual(split_format("a brief in docx format"), ("a brief", "docx"))
+
+    def test_a_deck_names_its_format_at_the_front(self) -> None:
+        """Asked to "create a ppt for sun and planets" the tool wrote a PDF: the format was
+        only ever looked for in a tail position ("... as a pdf"), and a deck is not asked
+        for that way."""
+        self.assertEqual(split_format("a ppt for sun and planets"), ("sun and planets", "pptx"))
+        self.assertEqual(split_format("can you create a ppt for sun and planets"), ("sun and planets", "pptx"))
+        self.assertEqual(split_format("slides on rust ownership"), ("rust ownership", "pptx"))
+        self.assertEqual(split_format("make me a powerpoint on photosynthesis"), ("photosynthesis", "pptx"))
+        self.assertEqual(split_format("a deck for Q4 planning"), ("Q4 planning", "pptx"))
+
+    def test_a_deck_named_at_the_tail_still_works(self) -> None:
+        self.assertEqual(split_format("the water cycle as a presentation"), ("the water cycle", "pptx"))
+        self.assertEqual(split_format("Q4 planning as slides"), ("Q4 planning", "pptx"))
+
+    def test_a_document_request_is_not_mistaken_for_a_deck(self) -> None:
+        self.assertEqual(split_format("a report on rust as a pdf"), ("a report on rust", "pdf"))
+        self.assertEqual(
+            split_format("a one page brief on presentation skills"),
+            ("a one page brief on presentation skills", "pdf"),
+        )
 
     def test_no_format_keeps_the_whole_request_and_the_default(self) -> None:
         self.assertEqual(split_format("a brief on rate limits"), ("a brief on rate limits", "pdf"))
@@ -98,7 +131,7 @@ class DocumentToolTests(unittest.TestCase):
     def test_an_unsupported_format_is_refused_clearly(self) -> None:
         result = self.tool().create("a brief", fmt="xlsx")
         self.assertFalse(result.ok)
-        self.assertIn("pdf, docx or md", result.message)
+        self.assertIn("pdf, docx, pptx or md", result.message)
 
     def test_without_a_model_it_says_so(self) -> None:
         result = DocumentTool(data_dir=self.data_dir).create("a brief as markdown")
@@ -154,6 +187,91 @@ class DocumentToolTests(unittest.TestCase):
         with self.assertRaises(ApprovalDenied):
             tool.create("a brief as markdown")
         self.assertEqual(calls, [])
+
+
+class DeckOutlineTests(unittest.TestCase):
+    def test_headings_become_slides_and_bullets_become_lines(self) -> None:
+        title, slides = deck_outline(DECK)
+        self.assertEqual(title, "The Sun and the Planets")
+        self.assertEqual([head for head, _ in slides], ["The Sun", "Mercury"])
+        self.assertEqual(len(slides[1][1]), 3)
+
+    def test_emphasis_is_stripped_so_a_slide_shows_words_not_asterisks(self) -> None:
+        _title, slides = deck_outline(DECK)
+        self.assertIn("Fuses hydrogen into helium at about 15 million kelvin", slides[0][1])
+
+    def test_a_heading_with_no_bullets_is_not_an_empty_slide(self) -> None:
+        _title, slides = deck_outline("# T\n\n## Empty\n\n## Real\n- a point\n")
+        self.assertEqual([head for head, _ in slides], ["Real"])
+
+    def test_prose_under_a_heading_still_becomes_a_line(self) -> None:
+        """The model does sometimes forget the dash. A heading with a paragraph under it is
+        a worse slide than one with a prose line on it, but it is not an empty one."""
+        _title, slides = deck_outline("# T\n\n## Overview\nThe solar system has eight planets.\n")
+        self.assertEqual(slides[0][1], ["The solar system has eight planets."])
+
+
+class PowerPointTests(unittest.TestCase):
+    """Asked for a PPT, the tool produced a PDF — there was no PowerPoint format at all."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.data_dir = Path(self._dir.name)
+
+    def tool(self, writer=lambda prompt: DECK) -> DocumentTool:
+        return DocumentTool(data_dir=self.data_dir, writer=writer)
+
+    def test_the_deck_prompt_asks_for_slides_not_prose(self) -> None:
+        seen = []
+        self.tool(writer=lambda prompt: (seen.append(prompt), DECK)[1]).create("a ppt for sun and planets")
+        self.assertIn("slide deck", seen[0])
+        self.assertIn("sun and planets", seen[0])
+        self.assertNotIn("Markdown tables", seen[0], "that is the document prompt, not the deck one")
+
+    def test_a_real_pptx_is_written(self) -> None:
+        try:
+            from pptx import Presentation  # type: ignore
+        except ImportError:
+            self.skipTest("python-pptx is not installed")
+        result = self.tool().create("a ppt for sun and planets")
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(result.data["format"], "pptx")
+        path = Path(result.data["document"])
+        self.assertEqual(path.suffix, ".pptx")
+
+        deck = Presentation(str(path))
+        self.assertEqual(len(deck.slides), 3, "a title slide plus one per heading")
+        self.assertEqual(deck.slides[0].shapes.title.text, "The Sun and the Planets")
+        self.assertEqual(deck.slides[1].shapes.title.text, "The Sun")
+        body = [s.text_frame.text for s in deck.slides[2].shapes if s.has_text_frame][1]
+        self.assertIn("88 Earth days", body)
+
+    def test_a_deck_with_no_slides_writes_no_file(self) -> None:
+        result = self.tool(writer=lambda prompt: "Sorry, I cannot help with that.").create(
+            "a ppt for sun and planets"
+        )
+        self.assertFalse(result.ok)
+        self.assertEqual(list(self.data_dir.glob("documents/*.pptx")), [])
+
+    def test_without_python_pptx_it_names_the_library(self) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def no_pptx(name, *args, **kwargs):
+            if name == "pptx" or name.startswith("pptx."):
+                raise ImportError("No module named 'pptx'")
+            return real_import(name, *args, **kwargs)
+
+        builtins.__import__ = no_pptx
+        try:
+            result = self.tool().create("a ppt for sun and planets")
+        finally:
+            builtins.__import__ = real_import
+        self.assertFalse(result.ok)
+        self.assertIn("python-pptx", result.message)
+        self.assertIn("pip install", result.message)
 
 
 if __name__ == "__main__":
