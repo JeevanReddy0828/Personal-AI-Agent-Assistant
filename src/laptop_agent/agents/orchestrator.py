@@ -599,6 +599,11 @@ class AgentOrchestrator:
         if lowered.startswith("remember "):
             return self._remember(command[len("remember ") :])
 
+        # "forget knowledge" clears the document index and belongs to _dispatch_knowledge,
+        # which runs after this one.
+        if lowered.startswith("forget ") and lowered != "forget knowledge":
+            return self._forget(command[len("forget ") :])
+
         if lowered in {"memory", "show memory"}:
             return ToolResult.success("Memory loaded.", memory=self.context.memory.dump())
 
@@ -1599,6 +1604,7 @@ class AgentOrchestrator:
             [
                 "Commands:",
                 "  remember <key> = <value>",
+                "  forget <key>",
                 "  memory",
                 "  audit",
                 "  briefing",
@@ -1977,6 +1983,7 @@ class AgentOrchestrator:
         "read note <name>",
         "save note <title> : <body>",
         "remember <key> = <value>",
+        "forget <key>",
         # web & research
         "web search <query>",
         "news [topic]",
@@ -3007,9 +3014,16 @@ class AgentOrchestrator:
             return f"You have {len(docs)} document(s) indexed: " + ", ".join(str(d.get("source", "")) for d in docs[:6]) + "."
         if isinstance(data.get("memory"), dict):
             profile = data["memory"].get("profile", {})
-            if profile:
-                return "Here's what I remember: " + ", ".join(f"{k} = {v}" for k, v in profile.items()) + "."
-            return "I don't have anything saved about you yet."
+            if not profile:
+                return "I don't have anything saved about you yet."
+            # One run-on "k = v, k = v, …" sentence stopped being readable the moment there
+            # were more than a few facts, and it is read aloud in voice mode too.
+            if len(profile) > 3:
+                lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
+                return f"Here's what I remember about you:\n" + "\n".join(lines)
+            return "Here's what I remember: " + ", ".join(
+                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())
+            ) + "."
         return result.message
 
     def _remember(self, expression: str) -> ToolResult:
@@ -3032,6 +3046,26 @@ class AgentOrchestrator:
         self.context.memory.set_profile_value(key, value)
         self._mirror_to_vault(f"{key}: {value}")
         return ToolResult.success(f"Remembered profile value: {key}")
+
+    def _forget(self, raw: str) -> ToolResult:
+        key = raw.strip().strip("'\"?.")
+        for prefix in ("my ", "that ", "about me ", "the "):
+            if key.lower().startswith(prefix):
+                key = key[len(prefix) :].strip()
+        if not key:
+            return ToolResult.failure("Use: forget <key>  (for example: forget favourite editor)")
+        removed = self.context.memory.forget_profile_value(key)
+        if removed is not None:
+            return ToolResult.success(f"Forgotten: {removed}", forgot=removed)
+        profile = self.context.memory.get_profile()
+        if not profile:
+            return ToolResult.failure("There is nothing saved about you yet.")
+        # Name what is actually there rather than just refusing — the stored key is often
+        # not spelled the way it gets asked for.
+        return ToolResult.failure(
+            f"I have nothing saved under '{key}'. I do know: " + ", ".join(sorted(profile)) + ".",
+            profile=profile,
+        )
 
     def _mirror_to_vault(self, text: str) -> None:
         if self.context.obsidian.available():
