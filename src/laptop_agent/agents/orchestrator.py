@@ -26,8 +26,10 @@ from laptop_agent.context import (
     accepts_context_query,
     build_context,
     context_block,
+    normalize_history,
     refers_back,
     register_summarizer,
+    resolve_reference,
     topic_of,
 )
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
@@ -744,10 +746,10 @@ class AgentOrchestrator:
             return self._knowledge_search(command[len("knowledge search ") :].strip())
 
         if lowered.startswith("ask knowledge "):
-            return self._knowledge_answer(command[len("ask knowledge ") :].strip())
+            return self._knowledge_answer(command[len("ask knowledge ") :].strip(), history_turns)
 
         if lowered.startswith("answer from knowledge "):
-            return self._knowledge_answer(command[len("answer from knowledge ") :].strip())
+            return self._knowledge_answer(command[len("answer from knowledge ") :].strip(), history_turns)
 
         if lowered.startswith("recall "):
             return self._knowledge_search(command[len("recall ") :].strip())
@@ -2688,11 +2690,29 @@ class AgentOrchestrator:
             return ToolResult.failure("Use: ask file <path> about <question>")
         return self.context.files.answer_question(path, question)
 
-    def _knowledge_answer(self, question: str) -> ToolResult:
+    @staticmethod
+    def _standalone_question(question: str, history: list[dict[str, str]] | None) -> str:
+        """A follow-up rewritten to name what it refers to, for retrieval only.
+
+        Every other path already does this — the router, the chat tiers, the agent and
+        the advisor all search on `session.query` rather than the bare fragment. The
+        knowledge base did not, so "ask knowledge which models does it use" queried the
+        index with the pronoun, ranked on "models" alone, and answered out of an NVIDIA
+        RAG scrape that says "models" 36 times. The README says "model" 26 times and
+        "models" once, so the document that actually answers the question placed nowhere.
+        """
+        if not history or not refers_back(question):
+            return question
+        rewritten, _turn = resolve_reference(question, normalize_history(history))
+        return rewritten or question
+
+    def _knowledge_answer(self, question: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = question.strip().strip("'\"?")
         if not cleaned:
             return ToolResult.failure("Use: ask knowledge <question>")
-        answer = self.context.knowledge.answer(cleaned)
+        answer = self.context.knowledge.answer(
+            cleaned, retrieval_query=self._standalone_question(cleaned, history)
+        )
         if not answer.get("ok"):
             return ToolResult.failure(
                 f"I could not answer from indexed knowledge: {answer.get('reason', 'no relevant text')}.",
