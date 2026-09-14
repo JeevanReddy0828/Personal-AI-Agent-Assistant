@@ -453,6 +453,61 @@ class BrowserRegressions(unittest.TestCase):
         self.assertFalse(outcome["shortWord"], "a single word must not be eaten as echo")
         self.assertFalse(outcome["empty"])
 
+    def test_sending_works_without_a_secure_context(self):
+        """Reached over http on a LAN address — how a phone reaches it — the page is not a
+        secure context and `crypto.randomUUID` is undefined. send() called it on its first
+        line, threw, and the send button did nothing: no request, no error, no clue."""
+        outcome = self.page.evaluate(
+            """async () => {
+                // randomUUID lives on Crypto.prototype, so `delete crypto.randomUUID` does
+                // nothing and the test passes against the bug. Shadow it on the instance.
+                const saved = Object.getPrototypeOf(crypto).randomUUID;
+                Object.defineProperty(crypto, 'randomUUID', {value: undefined, configurable: true});
+                if (typeof crypto.randomUUID === 'function') {
+                    return { wellFormed: false, threw: 'could not simulate an insecure context', reachedTheServer: null, id: '' };
+                }
+                const id = uuid();
+                let called = null;
+                const realFetch = window.fetch;
+                window.fetch = (url, opts) => {
+                    if (String(url).indexOf('/api/stream') >= 0) {
+                        called = String(url);
+                        return Promise.resolve(new Response('', {status: 200}));
+                    }
+                    return realFetch(url, opts);
+                };
+                let threw = null;
+                try { await send('hello'); } catch (e) { threw = String(e); }
+                window.fetch = realFetch;
+                Object.defineProperty(crypto, 'randomUUID', {value: saved, configurable: true});
+                return { id: id, wellFormed: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id),
+                         reachedTheServer: called, threw: threw };
+            }"""
+        )
+        self.assertTrue(outcome["wellFormed"], "uuid() fallback produced " + repr(outcome["id"]))
+        self.assertIsNone(outcome["threw"], "send() threw without crypto.randomUUID")
+        self.assertIsNotNone(outcome["reachedTheServer"], "the message never left the page")
+
+    def test_copying_works_without_a_secure_context(self):
+        """navigator.clipboard is also absent outside a secure context. One Copy button
+        used it unguarded and reported 'Blocked' on a phone."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const saved = navigator.clipboard;
+                try {
+                    Object.defineProperty(navigator, 'clipboard', {value: undefined, configurable: true});
+                    const ok = await copyText('some text');
+                    return { returned: typeof ok, threw: null };
+                } catch (e) {
+                    return { returned: null, threw: String(e) };
+                } finally {
+                    Object.defineProperty(navigator, 'clipboard', {value: saved, configurable: true});
+                }
+            }"""
+        )
+        self.assertIsNone(outcome["threw"], "copyText threw without navigator.clipboard")
+        self.assertEqual(outcome["returned"], "boolean")
+
     def test_stopping_speech_stops_the_rest_of_the_answer(self):
         """Pressing Space silenced the sentence being spoken and then carried straight on
         with the next one: the turn was still streaming, and clearing the queue did nothing

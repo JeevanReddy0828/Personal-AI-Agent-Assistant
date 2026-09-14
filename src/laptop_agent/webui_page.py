@@ -1089,8 +1089,7 @@ PAGE = r"""<!doctype html>
       const stamp=()=>new Date().toISOString().slice(0,10);
       bar.appendChild(actionBtn('Copy','Copy the table as tab-separated text',async b=>{
         const text=tableToRows(table).map(r=>r.join('\t')).join('\n');
-        try{await navigator.clipboard.writeText(text);flash(b,'Copied');}
-        catch(e){flash(b,'Blocked');}
+        flash(b, (await copyText(text)) ? 'Copied' : 'Blocked');
       }));
       bar.appendChild(actionBtn('CSV','Download the table as a CSV file, ready for Excel',b=>{
         download('table-'+stamp()+'.csv','text/csv;charset=utf-8',toCSV(tableToRows(table)));flash(b,'Saved');
@@ -1380,7 +1379,7 @@ PAGE = r"""<!doctype html>
   // Incognito: the session lives in memory only. saveSessions() never writes it, so it is
   // gone on reload and never reaches localStorage.
   function newSession(ghost){
-    const s={id:crypto.randomUUID(),title:'',msgs:[]};
+    const s={id:uuid(),title:'',msgs:[]};
     if(ghost)s.ghost=true;
     sessions.unshift(s);current=s.id;
     document.body.classList.toggle('ghosting',!!ghost);
@@ -1402,12 +1401,35 @@ PAGE = r"""<!doctype html>
   document.getElementById('newChat').onclick=()=>{newSession();closeChats();};
   document.getElementById('newGhost').onclick=()=>{newSession(true);closeChats();hint.textContent='Incognito chat — this conversation is not saved in this browser.';};
 
+  // --- things that only exist in a SECURE context --------------------------------------
+  // Reached over http on a LAN address — which is how a phone reaches it — the page is not
+  // a secure context: `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
+  // are all undefined. send() called crypto.randomUUID() on its first line, threw, and the
+  // send button did nothing at all: no request, no error, no clue. Only localhost and https
+  // qualify, so this cannot be fixed by configuration.
+  function uuid(){
+    if(typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const b = new Uint8Array(16);
+    if(typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(b);  // fine on http
+    else for(let i=0;i<16;i++) b[i] = Math.floor(Math.random()*256);
+    b[6]=(b[6]&0x0f)|0x40; b[8]=(b[8]&0x3f)|0x80;                       // shape it as a v4
+    const h=Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
+    return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+  }
+  function copyText(text){
+    if(navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(()=>true,()=>false);
+    try{  // the old selection trick still works without a secure context
+      const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;opacity:0';
+      document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();
+      return Promise.resolve(true);
+    }catch(e){ return Promise.resolve(false); }
+  }
+
   /* messages */
   function clearEmpty(){const e=chat.querySelector('.empty');if(e)e.remove();}
   function copyOut(text,btn){
     const done=ok=>{if(btn){btn.textContent=ok?'✓ Copied':'Copy failed';setTimeout(()=>btn.textContent='⧉ Copy',1200);}};
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));}
-    else{try{const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();done(true);}catch(e){done(false);}}
+    copyText(text).then(done);
   }
   // A replayed message must show when it was sent, not when the page was reloaded, so
   // the moment is stored with the message and passed back in here.
@@ -1548,7 +1570,7 @@ PAGE = r"""<!doctype html>
     md.innerHTML='<span class="think" role="status" aria-label="Working"><i></i></span>'+(predicted==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':predicted==='smart'?'<span class="tiernote">smart model</span>':'');
     let reply='', streamed='';
     const t0=performance.now(); let tFirst=0;
-    currentAbort=new AbortController();currentRequest=crypto.randomUUID();
+    currentAbort=new AbortController();currentRequest=uuid();
     let myEpoch=ttsEpoch;                                // this turn's speech; a stop invalidates it
     try{
       const speakStream=voiceActive; if(speakStream)voiceTurnReset();
@@ -1607,7 +1629,7 @@ PAGE = r"""<!doctype html>
     trace.innerHTML='<div class="thead"><span class="gdot"></span> Agent · planning…</div>';
     md.innerHTML='';md.appendChild(trace);
     let reply='';
-    currentAbort=new AbortController();currentRequest=crypto.randomUUID();
+    currentAbort=new AbortController();currentRequest=uuid();
     try{
       const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Request':currentRequest},signal:currentAbort.signal,body:JSON.stringify({goal,history})});
       if(!r.ok)throw new Error((await r.json()).message||'Request failed');
@@ -2416,7 +2438,14 @@ PAGE = r"""<!doctype html>
     const generation=voiceGeneration;
     let stream;
     try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});}
-    catch(e){recognizing=false;vSet('idle','Mic blocked');vtrans.textContent='Microphone permission is needed for voice.';return;}
+    catch(e){recognizing=false;vSet('idle','Mic blocked');
+      // Over http on a LAN address there is no microphone to permit: the browser removes
+      // navigator.mediaDevices outside a secure context, so blaming permissions sends
+      // people to a settings screen that cannot fix it.
+      vtrans.textContent = window.isSecureContext
+        ? 'Microphone permission is needed for voice.'
+        : 'Voice needs a secure connection. Over http on a network address the browser blocks the microphone entirely — open J.A.R.V.I.S on the computer itself for voice.';
+      return;}
     if(!voiceActive||generation!==voiceGeneration){stream.getTracks().forEach(t=>t.stop());recognizing=false;return;}
     const ac=new (window.AudioContext||window.webkitAudioContext)();
     const srcN=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();

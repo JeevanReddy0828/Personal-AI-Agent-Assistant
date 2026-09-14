@@ -603,9 +603,21 @@ In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_l
 DNS rebinding needs a domain the attacker controls, so refusing names is what makes
 widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
 
-Two things this does **not** give you. Voice will not work: `http://<ip>` is not a secure
-context, so Safari and Chrome refuse `getUserMedia` — only HTTPS or `localhost` qualify,
-and a self-signed certificate is not enough for the microphone. And both HTML pages are
+**Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
+browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
+outright. `send()` called `crypto.randomUUID()` on its first line, threw
+`TypeError: crypto.randomUUID is not a function`, and the send button did nothing at all —
+no request, no error, no clue — which is exactly how it was reported. `uuid()` falls back
+to `crypto.getRandomValues` (which *is* available on http) and `copyText()` to the
+`execCommand('copy')` selection trick; use those, never the originals. Note the test trap:
+`randomUUID` lives on `Crypto.prototype`, so `delete crypto.randomUUID` does nothing and a
+guard written that way passes against the bug — shadow it on the instance with
+`Object.defineProperty`.
+
+Voice still will not work: `getUserMedia` has no fallback, only HTTPS or `localhost`
+qualify, and a self-signed certificate is not enough for the microphone. The failure now
+says so instead of blaming permissions, which sent people to a settings screen that cannot
+fix it. And both HTML pages are
 sent `Cache-Control: no-store`, because they carry a per-process script nonce: a cached
 copy outlives the process, and after a restart every script on the page is silently
 blocked by the CSP — the unlock form simply stopped responding to Enter, with nothing in
