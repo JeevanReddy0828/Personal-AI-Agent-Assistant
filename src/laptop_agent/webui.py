@@ -21,6 +21,7 @@ from laptop_agent.cancellation import operation, cancel, check_cancelled, Operat
 import asyncio
 import base64
 import contextlib
+import ipaddress
 import json
 import os
 import re
@@ -51,8 +52,22 @@ from laptop_agent.window_fx import apply_window_effects
 # Local single-user interface: origin checks and a per-process token protect mutations.
 _CONFIG = load_config()
 HOST = os.environ.get("LAPTOP_AGENT_HOST", "127.0.0.1")
-if HOST not in {"127.0.0.1", "localhost"}:
-    raise ValueError("J.A.R.V.I.S is a local single-user app. Set LAPTOP_AGENT_HOST to 127.0.0.1 or localhost.")
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+# Reaching the app from a phone means binding to the network — and the page carries the
+# API token, which is shell, files and mail on this laptop. So a non-loopback bind is
+# refused outright unless a passcode is set, and every request that does not come from
+# this machine has to present it before it is served anything at all.
+LAN_PASSCODE = os.environ.get("LAPTOP_AGENT_LAN_PASSCODE", "").strip()
+LAN_MODE = HOST not in _LOOPBACK
+if LAN_MODE and len(LAN_PASSCODE) < 8:
+    raise ValueError(
+        "J.A.R.V.I.S is a single-user app. To reach it from another device on your network, "
+        "set LAPTOP_AGENT_LAN_PASSCODE (8+ characters) as well as LAPTOP_AGENT_HOST — without "
+        "one, anyone on the same wifi gets a page that can run shell commands on this laptop."
+    )
+# Sessions that have presented the passcode. Per process, so restarting asks again.
+_LAN_SESSIONS: set[str] = set()
+_LAN_FAILURES: dict[str, int] = {}
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
@@ -76,6 +91,65 @@ DOCUMENT_TYPES = {
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".md": "text/markdown; charset=utf-8",
 }
+
+
+def _is_address_literal(host_header: str) -> bool:
+    """True when the Host header is a bare IP address, which is what a phone on the
+    network sends.
+
+    Only an IP is accepted, never a name. DNS rebinding needs a domain the attacker
+    controls, so refusing names is what makes widening this safe — a rebind cannot point
+    at an IP literal the browser will still send as the Host.
+    """
+    host = (host_header or "").strip()
+    if host.startswith("["):                       # [::1]:8770
+        host = host[1 : host.find("]")] if "]" in host else host[1:]
+    elif host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+# Shown to a device on the network before anything else is served. Deliberately plain:
+# it must not leak what the app is or what is on the machine to whoever loaded it.
+_UNLOCK_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Locked</title><style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0e1116;color:#e6edf3;
+     font:16px/1.5 -apple-system,'Segoe UI Variable','Segoe UI',system-ui,sans-serif}
+form{width:min(22rem,86vw);padding:1.6rem;background:#161b22;border:1px solid #263040;border-radius:14px}
+h1{margin:0 0 .3rem;font-size:1.05rem}
+p{margin:0 0 1.1rem;color:#8b98a9;font-size:.85rem}
+input,button{width:100%;box-sizing:border-box;font:inherit;border-radius:9px}
+input{padding:.7rem .8rem;background:#0e1116;border:1px solid #2d3748;color:inherit;margin-bottom:.7rem}
+button{padding:.7rem;border:0;background:#2dd4bf;color:#06232b;font-weight:600}
+.err{color:#f87171;font-size:.82rem;min-height:1.2em;margin:.6rem 0 0}
+</style></head><body>
+<form id="f" autocomplete="off"><h1>Passcode</h1>
+<p>This device is not this computer, so it needs the passcode.</p>
+<input id="p" type="password" inputmode="text" placeholder="Passcode" aria-label="Passcode" autofocus>
+<button type="submit">Unlock</button><div class="err" id="e"></div></form>
+<script nonce="{{NONCE}}">
+document.getElementById('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const err = document.getElementById('e'); err.textContent = '';
+  try{
+    const r = await fetch('/api/pair', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({passcode: document.getElementById('p').value})});
+    if (r.ok) { location.replace('/'); return; }
+    // Never assert a cause this does not know. A fallback of "Wrong passcode." reported
+    // exactly that for a 429 and for a non-JSON body, and sent me looking in the wrong
+    // place for an hour. Say what the server actually said, or its status.
+    const d = await r.json().catch(() => ({}));
+    err.textContent = d.message || ('Could not unlock (HTTP ' + r.status + ').');
+  }catch(e){ err.textContent = 'Could not reach the app.'; }
+});
+</script></body></html>
+"""
 
 
 def _compose_command(command: str, attachments: object) -> str:
@@ -382,7 +456,10 @@ class Handler(BaseHTTPRequestHandler):
         allowed = {f"{h}:{self.server.server_port}" for h in
                    ("127.0.0.1", "localhost", HOST, self.server.server_address[0])}
         origin = self.headers.get("Origin")
-        if host not in allowed or (origin and origin != f"http://{host}"):
+        if host not in allowed and not (LAN_MODE and _is_address_literal(host)):
+            self._json(403, {"ok": False, "message": "Untrusted request origin."})
+            return False
+        if origin and origin != f"http://{host}":
             self._json(403, {"ok": False, "message": "Untrusted request origin."})
             return False
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -393,13 +470,72 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _client_is_local(self) -> bool:
+        return (self.client_address[0] if self.client_address else "") in {"127.0.0.1", "::1"}
+
+    def _lan_session(self) -> str:
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "jarvis_lan":
+                return value.strip()
+        return ""
+
+    def _authorized(self) -> bool:
+        """Whether this request may be served anything. This machine always may."""
+        if not LAN_MODE or self._client_is_local():
+            return True
+        return self._lan_session() in _LAN_SESSIONS
+
+    def _unlock_page(self) -> None:
+        self._send(401, _UNLOCK_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
+                   "text/html; charset=utf-8", no_store=True)
+
+    def _pair(self) -> None:
+        """Exchange the passcode for a session cookie. The one endpoint that runs before
+        the API-token check, because a new device cannot have the token until it has the
+        page, and it cannot have the page until it has passed this."""
+        client = self.client_address[0] if self.client_address else "?"
+        if _LAN_FAILURES.get(client, 0) >= 10:
+            self._json(429, {"ok": False, "message": "Too many attempts. Restart J.A.R.V.I.S to try again."})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(max(0, min(length, 4096))) or b"{}")
+            supplied = str(payload.get("passcode") or "")
+        except (ValueError, TypeError, UnicodeError):
+            supplied = ""
+        if not LAN_PASSCODE or not secrets.compare_digest(supplied, LAN_PASSCODE):
+            _LAN_FAILURES[client] = _LAN_FAILURES.get(client, 0) + 1
+            time.sleep(1)  # a passcode is short: make guessing it cost real time
+            self._json(403, {"ok": False, "message": "Wrong passcode."})
+            return
+        _LAN_FAILURES.pop(client, None)
+        session = secrets.token_urlsafe(32)
+        _LAN_SESSIONS.add(session)
+        body = b'{"ok": true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Set-Cookie", f"jarvis_lan={session}; Path=/; HttpOnly; SameSite=Strict")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except ConnectionError:
+            pass
+
     def log_message(self, *args: object) -> None:
         return
 
-    def _send(self, code: int, body: bytes, content_type: str) -> None:
+    def _send(self, code: int, body: bytes, content_type: str, no_store: bool = False) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if no_store:
+            # Both HTML pages carry a per-process script nonce. A cached copy outlives the
+            # process, so after a restart the nonce no longer matches the CSP and every
+            # script on the page is silently blocked — the unlock form just stopped
+            # responding to Enter, with nothing in the console but the missing request.
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -412,6 +548,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not self._trusted_request():
             return
+        if not self._authorized():
+            self._unlock_page()
+            return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
         if path in {"/", "/index.html"}:
             page = (
@@ -422,7 +561,7 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("{{NONCE}}", _SCRIPT_NONCE)
                 .replace("{{API_TOKEN}}", _API_TOKEN)
             )
-            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
+            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8", no_store=True)
         elif path == "/api/health":
             report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
             # The page decides between its own recognizer and posting audio here.
@@ -495,7 +634,14 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def do_POST(self) -> None:
+        if self.path.split("?", 1)[0] == "/api/pair":
+            if self._trusted_request():          # origin checks, but no API token yet
+                self._pair()
+            return
         if not self._trusted_request(mutation=True):
+            return
+        if not self._authorized():
+            self._json(401, {"ok": False, "message": "Enter the passcode to use J.A.R.V.I.S from this device."})
             return
         try:
             if self.path in {"/api/stream", "/api/agent", "/api/command"}:

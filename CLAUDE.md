@@ -582,6 +582,35 @@ python -m laptop_agent.webui --desktop                                  # deskto
 python -m laptop_agent.webui                                            # browser tab
 ```
 
+**Reaching it from a phone (`LAN_MODE`).** The app refused any bind but loopback, and
+`_trusted_request` refused any Host but loopback, so a phone got a connection refused or a
+403 — measured: `Host: localhost:8770` 200, `Host: 192.168.4.68:8770` 403. Both now open
+**only together with a passcode**, because the page carries the API token and that token is
+shell, files and mail on this laptop:
+
+```powershell
+$env:LAPTOP_AGENT_HOST="0.0.0.0"; $env:LAPTOP_AGENT_LAN_PASSCODE="something-long"
+python -m laptop_agent.webui        # then http://<laptop-ip>:8770 on the phone
+```
+
+A bind outside loopback without an 8+ character passcode raises at import rather than
+starting. Any client that is not this machine gets a lock screen (deliberately plain — it
+must not say what it guards), exchanges the passcode at `/api/pair` for an HttpOnly
+`SameSite=Strict` session cookie held **in the process** (a restart re-asks), and is rate
+limited to 10 attempts with a 1s delay each. `/api/pair` is the one endpoint that runs
+before the API-token check, since a new device cannot have the token until it has the page.
+In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_literal`):
+DNS rebinding needs a domain the attacker controls, so refusing names is what makes
+widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
+
+Two things this does **not** give you. Voice will not work: `http://<ip>` is not a secure
+context, so Safari and Chrome refuse `getUserMedia` — only HTTPS or `localhost` qualify,
+and a self-signed certificate is not enough for the microphone. And both HTML pages are
+sent `Cache-Control: no-store`, because they carry a per-process script nonce: a cached
+copy outlives the process, and after a restart every script on the page is silently
+blocked by the CSP — the unlock form simply stopped responding to Enter, with nothing in
+the console but the request that never happened.
+
 The desktop window prefers a true native **pywebview** window (`app` extra; no
 Edge browser, its own taskbar entry) and falls back to a frameless Chrome/Edge
 `--app` window when pywebview is absent. Because Edge WebView2 (pywebview's
