@@ -51,6 +51,26 @@ class ParsingTests(unittest.TestCase):
             [("WhatsApp", "left"), ("Chrome", "right")],
         )
 
+    def test_politeness_is_not_part_of_the_app_name(self) -> None:
+        """Reported: "Hey Jarvis, could you put my WhatsApp on left and chrome on right?"
+        asked for a window called 'could you WhatsApp' and said it was not open."""
+        self.assertEqual(
+            parse_placements("Hey Jarvis, could you put my WhatsApp on left and chrome on right?"),
+            [("WhatsApp", "left"), ("chrome", "right")],
+        )
+        self.assertEqual(
+            parse_placements("can you split whatsapp left and chrome right please"),
+            [("whatsapp", "left"), ("chrome", "right")],
+        )
+
+    def test_a_mis_heard_sentence_still_finds_its_window(self) -> None:
+        """Dictated, the follow-up arrived as "And Chrome on right using split windows
+        function". The stray words must not cost the whole request."""
+        self.assertEqual(
+            parse_placements("And Chrome on right using split windows function"),
+            [("Chrome", "right")],
+        )
+
     def test_the_way_it_is_usually_typed(self) -> None:
         self.assertEqual(
             parse_placements("put whatsapp on the left and chrome on the right"),
@@ -125,6 +145,14 @@ class ArrangeTests(unittest.TestCase):
         ])
         tool(backend).arrange([("chrome", "left")])
         self.assertEqual(backend.placed[0][0], 2)
+
+    def test_a_stray_word_falls_back_to_the_words_that_matter(self) -> None:
+        """Speech brings along words no filter will catch. Refusing the whole request over
+        one of them is worse than acting on its most specific word."""
+        backend = FakeBackend()
+        result = tool(backend).arrange([("some whatsapp thing", "left")])
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(backend.placed[0][0], 101)
 
     def test_a_window_that_is_not_open_says_what_is(self) -> None:
         result = tool().arrange([("spotify", "left")])
