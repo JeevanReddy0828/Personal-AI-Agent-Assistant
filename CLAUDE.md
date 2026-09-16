@@ -245,6 +245,23 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             documents and five paraphrased questions: lexical 1/5 (three returned *nothing* —
             no word overlapped), vectors 5/5),
         knowledge.py (TF-IDF index + Q&A, fused with vectors when an `Embedder` is passed.
+            **Nothing here re-reads or re-tokenizes the corpus per query.** A search parsed
+            1.6MB of JSON *and* tokenized all 282k characters every time: 41ms, of which
+            `_term_counts` was 72% and `_load` 21%. `_load` caches the parsed store keyed on
+            `(st_mtime_ns, st_size)` — the file's own identity, so an edit by Codex or
+            another process is still picked up — and `_counts_for` caches per-document term
+            counts, dropped whenever the store reloads. Every mutator calls `_invalidate()`
+            **before** touching anything, so a mutator that fails part way cannot leave a
+            dirty store for a reader. Three layers cover staleness (explicit invalidation,
+            `_save`, the mtime key), which is why removing any one of them does not show up
+            in the tests — break the mtime key to see the guard fire. `answer` also skips a
+            passage whose text contains no query term as a *substring* before tokenizing it
+            (a term cannot match as a token if it is absent as a substring, so the same
+            windows are skipped, just without paying for them). Measured: search 41ms ->
+            1.7ms, answer 102ms -> 24-38ms. `_prose_weight` uses `map(str.isalpha, …)`
+            rather than a genexpr calling two methods per character — that line alone was
+            46% of an answer; a regex was measured both slower *and* wrong on 1931 of 2000
+            passages, so do not "simplify" it back.
             Documents embed once in `add()` and the vector is stored beside the text, so
             search costs one query embedding and never re-embeds. The two rankings are
             merged by **reciprocal rank fusion**, not by adding scores: a TF-IDF score and a
@@ -581,6 +598,21 @@ python -m laptop_agent.cli                                              # termin
 python -m laptop_agent.webui --desktop                                  # desktop app window (or: laptop-agent-deck)
 python -m laptop_agent.webui                                            # browser tab
 ```
+
+**Two instances must never share a port.** `allow_reuse_address` is needed so TIME_WAIT
+does not block a restart, but on Windows it also lets a second process bind a port that is
+already being served. Two J.A.R.V.I.S ran at once, which one answered a request was luck,
+and because they hold separate approval state and LAN passcode sessions it presented as
+random flakiness (a phone unlocking, then being asked again). This happened twice in one
+session. `_refuse_if_running()` probes the port at both entry points and exits with a
+message naming `LAPTOP_AGENT_PORT`.
+
+**The page is rendered once and revalidated, not resent.** It is 179KB and every
+placeholder is fixed for the life of the process, yet it was re-rendered and sent in full
+on every load — and `Cache-Control: no-store` (added so a cached copy could not outlive its
+script nonce) made that unavoidable. `_rendered_page()` builds it once with an ETag over
+the bytes; the route answers `If-None-Match` with a 304. Measured: 183,536 bytes -> 0, and
+the ETag still changes on restart, which is exactly when the cached copy stops working.
 
 **Reaching it from a phone (`LAN_MODE`).** The app refused any bind but loopback, and
 `_trusted_request` refused any Host but loopback, so a phone got a connection refused or a

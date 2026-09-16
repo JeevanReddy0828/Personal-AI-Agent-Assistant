@@ -101,5 +101,58 @@ class LlmProbeTests(unittest.TestCase):
         self.assertFalse(_probe_llm(ping, delay=0))
 
 
+class RenderedPageTests(unittest.TestCase):
+    """The page is 179KB and every placeholder in it is fixed for the life of the process,
+    so it was being rendered and sent in full on every single load."""
+
+    def test_the_page_is_rendered_once(self) -> None:
+        from laptop_agent.webui import _rendered_page
+
+        first_body, first_etag = _rendered_page()
+        second_body, second_etag = _rendered_page()
+        self.assertIs(first_body, second_body, "the page was re-rendered")
+        self.assertEqual(first_etag, second_etag)
+
+    def test_the_etag_is_quoted_and_no_placeholders_survive(self) -> None:
+        from laptop_agent.webui import _rendered_page
+
+        body, etag = _rendered_page()
+        self.assertTrue(etag.startswith('"') and etag.endswith('"'), etag)
+        self.assertNotIn(b"{{", body, "a placeholder was left unrendered")
+
+
+class PortGuardTests(unittest.TestCase):
+    """`allow_reuse_address` is needed so TIME_WAIT does not block a restart, but on Windows
+    it also lets a second process bind a port already being served. Two instances ran at
+    once, answering at random and holding separate approval and passcode state."""
+
+    def test_a_served_port_is_detected(self) -> None:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        from laptop_agent.webui import _already_serving
+
+        class Quiet(BaseHTTPRequestHandler):
+            def do_GET(self):  # pragma: no cover - only needs to accept a connection
+                self.send_response(204)
+                self.end_headers()
+
+            def log_message(self, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Quiet)
+        port = server.server_port
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(_already_serving("127.0.0.1", port))
+            self.assertTrue(_already_serving("0.0.0.0", port), "a wildcard bind must probe loopback")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+        self.assertFalse(_already_serving("127.0.0.1", port), "a closed port must look free")
+
+
 if __name__ == "__main__":
     unittest.main()
