@@ -1073,6 +1073,15 @@
   }
   opRange.addEventListener('input',()=>applyOpacity(+opRange.value,false));
   opRange.addEventListener('change',()=>{localStorage.setItem('hudOpacity',opRange.value);applyOpacity(+opRange.value,true);});
+  // How loud the user must be to talk over a spoken reply — the floor under the threshold
+  // in serverBargeStart. Every room leaks our own output back into the microphone by a
+  // different amount, so this is the one number worth tuning from the meter in the voice
+  // panel rather than from source. The slider carries thousandths.
+  const bargeRange=document.getElementById('bargeRange'),bargeVal=document.getElementById('bargeVal');
+  let bargeFloor=0.045;
+  function applyBargeFloor(thou){bargeFloor=thou/1000;bargeVal.textContent=bargeFloor.toFixed(3);}
+  bargeRange.addEventListener('input',()=>applyBargeFloor(+bargeRange.value));
+  bargeRange.addEventListener('change',()=>{try{localStorage.setItem('jarvis_bargefloor',bargeRange.value);}catch(e){}});
   function setCompact(on){document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);compactBtn.setAttribute('aria-checked',String(on));localStorage.setItem('hudCompact',on?'1':'0');if(!on)requestAnimationFrame(fitCanvas);}
   compactBtn.onclick=()=>setCompact(!document.body.classList.contains('compact'));
   async function setOnTop(on,post){onTopToggle.classList.toggle('on',on);onTopToggle.setAttribute('aria-checked',String(on));localStorage.setItem('hudOnTop',on?'1':'0');if(post){const d=await postWindow({on_top:on});if(!(d&&d.applied&&d.applied.on_top!=null))document.getElementById('hudHint').textContent='Always-on-top works only in the desktop app.';}}
@@ -1081,6 +1090,9 @@
   document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
   (function restoreHud(){
     const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}
+    let bf=null; try{bf=localStorage.getItem('jarvis_bargefloor');}catch(e){}
+    if(bf)bargeRange.value=bf;
+    applyBargeFloor(+bargeRange.value);
     if(localStorage.getItem('hudCompact')==='1')setCompact(true);
     if(localStorage.getItem('hudOnTop')==='1')setOnTop(true,true);
   })();
@@ -1504,7 +1516,35 @@
   // said before the trigger are transcribed too — otherwise re-opening the microphone
   // swallowed the first half of the sentence.
   let sBarge=null;
+  // --- the meter ---------------------------------------------------------------------
+  // Barge-in was fixed twice on paper and still reported as not working, because nobody
+  // could see what the microphone was hearing: the threshold was a constant in a closure.
+  // Show it. `peak` is what we just heard, `leak` is how much of our own voice survives
+  // echo cancellation, `trig` is what the user has to beat. Square-rooted so the
+  // interesting range (0-0.15) occupies most of the bar instead of its first eighth.
+  const METER_FS=0.5, METER_MS=80;
+  let meterAt=0;
+  const vmFill=document.getElementById('vmfill'),
+        vmThr=document.getElementById('vmthr'),vmBox=document.getElementById('vmeter'),
+        vmNow=document.getElementById('vmnow'),vmLeak=document.getElementById('vmleak'),
+        vmTrig=document.getElementById('vmtrig');
+  const meterPct=v=>Math.min(100,Math.sqrt(Math.max(0,v)/METER_FS)*100);
+  function meterShow(on){if(vmBox)vmBox.hidden=!on;if(!on)meterAt=0;}
+  function meterPaint(peak,leak,trig,force){
+    if(!vmBox||vmBox.hidden)return;
+    const now=performance.now();
+    if(!force&&now-meterAt<METER_MS)return;               // just under one frame (4096/48000 = 85ms): one paint per callback
+    meterAt=now;
+    const bar=vmFill&&vmFill.parentNode;
+    if(vmFill)vmFill.style.width=meterPct(peak).toFixed(1)+'%';
+    if(vmThr)vmThr.style.left=meterPct(trig).toFixed(1)+'%';
+    if(bar)bar.classList.toggle('over',peak>trig);
+    if(vmNow)vmNow.textContent=peak.toFixed(3);
+    if(vmLeak)vmLeak.textContent=leak.toFixed(3);
+    if(vmTrig)vmTrig.textContent=trig.toFixed(3);
+  }
   function serverBargeStop(){
+    meterShow(false);
     if(!sBarge)return;
     const s=sBarge; sBarge=null;
     try{s.proc.onaudioprocess=null;s.proc.disconnect();}catch(e){}
@@ -1529,7 +1569,8 @@
     const rate=ac.sampleRate||48000, MAX=rate*12;
     const samples=[]; let held=0;
     let floor=0.015, learned=0, loudMs=0, lastLoud=0, fired=false, firedAt=0;
-    const level=()=>Math.max(0.045,floor*2.2);           // never trust a threshold below room noise
+    const level=()=>Math.max(bargeFloor,floor*2.2);      // never trust a threshold below room noise
+    meterShow(true); meterPaint(0,floor,level(),true);
     const finishBarge=async()=>{
       const chunks=samples.slice(); serverBargeStop();
       if(!voiceActive||generation!==voiceGeneration)return;
@@ -1552,6 +1593,7 @@
       while(held>MAX&&samples.length>1){held-=samples[0].length;samples.shift();}
       let peak=0;for(let i=0;i<ch.length;i+=4){const v=Math.abs(ch[i]);if(v>peak)peak=v;}
       const now=performance.now();
+      meterPaint(peak,floor,level());
       if(!fired){
         // The first frames are our own voice leaking past echo cancellation: measure it.
         if(learned++<6){floor=Math.max(floor,peak);return;}

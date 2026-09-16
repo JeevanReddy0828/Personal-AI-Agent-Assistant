@@ -127,6 +127,17 @@
   .vstate{font:500 13px var(--sans);color:currentColor}
   .vtrans{max-width:360px;min-height:48px;text-align:center;color:var(--text-2);font:400 15.5px/1.5 var(--sans)}
   .vdbg{font:11px var(--mono);color:var(--faint);min-height:14px}
+  /* Live microphone meter: what barge-in is actually hearing, against the level it needs
+     to cut in. The 0.045 floor was invisible until it was a number on the screen. */
+  .vmeter{display:flex;flex-direction:column;gap:5px;width:260px}
+  .vmeter[hidden]{display:none}
+  .vmbar{position:relative;height:6px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
+  .vmbar i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);transition:width 90ms linear,background var(--fast)}
+  .vmbar.over i{background:var(--ok)}
+  .vmbar u{position:absolute;top:-2px;bottom:-2px;width:2px;left:0;background:var(--text-2);opacity:.75;transition:left 90ms linear}
+  .vmnum{display:flex;justify-content:space-between;gap:10px;font:10.5px var(--mono);color:var(--faint)}
+  .vmnum b{font-weight:600;color:var(--text-2)}
+  .vmbar.over+.vmnum #vmnow{color:var(--ok)}
   .vbtns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px}
   .vbtn{border:1px solid var(--hair-2);background:rgba(255,255,255,.04);color:var(--text-2);border-radius:999px;padding:9px 18px;font:500 13px var(--sans);transition:background var(--fast),color var(--fast),border-color var(--fast)}
   .vbtn:hover{background:rgba(255,255,255,.08);color:var(--text);border-color:var(--hair-3)}
