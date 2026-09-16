@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>J.A.R.V.I.S</title>
+
+<style>{{STYLE}}</style>
+</head>
+<body data-view="chat">
+<div class="app">
+  <header>
+    <div class="brand">
+      <span class="mark" id="reactor" aria-hidden="true"></span>
+      <div><div class="n">J.A.R.V.I.S</div><div class="s">Local assistant</div></div>
+    </div>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <button id="mobileChats" class="navbtn" aria-expanded="false" aria-controls="leftPanel">Chats</button>
+      <button class="navbtn on" data-view="chat">Chat</button>
+      <button class="navbtn" data-view="overview">Overview</button>
+      <!-- Jobs and Pipeline are off the nav for now. The pages, routes and APIs are all
+           still here and reachable at #/jobs and #/pipeline; only the buttons are gone.
+           The version with them in the nav is preserved on feature/jobs-pipeline-nav. -->
+    </nav>
+    <div class="sp"></div>
+    <button class="pill" id="healthPill" title="System status" aria-controls="sysDrawer" aria-expanded="false"><span class="dot" id="healthDot"></span><span id="healthText">Checking…</span></button>
+    <div class="hud">
+      <button class="hudbtn" id="hudBtn" title="Settings — layout, transparency, always on top" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
+        <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="sttServer" role="switch" aria-checked="false"><span>Server speech<small id="sttNote">Checking…</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="typeAnim" role="switch" aria-checked="true"><span>Typing animation<small>Reveal local answers gradually</small></span><span class="sw"></span></button>
+        <div class="row">
+          <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
+          <input type="range" id="opacityRange" min="35" max="100" step="1" value="100" aria-label="Window transparency">
+        </div>
+        <div class="hint2" id="hudHint">Window effects apply in the desktop app.</div>
+      </div>
+    </div>
+  </header>
+
+  <aside class="left" id="leftPanel">
+    <button class="newchat" id="newChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
+    <button class="newchat ghost" id="newGhost" title="A chat that is never saved to this browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0-6 6v11l2-2 2 2 2-2 2 2 2-2 2 2V9a6 6 0 0 0-6-6z"/><path d="M9.5 10h.01M14.5 10h.01"/></svg><span>Incognito chat</span></button>
+    <div class="seclbl">Recent</div>
+    <div id="sessions"></div>
+    <div class="railfoot">
+      <button class="sysbtn" id="railStatus" title="System status" aria-controls="sysDrawer" aria-expanded="false"><span class="dot"></span><span id="railText">Checking…</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  </aside>
+
+  <section class="stage" aria-label="Assistant presence">
+    <canvas id="core"></canvas>
+    <div class="corestate" id="corestate"><span class="blip"></span><b>Ready</b></div>
+    <div class="voice" id="voice" data-state="listening">
+      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="vstate" id="vstate">Listening</div>
+      <div class="vtrans" id="vtrans">Say something…</div>
+      <div id="vdbg" class="vdbg"></div>
+      <div class="vbtns">
+        <button class="vbtn primary" id="vint" title="Stop speaking and listen (Space)">Interrupt</button>
+        <button class="vbtn" id="vend">End voice</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="chatcol">
+    <div class="chat" id="chat">
+      <div class="empty" id="empty">
+        <h1>How can I help, Jeevan?</h1>
+        <p>Ask a question, attach a supported file, or use Voice. Files and memory work offline; connected models add chat and reasoning.</p>
+        <div class="setupcard" id="setupCard" style="display:none"></div>
+        <div class="suggest" id="suggest"></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="chips" id="chips"></div>
+      <div class="box">
+        <button class="iconbtn" id="attachBtn" title="Attach a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.65 5.65l-9.2 9.2a2 2 0 0 1-2.83-2.83l8.5-8.5"/></svg></button>
+        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
+        <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
+        <button class="iconbtn" id="micBtn" title="Dictate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <button class="voicetoggle" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S hands-free (tap again to stop)">
+          <span class="vico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></span>
+          <span class="vlabel off-label">Voice</span>
+          <span class="vlabel on-label">Listening</span>
+        </button>
+        <button class="sendbtn" id="sendBtn" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+      </div>
+      <div class="hint" id="hint">Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.</div>
+    </div>
+    <input type="file" id="file" multiple style="display:none" />
+    <div class="drop" id="drop">Drop files to attach</div>
+  </main>
+
+  <section class="page" id="page-overview">
+    <div class="pagehead"><h2>Overview</h2><span class="sub" id="ovSub"></span></div>
+    <div class="statcards" id="ovCards"></div>
+    <div class="charts">
+      <div class="chartcard"><div class="t">System usage</div><div id="ovMetrics"></div></div>
+      <div class="chartcard"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="page-jobs">
+    <div class="pagehead"><h2>Job tracker</h2><span class="sub" id="jobSub"></span></div>
+    <div class="statcards" id="jobStats"></div>
+    <div class="charts">
+      <div class="chartcard"><div class="t">Pipeline funnel</div><div id="jobFunnel"></div></div>
+      <div class="chartcard"><div class="t">Applications per week</div><div id="jobTrend"></div></div>
+    </div>
+    <div class="jobform">
+      <input class="company" id="jobCompany" type="text" placeholder="Company" autocomplete="off">
+      <input id="jobRole" type="text" placeholder="Role (optional)" autocomplete="off">
+      <select id="jobStage"></select>
+      <button id="jobAdd" type="button">Add</button>
+    </div>
+    <div id="jobList"></div>
+    <div class="chartcard" id="tailorCard" style="margin-top:18px">
+      <div class="t">Tailor an application — paste your resume and the job description</div>
+      <textarea id="tlResume" class="tlarea" placeholder="Paste your resume text…"></textarea>
+      <textarea id="tlJD" class="tlarea" placeholder="Paste the job description…"></textarea>
+      <div class="jobform" style="margin:8px 0 0">
+        <input id="tlCompany" type="text" placeholder="Company (optional)">
+        <input id="tlRole" type="text" placeholder="Role (optional)">
+        <button id="tlGo" type="button">Tailor</button>
+      </div>
+      <div class="mapmsg" id="tlMsg"></div>
+      <div class="md" id="tlResult" style="margin-top:10px;font-size:14px"></div>
+    </div>
+  </section>
+
+  <section class="page" id="page-pipeline">
+    <div class="pagehead"><h2>Pipeline</h2><span class="sub" id="pipeSub"></span></div>
+    <div class="statcards" id="pipeStats"></div>
+    <div class="chartcard resumebox" id="resumeCard">
+      <div class="t">Base resume — used for live ATS scoring and tailoring</div>
+      <textarea id="rsText" placeholder="Paste your resume text here, then Save…"></textarea>
+      <div class="rrow">
+        <button id="rsSave" type="button">Save resume</button>
+        <input id="rsPath" type="text" placeholder="…or an absolute path to a PDF / DOCX / TXT">
+        <button id="rsLoad" type="button">Load file</button>
+        <span class="rstat" id="rsStat"></span>
+      </div>
+    </div>
+    <details class="chartcard resumebox">
+      <summary>Resume contact and certifications</summary>
+      <p class="rstat">Optional overrides. Otherwise email, phone and profile links are read from the top of your base resume.</p>
+      <div class="profilegrid">
+        <label>Contact line<input id="rsContact" placeholder="Email · phone · profile URLs"></label>
+        <label>Certifications<input id="rsCerts" placeholder="Certifications already earned"></label>
+        <label>GitHub username<input id="rsGithub" placeholder="Username for repository links"></label>
+      </div>
+      <div><button id="rsProfileSave" type="button">Save profile</button></div>
+    </details>
+    <div class="pipebar">
+      <button id="pullBtn" type="button">Pull from Jobright</button>
+      <button id="clearBtn" type="button">Clear leads</button>
+      <label class="rstat"><input type="checkbox" id="autoRef" checked> Auto-refresh</label>
+      <span class="grow"></span>
+      <span class="mapmsg" id="pipeMsg"></span>
+    </div>
+    <div class="board" id="pipeBoard"></div>
+    <div class="chartcard" id="pkgCard" style="display:none;margin-top:14px">
+      <div class="t" id="pkgTitle">Tailored package</div>
+      <div class="md" id="pkgBody" style="font-size:14px"></div>
+    </div>
+  </section>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="sysDrawer" aria-label="System status" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>System status</h2>
+    <button class="hudbtn" id="drawerClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="drawer-body">
+    <div class="dsec">
+      <h3>Models and connections</h3>
+      <div id="connlist"></div>
+      <h3>Usage</h3>
+      <div id="metrics"></div>
+      <h3>Memory vault</h3>
+      <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
+      <input id="vaultSearch" class="vaultsearch" type="text" placeholder="Search notes…" autocomplete="off">
+      <div id="notes"></div>
+    </div>
+    <div class="dsec">
+      <h3>Tools</h3>
+      <details class="conn" open>
+        <summary>Tool activity</summary>
+        <div id="agentSummary"></div>
+        <div id="agentList"></div>
+      </details>
+      <details class="conn" id="schedPanel">
+        <summary>Scheduled jobs</summary>
+        <div class="schedform">
+          <select id="schedKind"><option value="command">command</option><option value="agent">agent</option></select>
+          <input id="schedWhen" type="text" placeholder="When — e.g. daily at 08:00" autocomplete="off">
+          <input id="schedSpec" type="text" placeholder="Command or goal to run" autocomplete="off">
+          <button id="schedAdd" type="button">Schedule it</button>
+          <div class="schedmsg" id="schedMsg"></div>
+        </div>
+        <div id="schedList"></div>
+      </details>
+      <details class="conn" id="runsPanel">
+        <summary>Agent runs</summary>
+        <div id="runsList"></div>
+      </details>
+      <details class="conn" id="mapPanel">
+        <summary>Map</summary>
+        <div class="mapform">
+          <input id="mapQuery" type="text" placeholder="Place — or  origin to destination" autocomplete="off">
+          <button id="mapGo" type="button">Show</button>
+        </div>
+        <div class="mapmsg" id="mapMsg"></div>
+        <div id="mapView"></div>
+      </details>
+      <details class="conn" id="tripPanel">
+        <summary>Trip planner</summary>
+        <div class="mapform">
+          <input id="tripStop" type="text" placeholder="Add a stop — e.g. Austin, TX" autocomplete="off">
+          <button id="tripAdd" type="button">Add</button>
+        </div>
+        <div id="tripStops"></div>
+        <div class="mapform" style="margin-top:2px">
+          <button id="tripGo" type="button" style="flex:1">Plan trip</button>
+        </div>
+        <div class="mapmsg" id="tripMsg"></div>
+        <div id="tripView"></div>
+      </details>
+    </div>
+  </div>
+</aside>
+
+<div class="noteviewer" id="noteViewer" role="dialog" aria-label="Note">
+  <div class="nv-head">
+    <span class="nv-title" id="nvTitle">Note</span>
+    <button class="nv-close" id="nvClose" title="Close">&times;</button>
+  </div>
+  <div class="nv-body md" id="nvBody"></div>
+  <div class="nv-links" id="nvLinks"></div>
+</div>
+<script nonce="{{NONCE}}">{{SCRIPT}}</script>
+</body>
+</html>

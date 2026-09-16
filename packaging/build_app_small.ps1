@@ -24,6 +24,7 @@ python -m PyInstaller `
     --name JARVIS `
     --paths "$root\src" `
     --collect-submodules laptop_agent `
+    --add-data "$root\src\laptop_agent\webui_assets;laptop_agent\webui_assets" `
     --collect-all webview `
     --collect-all pyttsx3 `
     --hidden-import pyttsx3.drivers `

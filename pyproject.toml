@@ -50,5 +50,9 @@ laptop-agent-deck = "laptop_agent.webui:run_desktop"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+[tool.setuptools.package-data]
+# The page is assembled from these at import; a wheel without them cannot start.
+"laptop_agent" = ["webui_assets/*"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
