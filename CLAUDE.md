@@ -218,8 +218,13 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             "left side WhatsApp right side Chrome", position before name with no
             conjunction. A window matches on its title *or* its executable, since neither
             alone is enough (Chrome is titled after the page it shows; WhatsApp's process is
-            `WhatsApp.Root.exe`), and the shortest title wins a tie so "chrome" prefers a
-            real Chrome window over a page that merely mentions it. Rects come from
+            `WhatsApp.Root.exe`). Ranked, not just filtered: a window matching in **both**
+            title and executable beats one matching in only one of them, then shortest
+            title. A plain substring test arranged **Live Caption** - a Chrome-hosted widget
+            also running as `chrome.exe`, whose title is shorter than "J.A.R.V.I.S - Google
+            Chrome" - when asked for "chrome"; the same rule picks the real
+            `WhatsApp.Root.exe` over the `msedgewebview2.exe` window of the same name.
+            Rects come from
             `SPI_GETWORKAREA`, not the screen, so `full` does not hide behind the taskbar.
             DWM-cloaked windows and three named shells are filtered - enumerating the real
             desktop returned "Windows Input Experience", "NVIDIA GeForce Overlay" and
