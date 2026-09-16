@@ -245,6 +245,25 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             documents and five paraphrased questions: lexical 1/5 (three returned *nothing* —
             no word overlapped), vectors 5/5),
         knowledge.py (TF-IDF index + Q&A, fused with vectors when an `Embedder` is passed.
+            **The agent's own output does not outrank the user's documents, and does not
+            grow without limit.** `solve` files its analysis as `advice: …`, research files
+            the scraped page, a transcript lands as `youtube:…` — and measured on the real
+            store that had taken over: **30 of 31 documents were generated against ONE real
+            file**, with the scrapes averaging 20k characters to the advice dumps' 5k, so a
+            scrape outranked the README on any word they shared. `document_kind()` reads the
+            source prefix (inferred, so no migration) and `KIND_WEIGHTS` discounts generated
+            text — `file` 1.5, `advice` 0.9, `research`/`youtube` 0.8. Deliberately gentle,
+            and swept over 15 queries with a known answer: those values took top-1 from
+            12/15 to 13/15 and top-3 to 15/15, while a heavy hand (`file` x3) dropped top-1
+            back to 12/15. It only moves the **secondary** sort key — distinct terms matched
+            still decides first — so it breaks ties rather than overruling relevance.
+            `GENERATED_CAPS` (advice 12, research 8, youtube 12) trims the oldest of each
+            kind on every `add`, and `knowledge prune` applies it on demand and reports what
+            went. **A document the user indexed is never pruned.** Note when writing an eval
+            here: resolve the expected document by source substring, never by id. The README
+            was re-indexed and its id moved 47 -> 52, which made a harness report the right
+            answer as a miss and nearly bought a wrong conclusion ("kind weighting does
+            nothing" at 8/15, when the truth was 12/15 rising to 13/15).
             **Nothing here re-reads or re-tokenizes the corpus per query.** A search parsed
             1.6MB of JSON *and* tokenized all 282k characters every time: 41ms, of which
             `_term_counts` was 72% and `_load` 21%. `_load` caches the parsed store keyed on
