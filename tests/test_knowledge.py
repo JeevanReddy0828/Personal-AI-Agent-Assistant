@@ -4,7 +4,86 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from laptop_agent.knowledge import KnowledgeBase
+from laptop_agent.knowledge import GENERATED_CAPS, KnowledgeBase, document_kind
+
+
+class DocumentKindTests(unittest.TestCase):
+    """The agent indexes its own output. Measured on the real store, 30 of 31 documents
+    were generated against ONE real file, and the scrapes averaged 20k characters to the
+    advice dumps' 5k — so a scrape outranked the README on any word they shared."""
+
+    def test_generated_prefixes_are_recognised(self) -> None:
+        self.assertEqual(document_kind("advice: should I use Postgres"), "advice")
+        self.assertEqual(document_kind("research: local-first agents"), "research")
+        self.assertEqual(document_kind("research report: llms"), "research")
+        self.assertEqual(document_kind("youtube:qXfPsEHFQpQ"), "youtube")
+
+    def test_a_users_document_is_a_file_even_with_a_colon(self) -> None:
+        self.assertEqual(document_kind("README.md"), "file")
+        self.assertEqual(document_kind("C:/notes/plan.md"), "file")
+        self.assertEqual(document_kind(""), "file")
+
+
+class KindWeightTests(unittest.TestCase):
+    def test_a_real_file_outranks_the_agents_own_output(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            body = "The approval gate stops risky actions before they run."
+            kb.add("advice: how should approvals work", body)
+            kb.add("notes.md", body)                      # identical text, so only kind differs
+            self.assertEqual(kb.search("approval gate")[0]["source"], "notes.md")
+
+    def test_the_weight_does_not_overrule_relevance(self) -> None:
+        """It only moves the secondary sort key — distinct terms matched still decides."""
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            kb.add("notes.md", "The approval gate is mentioned here.")
+            kb.add("advice: downloads", "The approval gate blocks a download until you allow it.")
+            self.assertEqual(kb.search("approval gate download")[0]["source"], "advice: downloads")
+
+
+class PruneTests(unittest.TestCase):
+    def test_generated_documents_are_capped_oldest_first(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            cap = GENERATED_CAPS["advice"]
+            for index in range(cap + 4):
+                kb.add(f"advice: question {index}", f"An analysis of question {index}.")
+            sources = {d["source"] for d in kb.list_documents()}
+            self.assertEqual(len(sources), cap, sorted(sources))
+            self.assertNotIn("advice: question 0", sources, "the oldest should go first")
+            self.assertIn(f"advice: question {cap + 3}", sources, "the newest must stay")
+
+    def test_a_users_own_documents_are_never_pruned(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            for index in range(40):
+                kb.add(f"file-{index}.md", f"Notes number {index}.")
+            self.assertEqual(len(kb.list_documents()), 40)
+
+    def test_prune_reports_what_it_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            cap = GENERATED_CAPS["research"]
+            # Write past the cap without add()'s pruning, as an older store would look.
+            import json as _json
+            documents = [{"id": i + 1, "source": f"research: topic {i}", "text": f"About topic {i}.",
+                          "char_count": 14, "preview": "x"} for i in range(cap + 3)]
+            (Path(raw) / "knowledge.json").write_text(
+                _json.dumps({"next_id": cap + 4, "documents": documents}), encoding="utf-8")
+
+            outcome = kb.prune()
+            self.assertEqual(outcome["removed"], 3)
+            self.assertEqual(outcome["remaining"], cap)
+            self.assertEqual(outcome["sources"], ["research: topic 0", "research: topic 1", "research: topic 2"])
+
+    def test_pruning_an_already_tidy_store_changes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = KnowledgeBase(Path(raw) / "knowledge.json")
+            kb.add("notes.md", "Nothing to prune here.")
+            outcome = kb.prune()
+            self.assertEqual(outcome["removed"], 0)
+            self.assertEqual(len(kb.list_documents()), 1)
 
 
 class KnowledgeBaseTests(unittest.TestCase):

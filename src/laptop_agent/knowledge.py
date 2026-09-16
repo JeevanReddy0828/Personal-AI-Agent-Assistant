@@ -32,9 +32,61 @@ def _content_terms(text: str) -> list[str]:
 
 
 
+# The agent indexes its own output: `solve` files its analysis as "advice: …", research
+# files the scraped page, a transcript as "youtube:…". Useful for recall, but measured on
+# the real store it had taken over — 30 of 31 documents were generated, against ONE real
+# file, and the scrapes averaged 20k characters to the advice dumps' 5k. A long scrape then
+# outranks the README on any word they share.
+_GENERATED_PREFIXES = {"advice": "advice", "research": "research", "research report": "research",
+                       "youtube": "youtube"}
+
+
+def document_kind(source: str) -> str:
+    """"file" for something the user indexed, else which kind of generated text it is."""
+    text = (source or "").strip()
+    if ":" not in text:
+        return "file"
+    head = text.split(":", 1)[0].strip().lower()
+    return _GENERATED_PREFIXES.get(head, "file")
+
+
+# A document the user indexed is the baseline; the agent's own output is discounted. These
+# are deliberately gentle — swept over 15 queries with a known answer, file x1.5 with the
+# generated kinds at 0.8-0.9 took top-1 from 12/15 to 13/15 and top-3 to 15/15, while a
+# heavy hand (file x3) dropped top-1 back to 12/15. The weight only moves the secondary
+# sort key, since distinct-terms-matched decides first, so it breaks ties rather than
+# overruling relevance.
+KIND_WEIGHTS = {"file": 1.5, "advice": 0.9, "research": 0.8, "youtube": 0.8}
+
+# How many of each generated kind to keep, newest first. A user's own documents are never
+# pruned. Without this the corpus grows with every `solve` and every research run forever.
+GENERATED_CAPS = {"advice": 12, "research": 8, "youtube": 12}
+
+
 # Markers of a passage that is instructions or markup rather than an explanation.
 _CODE_FENCE = re.compile(r"```")
 _COMMAND_LINE = re.compile(r"(?m)^\s*(?:\$|>|python -m |pip install |npm |git |curl )")
+
+
+def _prune_generated(documents: list[dict[str, object]]) -> list[str]:
+    """Trim each generated kind to its cap, oldest first. Returns the sources dropped.
+
+    Ids are handed out in order, so the lowest id of a kind is its oldest document. A
+    document the user indexed is never a candidate.
+    """
+    by_kind: dict[str, list[dict[str, object]]] = {}
+    for doc in documents:
+        by_kind.setdefault(document_kind(str(doc.get("source") or "")), []).append(doc)
+    drop_ids: set[int] = set()
+    dropped: list[str] = []
+    for kind, cap in GENERATED_CAPS.items():
+        group = sorted(by_kind.get(kind) or [], key=lambda d: d.get("id") or 0)
+        for doc in group[: max(0, len(group) - cap)]:
+            drop_ids.add(int(doc.get("id") or 0))
+            dropped.append(str(doc.get("source") or ""))
+    if drop_ids:
+        documents[:] = [d for d in documents if int(d.get("id") or 0) not in drop_ids]
+    return dropped
 
 
 def _prose_weight(passage: str) -> float:
@@ -102,10 +154,24 @@ class KnowledgeBase:
             if vector:
                 entry["vector"] = vector
         documents.append(entry)
+        pruned = _prune_generated(documents)
         store["documents"] = documents
         store["next_id"] = store["next_id"] + 1
         self._save(store)
-        return {"ok": True, "id": entry["id"], "source": source, "char_count": entry["char_count"]}
+        return {"ok": True, "id": entry["id"], "source": source,
+                "char_count": entry["char_count"], "pruned": len(pruned)}
+
+    @synchronized
+    def prune(self) -> dict[str, object]:
+        """Apply the generated-document caps now, rather than waiting for the next add."""
+        self._invalidate()
+        store = self._load()
+        documents = list(store["documents"])
+        dropped = _prune_generated(documents)
+        if dropped:
+            store["documents"] = documents
+            self._save(store)
+        return {"ok": True, "removed": len(dropped), "sources": dropped, "remaining": len(documents)}
 
     @synchronized
     def backfill_vectors(self, batch_size: int = 8) -> dict[str, object]:
@@ -164,6 +230,7 @@ class KnowledgeBase:
             score = self._tfidf_score(counts, terms, doc_frequencies, document_count)
             if score <= 0:
                 continue
+            score *= KIND_WEIGHTS.get(document_kind(str(doc.get("source") or "")), 1.0)
             matched = sum(1 for term in terms if counts.get(term, 0) > 0)
             scored.append(
                 (

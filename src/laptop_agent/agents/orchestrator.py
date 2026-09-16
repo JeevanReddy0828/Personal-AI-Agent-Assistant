@@ -740,6 +740,20 @@ class AgentOrchestrator:
         if lowered in {"knowledge reindex", "reindex knowledge", "knowledge backfill"}:
             return self._knowledge_reindex()
 
+        if lowered in {"knowledge prune", "prune knowledge"}:
+            outcome = self.context.knowledge.prune()
+            removed = int(outcome.get("removed") or 0)
+            if not removed:
+                return ToolResult.success(
+                    f"Nothing to prune — {outcome.get('remaining')} document(s) indexed.", **outcome
+                )
+            listed = "\n".join(f"- {source[:80]}" for source in list(outcome.get("sources") or [])[:12])
+            return ToolResult.success(
+                f"Pruned {removed} of my own generated document(s); {outcome.get('remaining')} remain. "
+                f"Your own indexed files are never pruned.\n\n{listed}",
+                **outcome,
+            )
+
         if lowered.startswith("knowledge forget "):
             return self._knowledge_forget(command[len("knowledge forget ") :].strip())
 
@@ -1605,6 +1619,7 @@ class AgentOrchestrator:
                 "Commands:",
                 "  remember <key> = <value>",
                 "  forget <key>",
+                "  knowledge prune",
                 "  memory",
                 "  audit",
                 "  briefing",
@@ -1984,6 +1999,7 @@ class AgentOrchestrator:
         "save note <title> : <body>",
         "remember <key> = <value>",
         "forget <key>",
+        "knowledge prune",
         # web & research
         "web search <query>",
         "news [topic]",
