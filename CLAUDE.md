@@ -210,6 +210,25 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             still reaches the advisor, and `solve` hands a sum straight to the calculator.
             Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
             inside power gave 4),
+        windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
+            "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
+            bottom, the four corners, thirds, centre, full. `parse_placements` finds the
+            POSITIONS first and reads the gaps between them as names, because splitting on
+            "and" cannot parse how this is actually said out loud - by voice it arrived as
+            "left side WhatsApp right side Chrome", position before name with no
+            conjunction. A window matches on its title *or* its executable, since neither
+            alone is enough (Chrome is titled after the page it shows; WhatsApp's process is
+            `WhatsApp.Root.exe`), and the shortest title wins a tie so "chrome" prefers a
+            real Chrome window over a page that merely mentions it. Rects come from
+            `SPI_GETWORKAREA`, not the screen, so `full` does not hide behind the taskbar.
+            DWM-cloaked windows and three named shells are filtered - enumerating the real
+            desktop returned "Windows Input Experience", "NVIDIA GeForce Overlay" and
+            "Program Manager" alongside the six real apps. **MEDIUM, not HIGH**: moving a
+            window is local, reversible and sends nothing anywhere, and a HIGH would put an
+            approval click in front of every spoken "snap Chrome left", which is the point
+            of the feature. The ctypes layer is behind an injectable backend so the whole
+            success path is tested off-Windows; verified on the real desktop by snapping
+            Chrome to (0,0,960,1032) and restoring its exact original rect),
         travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
             totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
             web Map panel, + OpenStreetMap hotels/places — no key),

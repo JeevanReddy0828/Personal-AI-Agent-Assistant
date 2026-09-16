@@ -47,6 +47,7 @@ from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
+from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
@@ -84,6 +85,7 @@ class AgentContext:
     websearch: WebSearchTool
     browser: BrowserAutomationTool
     desktop: DesktopTool
+    windows: WindowTool
     email: EmailTool
     music: MusicTool
     research: ResearchTool
@@ -1061,7 +1063,15 @@ class AgentOrchestrator:
         return None
 
     async def _dispatch_desktop(self, command: str, lowered: str, history_turns) -> ToolResult | None:
-        """Direct commands for apps, screenshots, the shell and media keys."""
+        """Direct commands for apps, windows, screenshots, the shell and media keys."""
+        if lowered in {"windows", "list windows", "show windows", "what windows are open"}:
+            return self.context.windows.list_windows()
+
+        if lowered in {"window", "split", "snap", "arrange"} or lowered.startswith(
+            ("window ", "windows ", "split ", "snap ", "arrange ")
+        ):
+            return self._arrange_windows(command)
+
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
@@ -1620,6 +1630,8 @@ class AgentOrchestrator:
                 "  remember <key> = <value>",
                 "  forget <key>",
                 "  knowledge prune",
+                "  window <name> <position>",
+                "  windows",
                 "  memory",
                 "  audit",
                 "  briefing",
@@ -2000,6 +2012,8 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         "forget <key>",
         "knowledge prune",
+        "window <name> <left|right|top|bottom|full|corner>",
+        "windows",
         # web & research
         "web search <query>",
         "news [topic]",
@@ -3082,6 +3096,22 @@ class AgentOrchestrator:
             f"I have nothing saved under '{key}'. I do know: " + ", ".join(sorted(profile)) + ".",
             profile=profile,
         )
+
+    def _arrange_windows(self, command: str) -> ToolResult:
+        """"put WhatsApp on the left and Chrome on the right" -> two placements.
+
+        The phrasing is parsed here rather than by the router because it arrives by voice:
+        said out loud it came out as "left side WhatsApp right side Chrome", with the
+        position before the name and no conjunction between the two halves.
+        """
+        placements = parse_placements(command)
+        if not placements:
+            return ToolResult.failure(
+                "Tell me which window and where — for example: put WhatsApp on the left "
+                "and Chrome on the right. I can use left, right, top, bottom, the four "
+                "corners, thirds, centre or full screen. Say 'windows' to see what is open."
+            )
+        return self.context.windows.arrange(placements)
 
     def _mirror_to_vault(self, text: str) -> None:
         if self.context.obsidian.available():

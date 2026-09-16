@@ -4,6 +4,19 @@ import re
 
 from laptop_agent.planner.core import PlanDecision
 
+_POSITION_WORD = r"(?:left|right|top|bottom|centre|center|middle|full\s*screen|fullscreen|third)"
+# Arranging windows, as it is actually said out loud. `window`/`split`/`snap`/`arrange`
+# are already direct command prefixes, so this only has to catch the natural phrasings:
+# "put X on the left", "move X to the top right", "maximise X", "left side X right side Y".
+_ARRANGE_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would)\s+you\s+|please\s+)?(?:jarvis[,\s]+)?(?:"
+    r"(?:put|move|place|send|shift|drag)\b[\s\S]{0,80}?\b" + _POSITION_WORD + r"\b"
+    r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+\S+"
+    r"|" + _POSITION_WORD + r"\s+side\b[\s\S]{0,60}"
+    r")",
+    re.IGNORECASE,
+)
+
 # "a ppt for the solar system", "slides on rust" — a deck names its format at the front,
 # where a document names it at the end ("... as a pdf"). Kept in step with
 # `tools.document._DECK_HEAD`, which is what actually splits the subject off.
@@ -220,6 +233,10 @@ class HeuristicPlannerProvider:
         headlines = self._news(raw)
         if headlines:
             return headlines
+
+        arranged = self._arrange(raw)
+        if arranged:
+            return arranged
 
         written = self._document(raw)
         if written:
@@ -587,6 +604,16 @@ class HeuristicPlannerProvider:
         if not looks_like_arithmetic(text):
             return None
         return self._command(f"calculate {text.strip()}", "That is a sum; compute it exactly.", 0.95)
+
+    def _arrange(self, text: str) -> PlanDecision | None:
+        """'put whatsapp on the left and chrome on the right' -> the window tool.
+
+        The whole sentence is passed through as `window <text>`; the tool parses the
+        placements, because the position can come before the name when it is spoken.
+        """
+        if not _ARRANGE_ASK.match(text or ""):
+            return None
+        return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what

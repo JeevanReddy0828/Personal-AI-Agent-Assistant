@@ -18,6 +18,7 @@ from laptop_agent.safety import ApprovalGate
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
+from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.jobright import JobrightTool
@@ -33,6 +34,30 @@ from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowTracker
+
+
+class _FakeWindows:
+    """A desktop with two windows on a 1920x1040 work area, so window arranging is
+    exercised on any OS. The real backend is ctypes and Windows-only."""
+
+    def __init__(self):
+        from laptop_agent.tools.windows import DesktopWindow
+
+        self.placed = []
+        self._windows = [
+            DesktopWindow(101, "WhatsApp", "WhatsApp.exe"),
+            DesktopWindow(202, "Inbox (3) - Gmail - Google Chrome", "chrome.exe"),
+        ]
+
+    def list_windows(self):
+        return list(self._windows)
+
+    def work_area(self):
+        return (0, 0, 1920, 1040)
+
+    def place(self, handle, left, top, width, height):
+        self.placed.append((handle, left, top, width, height))
+        return True
 
 
 class _StubRouter:
@@ -104,6 +129,7 @@ class OrchestratorTests(unittest.TestCase):
                 ),
                 browser=BrowserAutomationTool(gate),
                 desktop=desktop,
+                windows=WindowTool(gate, backend=_FakeWindows()),
                 email=EmailTool(gate, config),
                 music=MusicTool(
                     gate,
@@ -217,6 +243,23 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("favorite color", message, "the underscore should not be read aloud")
             self.assertEqual(message.count("- **"), 4, message)
             self.assertNotIn(" = ", message)
+
+    def test_arranging_windows_by_voice_phrasing(self) -> None:
+        """Said out loud it arrives as "left side WhatsApp right side Chrome", so the
+        placements are parsed from the whole command rather than by the router."""
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            backend = orchestrator.context.windows._backend
+            result = asyncio.run(orchestrator.handle("window left side whatsapp right side chrome"))
+            self.assertTrue(result.ok, result.message)
+            self.assertEqual([p[0] for p in backend.placed], [101, 202])
+            self.assertEqual(backend.placed[0][1:], (0, 0, 960, 1040))
+
+    def test_asking_to_arrange_nothing_explains_the_options(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = self.build(Path(raw))
+            result = asyncio.run(orchestrator.handle("window"))
+            self.assertIn("left", result.message.lower())
 
     def test_search_files(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
