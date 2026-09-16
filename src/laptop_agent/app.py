@@ -18,6 +18,7 @@ from laptop_agent.safety import ApprovalGate, ApprovalRequest
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
+from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.jobright import JobrightTool
@@ -55,6 +56,7 @@ def build_orchestrator(
         websearch=WebSearchTool(approval_gate, search_backend=search_backend),
         browser=BrowserAutomationTool(approval_gate),
         desktop=desktop,
+        windows=WindowTool(approval_gate),
         email=EmailTool(approval_gate, config),
         music=MusicTool(approval_gate, desktop, web),
         research=ResearchTool(approval_gate, search_backend=search_backend),
