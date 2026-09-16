@@ -92,6 +92,11 @@ _FILLER = {
     "put", "move", "snap", "send", "place", "set", "window", "windows", "split", "screen",
     "arrange", "the", "my", "a", "an", "to", "on", "at", "in", "into", "side", "please",
     "jarvis", "and", "with", "then", "also", "half", "app", "open", "make", "show", "up",
+    # Politeness and framing. Without these, "could you put my WhatsApp on left" asked for
+    # a window called "could you WhatsApp" and reported it as not open.
+    "hey", "hi", "hello", "ok", "okay", "could", "can", "would", "will", "you", "i", "me",
+    "we", "us", "want", "need", "like", "for", "of", "is", "it", "that", "this", "now",
+    "just", "both", "sides", "them", "using", "use", "function", "layout", "mode", "view",
 }
 
 
@@ -193,9 +198,18 @@ class WindowTool:
                     f"I do not know the position '{layout_name}'. I can use: "
                     + ", ".join(sorted(LAYOUTS)) + "."
                 )
-            # Longest title first, so "chrome" prefers a real Chrome window over one that
+            # Shortest title first, so "chrome" prefers a real Chrome window over one that
             # merely mentions it in a page title.
             hits = sorted((w for w in windows if w.matches(name)), key=lambda w: len(w.title))
+            if not hits:
+                # Fall back to the individual words, longest first. Speech brings along
+                # words no filter will ever catch ("could you WhatsApp", a mis-heard
+                # article), and refusing the whole request over one stray word is worse
+                # than acting on its most specific word.
+                for word in sorted((w for w in name.split() if len(w) > 2), key=len, reverse=True):
+                    hits = sorted((w for w in windows if w.matches(word)), key=lambda w: len(w.title))
+                    if hits:
+                        break
             if not hits:
                 unknown.append(name)
                 continue

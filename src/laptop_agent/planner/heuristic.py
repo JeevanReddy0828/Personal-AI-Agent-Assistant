@@ -9,11 +9,21 @@ _POSITION_WORD = r"(?:left|right|top|bottom|centre|center|middle|full\s*screen|f
 # are already direct command prefixes, so this only has to catch the natural phrasings:
 # "put X on the left", "move X to the top right", "maximise X", "left side X right side Y".
 _ARRANGE_ASK = re.compile(
-    r"^\s*(?:(?:can|could|would)\s+you\s+|please\s+)?(?:jarvis[,\s]+)?(?:"
-    r"(?:put|move|place|send|shift|drag)\b[\s\S]{0,80}?\b" + _POSITION_WORD + r"\b"
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+|i\s+(?:want|need)\s+)?(?:jarvis[,\s]+)?(?:"
+    # a verb, then a position somewhere after it
+    r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)\b[\s\S]{0,80}?\b"
+    + _POSITION_WORD + r"\b"
     r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+\S+"
     r"|" + _POSITION_WORD + r"\s+side\b[\s\S]{0,60}"
     r")",
+    re.IGNORECASE,
+)
+# "split screen", "split windows", "side by side" anywhere in the sentence is unambiguous
+# about intent even when the grammar is not — spoken and transcribed, this arrived as
+# "And Chrome on right using split windows function", which starts with neither a verb nor
+# a position and so matched nothing above.
+_ARRANGE_PHRASE = re.compile(
+    r"\bsplit\s*(?:the\s+)?(?:screen|windows?|view)\b|\bside\s+by\s+side\b|\bsnap\s+layout\b",
     re.IGNORECASE,
 )
 
@@ -611,7 +621,8 @@ class HeuristicPlannerProvider:
         The whole sentence is passed through as `window <text>`; the tool parses the
         placements, because the position can come before the name when it is spoken.
         """
-        if not _ARRANGE_ASK.match(text or ""):
+        probe = text or ""
+        if not _ARRANGE_ASK.match(probe) and not _ARRANGE_PHRASE.search(probe):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
 

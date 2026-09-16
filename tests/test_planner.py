@@ -18,6 +18,24 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "process file C:/reports/q3.pdf")
 
+    def test_routes_window_arrangement_however_it_is_asked(self) -> None:
+        """All three of these were reported failing. The first reached the window tool but
+        parsed the politeness into the app name; the other two never routed at all and the
+        chat tier answered them by asking for approval and then claiming it had acted."""
+        for text in ("Hey Jarvis, could you put my WhatsApp on left and chrome on right?",
+                     "can you split whatsapp left and chrome right please",
+                     "And Chrome on right using split windows function"):
+            decision = self.plan(text)
+            self.assertTrue(decision.is_command, text)
+            self.assertTrue((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
+
+    def test_arrangement_routing_does_not_grab_unrelated_sentences(self) -> None:
+        for text in ("move the report to the archive folder",
+                     "split the bill between four people",
+                     "what is on the left of the diagram"):
+            decision = self.plan(text)
+            self.assertFalse((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
+
     def test_routes_a_slide_deck_request(self) -> None:
         """The document route needed a trailing format ("... as a pdf"), which a deck
         request never has — so "create a ppt for sun and planets" fell through to the LLM

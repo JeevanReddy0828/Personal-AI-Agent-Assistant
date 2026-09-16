@@ -314,5 +314,20 @@ class ChatGuardTests(unittest.TestCase):
         self.assertNotIn("cannot create images", captured[0]["messages"][0]["content"])
 
 
+class ChatPromptActionClaimsTests(unittest.TestCase):
+    """Asked to put two windows side by side, the chat tier replied "May I resize and
+    reposition...", then "Approved. [Window arrangement initiated]" — and nothing had
+    happened. The prompt forbade claiming a *file* was made; it said nothing about
+    claiming an action on the machine."""
+
+    def test_the_prompt_forbids_asking_for_permission_and_claiming_action(self) -> None:
+        from laptop_agent.planner.openai_compatible import _NO_TOOL_CLAIMS
+
+        lowered = _NO_TOOL_CLAIMS.lower()
+        for phrase in ("never ask", "permission", "arranging windows",
+                       "done, started or initiated", "approval card"):
+            self.assertIn(phrase, lowered, f"the chat prompt no longer covers: {phrase}")
+
+
 if __name__ == "__main__":
     unittest.main()
