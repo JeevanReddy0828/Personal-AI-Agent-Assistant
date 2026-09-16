@@ -133,6 +133,8 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Link-aware vault answer | `ask vault <question>` |
 | Vault health (orphans/broken/missing summary) | `notes audit` |
 | Durable profile facts | `remember <fact>` *(mirrored into the vault)* |
+| Forget a remembered fact | `forget <key>` — matches on the words, so "forget my favorite color" finds `favorite_color` |
+| Trim the agent's own indexed output | `knowledge prune` — caps `advice:`/`research:`/`youtube:` documents (your own indexed files are never pruned) |
 
 ### 🌍 Web, research & travel (free, no key)
 | Capability | How |
@@ -162,6 +164,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 | Reminders | `remind me to <x> at <when>` · `reminders` |
 | Recurring jobs (commands or agent goals) | `schedule <when> :: <command>` · `schedule list` |
 | Daily briefing | `briefing` |
+| Arrange desktop windows by voice | "put WhatsApp on the left and Chrome on the right" · `window <name> <position>` · `windows` — left/right/top/bottom, four corners, thirds, centre, full (Windows only) |
 | Open apps · music · media keys | `open url <u>` · `play music <path>` |
 | Terminal commands (gated, timed) | `run command <cmd>` |
 | Browser form inspect / preview / fill (gated) | `inspect forms <url>` · `fill form <url>` |
@@ -215,7 +218,7 @@ Risk-classified approval gate — only **external state changes** and **data egr
 | Risk | Examples |
 |---|---|
 | none / low | read/search/summarize local files, knowledge recall, vault read/write |
-| medium | web search, inbox read, research (one approval covers the fetch fan-out) |
+| medium | web search, inbox read, research (one approval covers the fetch fan-out), arranging desktop windows |
 | high | send email, write/convert/move files, downloads, launch apps, browser state changes |
 | critical | SMTP/OAuth send, OAuth token exchange, terminal commands |
 
@@ -226,11 +229,34 @@ is single-use, and a timeout denies — silence is never consent. With no interf
 connected to answer, the action is denied immediately rather than left hanging. Audit
 events are written to `.agent_data/audit.jsonl`.
 
-**Deployment posture.** Local-first, single-user. The web server binds to loopback
-(`127.0.0.1` or `localhost`) with origin checks and a per-process browser mutation
-token. It has no user accounts or remote-access support. Keep the configured
-`LAPTOP_AGENT_PORT` stable for browser history.
-Secrets live only in a gitignored `.env`; never commit real keys.
+**Deployment posture.** Local-first, single-user. By default the web server binds to
+loopback (`127.0.0.1` or `localhost`) with origin checks and a per-process browser
+mutation token. It has no user accounts. Keep the configured `LAPTOP_AGENT_PORT` stable
+for browser history. Secrets live only in a gitignored `.env`; never commit real keys.
+
+**Reaching it from a phone on your own network.** The page carries the mutation token, and
+that token is shell, files and mail on this laptop — so a non-loopback bind is refused
+outright unless a passcode is set:
+
+```powershell
+$env:LAPTOP_AGENT_HOST="0.0.0.0"; $env:LAPTOP_AGENT_LAN_PASSCODE="something-long"
+python -m laptop_agent.webui        # then http://<laptop-ip>:8770 on the phone
+```
+
+Anything that is not this machine gets a lock screen, exchanges the passcode for an
+HttpOnly `SameSite=Strict` session cookie held in the process (a restart re-asks), and is
+rate limited to 10 attempts. The `Host` may be an **IP literal only, never a name**, so
+DNS rebinding cannot reach it. Loopback is never asked for a passcode.
+
+Two caveats. **Voice does not work over plain HTTP** — `http://<ip>` is not a secure
+context, so the browser removes `getUserMedia` entirely; only HTTPS or `localhost`
+qualify, and a self-signed certificate is not enough. And on Windows you will need an
+inbound firewall rule for the port, scoped to your own subnet:
+
+```powershell
+New-NetFirewallRule -DisplayName "J.A.R.V.I.S (LAN)" -Direction Inbound -Action Allow `
+  -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any
+```
 
 ---
 
@@ -264,16 +290,21 @@ src/laptop_agent/
   planner/                 Heuristic (instant) + OpenAI-compatible (LLM) routers
   tools/                   files, web, research, email, travel, transcribe, webcam,
                            music, weather, youtube, obsidian, browser, desktop, terminal,
-                           imagegen (text-to-image),
+                           imagegen (text-to-image), document (pdf/word/powerpoint),
+                           windows (arrange the desktop), calculator, clock, textcard,
                            jobright (lead scraper), resume_pdf (HTML→PDF via Chromium)
   copilot.py  jobs.py      Resume CoPilot (ATS + grounded template resume) + job pipeline
   advisor.py  reasoning.py Problem-solver + autonomous plan/act/observe loop
-  knowledge.py  memory.py  TF-IDF index + JSON profile memory
+  knowledge.py  memory.py  TF-IDF index (+ vectors) · JSON profile memory
+  terms.py  context.py     The shared word splitter · session-context builder
+  approvals.py  failures.py  Browser approval bridge · swallowed-failure log
+  retention.py             Hourly sweep of generated artifacts and upload scratch dirs
   scheduler.py  tasks.py   Recurring jobs · parallel/sequential run history
   safety.py  audit.py      Approval gate + JSONL audit log
   model_status.py  health.py  Per-tier reachability + system self-check
   cli.py  gui.py  webui.py  Three front ends (CLI, Tkinter, web/native)
-  webui_page.py            The web UI document (markup + CSS + JS), served by webui.py
+  webui_page.py            75-line loader that assembles the page at import
+  webui_assets/           app.html · app.css · app.js — the page's real source files
 tests/                     Dependency-free unit tests (offline)
 ```
 
