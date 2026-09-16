@@ -124,6 +124,38 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(chrome.matches(""))
 
 
+class AmbiguousNameTests(unittest.TestCase):
+    """Reported: "chrome" arranged **Live Caption** — a Chrome-hosted widget whose process
+    is also chrome.exe — because its title is shorter than "J.A.R.V.I.S - Google Chrome"
+    and the tie-break was shortest-title."""
+
+    LIVE_DESKTOP = [
+        DesktopWindow(1, "WhatsApp", "WhatsApp.Root.exe"),
+        DesktopWindow(2, "J.A.R.V.I.S - Google Chrome", "chrome.exe"),
+        DesktopWindow(3, "Live Caption", "chrome.exe"),
+        DesktopWindow(4, "WhatsApp", "msedgewebview2.exe"),
+    ]
+
+    def test_chrome_is_the_chrome_window_not_a_chrome_hosted_widget(self) -> None:
+        backend = FakeBackend(windows=self.LIVE_DESKTOP)
+        result = tool(backend).arrange([("chrome", "right")])
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(backend.placed[0][0], 2, "picked the wrong chrome.exe window")
+        self.assertIn("Google Chrome", result.message)
+
+    def test_whatsapp_is_the_app_not_its_webview(self) -> None:
+        backend = FakeBackend(windows=self.LIVE_DESKTOP)
+        tool(backend).arrange([("whatsapp", "left")])
+        self.assertEqual(backend.placed[0][0], 1, "picked the msedgewebview2 window")
+
+    def test_a_title_only_match_still_works(self) -> None:
+        """"gmail" names no process at all, only a page title."""
+        backend = FakeBackend(windows=[DesktopWindow(9, "Inbox - Gmail - Google Chrome", "chrome.exe")])
+        result = tool(backend).arrange([("gmail", "left")])
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(backend.placed[0][0], 9)
+
+
 class ArrangeTests(unittest.TestCase):
     def test_a_split_places_both_halves(self) -> None:
         backend = FakeBackend()

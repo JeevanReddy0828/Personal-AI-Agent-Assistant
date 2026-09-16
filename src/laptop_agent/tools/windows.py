@@ -36,10 +36,35 @@ class DesktopWindow:
         Chrome window is titled after the page it shows ("Inbox (3) - Gmail"), and
         WhatsApp's process is `WhatsApp.exe` while its title is just "WhatsApp".
         """
+        return self.match_rank(name) is not None
+
+    def match_rank(self, name: str) -> tuple[int, int] | None:
+        """How good a match this window is, lower being better; None when it is not one.
+
+        A plain substring test is not enough. "chrome" hit **Live Caption** — a Chrome-hosted
+        widget whose process is also `chrome.exe` — and because its title is shorter than
+        "J.A.R.V.I.S - Google Chrome" the shortest-title tie-break chose it. So a window
+        matching in BOTH its title and its executable outranks one matching in only one of
+        them, which also picks the real `WhatsApp.Root.exe` over the `msedgewebview2.exe`
+        window of the same name.
+        """
         wanted = name.strip().lower()
         if not wanted:
-            return False
-        return wanted in self.title.lower() or wanted in self.process.lower()
+            return None
+        title = self.title.lower()
+        process = self.process.lower()
+        stem = process.rsplit(".", 1)[0]
+        if wanted in title and wanted in stem:
+            tier = 0
+        elif wanted in title:
+            tier = 1
+        elif stem == wanted or stem.startswith(wanted):
+            tier = 2
+        elif wanted in process:
+            tier = 3
+        else:
+            return None
+        return (tier, len(self.title))
 
 
 class WindowBackend(Protocol):
@@ -145,6 +170,12 @@ def parse_placements(text: str) -> list[tuple[str, str]]:
     return placements
 
 
+def _ranked(windows: list[DesktopWindow], name: str) -> list[DesktopWindow]:
+    """Matching windows, best first."""
+    scored = [(w.match_rank(name), w) for w in windows]
+    return [w for rank, w in sorted((p for p in scored if p[0] is not None), key=lambda p: p[0])]
+
+
 class WindowTool:
     def __init__(self, approval_gate: ApprovalGate, backend: WindowBackend | None = None) -> None:
         self._gate = approval_gate
@@ -198,16 +229,14 @@ class WindowTool:
                     f"I do not know the position '{layout_name}'. I can use: "
                     + ", ".join(sorted(LAYOUTS)) + "."
                 )
-            # Shortest title first, so "chrome" prefers a real Chrome window over one that
-            # merely mentions it in a page title.
-            hits = sorted((w for w in windows if w.matches(name)), key=lambda w: len(w.title))
+            hits = _ranked(windows, name)
             if not hits:
                 # Fall back to the individual words, longest first. Speech brings along
                 # words no filter will ever catch ("could you WhatsApp", a mis-heard
                 # article), and refusing the whole request over one stray word is worse
                 # than acting on its most specific word.
                 for word in sorted((w for w in name.split() if len(w) > 2), key=len, reverse=True):
-                    hits = sorted((w for w in windows if w.matches(word)), key=lambda w: len(w.title))
+                    hits = _ranked(windows, word)
                     if hits:
                         break
             if not hits:
