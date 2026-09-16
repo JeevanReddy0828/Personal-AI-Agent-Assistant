@@ -204,7 +204,13 @@ class SourceIntegrityTests(unittest.TestCase):
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent / "src"
-        return sorted(root.rglob("*.py"))
+        # The page's CSS and JS are real files now, and they hold the regex-heavy code
+        # this guard exists for — scanning only *.py would have left them uncovered at
+        # exactly the moment they became the most likely place for a mangled escape.
+        files = []
+        for pattern in ("*.py", "*.js", "*.css", "*.html"):
+            files.extend(root.rglob(pattern))
+        return sorted(files)
 
     def test_no_control_characters_in_any_source_file(self) -> None:
         offenders = []

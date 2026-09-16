@@ -683,7 +683,28 @@ Windows backend) ships no Web Speech API, the native window does voice
 pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
 `packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
 
-The web UI (the `PAGE` string in `webui_page.py`; `webui.py` keeps the server and routes
+**The page lives in `src/laptop_agent/webui_assets/` as `app.html` (15KB), `app.css` (47KB)
+and `app.js` (121KB).** `webui_page.py` is now a 75-line loader that stitches them together
+into `PAGE` at import (it was a 2529-line module holding all of it as one raw string, where
+nothing could lint or highlight it and a stray backslash in a regex was indistinguishable
+from a deliberate escape — a mistake that has cost real time here). The extraction was
+verified **byte-identical** against a snapshot of the old string, which is the whole safety
+argument for the refactor.
+
+It is still served as **one inlined document** — that is deliberate, not unfinished work.
+The CSP is `script-src 'nonce-…'` with no `'self'`, so a `<script src>` would be blocked
+outright, and a linked stylesheet would need `style-src 'self'`; a test fails if someone
+"completes" the split by linking them. So this is a source-level split only: the bytes on
+the wire are unchanged.
+
+Two things it added, both already trodden on once in this repo: a packaged build needs
+`--add-data` for `webui_assets` (both `packaging/*.ps1` carry it, and `_asset_dir()` checks
+`sys._MEIPASS` as well as beside the module — the same trap that hid the bundled Vosk
+model), and a wheel needs `[tool.setuptools.package-data]`. The source-integrity guard now
+scans `*.js`/`*.css`/`*.html` under `src/` too, since that is where the regex-heavy code
+lives now.
+
+The web UI (`PAGE`; `webui.py` keeps the server and routes
 and imports it, and the server reads it at import, so CSS/JS
 edits need a restart) is a calm dark workspace: a slim left rail (New chat, recent
 conversations, a status row), an assistant-presence panel holding the animated particle
