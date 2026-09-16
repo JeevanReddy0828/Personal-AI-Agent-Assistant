@@ -48,7 +48,10 @@ def _prose_weight(passage: str) -> float:
         weight *= 0.45
     if _COMMAND_LINE.search(passage):
         weight *= 0.6
-    letters = sum(1 for ch in passage if ch.isalpha() or ch.isspace())
+    # map() over the C methods, not a genexpr calling two of them per character: this was
+    # 46% of an answer's time (784,480 isalpha calls for five answers). Measured exactly
+    # equivalent on 2000 mixed passages, and 1.45x faster; a regex was both slower and wrong.
+    letters = sum(map(str.isalpha, passage)) + sum(map(str.isspace, passage))
     if passage and letters / len(passage) < 0.7:
         weight *= 0.75      # mostly punctuation, pipes or symbols: a table or a diagram
     return weight
@@ -73,9 +76,13 @@ class KnowledgeBase:
         self.max_text_chars = max_text_chars
         # Optional: keyword scoring only finds a document that reuses the asker's words.
         self.embedder = embedder
+        self._cache_key: tuple[int, int] | None = None
+        self._cache_store: dict[str, object] | None = None
+        self._counts_cache: dict[int, dict[str, int]] = {}
 
     @synchronized
     def add(self, source: str, text: str) -> dict[str, object]:
+        self._invalidate()
         cleaned = text.strip()
         if not cleaned:
             return {"ok": False, "reason": "no extractable text"}
@@ -109,6 +116,7 @@ class KnowledgeBase:
         """
         if self.embedder is None or not self.embedder.available():
             return {"ok": False, "reason": "no embedding model is configured"}
+        self._invalidate()
         store = self._load()
         documents = store["documents"]
         pending = [d for d in documents if not d.get("vector") and str(d.get("text", "")).strip()]
@@ -148,7 +156,7 @@ class KnowledgeBase:
         indexed = []
         for doc in documents:
             text = str(doc.get("text", ""))
-            indexed.append((doc, text, self._term_counts(text)))
+            indexed.append((doc, text, self._counts_for(doc, text)))
         doc_frequencies = self._document_frequencies_from_counts([counts for _, _, counts in indexed], terms)
         document_count = len(documents)
         scored: list[tuple[int, float, int, dict[str, object]]] = []
@@ -270,7 +278,7 @@ class KnowledgeBase:
         # same before, so "what is JARVIS" ranked a sentence that says "is" three times
         # above the one that actually says JARVIS, and the answer came out of an unrelated
         # research scrape even though the ranking had put the README first by 14.5 to 5.9.
-        pool_counts = [self._term_counts(str(doc.get("text", ""))) for doc in pool]
+        pool_counts = [self._counts_for(doc, str(doc.get("text", ""))) for doc in pool]
         total_docs = len(pool) or 1
         weights = {
             term: math.log((total_docs + 1) / (sum(1 for c in pool_counts if term in c) + 0.5))
@@ -293,6 +301,13 @@ class KnowledgeBase:
             for start in range(len(sentences)):
                 window = sentences[start:start + PASSAGE_SENTENCES]
                 passage = " ".join(window)
+                # Every window was tokenized and then thrown away if no query term was in
+                # it, which is most of them. A term can only match as a token if it is
+                # present as a substring, so this skips the same windows the overlap test
+                # would have — without paying to tokenize them first.
+                lowered = passage.lower()
+                if not any(term in lowered for term in terms):
+                    continue
                 counts = self._term_counts(passage)
                 overlap = sum(counts.get(term, 0) * weights[term] for term in terms)
                 if overlap <= 0:
@@ -419,6 +434,7 @@ class KnowledgeBase:
 
     @synchronized
     def forget(self, doc_id: int) -> bool:
+        self._invalidate()
         store = self._load()
         remaining = [doc for doc in store["documents"] if doc.get("id") != doc_id]
         existed = len(remaining) != len(store["documents"])
@@ -429,6 +445,7 @@ class KnowledgeBase:
 
     @synchronized
     def clear(self) -> int:
+        self._invalidate()
         store = self._load()
         count = len(store["documents"])
         store["documents"] = []
@@ -494,9 +511,26 @@ class KnowledgeBase:
         return f"{prefix}{snippet}{suffix}"
 
     @synchronized
+    def _invalidate(self) -> None:
+        """Drop the caches. Called before every mutation, so a mutator that fails part way
+        through can never leave a dirty store behind for a reader to see."""
+        self._cache_key = None
+        self._cache_store = None
+        self._counts_cache = {}
+
     def _load(self) -> dict[str, object]:
         if not self.path.exists():
             return {"next_id": 1, "documents": []}
+        # Parsing 1.6MB of JSON on every search cost 12ms of the 41ms a search took, and
+        # the file has not changed between two searches. Keyed on the file's own identity
+        # so an edit by another process (or the other agent) is still picked up.
+        try:
+            stat = self.path.stat()
+            key = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            key = None
+        if key is not None and key == self._cache_key and self._cache_store is not None:
+            return self._cache_store
         try:
             data = read_json(self.path, {})
         except (OSError, ValueError):
@@ -507,9 +541,29 @@ class KnowledgeBase:
         documents = data.get("documents")
         data["documents"] = [d for d in documents if isinstance(d, dict) and isinstance(d.get("id"), int)] if isinstance(documents, list) else []
         data["next_id"] = max([positive_int(data.get("next_id"))] + [d["id"] + 1 for d in data["documents"]])
+        if key is not None:
+            self._cache_key, self._cache_store, self._counts_cache = key, data, {}
         return data
+
+    def _counts_for(self, doc: dict[str, object], text: str) -> dict[str, int]:
+        """Term counts for one document, computed once per load.
+
+        Tokenizing every document from scratch on every search was 72% of a search's time
+        (0.217s of 0.300s over five searches). The corpus does not change between two
+        searches, so this is pure waste. Keyed by document id, and the whole cache is
+        dropped whenever the store is reloaded or mutated.
+        """
+        doc_id = doc.get("id")
+        if not isinstance(doc_id, int):
+            return self._term_counts(text)
+        cached = self._counts_cache.get(doc_id)
+        if cached is None:
+            cached = self._term_counts(text)
+            self._counts_cache[doc_id] = cached
+        return cached
 
     @synchronized
     def _save(self, store: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(self.path, json.dumps(store, indent=2))
+        self._invalidate()

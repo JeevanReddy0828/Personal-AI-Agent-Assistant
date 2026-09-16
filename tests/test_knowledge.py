@@ -21,6 +21,61 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertEqual(results[0]["source"], "notes.md")
             self.assertIn("invoice", results[0]["snippet"].lower())
 
+    def test_a_cached_index_still_sees_new_documents(self) -> None:
+        """Parsing 1.6MB of JSON and re-tokenizing 282k characters on every search cost
+        39ms of a 41ms search. Both are cached now, so the risk moves to staleness."""
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("first.md", "The approval gate stops risky actions.")
+            self.assertEqual(kb.search("approval")[0]["source"], "first.md")   # warms the cache
+
+            kb.add("second.md", "The approval gate also guards downloads and shell commands.")
+            sources = {hit["source"] for hit in kb.search("approval")}
+            self.assertEqual(sources, {"first.md", "second.md"}, "a cached index hid a new document")
+
+    def test_a_cached_index_forgets_a_removed_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("gone.md", "The approval gate stops risky actions.")
+            doc_id = kb.search("approval")[0]["id"]
+            self.assertTrue(kb.forget(int(doc_id)))
+            self.assertEqual(kb.search("approval"), [], "a cached index kept a forgotten document")
+
+    def test_an_edit_on_disk_is_picked_up(self) -> None:
+        """Codex edits this file too, and the cache is keyed on the file's own identity so
+        a change made by another process is not served stale."""
+        import json
+        import os
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "knowledge.json"
+            kb = KnowledgeBase(path)
+            kb.add("first.md", "The approval gate stops risky actions.")
+            self.assertTrue(kb.search("approval"))
+
+            store = json.loads(path.read_text(encoding="utf-8"))
+            store["documents"].append({"id": 99, "source": "outside.md",
+                                       "text": "An approval gate written by another process.",
+                                       "char_count": 44, "preview": "outside"})
+            path.write_text(json.dumps(store), encoding="utf-8")
+            os.utime(path, (1, 1))          # a different mtime, as any real write would have
+
+            sources = {hit["source"] for hit in kb.search("approval")}
+            self.assertIn("outside.md", sources, "an edit by another process was served from cache")
+
+    def test_answering_skips_passages_with_no_query_term(self) -> None:
+        """Every 3-sentence window was tokenized and then discarded when no query term was
+        in it, which is most of them. The substring pre-check must not change the answer."""
+        with tempfile.TemporaryDirectory() as raw:
+            kb = self._kb(Path(raw))
+            kb.add("mixed.md",
+                   "Unrelated opening sentence about weather. "
+                   "Another filler line with nothing useful. "
+                   "The approval gate blocks a download until you say yes. "
+                   "More filler that mentions nothing. ")
+            answer = kb.answer("what does the approval gate do")
+            self.assertTrue(answer["ok"], answer)
+            self.assertIn("approval gate", str(answer["answer"]).lower())
+
     def test_ranking_prefers_query_coverage_over_repetition(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             kb = self._kb(Path(raw))

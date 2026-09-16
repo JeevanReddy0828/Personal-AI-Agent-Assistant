@@ -29,6 +29,8 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import hashlib
+import socket
 import threading
 import time
 import webbrowser
@@ -68,6 +70,8 @@ if LAN_MODE and len(LAN_PASSCODE) < 8:
 # Sessions that have presented the passcode. Per process, so restarting asks again.
 _LAN_SESSIONS: set[str] = set()
 _LAN_FAILURES: dict[str, int] = {}
+_LAN_LOCK = threading.Lock()
+_LAN_MAX_TRACKED = 256
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
@@ -150,6 +154,32 @@ document.getElementById('f').addEventListener('submit', async (ev) => {
 });
 </script></body></html>
 """
+
+
+_PAGE_RENDERED: tuple[bytes, str] | None = None
+_PAGE_LOCK = threading.Lock()
+
+
+def _rendered_page() -> tuple[bytes, str]:
+    """The page bytes and their ETag, built once.
+
+    Every placeholder in it is fixed for the life of the process — the model labels come
+    from config, the nonce and API token are generated at import — so rendering six
+    string replacements over 179KB on each load bought nothing.
+    """
+    global _PAGE_RENDERED
+    with _PAGE_LOCK:
+        if _PAGE_RENDERED is None:
+            body = (
+                PAGE.replace("{{PLANNER}}", _planner_label())
+                .replace("{{SMART}}", _smart_label())
+                .replace("{{ULTRA}}", _ultra_label())
+                .replace("{{VISION}}", _vision_label())
+                .replace("{{NONCE}}", _SCRIPT_NONCE)
+                .replace("{{API_TOKEN}}", _API_TOKEN)
+            ).encode("utf-8")
+            _PAGE_RENDERED = (body, '"' + hashlib.sha256(body).hexdigest()[:24] + '"')
+        return _PAGE_RENDERED
 
 
 def _compose_command(command: str, attachments: object) -> str:
@@ -436,6 +466,35 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
+def _already_serving(host: str, port: int) -> bool:
+    """Is a J.A.R.V.I.S already answering on this port?
+
+    `allow_reuse_address` is needed so a restart is not blocked by TIME_WAIT, but on
+    Windows it also lets a second process bind a port that is already being served. Two
+    instances then ran at once and which one answered a given request was luck — and they
+    hold separate approval state and LAN passcode sessions, so it presented as random
+    flakiness (a phone unlocking and then being asked again). This happened twice.
+    """
+    target = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    probe = socket.socket()
+    probe.settimeout(0.4)
+    try:
+        return probe.connect_ex((target, port)) == 0
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
+def _refuse_if_running() -> None:
+    if _already_serving(HOST, PORT):
+        raise SystemExit(
+            f"J.A.R.V.I.S is already serving port {PORT}. Stop that one first, or set "
+            f"LAPTOP_AGENT_PORT to a free port. Two instances share the port on Windows "
+            f"and answer requests at random."
+        )
+
+
 class Handler(BaseHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -495,7 +554,12 @@ class Handler(BaseHTTPRequestHandler):
         the API-token check, because a new device cannot have the token until it has the
         page, and it cannot have the page until it has passed this."""
         client = self.client_address[0] if self.client_address else "?"
-        if _LAN_FAILURES.get(client, 0) >= 10:
+        with _LAN_LOCK:
+            # Fail closed once the table is full rather than growing it without limit:
+            # a flood from spoofed sources could otherwise use this dict as free memory.
+            crowded = len(_LAN_FAILURES) >= _LAN_MAX_TRACKED and client not in _LAN_FAILURES
+            attempts = _LAN_FAILURES.get(client, 0)
+        if crowded or attempts >= 10:
             self._json(429, {"ok": False, "message": "Too many attempts. Restart J.A.R.V.I.S to try again."})
             return
         try:
@@ -505,11 +569,13 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, UnicodeError):
             supplied = ""
         if not LAN_PASSCODE or not secrets.compare_digest(supplied, LAN_PASSCODE):
-            _LAN_FAILURES[client] = _LAN_FAILURES.get(client, 0) + 1
+            with _LAN_LOCK:  # read-modify-write from several handler threads
+                _LAN_FAILURES[client] = _LAN_FAILURES.get(client, 0) + 1
             time.sleep(1)  # a passcode is short: make guessing it cost real time
             self._json(403, {"ok": False, "message": "Wrong passcode."})
             return
-        _LAN_FAILURES.pop(client, None)
+        with _LAN_LOCK:
+            _LAN_FAILURES.pop(client, None)
         session = secrets.token_urlsafe(32)
         _LAN_SESSIONS.add(session)
         body = b'{"ok": true}'
@@ -526,10 +592,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args: object) -> None:
         return
 
-    def _send(self, code: int, body: bytes, content_type: str, no_store: bool = False) -> None:
+    def _send(self, code: int, body: bytes, content_type: str, no_store: bool = False,
+              etag: str | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if etag:
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")   # revalidate, but reuse on 304
         if no_store:
             # Both HTML pages carry a per-process script nonce. A cached copy outlives the
             # process, so after a restart the nonce no longer matches the CSP and every
@@ -553,15 +623,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
         if path in {"/", "/index.html"}:
-            page = (
-                PAGE.replace("{{PLANNER}}", _planner_label())
-                .replace("{{SMART}}", _smart_label())
-                .replace("{{ULTRA}}", _ultra_label())
-                .replace("{{VISION}}", _vision_label())
-                .replace("{{NONCE}}", _SCRIPT_NONCE)
-                .replace("{{API_TOKEN}}", _API_TOKEN)
-            )
-            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8", no_store=True)
+            body, etag = _rendered_page()
+            # `no-store` (added so a cached page could not outlive its script nonce) meant
+            # 179KB on the wire for every single load — painful on a phone. `no-cache` plus
+            # an ETag keeps the correctness and costs one 304 instead: the nonce and token
+            # are fixed for the life of the process, so the ETag changes exactly when a
+            # restart makes the cached copy unusable.
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
+            self._send(200, body, "text/html; charset=utf-8", etag=etag)
         elif path == "/api/health":
             report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
             # The page decides between its own recognizer and posting audio here.
@@ -1256,6 +1330,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    _refuse_if_running()
     server = _Server((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     _warmup()
@@ -1317,6 +1392,7 @@ def _launch_webview(url: str) -> bool:
 
 def run_desktop() -> None:
     """Serve the chat and open it in a dedicated desktop window (no browser chrome)."""
+    _refuse_if_running()
     global _DESKTOP_MODE
     _DESKTOP_MODE = True  # enable real HUD window effects (opacity / always-on-top)
     server = _Server((HOST, PORT), Handler)
