@@ -177,3 +177,45 @@ near-miss. Newest first.
   the folder prefix was kept — which also left its target counted as an orphan, so one
   bug produced a contradiction (a note both linked and orphaned). Fix: `_wikilinks`
   strips fenced/inline code first and takes the last path segment.
+
+## Session 2026-09-12 → 16
+
+- **A guard that could not fail, twice.** (1) A browser test deleted `crypto.randomUUID`
+  to simulate an insecure context — but it lives on `Crypto.prototype`, so the delete did
+  nothing and the test **passed against the unfixed code**. Shadow it on the instance with
+  `Object.defineProperty`. (2) A knowledge staleness test passed with the `_save`
+  invalidation removed, because the mtime cache key already covered it. Rule: revert the
+  fix and watch the test fail before believing it.
+- **An eval harness that reported the right answer as a miss.** Ranking cases hardcoded
+  document ids; the README had been re-indexed and moved from 47 to 52. Everything scored
+  8/15 and the conclusion "kind weighting does nothing" was wrong — the truth was 12/15
+  rising to 13/15. Resolve expected documents by source substring, never by id.
+- **An error message that lied for half an hour.** The LAN unlock page fell back to
+  "Wrong passcode." for *any* failed response, including a 429 and a non-JSON body, so a
+  working passcode looked wrong. Never let a fallback assert a cause it does not know.
+- **Two servers on one port, twice in one session.** `allow_reuse_address` lets a second
+  process bind a port already being served on Windows. They hold separate approval and
+  LAN passcode state, so it presented as random flakiness (a phone unlocking, then being
+  asked again). `_refuse_if_running()` probes the port at both entry points now.
+- **Prefix-anchored import surgery broke two files.** Scripted edits anchored on
+  `from laptop_agent.tools.base import ToolResult` and
+  `from laptop_agent.planner import HeuristicPlannerProvider`, both of which continued
+  with `, reserve_new_path` / `, PlanDecision, Planner`. Anchor on the whole line
+  including its newline.
+- **Diagnosed from a path I had invented.** Reported four broken wiki-links in the vault
+  by pointing `ObsidianVault` at the project *subfolder*; Obsidian resolves links
+  vault-wide, and all four targets existed one folder over. `.obsidian` and
+  `OBSIDIAN_VAULT` both said the root was `Claude Mem`. Read the configured path, do not
+  trust a path written in prose.
+- **A load test wrote into the user's real memory.** 20 `loadtest_N` keys appeared in
+  "what do you remember about me?" because the concurrency test ran against the live app
+  on 8770. Point load tests at an isolated data dir. It also exposed that there was no
+  `forget` at all — anything the store was told was permanent.
+- **Guards keep being the wrong shape rather than absent.** `_NO_TOOL_CLAIMS` forbade
+  claiming a *file* was made, so the model invented an approval flow for a window request
+  and reported "[Window arrangement initiated]" having done nothing. The failure class
+  recurs in new forms; widen the guard to the class, not the instance.
+- **A tie-break that was exactly backwards for the case that mattered.** "shortest title
+  wins" was meant to prefer a real Chrome window over a page mentioning Chrome — instead
+  it picked **Live Caption**, a Chrome-hosted widget also running as `chrome.exe` with a
+  shorter title. Rank title+process matches above either alone.
