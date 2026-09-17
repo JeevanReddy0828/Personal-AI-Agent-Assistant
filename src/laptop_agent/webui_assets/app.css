@@ -15,6 +15,7 @@
     --shadow-2:0 20px 60px -20px rgba(0,0,0,.75);
     --rail-w:248px; --presence-w:clamp(280px,26vw,400px); --head-h:56px;
     --violet-2:#b48cff; --voice:#a394ff;
+    --focus-ms:520ms;                 /* orb-focus growth; app.js reads this so the two agree */
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -112,6 +113,19 @@
   body.voicing .stage::before{background:radial-gradient(circle,rgba(150,136,255,.2),rgba(98,211,234,.09) 45%,transparent 70%)}
   .stage::after{content:'';position:absolute;top:0;bottom:0;right:0;width:1px;pointer-events:none;background:linear-gradient(180deg,transparent,var(--hair-2) 25%,var(--hair-2) 75%,transparent)}
   #core{display:block;position:absolute;inset:0;width:100%;height:100%}
+
+  /* ---------- orb focus: hide the chat, let the orb have the window ----------
+     The layout itself snaps — Chromium does not interpolate grid-template-columns here
+     (measured: the stage jumped 374px -> 1440px in one frame with a 500ms transition on
+     it). What the eye actually follows is the sphere, and that is drawn on a canvas in a
+     rAF loop, so app.js eases its centre and radius from the docked rect to the full one
+     instead. The rail and the chat only have to fade, which does animate. */
+  body.orbfocus .stage{position:fixed;left:0;right:0;top:var(--head-h);bottom:0;z-index:30}
+  body.orbfocus .stage::after{display:none}
+  body.orbfocus .stage::before{width:min(58%,760px)}
+  .stage::before{transition:opacity var(--med) var(--ease),transform var(--med) var(--ease),width var(--focus-ms) var(--ease)}
+  .left,main.chatcol{transition:opacity var(--focus-ms) var(--ease)}
+  body.orbfocus .left,body.orbfocus main.chatcol{opacity:0;pointer-events:none}
   .corestate{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font:500 12.5px var(--sans);color:var(--core-color,var(--muted));transition:color var(--med),opacity var(--med)}
   .corestate b{font-weight:600;color:var(--text)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:middle;opacity:.9}

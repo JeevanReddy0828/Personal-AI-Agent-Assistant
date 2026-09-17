@@ -72,6 +72,7 @@
     pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
   const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
   const VOICE_RGB=hex2rgb(VOICE_COLOR), ACCENT_RGB=hex2rgb(TIER_COLORS.fast);
+  const ORB_R=0.40, ORB_R_FOCUS=0.46;             // sphere radius as a fraction of the short side
   let energy=0.14, rot=0, rotX=-0.32, shock=0, mx=-999, my=-999, hover=false, expand=0;
   function pulseCore(){shock=Math.min(1.6,shock+1);}   // hoisted; called by setCore + send
   function targetEnergy(){
@@ -83,13 +84,75 @@
   }
   function hex2rgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
   function fitCanvas(){const r=coreCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);coreCanvas.width=Math.max(1,r.width*dpr);coreCanvas.height=Math.max(1,r.height*dpr);cctx.setTransform(dpr,0,0,dpr,0,0);if(matchMedia('(prefers-reduced-motion: reduce)').matches)drawSphere(0);}
-  window.addEventListener('resize',fitCanvas);
+  window.addEventListener('resize',()=>{if(orbFocus)dock=dockRect();fitCanvas();});
   coreCanvas.addEventListener('mousemove',e=>{const r=coreCanvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hover=true;});
   coreCanvas.addEventListener('mouseleave',()=>{hover=false;mx=my=-999;});
+
+  /* ---- orb focus: the chat goes away and the sphere grows into the window ----
+     Only the sphere animates. The layout snap is instant because Chromium will not
+     interpolate grid-template-columns here (measured: 374px -> 1440px in one frame,
+     with a 500ms transition sitting on it), so the canvas covers the window straight
+     away and `focus` eases the sphere's CENTRE and RADIUS from where it was docked to
+     the middle of the window. The rail and chat only fade, which does animate. */
+  const FOCUS_MS=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--focus-ms'))||520;
+  let orbFocus=false, focus=0, focusFrom=0, focusT0=0, focusTimer=0, dock=null;
+  // The canvas rect as it would be with the chat showing. While focused the stage is a
+  // fixed overlay, so the class comes off for the measurement and goes straight back on
+  // within the same frame — nothing is painted in between.
+  function dockRect(){
+    const on=document.body.classList.contains('orbfocus');
+    if(on)document.body.classList.remove('orbfocus');
+    const r=coreCanvas.getBoundingClientRect();
+    if(on)document.body.classList.add('orbfocus');
+    return r;
+  }
+  function easeInOut(k){return k<0.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;}
+  // Landing the layout must NOT depend on a frame being drawn. requestAnimationFrame is
+  // throttled to nothing when the window is occluded or backgrounded (measured: 0 frames
+  // in 300ms with document.visibilityState still 'visible'), and without this the class
+  // would stay on with the chat faded to zero and no way back.
+  function endFocus(){
+    focusT0=0; focus=orbFocus?1:0;
+    if(focusTimer){clearTimeout(focusTimer);focusTimer=0;}
+    if(!orbFocus){document.body.classList.remove('orbfocus');dock=null;}
+    fitCanvas();
+  }
+  function stepFocus(){
+    if(!focusT0)return;
+    const k=Math.min(1,(performance.now()-focusT0)/FOCUS_MS);
+    focus=focusFrom+((orbFocus?1:0)-focusFrom)*easeInOut(k);
+    if(k>=1)endFocus();
+  }
+  // `now` skips the animation. Required whenever the sphere will not be drawn again —
+  // leaving the chat view hides the stage, so the rAF loop stops, `stepFocus` never runs
+  // and the chat would stay faded to nothing with the class still on.
+  function setOrbFocus(on,persist,now){
+    on=!!on;
+    if(on===orbFocus&&!focusT0)return;
+    if(on&&document.body.classList.contains('compact'))setCompact(false);   // they are opposites
+    orbFocus=on; dock=dockRect(); focusFrom=focus;
+    if(on)document.body.classList.add('orbfocus');
+    const btn=document.getElementById('orbBtn'),sw=document.getElementById('orbFocusSw');
+    if(btn){btn.classList.toggle('on',on);btn.setAttribute('aria-pressed',String(on));}
+    if(sw){sw.classList.toggle('on',on);sw.setAttribute('aria-checked',String(on));}
+    if(persist)try{localStorage.setItem('hudOrbFocus',on?'1':'0');}catch(e){}
+    if(now||reducedMotion.matches){endFocus();return;}
+    focusT0=performance.now(); fitCanvas();
+    if(focusTimer)clearTimeout(focusTimer);
+    focusTimer=setTimeout(endFocus,FOCUS_MS+80);
+  }
   function drawSphere(t){
     const r=coreCanvas.getBoundingClientRect(),w=r.width,h=r.height; if(!w)return;
     cctx.clearRect(0,0,w,h);
-    const cx=w/2,cy=h/2,R=Math.min(w,h)*0.34;
+    stepFocus();
+    // Docked, the canvas IS the dock rect and these collapse to the plain centre.
+    let cx=w/2,cy=h/2,span=Math.min(w,h);
+    if(focus>0&&dock){
+      const dx=dock.left+dock.width/2-r.left, dy=dock.top+dock.height/2-r.top;
+      const dspan=Math.min(dock.width,dock.height);
+      cx=dx+(cx-dx)*focus; cy=dy+(cy-dy)*focus; span=dspan+(span-dspan)*focus;
+    }
+    const R=span*(ORB_R+(ORB_R_FOCUS-ORB_R)*focus);
     energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
     const e=Math.min(1.8,energy+shock*0.7);
     // "searching the internet": while the agent works, the globe expands, spins up,
@@ -121,7 +184,7 @@
       const mix=(x1+1)/2; let cr=MAG[0]+(CYAN[0]-MAG[0])*mix,cg=MAG[1]+(CYAN[1]-MAG[1])*mix,cb=MAG[2]+(CYAN[2]-MAG[2])*mix;
       if(tint){cr=(cr+tint[0])/2;cg=(cg+tint[1])/2;cb=(cb+tint[2])/2;}
       const depth=(z2+1)/2, tw=0.62+0.38*Math.sin(t*2.2+p.ph);
-      let a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35);
+      let a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35)*(1+focus*0.6);
       // scan band: particles the sweep crosses flare brighter and whiter
       const near=expand*Math.max(0,1-Math.abs(by-scanLat)/0.16);
       if(near>0){a=Math.min(1,a+near*0.55);sz*=1+near*1.3;cr=cr+(235-cr)*near;cg=cg+(248-cg)*near;cb=cb+(255-cb)*near;}
@@ -745,6 +808,7 @@
     if(e.key==='Escape'){closeChats();
       const nv=document.getElementById('noteViewer'); if(nv.classList.contains('open')){nv.classList.remove('open');return;}
       if(sysDrawer.classList.contains('open')){setDrawer(false);return;}
+      if(orbFocus&&!busy&&!voiceActive){setOrbFocus(false,true);return;}   // the chat is hidden; this is the way back
       if(busy)stopGen(); else if(voiceActive)endVoice(); }
     if(e.key===' '&&voiceActive&&document.activeElement!==ta&&document.activeElement.tagName!=='INPUT'){e.preventDefault();interruptNow();}  // Space: stop speaking, listen
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); newSession(); ta.focus(); }
@@ -1082,8 +1146,10 @@
   function applyBargeFloor(thou){bargeFloor=thou/1000;bargeVal.textContent=bargeFloor.toFixed(3);}
   bargeRange.addEventListener('input',()=>applyBargeFloor(+bargeRange.value));
   bargeRange.addEventListener('change',()=>{try{localStorage.setItem('jarvis_bargefloor',bargeRange.value);}catch(e){}});
-  function setCompact(on){document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);compactBtn.setAttribute('aria-checked',String(on));localStorage.setItem('hudCompact',on?'1':'0');if(!on)requestAnimationFrame(fitCanvas);}
+  function setCompact(on){if(on&&orbFocus)setOrbFocus(false,true);document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);compactBtn.setAttribute('aria-checked',String(on));localStorage.setItem('hudCompact',on?'1':'0');if(!on)requestAnimationFrame(fitCanvas);}
   compactBtn.onclick=()=>setCompact(!document.body.classList.contains('compact'));
+  document.getElementById('orbBtn').onclick=()=>setOrbFocus(!orbFocus,true);
+  document.getElementById('orbFocusSw').onclick=()=>setOrbFocus(!orbFocus,true);
   async function setOnTop(on,post){onTopToggle.classList.toggle('on',on);onTopToggle.setAttribute('aria-checked',String(on));localStorage.setItem('hudOnTop',on?'1':'0');if(post){const d=await postWindow({on_top:on});if(!(d&&d.applied&&d.applied.on_top!=null))document.getElementById('hudHint').textContent='Always-on-top works only in the desktop app.';}}
   onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
   hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
@@ -1094,6 +1160,7 @@
     if(bf)bargeRange.value=bf;
     applyBargeFloor(+bargeRange.value);
     if(localStorage.getItem('hudCompact')==='1')setCompact(true);
+    if(localStorage.getItem('hudOrbFocus')==='1')setOrbFocus(true,false,true);   // restoring a layout should not animate
     if(localStorage.getItem('hudOnTop')==='1')setOnTop(true,true);
   })();
 
@@ -1125,7 +1192,9 @@
   const VIEWS=['chat','overview','jobs','pipeline'];
   function setView(v){
     if(VIEWS.indexOf(v)<0)v='chat';
+    if(v!=='chat'&&orbFocus)setOrbFocus(false,false,true);   // the orb only exists on the chat view
     document.body.dataset.view=v;
+    document.getElementById('orbBtn').style.display=v==='chat'?'':'none';
     if(v==='chat')requestAnimationFrame(fitCanvas);
     document.querySelectorAll('#nav .navbtn').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
     if(v==='jobs')loadJobs();

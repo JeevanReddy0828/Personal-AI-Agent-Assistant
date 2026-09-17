@@ -690,3 +690,193 @@ class BrowserRegressions(unittest.TestCase):
             float(outcome["quiet"]["width"].rstrip("%")),
             "the bar did not grow when the room got louder",
         )
+
+    def _motion_page(self):
+        """A page that actually animates. The shared context is reduced_motion="reduce",
+        where orb focus deliberately jumps straight to the end state."""
+        ctx = self.browser.new_context(viewport={"width": 1440, "height": 950},
+                                       reduced_motion="no-preference")
+        ctx.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        page = ctx.new_page()
+        page.goto(self.url)
+        self.addCleanup(ctx.close)
+        return page
+
+    # Records the drawn sphere per frame: drawSphere clears the canvas, then plots every
+    # particle with arc(), so the spread of those x values is the sphere's width on screen
+    # and their midpoint is its centre. That is the thing the eye follows, and the only
+    # thing that actually animates — the layout underneath snaps.
+    _TRACK_ORB = """() => {
+        const cv = document.getElementById('core'), ctx = cv.getContext('2d');
+        const arc = ctx.arc.bind(ctx), clear = ctx.clearRect.bind(ctx);
+        let lo = 1e9, hi = -1e9;
+        window.__frames = [];
+        ctx.arc = (x, y, r, a, b) => { if (x < lo) lo = x; if (x > hi) hi = x; return arc(x, y, r, a, b); };
+        ctx.clearRect = (a, b, c, d) => {
+            if (hi > -1e9) window.__frames.push({ w: hi - lo, cx: (hi + lo) / 2 });
+            lo = 1e9; hi = -1e9; return clear(a, b, c, d);
+        };
+    }"""
+
+    def test_orb_focus_hides_the_chat_and_grows_the_orb_smoothly(self):
+        """Hiding the chat has to grow the orb into the window, and back again. Chromium
+        will not interpolate this grid (measured: the stage jumped 374px -> 1440px in one
+        frame with a 500ms transition on it), so the sphere's centre and radius are eased
+        in the canvas loop instead. This asserts it passes through the middle rather than
+        cutting to the end."""
+        page = self._motion_page()
+        page.evaluate(self._TRACK_ORB)
+        page.wait_for_timeout(200)
+        outcome = page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                const last = () => window.__frames[window.__frames.length - 1];
+                const stage = document.querySelector('.stage');
+                const btn = document.getElementById('orbBtn');
+                const docked = last();
+                const dockedPos = getComputedStyle(stage).position;
+
+                btn.click();
+                const mark = window.__frames.length;
+                await wait(900);
+                const focused = last();
+                const focusedPos = getComputedStyle(stage).position;
+                const during = window.__frames.slice(mark, window.__frames.length - 2);
+                const chatHidden = getComputedStyle(document.querySelector('main.chatcol')).opacity;
+                const railHidden = getComputedStyle(document.querySelector('.left')).opacity;
+
+                btn.click();
+                await wait(900);
+                const back = last();
+
+                // frames strictly between the two end states, on width and on centre
+                const lo = docked.w + (focused.w - docked.w) * 0.15;
+                const hi = docked.w + (focused.w - docked.w) * 0.85;
+                const tween = during.filter(f => f.w > lo && f.w < hi).length;
+                const jumps = [];
+                for (let i = 1; i < during.length; i++) jumps.push(Math.abs(during[i].w - during[i-1].w));
+                return {
+                    docked: docked, focused: focused, back: back,
+                    dockedPos: dockedPos, focusedPos: focusedPos,
+                    chatHidden: chatHidden, railHidden: railHidden,
+                    tween: tween, frames: during.length,
+                    biggestJump: jumps.length ? Math.max.apply(null, jumps) : 0,
+                    classAfter: document.body.className,
+                };
+            }"""
+        )
+        self.assertEqual(outcome["dockedPos"], "relative", "the stage was already an overlay")
+        self.assertEqual(outcome["focusedPos"], "fixed", "the stage did not take over the window")
+        self.assertEqual(outcome["chatHidden"], "0", "the chat is still visible in orb focus")
+        self.assertEqual(outcome["railHidden"], "0", "the rail is still visible in orb focus")
+        self.assertGreater(
+            outcome["focused"]["w"], outcome["docked"]["w"] * 1.6,
+            "the orb barely grew: " + repr((outcome["docked"], outcome["focused"])),
+        )
+        self.assertGreaterEqual(
+            outcome["tween"], 6,
+            "the orb cut to its new size instead of easing there — only "
+            + str(outcome["tween"]) + " intermediate frames of " + str(outcome["frames"]),
+        )
+        self.assertLess(
+            outcome["biggestJump"], (outcome["focused"]["w"] - outcome["docked"]["w"]) * 0.5,
+            "one frame moved most of the distance, so the growth is not smooth",
+        )
+        self.assertEqual(outcome["classAfter"], "", "orb focus did not come back off")
+        self.assertLess(
+            abs(outcome["back"]["w"] - outcome["docked"]["w"]), outcome["docked"]["w"] * 0.15,
+            "the orb did not return to its docked size: " + repr((outcome["docked"], outcome["back"])),
+        )
+
+    def test_orb_focus_lands_even_when_no_frame_is_ever_drawn(self):
+        """requestAnimationFrame is throttled to nothing when the window is occluded
+        (measured in a real embedded pane: 0 frames in 300ms with visibilityState still
+        'visible'). The easing runs in the canvas loop, so without a timer of its own the
+        class would stay on with the chat faded to zero and no way back."""
+        page = self._motion_page()
+        outcome = page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                const btn = document.getElementById('orbBtn');
+                const real = window.requestAnimationFrame;
+                window.requestAnimationFrame = () => 0;      // nothing will be drawn again
+                await wait(80);
+                btn.click();
+                await wait(900);
+                const onClass = document.body.className;
+                btn.click();
+                await wait(900);
+                const offClass = document.body.className;
+                // The class comes off when the orb lands; the chat then fades back over
+                // its own transition, so wait for that rather than guessing a total.
+                const col = document.querySelector('main.chatcol');
+                let chat = getComputedStyle(col).opacity;
+                for (let i = 0; i < 40 && chat !== '1'; i++) { await wait(50); chat = getComputedStyle(col).opacity; }
+                window.requestAnimationFrame = real;
+                return { onClass: onClass, offClass: offClass, chat: chat };
+            }"""
+        )
+        self.assertEqual(outcome["onClass"], "orbfocus", "orb focus never engaged")
+        self.assertEqual(
+            outcome["offClass"], "",
+            "orb focus was stuck on with no frames to end it: " + repr(outcome["offClass"]),
+        )
+        self.assertEqual(outcome["chat"], "1", "the chat never came back")
+
+    def test_leaving_the_chat_view_while_focused_does_not_strand_the_page(self):
+        """The other views hide the stage, so the canvas loop stops and the easing would
+        never finish — leaving the body class on and the chat at opacity 0 on a page with
+        no orb to explain why. Switching away has to land the layout immediately."""
+        page = self._motion_page()
+        outcome = page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                document.getElementById('orbBtn').click();
+                await wait(700);
+                const focused = document.body.className;
+                location.hash = '#/overview';
+                await wait(300);
+                const away = { cls: document.body.className,
+                               chat: getComputedStyle(document.querySelector('main.chatcol')).opacity,
+                               btn: document.getElementById('orbBtn').style.display };
+                location.hash = '#/chat';
+                await wait(700);
+                const col = document.querySelector('main.chatcol');
+                let chat = getComputedStyle(col).opacity;
+                for (let i = 0; i < 40 && chat !== '1'; i++) { await wait(50); chat = getComputedStyle(col).opacity; }
+                return { focused: focused, away: away, backCls: document.body.className, backChat: chat };
+            }"""
+        )
+        self.assertEqual(outcome["focused"], "orbfocus", "orb focus never engaged")
+        self.assertEqual(
+            outcome["away"]["cls"], "",
+            "orb focus survived a view switch that hides the orb: " + repr(outcome["away"]),
+        )
+        self.assertEqual(outcome["away"]["btn"], "none", "the orb button is offered on a view with no orb")
+        self.assertEqual(outcome["backCls"], "", "orb focus came back on by itself")
+        self.assertEqual(outcome["backChat"], "1", "the chat stayed hidden after returning to it")
+
+    def test_escape_leaves_orb_focus(self):
+        """Orb focus hides the chat and the rail, so the only things on screen are the orb
+        and the header. Esc is the habitual way out of a mode, and it must not need the
+        user to find the one small header button again."""
+        page = self._motion_page()
+        outcome = page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                document.getElementById('orbBtn').click();
+                await wait(700);
+                const before = document.body.className;
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                await wait(900);
+                const col = document.querySelector('main.chatcol');
+                let chat = getComputedStyle(col).opacity;
+                for (let i = 0; i < 40 && chat !== '1'; i++) { await wait(50); chat = getComputedStyle(col).opacity; }
+                let saved = null; try { saved = localStorage.getItem('hudOrbFocus'); } catch (e) {}
+                return { before: before, after: document.body.className, chat: chat, saved: saved };
+            }"""
+        )
+        self.assertEqual(outcome["before"], "orbfocus", "orb focus never engaged")
+        self.assertEqual(outcome["after"], "", "Escape did not leave orb focus")
+        self.assertEqual(outcome["chat"], "1", "the chat did not come back")
+        self.assertEqual(outcome["saved"], "0", "leaving by Escape did not stick for the next load")
