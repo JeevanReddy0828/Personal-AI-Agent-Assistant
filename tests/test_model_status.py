@@ -9,7 +9,13 @@ class ModelStatusTests(unittest.TestCase):
     def test_unknown_until_recorded(self) -> None:
         status = ModelStatus()
         self.assertEqual(status.status("smart"), "unknown")
-        self.assertEqual(status.snapshot(), {"tiers": {}, "degraded": False})
+        # Asserted key by key rather than as a whole dict: the snapshot gained "broken"
+        # and "reasons", which are additive, and an exact-equality assertion turns every
+        # future addition into a failure that says nothing about behaviour.
+        snapshot = status.snapshot()
+        self.assertEqual(snapshot["tiers"], {})
+        self.assertFalse(snapshot["degraded"])
+        self.assertEqual(snapshot["broken"], [])
 
     def test_record_and_snapshot(self) -> None:
         status = ModelStatus()

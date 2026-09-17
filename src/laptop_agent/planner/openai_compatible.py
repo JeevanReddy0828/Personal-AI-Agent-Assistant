@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
+from laptop_agent.model_status import BROKEN, DEGRADED
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.tools.clock import prompt_stamp
 
@@ -176,6 +177,39 @@ _FEWSHOT: list[tuple[str, str]] = [
     ("how are you?", '{"action":"chat","command":null,"response":"Doing well and ready to help. What do you need?"}'),
     ("now build an ERD for that schema", '{"action":"chat","command":null,"response":null,"explanation":"follow-up about my previous reply; answer it from the conversation"}'),
 ]
+
+
+# Statuses that mean the request itself is wrong, so no amount of waiting fixes them.
+# Anything else - 429, 503, a timeout, a dead socket - is the endpoint having a bad
+# moment, and the tier should be tried again shortly.
+_PERMANENT_ADVICE = {
+    400: "the endpoint rejected the request (a parameter it does not accept)",
+    401: "the API key was rejected",
+    403: "the API key is not allowed to use this model",
+    404: "this account cannot call that model id",
+    410: "that model id has been retired by the provider",
+    422: "the endpoint rejected the request body",
+}
+
+
+def classify_failure(exc: BaseException, model: str = "") -> tuple[str, str]:
+    """Split "this tier is loaded" from "this tier is misconfigured".
+
+    Returns (DEGRADED|BROKEN, wording a user can act on). Every one of these used to reach
+    the fallback ladder as an empty reply and be recorded identically: a retired model,
+    a wrong key, an unprovisioned model, a rejected parameter, and a genuinely
+    overloaded endpoint. The first four never recover on their own, and calling them
+    "busy" tells the user to wait for something that will never happen.
+    """
+    named = f" ({model})" if model else ""
+    status = getattr(exc, "code", None)
+    if isinstance(status, int) and status in _PERMANENT_ADVICE:
+        return BROKEN, f"{_PERMANENT_ADVICE[status]}{named} - HTTP {status}"
+    if isinstance(status, int):
+        return DEGRADED, f"the model{named} returned HTTP {status}"
+    if _is_timeout(exc):
+        return DEGRADED, f"the model{named} did not answer in time"
+    return DEGRADED, f"could not reach the model{named}: {exc}"
 
 
 def _is_timeout(exc: BaseException) -> bool:
@@ -345,6 +379,7 @@ class OpenAICompatiblePlannerProvider:
         history: list[dict[str, str]] | None = None,
         max_tokens: int = 900,
         context_query: str | None = None,
+        on_failure: Callable[[str, str], None] | None = None,
     ) -> str | None:
         """Plain conversational reply (no routing JSON). Used for complex questions.
         ``max_tokens`` defaults to a concise chat reply; long outputs (e.g. a full resume)
@@ -372,6 +407,8 @@ class OpenAICompatiblePlannerProvider:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
             record_failure("llm/answer", exc, model=self.model)
+            if on_failure is not None:
+                on_failure(*classify_failure(exc, self.model))
             return None
         return self._strip_reasoning(content).strip() or None
 
@@ -382,6 +419,7 @@ class OpenAICompatiblePlannerProvider:
         model: str | None = None,
         history: list[dict[str, str]] | None = None,
         context_query: str | None = None,
+        on_failure: Callable[[str, str], None] | None = None,
     ):
         """Yield the conversational reply token-by-token so the UI shows it live."""
         facts = ", ".join(f"{key}={value}" for key, value in memory_profile.items()) or "none"
@@ -412,7 +450,12 @@ class OpenAICompatiblePlannerProvider:
         )
         try:
             response = urllib.request.urlopen(request, timeout=self.timeout)
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError) as exc:
+            # This swallowed silently: a stream that never started looked exactly like a
+            # model with nothing to say, on the path that serves every chat turn.
+            record_failure("llm/stream", exc, model=self.model)
+            if on_failure is not None:
+                on_failure(*classify_failure(exc, self.model))
             return
         with response, interruptible_response(response):
             for raw in response:
