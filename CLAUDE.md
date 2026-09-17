@@ -882,9 +882,13 @@ against 500ms to enter, with the chat still invisible for the first 520ms; and t
 sized as a percentage of a `.stage` whose box changes when the overlay drops, snapped
 760px to 248px in a single frame. `.stage::before` is therefore sized off `--presence-w`
 and `vw`, **never a percentage of `.stage`**. Measured after: 500ms each way, and the glow
-reaches its docked 307px before the overlay is released. Three things learned by breaking them: the point size scales with `focus`
-too (`ORB_R` 0.40 -> `ORB_R_FOCUS` 0.46 spreads a fixed 760 particles over a window-sized
-sphere, which reads as dust unless the points grow with it); landing the layout must **not**
+reaches its docked 307px before the overlay is released. Three things learned by breaking them: **a focused orb needs more points AND bigger ones**
+(measured at 1440x900: the focused sphere is 2.5x wider, so 6.7x the surface area. Scaling
+the dots alone magnifies a point cloud but cannot restore the docked glow, which comes from
+dots OVERLAPPING under `lighter` compositing; tripling the count alone leaves them small and
+the golden-angle spiral visibly bands when subsampled. So `NP` is 2280, every third point is
+the docked sphere and the rest fade in with `focus`, and `magnify` scales each dot by the
+real ratio `R/(dockSpan*ORB_R)`. The docked orb still draws exactly its original 760); landing the layout must **not**
 depend on a frame being drawn, because `requestAnimationFrame` is throttled to nothing when
 the window is occluded (measured in an embedded pane: 0 frames in 300ms with
 `visibilityState` still `'visible'`), so a `setTimeout` finishes it or the class sticks on
