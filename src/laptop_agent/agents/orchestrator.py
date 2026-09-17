@@ -174,7 +174,7 @@ class AgentOrchestrator:
         vision_planner: Planner | None = None,
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
-        model_status_path: Path | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self.context = context
         self.planner = planner
@@ -190,19 +190,23 @@ class AgentOrchestrator:
         self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
         # Tracks per-tier model reachability so chat can fall back fast<-smart<-ultra
         # when a tier is congested, and health can show "the advanced model is busy".
+        # Where everything this orchestrator persists lives: traces, tier health,
+        # generated images and documents.
+        #
+        # A parameter rather than `load_config()` at each use, because that reads the
+        # PROCESS-WIDE config. Under the test runner every orchestrator then shared one
+        # directory: a tier one test recorded as broken was still broken for the next, and
+        # generated files landed in whatever directory the app itself uses. State that
+        # ignores its caller's own config is shared state. One handle here means the next
+        # store to be added needs no parameter of its own.
+        self.data_dir = data_dir or load_config().data_dir
         # Persisted so a retired model id or a rejected key is still known after a
         # restart, rather than being rediscovered by failing a real chat turn. Only the
         # broken tiers are written; "busy" is ephemeral by nature.
-        #
-        # The path is a parameter rather than `load_config()` because that reads the
-        # PROCESS-WIDE config: under the test runner every orchestrator would share one
-        # file, and a tier one test recorded as broken would still be broken for the next
-        # one. Persisted state that ignores the caller's own config is shared state.
-        self.model_status = ModelStatus(
-            model_status_path or (load_config().data_dir / "model_status.json"))
+        self.model_status = ModelStatus(self.data_dir / "model_status.json")
         # Per-turn latency traces (timings only, never prompts or replies), so a slow
         # turn can be explained instead of guessed at.
-        self.traces = TraceStore(load_config().data_dir / "traces.json")
+        self.traces = TraceStore(self.data_dir / "traces.json")
         self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
@@ -1584,7 +1588,7 @@ class AgentOrchestrator:
             moment.strftime("%A, %d %B %Y").replace(" 0", " "),
             str(clock.data.get("offset", "")),
         ]
-        directory = load_config().data_dir / "images"
+        directory = self.data_dir / "images"
         path = reserve_new_path(directory, f"time-{int(moment.timestamp())}", ".png")
         drawn = render_card([line for line in lines if line], path, footer=zone)
         if not drawn.ok:
@@ -2342,7 +2346,7 @@ class AgentOrchestrator:
     def _document_tool(self) -> DocumentTool:
         if self._document_tool_cache is None:
             self._document_tool_cache = DocumentTool(
-                data_dir=load_config().data_dir,
+                data_dir=self.data_dir,
                 writer=self._build_document_writer(),
                 approval_gate=self.context.web.approval_gate,
             )
@@ -2407,7 +2411,7 @@ class AgentOrchestrator:
             config = load_config()
             self._image_tool_cache = ImageTool(
                 api_key=config.llm_image_api_key,
-                data_dir=config.data_dir,
+                data_dir=self.data_dir,
                 model=config.llm_image_model,
                 base_url=config.llm_image_base_url,
                 fallback_model=config.llm_image_fallback_model,

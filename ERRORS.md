@@ -19,8 +19,12 @@ near-miss. Newest first.
   still broken for the next and three unrelated tests failed with `'broken' != 'degraded'`.
   The path is now a constructor parameter. **Rule: anything persistent takes its location
   from its caller. State that ignores the caller's own config is shared state, and it will
-  leak between runs as readily as between tests.** (`TraceStore` still does this - which is
-  why real traces landed in the live `.agent_data` during testing.)
+  leak between runs as readily as between tests.** The same line in `TraceStore` is why 300
+  traces from a test run ended up in the live `.agent_data`; the orchestrator now takes one
+  `data_dir` that traces, tier health, images and documents all share. The guard is a
+  **sweep** of the process-wide directory rather than a list of the known stores, because
+  this failure recurs by addition - the next person writes `load_config().data_dir` copying
+  the line above them, and nothing notices.
 
 - **The fallback ladder decided everything from `bool(reply)`.** A retired model id (410),
   a rejected key (401), a model the account cannot call (404), a refused parameter (400)
