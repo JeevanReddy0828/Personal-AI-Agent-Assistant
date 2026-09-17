@@ -27,6 +27,7 @@ python -m PyInstaller `
     --collect-all pyttsx3 `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
+    --collect-all tzdata `
     --collect-all whisper `
     --collect-all torch `
     --distpath "$root\dist" `

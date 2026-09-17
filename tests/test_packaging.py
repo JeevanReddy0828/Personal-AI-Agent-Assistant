@@ -11,6 +11,39 @@ from laptop_agent.tools import transcribe
 _UNSET = object()
 
 
+PACKAGING = Path(__file__).resolve().parent.parent / "packaging"
+
+
+class BundledTimeZoneDataTests(unittest.TestCase):
+    """Windows ships no time zone database, so `zoneinfo` cannot resolve a named zone and
+    `time in Tokyo` degrades to "pip install tzdata" — advice a user of a packaged
+    JARVIS.exe cannot act on. Both builds therefore carry tzdata (~700KB).
+
+    Asserted against the scripts because it only exists in a frozen build, the same blind
+    spot that shipped a small build with no speech-to-text. There are two scripts, and a
+    flag added to one and forgotten in the other has happened here before."""
+
+    def scripts(self) -> list[Path]:
+        found = sorted(PACKAGING.glob("build_app*.ps1"))
+        self.assertTrue(found, "no PyInstaller build scripts found")
+        return found
+
+    def test_every_build_bundles_the_time_zone_database(self) -> None:
+        for script in self.scripts():
+            text = script.read_text(encoding="utf-8")
+            self.assertIn(
+                "--collect-all tzdata", text,
+                f"{script.name} ships no time zone database, so a packaged app "
+                "cannot convert a named zone",
+            )
+
+    def test_the_package_itself_still_declares_no_dependencies(self) -> None:
+        """Bundling is the installer's business. tzdata must not become a runtime dep."""
+        pyproject = (PACKAGING.parent / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn("dependencies = []", pyproject,
+                      "the zero-required-dependency rule was broken")
+
+
 class FrozenVoskModelTests(unittest.TestCase):
     """`build_app_small.ps1` bundles a Vosk model with `--add-data "models;models"` and
     ships Vosk *instead of* Whisper/PyTorch, to keep JARVIS.exe small.
