@@ -158,7 +158,11 @@ class ClockTool:
             return ToolResult.failure(
                 f"I cannot look up {zone_name} on this machine ({type(exc).__name__}). "
                 f"Time zone data needs: pip install tzdata. Locally it is "
-                f"{local.strftime('%-I:%M %p').lstrip('0') if hasattr(local, 'strftime') else ''}"
+                # %-I is glibc only and raises ValueError on Windows - which is exactly
+                # where tzdata is missing, so the message explaining how to fix that
+                # crashed instead of printing. lstrip('0') below already does the job,
+                # the same way the comment on _describe says to.
+                f"{local.strftime('%I:%M %p').lstrip('0') if hasattr(local, 'strftime') else ''}"
                 f"{local.strftime(' %Z')}.".replace("  ", " "),
                 local=local.isoformat(),
             )

@@ -16,6 +16,32 @@ def clock() -> ClockTool:
     return ClockTool(now=lambda: MOMENT)
 
 
+class MissingZoneDataTests(unittest.TestCase):
+    """Without `tzdata` the zone lookup raises, and the failure is meant to say so and
+    still give the local time. It used `%-I`, which is a glibc extension: on Windows
+    strftime raises `ValueError: Invalid format string`, so the message explaining how to
+    fix a missing time zone database crashed on the one platform where it is usually
+    missing — including a packaged JARVIS.exe. `_describe` already carries a comment
+    saying %-d is not portable and to strip the zero by hand; this line had the
+    `.lstrip('0')` and the `-` both."""
+
+    def test_the_message_renders_when_the_zone_database_is_missing(self) -> None:
+        from unittest.mock import patch
+
+        def no_tzdata(name):
+            raise ModuleNotFoundError("No module named 'tzdata'")
+
+        with patch("laptop_agent.tools.clock._load_zone", no_tzdata):
+            result = clock().now("time in Asia/Kolkata")
+
+        self.assertFalse(result.ok, "a missing zone database should not look like success")
+        self.assertIn("tzdata", result.message, "the message does not say what to install")
+        self.assertIn("Asia/Kolkata", result.message, "the message does not name the zone")
+        # The whole point of the fallback: it still tells you the local time.
+        self.assertIn("6:26 PM", result.message, "the local time was dropped from the message")
+        self.assertNotIn("%", result.message, "a format directive leaked into the message")
+
+
 class LocalTimeTests(unittest.TestCase):
     """Asked "what is the current date and time in EST", the assistant web-searched,
     scraped a stale page and answered 1:00 PM while the machine's clock read 6:26 PM.
