@@ -5,6 +5,23 @@ near-miss. Newest first.
 
 ## Session 2026-09-17
 
+- **A guard that looked like a no-op, caught by reverting it.** Clearing a tier's stored
+  break time when it recovers appeared to do nothing - the file is written from the state
+  either way, and the suite passed with the line removed. It is load-bearing: without it a
+  tier that breaks, recovers and breaks again inherits the FIRST break's timestamp, so its
+  cooldown is already long expired and it is retried on every turn, which is the failing
+  round-trip the mechanism exists to avoid. The test was missing, not the code. **Rule: the
+  revert step does not only check the fix - when reverting changes nothing, either the line
+  is dead or the test is, and both are worth knowing.**
+- **Persisted state read the process-wide config.** `ModelStatus` was given
+  `load_config().data_dir`, but the test runner points that at one directory for the whole
+  suite while each test builds its own config, so a tier one test recorded as broken was
+  still broken for the next and three unrelated tests failed with `'broken' != 'degraded'`.
+  The path is now a constructor parameter. **Rule: anything persistent takes its location
+  from its caller. State that ignores the caller's own config is shared state, and it will
+  leak between runs as readily as between tests.** (`TraceStore` still does this - which is
+  why real traces landed in the live `.agent_data` during testing.)
+
 - **The fallback ladder decided everything from `bool(reply)`.** A retired model id (410),
   a rejected key (401), a model the account cannot call (404), a refused parameter (400)
   and a genuinely overloaded endpoint (503) all reached it as the same empty reply and were

@@ -175,6 +175,10 @@ class OrchestratorTests(unittest.TestCase):
                 scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
             ),
             Planner(HeuristicPlannerProvider()),
+            # Per-test, so a tier one test records as broken is not still broken for the
+            # next. The default reads the process-wide config, which the runner points at
+            # one shared directory for the whole suite.
+            model_status_path=tmp / "model_status.json",
         )
 
     def test_remember_and_memory(self) -> None:

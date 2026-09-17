@@ -174,6 +174,7 @@ class AgentOrchestrator:
         vision_planner: Planner | None = None,
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
+        model_status_path: Path | None = None,
     ) -> None:
         self.context = context
         self.planner = planner
@@ -189,7 +190,16 @@ class AgentOrchestrator:
         self.control_room = AgentControlRoom.standard(obsidian_available=self.context.obsidian.available())
         # Tracks per-tier model reachability so chat can fall back fast<-smart<-ultra
         # when a tier is congested, and health can show "the advanced model is busy".
-        self.model_status = ModelStatus()
+        # Persisted so a retired model id or a rejected key is still known after a
+        # restart, rather than being rediscovered by failing a real chat turn. Only the
+        # broken tiers are written; "busy" is ephemeral by nature.
+        #
+        # The path is a parameter rather than `load_config()` because that reads the
+        # PROCESS-WIDE config: under the test runner every orchestrator would share one
+        # file, and a tier one test recorded as broken would still be broken for the next
+        # one. Persisted state that ignores the caller's own config is shared state.
+        self.model_status = ModelStatus(
+            model_status_path or (load_config().data_dir / "model_status.json"))
         # Per-turn latency traces (timings only, never prompts or replies), so a slow
         # turn can be explained instead of guessed at.
         self.traces = TraceStore(load_config().data_dir / "traces.json")
