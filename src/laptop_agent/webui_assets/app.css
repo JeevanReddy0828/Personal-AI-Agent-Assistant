@@ -129,7 +129,9 @@
   .vdbg{font:11px var(--mono);color:var(--faint);min-height:14px}
   /* Live microphone meter: what barge-in is actually hearing, against the level it needs
      to cut in. The 0.045 floor was invisible until it was a number on the screen. */
-  .vmeter{display:flex;flex-direction:column;gap:5px;width:260px}
+  /* max-width, not width: the presence panel is clamp(280px,26vw,400px) and its gutter is
+     26px a side, so a fixed 260px spills into the gutter between 1100 and 1200px wide. */
+  .vmeter{display:flex;flex-direction:column;gap:5px;width:100%;max-width:260px}
   .vmeter[hidden]{display:none}
   .vmbar{position:relative;height:6px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
   .vmbar i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);transition:width 90ms linear,background var(--fast)}
