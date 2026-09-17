@@ -655,6 +655,16 @@ python -m laptop_agent.webui --desktop                                  # deskto
 python -m laptop_agent.webui                                            # browser tab
 ```
 
+**A throwaway instance needs `LAPTOP_AGENT_DATA_DIR`, not just `LAPTOP_AGENT_PORT`.** The
+port is the only thing a second port isolates: the data directory is still the real one, so
+anything the throwaway instance is told to remember, schedule or be reminded of lands in
+the user's own store. This has now happened twice — 20 `loadtest_N` keys in "what do you
+remember about me?", and three test reminders in the real reminder list. Always:
+
+```powershell
+$env:LAPTOP_AGENT_PORT="8791"; $env:LAPTOP_AGENT_DATA_DIR="$env:TEMP\jarvis-scratch"
+```
+
 **Two instances must never share a port.** `allow_reuse_address` is needed so TIME_WAIT
 does not block a restart, but on Windows it also lets a second process bind a port that is
 already being served. Two J.A.R.V.I.S ran at once, which one answered a request was luck,

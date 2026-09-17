@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
+from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, parse_clock
 
 import json
 import re
@@ -60,12 +61,8 @@ class Schedule:
         return last_run is None or last_run < target
 
 
-_UNIT_SECONDS = {
-    "second": 1, "seconds": 1, "sec": 1, "secs": 1,
-    "minute": 60, "minutes": 60, "min": 60, "mins": 60,
-    "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
-    "day": 86400, "days": 86400,
-}
+# The same table timeparse uses, so "every 2 weeks" and "in 2 weeks" cannot drift apart.
+_UNIT_SECONDS = DURATION_UNITS
 
 
 def parse_schedule(text: str) -> Schedule:
@@ -80,12 +77,18 @@ def parse_schedule(text: str) -> Schedule:
     if lowered in {"every minute", "minutely"}:
         return Schedule(kind="interval", seconds=60)
 
-    daily = re.match(r"(?:daily\s+at|every\s+day\s+at|at)\s+(\d{1,2}):(\d{2})$", lowered)
+    # The time of day comes from timeparse, so "daily at 6pm" and "daily at 08:30" are
+    # read by the same code as a reminder's. Two parsers for one idea is how a fix reaches
+    # only half its callers - see terms.py for the version of this we had to undo later.
+    daily = re.match(r"(?:daily\s+at|every\s+day\s+at|at)\s+(.+)$", lowered)
     if daily:
-        hour, minute = int(daily.group(1)), int(daily.group(2))
-        if not (0 <= hour < 24 and 0 <= minute < 60):
-            raise ScheduleError(f"Invalid time of day: {daily.group(1)}:{daily.group(2)}")
-        return Schedule(kind="daily", hour=hour, minute=minute)
+        try:
+            clock = parse_clock(daily.group(1))
+        except TimeParseError as exc:
+            raise ScheduleError(str(exc)) from exc
+        if clock is None:
+            raise ScheduleError(f"Invalid time of day: {daily.group(1)}")
+        return Schedule(kind="daily", hour=clock[0], minute=clock[1])
 
     interval = re.match(r"every\s+(\d+)\s+([a-z]+)$", lowered)
     if interval:

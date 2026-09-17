@@ -397,15 +397,21 @@ class HeuristicPlannerProvider:
         done = re.search(r"\b(?:complete|finish|mark done|mark complete)\s+reminder\s+#?(\d+)\b", text, re.IGNORECASE)
         if done:
             return self._command(f"reminder done {done.group(1)}", "User wants to complete a reminder.", 0.84)
+        # The whole remainder goes through, exactly as said, because `timeparse` reads the
+        # time far better than a pattern here could and it is the one place that should.
+        # This used to require an ISO date, so "can you remind me to call mom at 6pm" fell
+        # through to the LLM router - a deterministic request answered by a guess.
+        # "remind me" is required rather than a bare "reminder", so "what reminders do I
+        # have" is not turned into one.
         add = re.search(
-            r"\bremind me\s+(?:to\s+)?(.+?)\s+(?:at|on)\s+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)$",
-            text,
-            re.IGNORECASE,
+            r"\b(?:remind me|(?:set|create|add|make)\s+(?:a\s+|an\s+)?reminder)\b[,:]?\s*(.+)$",
+            text, re.IGNORECASE,
         )
         if add:
-            message = add.group(1).strip().strip("'\"")
-            due = add.group(2).strip()
-            return self._command(f"reminder add {due} {message}", "User wants to create a reminder.", 0.86)
+            rest = add.group(1).strip().strip("'\"")
+            if rest:
+                return self._command(
+                    f"reminder add {rest}", "User wants to create a reminder.", 0.86)
         return None
 
     def _workflow(self, text: str) -> PlanDecision | None:
