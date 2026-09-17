@@ -21,6 +21,94 @@ from laptop_agent.reasoning import AutonomousAgent
 from laptop_agent.tools.base import ToolResult
 
 
+class RejectedPostKeepsItsStatusTests(unittest.TestCase):
+    """A rejection answered without reading the body the client already sent, and closing a
+    socket that still holds unread data makes the OS reset the connection — so the client's
+    pending read failed instead of seeing the status we chose.
+
+    Measured on Windows before the fix: a 1MB POST to an unknown path raised
+    ConnectionAbortedError [WinError 10053] six times in twelve, and a bad token three
+    times in twelve. It reached CI as an intermittently red `test_post_not_supported`,
+    but the real cost is elsewhere: a phone typing the LAN passcode is on one of these
+    paths, and "Wrong passcode." arriving as a connection reset is indistinguishable from
+    the laptop being switched off.
+
+    Every rejecting path is covered, not just the one that went red. This failure class
+    keeps coming back in new shapes, so the guard is on the class."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import laptop_agent.webui as webui
+        from http.server import ThreadingHTTPServer
+        cls.webui = webui
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=5)
+
+    # Big enough that the unread remainder will not fit in the socket buffer, which is
+    # what makes the reset happen at all. The 2-byte body the original test sent only
+    # tripped it on a loaded CI runner.
+    BODY = b'{"passcode":"wrong","pad":"' + b"y" * (2 * 1024 * 1024) + b'"}'
+
+    def post(self, path: str, token: bool) -> object:
+        import urllib.error
+        import urllib.request
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["X-Jarvis-Token"] = self.webui._API_TOKEN
+        request = urllib.request.Request(
+            self.base + path, data=self.BODY, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return response.status
+        except urllib.error.HTTPError as exc:
+            return exc.code          # a status is the point: the client was told why
+
+    def assert_always_answered(self, path: str, token: bool, expected: int) -> None:
+        seen = []
+        for _ in range(4):
+            try:
+                seen.append(self.post(path, token))
+            except OSError as exc:   # ConnectionAborted/Reset — the answer never arrived
+                self.fail(f"POST {path} was reset instead of answered {expected}: "
+                          f"{type(exc).__name__}: {exc}")
+        self.assertEqual(seen, [expected] * 4, f"POST {path} did not answer {expected}")
+
+    def test_an_unknown_path_answers_404(self) -> None:
+        self.assert_always_answered("/api/nope", token=True, expected=404)
+
+    def test_a_get_only_endpoint_answers_404(self) -> None:
+        """The exact request that went red in CI, with a body big enough to be reliable."""
+        self.assert_always_answered("/api/agent-runs", token=True, expected=404)
+
+    def test_a_missing_token_answers_403(self) -> None:
+        self.assert_always_answered("/api/command", token=False, expected=403)
+
+    def test_the_body_is_not_left_to_poison_a_reused_connection(self) -> None:
+        """Keep-alive: the drain re-arms per request, so a rejected POST cannot leave
+        bytes in the stream for the next request on the same connection to parse."""
+        import http.client
+        conn = http.client.HTTPConnection(self.webui.HOST, self.server.server_address[1], timeout=20)
+        self.addCleanup(conn.close)
+        codes = []
+        for _ in range(3):
+            conn.request("POST", "/api/nope", body=self.BODY,
+                         headers={"Content-Type": "application/json",
+                                  "X-Jarvis-Token": self.webui._API_TOKEN})
+            response = conn.getresponse()
+            response.read()
+            codes.append(response.status)
+        self.assertEqual(codes, [404, 404, 404],
+                         "a reused connection lost sync after a rejected POST")
+
+
 class ReliabilityRegressions(unittest.TestCase):
     def test_concurrent_store_instances_preserve_all_updates(self):
         with tempfile.TemporaryDirectory() as raw:

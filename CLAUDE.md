@@ -663,6 +663,19 @@ random flakiness (a phone unlocking, then being asked again). This happened twic
 session. `_refuse_if_running()` probes the port at both entry points and exits with a
 message naming `LAPTOP_AGENT_PORT`.
 
+**A rejected POST must have its body read before it is answered.** Every rejecting path -
+403 untrusted, 401 locked, 404 unknown path, 429 too many attempts - used to answer without
+touching the body the client had already sent, and closing a socket that still holds unread
+data makes the OS reset the connection: the client's pending read fails instead of seeing
+the status. Measured on Windows, a 1MB POST to an unknown path raised
+`ConnectionAbortedError` **[WinError 10053] 6 times in 12**, and a bad token 3 in 12; a
+2-byte body never tripped it locally, so it only ever surfaced as an intermittently red CI
+test. `_drain_request_body()` runs at the single `_send` choke point and counts **bytes
+read, not a boolean** - `_pair` reads only the first 4096 bytes of a passcode POST, and a
+flag would call the rest consumed and reset exactly the path a phone uses to be told
+"Wrong passcode.". It is capped at `MAX_REQUEST_BYTES`, times out at 5s so a body that
+never arrives cannot hold a thread, and records to `failures.py` rather than swallowing.
+
 **The page is rendered once and revalidated, not resent.** It is 179KB and every
 placeholder is fixed for the life of the process, yet it was re-rendered and sent in full
 on every load — and `Cache-Control: no-store` (added so a cached copy could not outlive its

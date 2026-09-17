@@ -3,6 +3,72 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-17
+
+- **A rejection that never reached the client.** Every rejecting POST path - 403 untrusted,
+  401 locked, 404 unknown path, 429 too many attempts - answered without reading the body
+  the client had already sent. Closing a socket that still holds unread data makes the OS
+  reset the connection, so the client's pending read failed instead of seeing the status.
+  Measured on Windows: a 1MB POST to an unknown path raised `ConnectionAbortedError`
+  **[WinError 10053] 6 times in 12**, a bad token 3 in 12; a 2-byte body never tripped it
+  locally, which is why it only ever showed up as an intermittently red CI test. Fix:
+  `_drain_request_body()` at the single `_send` choke point, tracking **bytes read rather
+  than a boolean** - `_pair` reads only the first 4096 bytes of a passcode POST, and a flag
+  would have called the rest consumed and reset exactly the path a phone uses. **Rule: read
+  the body before you answer. A status code the peer never receives is not an answer, and
+  the paths that reject are the ones where being told why matters most.**
+- **One red CI job was hiding three others.** The matrix runs fail-fast, so the Windows
+  jobs reported `cancelled`, not `failed`, and were never read. An audit bug had kept
+  `main` red since #104; fixing it revealed a Windows crash in `clock.py`, a browser test
+  of mine tuned to local hardware, and an intermittent socket reset. **Rule: `cancelled` is
+  unknown, never passing. Check every job's conclusion before believing you understand why
+  CI is red, and expect to repeat the cycle until a run is green end to end.**
+- **`tail` read one generation and said nothing.** `AuditLogger.tail` opened only the
+  current file, so straight after a rotation it returned however few lines had landed
+  since. The real call is `tail(50)` from the `audit` command, so the audit view went
+  nearly empty every time the log rotated. The test asserted `tail(5) == 5`, which was
+  decided by byte arithmetic alone - six records fit a generation on Windows so it passed
+  locally, four fit on the runner so it failed there. **Rule: a count that depends on how
+  long a timestamp happens to be is not an assertion. Assert against what is on disk.**
+- **The message explaining a missing dependency could not be printed.** Without `tzdata`
+  the zone lookup raises, and `clock.py`'s failure is meant to say so and still give the
+  local time - formatted with `%-I`, a glibc extension that raises
+  `ValueError: Invalid format string` on Windows. So the advice for a missing time zone
+  database crashed on the one platform where it is usually missing, a packaged JARVIS.exe
+  included. The same file already carried a comment saying `%-d` is not portable and to
+  strip the zero by hand, and the line already had the `.lstrip('0')`. **Rule: an error
+  path runs on the machine that is already broken - it gets the same portability care as
+  the success path, and more testing, not less.**
+- **A test tuned to this laptop.** A browser test counted rendered frames between two
+  animation end states and demanded six. A 60fps desktop puts ~13 there; the CI runner
+  draws ~34fps and put 5, so it failed a feature that worked. **Rule: never assert a frame
+  count, a duration or a throughput calibrated on the machine you wrote it on. Assert the
+  shape - it eased rather than cut - and leave the margin to the hardware.**
+- **A stray `*/` silently deleted a CSS rule.** Adding a second comment block left the
+  first one closed and the new text running as bare CSS, which swallowed the
+  `position:fixed` rule that followed. The probe still looked right, because it measured
+  the chat fade and the glow - neither of which needs that rule. The suite caught it on
+  `'relative' != 'fixed'`. **Rule: a CSS rule that vanishes does not raise. When a probe
+  and a test disagree, the probe is measuring the wrong thing.**
+- **One class carried both the intent and the mechanism.** `orbfocus` made the stage a
+  fixed overlay *and* faded the chat, and only came off once the orb had landed - so
+  leaving cost 1100ms against 500ms to enter, with the chat invisible for the first 520ms.
+  The ambient glow, sized as a percentage of a `.stage` whose box changes when the overlay
+  drops, snapped 760px to 248px in a single frame. Fix: `orbstage` is the mechanism and
+  waits; `orbfocus` is the intent and flips on the click. **Rule: when a class means two
+  things with different lifetimes, it is two classes. And never size something against a
+  box that is about to change underneath it.**
+- **A marker drawn outside a clipped box.** The barge-in meter's threshold tick was drawn
+  2px proud of its track, inside `overflow:hidden`, so the one reference line the meter
+  exists to show was clipped flush. `getBoundingClientRect` reports the layout box and
+  said 10px tall - clipping is a paint effect. Screenshotting with and without the clip
+  gave different bytes. **Rule: geometry APIs do not see paint. To check whether something
+  is visible, compare pixels.**
+- **A hint that recommended a no-op.** "Lower it if talking over me does nothing" - but
+  the threshold is `max(slider, leak*2.2)`, so whenever the room echo dominates, which is
+  the case where barge-in actually fails, the slider does nothing through its whole range.
+  **Rule: before writing advice into the UI, check the control can actually deliver it.**
+
 ## Reliability pass (2026-09-11)
 
 - **Graceful degradation hid two outages.** The provider caught `URLError` (which
