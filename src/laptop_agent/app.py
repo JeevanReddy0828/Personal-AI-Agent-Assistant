@@ -33,11 +33,22 @@ from laptop_agent.tools.websearch import WebSearchTool, build_search_backend
 from laptop_agent.workflows import WorkflowTracker
 
 
-def build_orchestrator(
+def build_context(
+    config: AppConfig,
     approval_callback: Callable[[ApprovalRequest], bool] | None = None,
-    config: AppConfig | None = None,
-) -> AgentOrchestrator:
-    config = config or load_config()
+) -> AgentContext:
+    """Wire every tool and store the agent uses. One place, deliberately.
+
+    `AgentContext` has 24 fields and both the app and the test suite used to list all of
+    them, so adding one meant editing two files - and forgetting the second turned every
+    test that builds an orchestrator into the same TypeError. CLAUDE.md called that "the
+    usual source of a wave of failures after a merge". The tests now start from this
+    wiring and replace only the handful they need to fake, so a new field reaches them
+    without being mentioned twice.
+
+    Safe to call in a test: measured at 21ms with a temp config, touching no network and
+    creating only lock files.
+    """
     config.data_dir.mkdir(parents=True, exist_ok=True)
 
     audit = AuditLogger(config.audit_log_path)
@@ -89,6 +100,15 @@ def build_orchestrator(
             min_match=config.jobright_min_match,
         ),
     )
+    return context
+
+
+def build_orchestrator(
+    approval_callback: Callable[[ApprovalRequest], bool] | None = None,
+    config: AppConfig | None = None,
+) -> AgentOrchestrator:
+    config = config or load_config()
+    context = build_context(config, approval_callback)
     return AgentOrchestrator(
         context,
         _build_planner(config),
