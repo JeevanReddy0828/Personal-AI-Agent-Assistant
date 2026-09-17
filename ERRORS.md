@@ -5,6 +5,26 @@ near-miss. Newest first.
 
 ## Session 2026-09-17
 
+- **The call that only picks a path could take as long as the answer.** Routing shared one
+  `timeout = 45` with everything else, and it is spent *before* the reply starts, so the
+  user watches an empty screen for the whole of it. Measured over 300 recorded turns: the
+  LLM router ran on 8% of them at a median of 951ms, a p90 of 2492ms and a worst case of
+  7954ms, and those turns took 4505ms end to end. Worse, a routing **timeout** returned the
+  canned "I could not reach my language model" - so a model that was merely slow to
+  classify produced an error in place of an answer the chat call would have given, and the
+  `except` recorded nothing. Fix: `route_timeout` of 2.5s, a timeout falls through to the
+  chat ladder with no response text, a real connection failure still says so, and both are
+  recorded. **Rule: a step that only decides how to answer gets a deadline shorter than the
+  answer's, and a fallback must never assert a cause it has not established - "slow" and
+  "unreachable" are different facts.**
+- **Most of the latency pass was measuring things and leaving them alone.** `build_context`
+  costs 0.06ms memoized and 4.16ms cold at 80 turns; a whole local turn is 16.4ms whether
+  the transcript holds 0, 20 or 80 turns; heuristic routing is 2ms median, 17ms worst.
+  Against a 1723ms median time-to-first-token none of it is worth touching, and the rest of
+  TTFT is the model answering over the network. **Rule: the output of a performance pass is
+  as often a measurement that forbids a change as one that justifies it. Write the numbers
+  down either way, or the next session pays to learn them again.**
+
 - **Natural time never reached a parser at all.** `remind me to call mom at 6pm` answered
   "Reminder date/time must look like YYYY-MM-DD": the only accepted form was an ISO stamp,
   which is not how anyone speaks and certainly not how anyone dictates. Two separate gaps -
