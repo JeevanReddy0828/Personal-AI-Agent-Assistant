@@ -43,6 +43,7 @@ from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import is_diagram_subject, is_plain_question
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.timeparse import TimeParseError, describe, parse_when
 from laptop_agent.safety import ApprovalDenied
 from laptop_agent.scheduler import ScheduleError, SchedulerStore
 from laptop_agent.tasks import TaskRecord, TaskTracker
@@ -140,6 +141,19 @@ def _has_own_subject(text: str) -> bool:
 # The longest thing a person types in a chat box. An attached file is the right home for
 # anything bigger, and the file tools read it without pushing it through a model prompt.
 MAX_COMMAND_CHARS = 24_000
+
+
+def _reminder_message(text: str, start: int, end: int) -> str:
+    """What is left of a reminder once the time words are cut out of it.
+
+    "to call mom at 6pm" -> "call mom". The span comes from the parser rather than a
+    guess, so a time in the middle ("call mom at 6pm about the invoice") loses only the
+    time and keeps both halves of the sentence.
+    """
+    joined = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.;:-")
+    joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
+    return joined.strip(" ,.;:-")
 
 
 def _readable_size(size: int) -> str:
@@ -1732,30 +1746,45 @@ class AgentOrchestrator:
         )
 
     def _reminder_add(self, expression: str) -> ToolResult:
+        """Set a reminder from however it was said: "call mom at 6pm", "in 20 minutes".
+
+        The time is resolved locally by `timeparse`, never by the model - asked for a date
+        a model produces a plausible one, and a reminder that fires on the wrong day is
+        worse than one that refuses. The resolved instant is always read back in local
+        time, because that is what makes a misreading visible in the same breath.
+        """
         cleaned = expression.strip().strip("'\"")
-        match = re.match(
-            r"(?P<date>\d{4}-\d{2}-\d{2})(?:[ T](?P<time>\d{2}:\d{2}))?\s+(?P<message>.+)$",
-            cleaned,
-        )
-        if match:
-            due_at = match.group("date") + (" " + match.group("time") if match.group("time") else " 09:00")
-            message = match.group("message").strip()
-        else:
-            natural = re.match(r"(?:to\s+)?(?P<message>.+?)\s+(?:at|on)\s+(?P<due>.+)$", cleaned, re.IGNORECASE)
-            if not natural:
-                return ToolResult.failure("Use: reminder add <YYYY-MM-DD HH:MM> <message>")
-            due_at = natural.group("due").strip()
-            message = natural.group("message").strip()
+        if not cleaned:
+            return ToolResult.failure("What should I remind you about, and when?")
+        now = datetime.now().astimezone()
         try:
-            outcome = self.context.reminders.add(due_at, message)
+            when = parse_when(cleaned, now)
+        except TimeParseError as exc:
+            return ToolResult.failure(str(exc))
+        if when is None:
+            return ToolResult.failure(
+                "I could not find a time in that. Try \"remind me to call mom at 6pm\", "
+                "\"tomorrow at 9\", \"in 20 minutes\" or a date like 2026-12-25 07:30."
+            )
+        message = _reminder_message(cleaned, when.start, when.end)
+        if not message:
+            return ToolResult.failure(f"What should I remind you about {describe(when.at, now)}?")
+        try:
+            outcome = self.context.reminders.add(when.at.isoformat(), message)
         except ValueError:
             return ToolResult.failure("Reminder date/time must look like YYYY-MM-DD HH:MM.")
         if not outcome.get("ok"):
             return ToolResult.failure(f"Could not add reminder: {outcome.get('reason', 'unknown error')}")
         reminder = outcome["reminder"]
+        spoken = describe(when.at, now)
+        # A time already gone is kept, not refused - an explicit past date is a legitimate
+        # backfill - but it is never left to look like it was scheduled ahead.
+        note = "" if when.at > now else " (that time has already passed, so it is due now)"
         return ToolResult.success(
-            f"Reminder #{reminder['id']} set for {reminder['due_at']}: {reminder['message']}",
+            f"Reminder #{reminder['id']} set for {spoken}: {message}{note}",
             reminder=reminder,
+            due_local=when.at.isoformat(),
+            due_spoken=spoken,
         )
 
     def _reminders_list(self) -> ToolResult:

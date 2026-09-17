@@ -320,9 +320,18 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertEqual(decision.command, "briefing")
 
     def test_routes_reminder_add(self) -> None:
+        """The heuristic hands the phrasing through as said and lets `timeparse` read the
+        time, so the exact wording of the routed command is deliberately not pinned here —
+        only that it routes to `reminder add` and that the reminder comes out right. It
+        used to rewrite the sentence itself, which is why it could only manage an ISO date
+        and sent everything else to the model."""
         decision = self.plan("remind me to call Alex at 2026-06-20 09:00")
         self.assertTrue(decision.is_command)
-        self.assertEqual(decision.command, "reminder add 2026-06-20 09:00 call Alex")
+        self.assertTrue(
+            decision.command.startswith("reminder add "),
+            f"routed to {decision.command!r}")
+        self.assertIn("2026-06-20 09:00", decision.command)
+        self.assertIn("call Alex", decision.command)
 
     def test_routes_reminders_due(self) -> None:
         decision = self.plan("show due reminders")

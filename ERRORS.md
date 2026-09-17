@@ -5,6 +5,23 @@ near-miss. Newest first.
 
 ## Session 2026-09-17
 
+- **Natural time never reached a parser at all.** `remind me to call mom at 6pm` answered
+  "Reminder date/time must look like YYYY-MM-DD": the only accepted form was an ISO stamp,
+  which is not how anyone speaks and certainly not how anyone dictates. Two separate gaps -
+  `_parse_due_at` handed "6pm" straight to `datetime.fromisoformat`, and the heuristic
+  router only recognised a reminder when it carried an ISO date, so every other phrasing
+  fell through to the LLM. Fix: `timeparse.py`, deterministic and offline, shared with
+  `scheduler` so the two cannot drift. **Rule: a value with exactly one right answer - a
+  date, a sum, a file size - is parsed, never inferred. A model asked for a date returns a
+  plausible one, and a reminder on the wrong day is worse than one that refuses.**
+- **Wrote into the user's real data while testing, again.** A throwaway server started with
+  `LAPTOP_AGENT_PORT=8791` still used the real `.agent_data`, so three test reminders
+  landed in the user's own list. ERRORS.md already recorded this exact failure once - 20
+  `loadtest_N` keys in "what do you remember about me?" - and the lesson had been written
+  down without being made hard to repeat. **Rule: `LAPTOP_AGENT_PORT` isolates the port and
+  nothing else. A throwaway instance sets `LAPTOP_AGENT_DATA_DIR` too, and CLAUDE.md now
+  carries the command so the next session does not rediscover it.**
+
 - **A rejection that never reached the client.** Every rejecting POST path - 403 untrusted,
   401 locked, 404 unknown path, 429 too many attempts - answered without reading the body
   the client had already sent. Closing a socket that still holds unread data makes the OS
