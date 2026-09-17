@@ -773,8 +773,13 @@ class BrowserRegressions(unittest.TestCase):
             outcome["focused"]["w"], outcome["docked"]["w"] * 1.6,
             "the orb barely grew: " + repr((outcome["docked"], outcome["focused"])),
         )
+        # Three, not six: this counts rendered frames, so it scales with whatever frame
+        # rate the machine manages. A 60fps desktop puts ~13 frames in this band; the CI
+        # runner draws ~34fps and put 5 there, failing a threshold tuned on a laptop.
+        # Cutting straight to the end gives 0, so 3 still separates the two decisively,
+        # and the largest-jump assertion below is the real guard on smoothness.
         self.assertGreaterEqual(
-            outcome["tween"], 6,
+            outcome["tween"], 3,
             "the orb cut to its new size instead of easing there — only "
             + str(outcome["tween"]) + " intermediate frames of " + str(outcome["frames"]),
         )
