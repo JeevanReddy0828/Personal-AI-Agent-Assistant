@@ -27,6 +27,21 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   scoring, keyword/grounding) onto our LLM provider — not bolting on its FastAPI/Next/openai
   stack — to preserve the locked stack. (`copilot.py`)
 
+## CI and packaging (2026-09-17)
+
+- **CI must be green, and `cancelled` is not passing.** The matrix (ubuntu/windows x
+  3.11/3.13 + browser) runs fail-fast, so one red job cancels the rest and hides their
+  failures. `main` was red from #84 (Windows only) and from #87 on both platforms, through
+  #110 - two stacked bugs, an audit-rotation `tail` and a Windows-only `%-I` strftime
+  crash. Green again at #111. Read every job's conclusion before concluding why CI is red.
+- **`tzdata` is bundled in packaged builds** (`--collect-all tzdata`, both `packaging/*.ps1`)
+  and installed in the CI unit job, because Windows ships no time zone database. This does
+  **not** change the locked stack: `dependencies = []` still holds and a test asserts it.
+  Bundling is the installer's business; the app still degrades gracefully without it.
+- **A response is not delivered until the request body has been read.** See CLAUDE.md
+  (`_drain_request_body`). Any new rejecting path must go through `_send`/`_json`, never
+  write a status line directly, or it reintroduces the connection reset.
+
 ## Review stabilization (2026-09-08)
 
 - User authorized the report's remediation queue. See REVIEW_REPORT.md for the baseline

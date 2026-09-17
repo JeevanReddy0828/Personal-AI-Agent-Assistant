@@ -564,7 +564,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length") or 0)
-            payload = json.loads(self.rfile.read(max(0, min(length, 4096))) or b"{}")
+            taken = max(0, min(length, 4096))
+            self._body_read += taken
+            payload = json.loads(self.rfile.read(taken) or b"{}")
             supplied = str(payload.get("passcode") or "")
         except (ValueError, TypeError, UnicodeError):
             supplied = ""
@@ -592,8 +594,55 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args: object) -> None:
         return
 
+    def handle_one_request(self) -> None:
+        self._body_read = 0                # per request, so keep-alive re-arms the drain
+        super().handle_one_request()
+
+    def _drain_request_body(self) -> None:
+        """Read and discard a request body nobody read, before answering.
+
+        Every rejection - 403 untrusted, 401 locked, 404 unknown path, 429 too many
+        attempts - answers without touching the body the client already sent. Closing a
+        socket that still holds unread data makes the OS reset the connection, and the
+        client's pending read then fails instead of seeing the status we chose. Measured
+        on Windows: a 1MB POST to an unknown path returned ConnectionAbortedError half the
+        time rather than the 404, and a bad token 3 times in 12. The status only arrives
+        if we take the body first.
+
+        This is why it matters beyond a flaky test: a phone typing the LAN passcode is on
+        one of these paths, and "Wrong passcode." that arrives as a connection reset is
+        indistinguishable from the laptop being off.
+        """
+        if self.command not in ("POST", "PUT", "PATCH"):
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return
+        # A counter, not a flag: _pair reads only the first 4096 bytes of a passcode POST,
+        # and a flag would call the rest consumed and reset the connection on exactly the
+        # path where the client most needs to be told why it was refused.
+        remaining = min(length, MAX_REQUEST_BYTES) - self._body_read
+        if remaining <= 0:
+            return
+        self._body_read += remaining
+        if length > MAX_REQUEST_BYTES:
+            self.close_connection = True   # too big to swallow; do not pretend to
+        try:
+            self.connection.settimeout(5)  # a body that never arrives must not hold a thread
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError as exc:
+            # The peer may already be gone. Record it rather than swallowing the reason:
+            # a boundary that loses its cause turns a loud failure into a silent one.
+            record_failure("webui/drain", exc, path=self.path)
+
     def _send(self, code: int, body: bytes, content_type: str, no_store: bool = False,
               etag: str | None = None) -> None:
+        self._drain_request_body()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -689,6 +738,7 @@ class Handler(BaseHTTPRequestHandler):
         if length < 0 or length > MAX_REQUEST_BYTES:
             raise ValueError("payload too large")
         self.connection.settimeout(15)
+        self._body_read += length
         payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
         if not isinstance(payload, dict):
             raise ValueError("Expected a JSON object")
