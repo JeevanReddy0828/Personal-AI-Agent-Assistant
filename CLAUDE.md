@@ -777,7 +777,17 @@ over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot dr
 `drawSphere` interpolates the sphere's **centre and radius** from the docked rect to the
 window's. `dockRect()` measures the docked position by taking the class off and putting it
 back inside one synchronous block, so nothing is painted in between and it stays correct
-after a resize. Three things learned by breaking them: the point size scales with `focus`
+after a resize.
+
+**Two classes, and the split is what makes leaving smooth.** `orbstage` is the mechanism —
+the stage as a fixed overlay — and must stay until the sphere has finished shrinking.
+`orbfocus` is the **intent**, and flips on the click in both directions, so the chat and
+the ambient glow move *with* the orb. Carrying both on one class meant leaving cost 1100ms
+against 500ms to enter, with the chat still invisible for the first 520ms; and the glow,
+sized as a percentage of a `.stage` whose box changes when the overlay drops, snapped
+760px to 248px in a single frame. `.stage::before` is therefore sized off `--presence-w`
+and `vw`, **never a percentage of `.stage`**. Measured after: 500ms each way, and the glow
+reaches its docked 307px before the overlay is released. Three things learned by breaking them: the point size scales with `focus`
 too (`ORB_R` 0.40 -> `ORB_R_FOCUS` 0.46 spreads a fixed 760 particles over a window-sized
 sphere, which reads as dust unless the points grow with it); landing the layout must **not**
 depend on a frame being drawn, because `requestAnimationFrame` is throttled to nothing when

@@ -100,10 +100,10 @@
   // fixed overlay, so the class comes off for the measurement and goes straight back on
   // within the same frame — nothing is painted in between.
   function dockRect(){
-    const on=document.body.classList.contains('orbfocus');
-    if(on)document.body.classList.remove('orbfocus');
+    const on=document.body.classList.contains('orbstage');
+    if(on)document.body.classList.remove('orbstage');
     const r=coreCanvas.getBoundingClientRect();
-    if(on)document.body.classList.add('orbfocus');
+    if(on)document.body.classList.add('orbstage');
     return r;
   }
   function easeInOut(k){return k<0.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;}
@@ -114,7 +114,7 @@
   function endFocus(){
     focusT0=0; focus=orbFocus?1:0;
     if(focusTimer){clearTimeout(focusTimer);focusTimer=0;}
-    if(!orbFocus){document.body.classList.remove('orbfocus');dock=null;}
+    if(!orbFocus){document.body.classList.remove('orbstage');dock=null;}
     fitCanvas();
   }
   function stepFocus(){
@@ -131,7 +131,11 @@
     if(on===orbFocus&&!focusT0)return;
     if(on&&document.body.classList.contains('compact'))setCompact(false);   // they are opposites
     orbFocus=on; dock=dockRect(); focusFrom=focus;
-    if(on)document.body.classList.add('orbfocus');
+    // The intent flips now, in both directions, so the chat and the ambient glow move
+    // with the orb rather than waiting for it to land. The overlay only goes ON here;
+    // endFocus takes it off, once there is nothing left to draw over the chat.
+    document.body.classList.toggle('orbfocus',on);
+    if(on)document.body.classList.add('orbstage');
     const btn=document.getElementById('orbBtn'),sw=document.getElementById('orbFocusSw');
     if(btn){btn.classList.toggle('on',on);btn.setAttribute('aria-pressed',String(on));}
     if(sw){sw.classList.toggle('on',on);sw.setAttribute('aria-checked',String(on));}

@@ -761,7 +761,7 @@ class BrowserRegressions(unittest.TestCase):
                     chatHidden: chatHidden, railHidden: railHidden,
                     tween: tween, frames: during.length,
                     biggestJump: jumps.length ? Math.max.apply(null, jumps) : 0,
-                    classAfter: document.body.className,
+                    classAfter: document.body.classList.contains('orbfocus'),
                 };
             }"""
         )
@@ -782,7 +782,7 @@ class BrowserRegressions(unittest.TestCase):
             outcome["biggestJump"], (outcome["focused"]["w"] - outcome["docked"]["w"]) * 0.5,
             "one frame moved most of the distance, so the growth is not smooth",
         )
-        self.assertEqual(outcome["classAfter"], "", "orb focus did not come back off")
+        self.assertFalse(outcome["classAfter"], "orb focus did not come back off")
         self.assertLess(
             abs(outcome["back"]["w"] - outcome["docked"]["w"]), outcome["docked"]["w"] * 0.15,
             "the orb did not return to its docked size: " + repr((outcome["docked"], outcome["back"])),
@@ -803,10 +803,10 @@ class BrowserRegressions(unittest.TestCase):
                 await wait(80);
                 btn.click();
                 await wait(900);
-                const onClass = document.body.className;
+                const onClass = document.body.classList.contains('orbfocus');
                 btn.click();
                 await wait(900);
-                const offClass = document.body.className;
+                const offClass = document.body.classList.contains('orbstage');
                 // The class comes off when the orb lands; the chat then fades back over
                 // its own transition, so wait for that rather than guessing a total.
                 const col = document.querySelector('main.chatcol');
@@ -816,10 +816,10 @@ class BrowserRegressions(unittest.TestCase):
                 return { onClass: onClass, offClass: offClass, chat: chat };
             }"""
         )
-        self.assertEqual(outcome["onClass"], "orbfocus", "orb focus never engaged")
-        self.assertEqual(
-            outcome["offClass"], "",
-            "orb focus was stuck on with no frames to end it: " + repr(outcome["offClass"]),
+        self.assertTrue(outcome["onClass"], "orb focus never engaged")
+        self.assertFalse(
+            outcome["offClass"],
+            "the overlay was stuck on with no frames to end it",
         )
         self.assertEqual(outcome["chat"], "1", "the chat never came back")
 
@@ -833,7 +833,7 @@ class BrowserRegressions(unittest.TestCase):
                 const wait = ms => new Promise(r => setTimeout(r, ms));
                 document.getElementById('orbBtn').click();
                 await wait(700);
-                const focused = document.body.className;
+                const focused = document.body.classList.contains('orbfocus');
                 location.hash = '#/overview';
                 await wait(300);
                 const away = { cls: document.body.className,
@@ -847,7 +847,7 @@ class BrowserRegressions(unittest.TestCase):
                 return { focused: focused, away: away, backCls: document.body.className, backChat: chat };
             }"""
         )
-        self.assertEqual(outcome["focused"], "orbfocus", "orb focus never engaged")
+        self.assertTrue(outcome["focused"], "orb focus never engaged")
         self.assertEqual(
             outcome["away"]["cls"], "",
             "orb focus survived a view switch that hides the orb: " + repr(outcome["away"]),
@@ -866,7 +866,7 @@ class BrowserRegressions(unittest.TestCase):
                 const wait = ms => new Promise(r => setTimeout(r, ms));
                 document.getElementById('orbBtn').click();
                 await wait(700);
-                const before = document.body.className;
+                const before = document.body.classList.contains('orbfocus');
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
                 await wait(900);
                 const col = document.querySelector('main.chatcol');
@@ -876,7 +876,62 @@ class BrowserRegressions(unittest.TestCase):
                 return { before: before, after: document.body.className, chat: chat, saved: saved };
             }"""
         )
-        self.assertEqual(outcome["before"], "orbfocus", "orb focus never engaged")
+        self.assertTrue(outcome["before"], "orb focus never engaged")
         self.assertEqual(outcome["after"], "", "Escape did not leave orb focus")
         self.assertEqual(outcome["chat"], "1", "the chat did not come back")
         self.assertEqual(outcome["saved"], "0", "leaving by Escape did not stick for the next load")
+
+    def test_leaving_orb_focus_costs_the_same_as_entering_it(self):
+        """One class used to carry both the intent and the overlay, and it only came off
+        once the sphere had landed. Measured: entering faded the chat out over 500ms, but
+        leaving sat still for 520ms and only then brought it back, finishing at 1100ms —
+        and the ambient glow, sized as a percentage of a stage whose box changes when the
+        overlay drops, snapped 760px to 248px in one frame on the way out."""
+        page = self._motion_page()
+        outcome = page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                const col = document.querySelector('main.chatcol');
+                const stage = document.querySelector('.stage');
+                const glow = () => parseFloat(getComputedStyle(stage, '::before').width);
+                const btn = document.getElementById('orbBtn');
+                const overlaid = () => document.body.classList.contains('orbstage');
+
+                btn.click();
+                await wait(900);
+                const focusedGlow = glow();
+
+                btn.click();
+                const trail = [];
+                for (let i = 0; i < 30; i++) {
+                    trail.push({ t: i * 50, op: +getComputedStyle(col).opacity,
+                                 glow: glow(), over: overlaid() });
+                    await wait(50);
+                }
+                const drop = trail.findIndex(r => !r.over);      // overlay released here
+                return { focusedGlow: focusedGlow, drop: drop,
+                         beforeDrop: drop > 0 ? trail[drop - 1] : null,
+                         settled: trail[trail.length - 1],
+                         atHalf: trail[Math.min(5, trail.length - 1)] };
+            }"""
+        )
+        self.assertGreater(outcome["drop"], 0, "the overlay never came off")
+        before, settled = outcome["beforeDrop"], outcome["settled"]
+        self.assertEqual(settled["op"], 1, "the chat never came back")
+        # The chat has to move WITH the orb, not wait for it: by the time the overlay is
+        # released it should be nearly back, not still invisible.
+        self.assertGreater(
+            before["op"], 0.85,
+            "the chat was still hidden when the orb landed, so leaving takes twice as long "
+            "as entering: " + repr(before),
+        )
+        # And the glow must already be its docked size, or releasing the overlay pops it.
+        self.assertLess(
+            abs(before["glow"] - settled["glow"]), 20,
+            "the ambient glow jumped when the overlay was released: "
+            + repr((before["glow"], settled["glow"])),
+        )
+        self.assertGreater(
+            outcome["focusedGlow"], settled["glow"] * 1.5,
+            "the glow did not grow with the orb at all",
+        )
