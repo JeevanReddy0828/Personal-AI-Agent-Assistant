@@ -37,6 +37,11 @@
           <div class="lbl"><span>Transparency</span><span id="opacityVal">100%</span></div>
           <input type="range" id="opacityRange" min="35" max="100" step="1" value="100" aria-label="Window transparency">
         </div>
+        <div class="row">
+          <div class="lbl"><span>Voice cut-in level</span><span id="bargeVal">0.045</span></div>
+          <input type="range" id="bargeRange" min="15" max="150" step="5" value="45" aria-label="Voice cut-in level">
+          <div class="hint2">How loud you must be to interrupt a spoken reply. Watch the meter in the voice panel while I talk. The cut-in level is whichever is larger, this setting or the echo of my own voice the mic still hears — so if &ldquo;to cut in&rdquo; stops moving as you drag, the room is the limit, and headphones or less volume will help more than this slider.</div>
+        </div>
         <div class="hint2" id="hudHint">Window effects apply in the desktop app.</div>
       </div>
     </div>
@@ -60,6 +65,10 @@
       <div class="vstate" id="vstate">Listening</div>
       <div class="vtrans" id="vtrans">Say something…</div>
       <div id="vdbg" class="vdbg"></div>
+      <div class="vmeter" id="vmeter" hidden>
+        <div class="vmbar"><i id="vmfill"></i><u id="vmthr"></u></div>
+        <div class="vmnum"><span><b id="vmnow">0.000</b> now</span><span><b id="vmleak">0.000</b> leak</span><span><b id="vmtrig">0.045</b> to cut in</span></div>
+      </div>
       <div class="vbtns">
         <button class="vbtn primary" id="vint" title="Stop speaking and listen (Space)">Interrupt</button>
         <button class="vbtn" id="vend">End voice</button>

@@ -608,3 +608,85 @@ class BrowserRegressions(unittest.TestCase):
             "our own speech leaking into the mic triggered a barge-in",
         )
         self.assertTrue(outcome["stopped"], "talking over the reply did not stop it")
+
+    def test_voice_panel_shows_the_microphone_level_against_the_threshold(self):
+        """Barge-in was fixed twice and still reported as not working, because the level it
+        needs was a constant inside a closure — nobody could see what the microphone heard.
+        The voice panel now meters it live, and the floor under the threshold is a slider,
+        so the number can be tuned from the room instead of from source."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const FRAME = 4096, RATE = 48000;
+                navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop() {} }] });
+                let proc = null;
+                window.AudioContext = function () {
+                    this.sampleRate = RATE;
+                    this.createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+                    this.createGain = () => ({ gain: { value: 0 }, connect() {}, disconnect() {} });
+                    this.createScriptProcessor = () => { proc = { onaudioprocess: null, connect() {}, disconnect() {} }; return proc; };
+                    this.close = () => {};
+                };
+                window.webkitAudioContext = window.AudioContext;
+                // One frame every ~85ms, the cadence a 4096-sample buffer really arrives at.
+                // Fed back to back the meter's paint throttle would swallow all but the first.
+                const feed = async (peak, frames) => {
+                    for (let i = 0; i < frames; i++) {
+                        const ch = new Float32Array(FRAME);
+                        for (let j = 0; j < FRAME; j++) ch[j] = (j % 2) ? peak : -peak;
+                        proc.onaudioprocess({ inputBuffer: { getChannelData: () => ch } });
+                        await new Promise(r => setTimeout(r, 90));
+                    }
+                };
+                const box = document.getElementById('vmeter');
+                const now = () => document.getElementById('vmnow').textContent;
+                const trig = () => document.getElementById('vmtrig').textContent;
+                const width = () => document.getElementById('vmfill').style.width;
+                const over = () => document.getElementById('vmfill').parentNode.classList.contains('over');
+
+                // The slider sets the floor, and says so in the popover.
+                const range = document.getElementById('bargeRange');
+                range.value = '80';
+                range.dispatchEvent(new Event('input'));
+                const label = document.getElementById('bargeVal').textContent;
+
+                const hiddenBefore = box.hidden;
+                sttServer = true; sttChosen = true; sttEngine = 'test-engine';
+                voiceActive = true; speaking = true; bargeReset();
+                bargeStart();
+                await new Promise(r => setTimeout(r, 60));
+                if (!proc) { voiceActive = false; speaking = false;
+                    return { armed: false }; }
+                const shownWhileArmed = !box.hidden;
+                const threshold = trig();
+
+                await feed(0.02, 6);                 // our own voice, learned as the leak
+                const quiet = { now: now(), width: width(), over: over() };
+                await feed(0.30, 1);                 // someone talking, but not yet 220ms
+                const loud = { now: now(), width: width(), over: over() };
+
+                try { bargeStop(); } catch (e) {}
+                const hiddenAfter = box.hidden;
+                voiceActive = false; speaking = false;
+                return { armed: true, label: label, threshold: threshold,
+                         hiddenBefore: hiddenBefore, shownWhileArmed: shownWhileArmed,
+                         hiddenAfter: hiddenAfter, quiet: quiet, loud: loud };
+            }"""
+        )
+        self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
+        self.assertTrue(outcome["hiddenBefore"], "the meter is on screen when nothing is listening")
+        self.assertTrue(outcome["shownWhileArmed"], "the meter stayed hidden while barge-in listened")
+        self.assertTrue(outcome["hiddenAfter"], "the meter outlived the microphone")
+        self.assertEqual(outcome["label"], "0.080", "the slider does not report the level it set")
+        self.assertEqual(
+            outcome["threshold"], "0.080",
+            "the meter shows a threshold the slider did not set: " + repr(outcome["threshold"]),
+        )
+        self.assertEqual(outcome["quiet"]["now"], "0.020", "the meter misreports a quiet room")
+        self.assertFalse(outcome["quiet"]["over"], "our own leakage was shown as loud enough to cut in")
+        self.assertEqual(outcome["loud"]["now"], "0.300", "the meter misreports a raised voice")
+        self.assertTrue(outcome["loud"]["over"], "a voice well over the threshold was not shown as over it")
+        self.assertGreater(
+            float(outcome["loud"]["width"].rstrip("%")),
+            float(outcome["quiet"]["width"].rstrip("%")),
+            "the bar did not grow when the room got louder",
+        )

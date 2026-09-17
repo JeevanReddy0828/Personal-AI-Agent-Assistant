@@ -624,14 +624,27 @@ default as soon as the server has an engine, *talking could not interrupt at all
 note even promised "it cannot hear itself. Press Space to cut in." `serverBargeStart` now
 holds the microphone open (echoCancellation + noiseSuppression + autoGainControl) while
 J.A.R.V.I.S speaks, spends the first ~6 frames learning how loud our own output still leaks
-through, and treats **220ms of sustained sound above `max(0.045, floor*2.2)`** as the user.
+through, and treats **220ms of sustained sound above `max(bargeFloor, floor*2.2)`** as the
+user.
 On trigger it cancels speech, clears the queue, bumps `ttsEpoch` and calls `stopGen()` —
 deliberately *not* `stopSpeaking()`, which would tear down the very capture still recording
 the rest of the sentence. The capture keeps running and is transcribed as the next turn, so
 the words said before the trigger are not lost (re-opening the mic swallowed them). It
 reuses the same three-strikes protection, and it works in the pywebview window too, which
-has no Web Speech API at all. The 0.045 floor is the one number worth re-tuning from real
-rooms: too low and the app hears itself, too high and a quiet voice cannot cut in.
+has no Web Speech API at all.
+
+`bargeFloor` (default 0.045) is the one number worth re-tuning from real rooms: too low and
+the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
+closure, and that is why the feature could be "fixed" twice and still reported as not
+working — nobody could see what the microphone was hearing or what it had to beat. Both are
+now on screen: the voice panel meters **peak / learned leak / threshold** live while
+barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
+it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
+per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
+gear popover sets the floor, persisted in `localStorage`. Tune it against the meter, not
+against the source. Note the threshold is a `max`, so raising the slider below the learned
+leak changes nothing — that is deliberate, a threshold under our own echo would fire on
+every sentence we speak.
 
 ## Running it
 
