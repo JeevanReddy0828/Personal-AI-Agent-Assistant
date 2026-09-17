@@ -25,11 +25,15 @@
     <div class="sp"></div>
     <button class="pill" id="healthPill" title="System status" aria-controls="sysDrawer" aria-expanded="false"><span class="dot" id="healthDot"></span><span id="healthText">Checking…</span></button>
     <div class="hud">
+      <button class="hudbtn" id="orbBtn" title="Focus the orb — hide the chat (Esc to come back)" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/><path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg>
+      </button>
       <button class="hudbtn" id="hudBtn" title="Settings — layout, transparency, always on top" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
         <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
+        <button type="button" class="toggle" id="orbFocusSw" role="switch" aria-checked="false"><span>Focus the orb<small>Orb only — hides the chat and the rail</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="sttServer" role="switch" aria-checked="false"><span>Server speech<small id="sttNote">Checking…</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="typeAnim" role="switch" aria-checked="true"><span>Typing animation<small>Reveal local answers gradually</small></span><span class="sw"></span></button>

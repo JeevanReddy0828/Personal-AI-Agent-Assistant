@@ -15,6 +15,7 @@
     --shadow-2:0 20px 60px -20px rgba(0,0,0,.75);
     --rail-w:248px; --presence-w:clamp(280px,26vw,400px); --head-h:56px;
     --violet-2:#b48cff; --voice:#a394ff;
+    --focus-ms:520ms;                 /* orb-focus growth; app.js reads this so the two agree */
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -106,12 +107,36 @@
 
   /* ---------- presence panel: the orb is the one luminous thing on the page ---------- */
   .stage{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;overflow:hidden;isolation:isolate}
-  .stage::before{content:'';position:absolute;left:50%;top:50%;width:min(82%,440px);aspect-ratio:1;transform:translate(-50%,-52%);border-radius:50%;pointer-events:none;z-index:-1;
+  .stage::before{content:'';position:absolute;left:50%;top:50%;aspect-ratio:1;transform:translate(-50%,-52%);border-radius:50%;pointer-events:none;z-index:-1;
     background:radial-gradient(circle,rgba(98,211,234,.17),rgba(122,110,255,.11) 42%,transparent 70%);filter:blur(30px);opacity:.7;transition:opacity var(--med) var(--ease),transform var(--med) var(--ease)}
   body[data-core="thinking"] .stage::before,body[data-core="listening"] .stage::before,body[data-core="speaking"] .stage::before{opacity:1;transform:translate(-50%,-52%) scale(1.14)}
   body.voicing .stage::before{background:radial-gradient(circle,rgba(150,136,255,.2),rgba(98,211,234,.09) 45%,transparent 70%)}
   .stage::after{content:'';position:absolute;top:0;bottom:0;right:0;width:1px;pointer-events:none;background:linear-gradient(180deg,transparent,var(--hair-2) 25%,var(--hair-2) 75%,transparent)}
   #core{display:block;position:absolute;inset:0;width:100%;height:100%}
+
+  /* ---------- orb focus: hide the chat, let the orb have the window ----------
+     The layout itself snaps — Chromium does not interpolate grid-template-columns here
+     (measured: the stage jumped 374px -> 1440px in one frame with a 500ms transition on
+     it). What the eye actually follows is the sphere, and that is drawn on a canvas in a
+     rAF loop, so app.js eases its centre and radius from the docked rect to the full one
+     instead. The rail and the chat only have to fade, which does animate.
+
+     Two classes, not one, and the split is the whole reason the return is smooth.
+     `orbstage` is the mechanism — the stage as a fixed overlay — and has to stay until
+     the sphere has finished shrinking. `orbfocus` is the INTENT, and flips at the moment
+     of the click in both directions, so the chat fades back in alongside the orb instead
+     of after it. Carrying both on one class made leaving take 1100ms against 500ms to
+     enter, with the chat still invisible for the first 520ms of it. */
+  body.orbstage .stage{position:fixed;left:0;right:0;top:var(--head-h);bottom:0;z-index:30}
+  body.orbstage .stage::after{display:none}
+  /* Sized against the viewport and --presence-w, never against .stage, whose box changes
+     discontinuously when the overlay goes on and off: a percentage re-resolved against the
+     new box and the glow snapped 760px -> 248px in a single frame. */
+  .stage::before{width:min(calc(var(--presence-w) * 0.82),440px);
+    transition:opacity var(--med) var(--ease),transform var(--med) var(--ease),width var(--focus-ms) var(--ease)}
+  body.orbfocus .stage::before{width:min(58vw,760px)}
+  .left,main.chatcol{transition:opacity var(--focus-ms) var(--ease)}
+  body.orbfocus .left,body.orbfocus main.chatcol{opacity:0;pointer-events:none}
   .corestate{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font:500 12.5px var(--sans);color:var(--core-color,var(--muted));transition:color var(--med),opacity var(--med)}
   .corestate b{font-weight:600;color:var(--text)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:middle;opacity:.9}

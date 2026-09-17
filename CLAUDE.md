@@ -761,11 +761,42 @@ the tokens, drop any glow so the orb stays the only glowing element, size it for
 surface it lands on, and credit the author in a comment above the rule. Tailwind
 variants are unusable here — no Tailwind, and the CSP blocks CDNs. Browser
 regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,
-`#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`.
+`#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`,
+`#orbBtn`/`#orbFocusSw`, `#core`.
 
 The header gear popover holds the **adaptive-HUD** settings: a compact-layout toggle
-(chat only — hides the rail and the presence panel), an always-on-top switch and a
-transparency slider — all persisted in `localStorage`. Real window effects
+(chat only — hides the rail and the presence panel), its mirror image **Focus the orb**
+(orb only — hides the chat and the rail; also a button in the header, and Esc comes back),
+an always-on-top switch and a transparency slider — all persisted in `localStorage`.
+
+**Orb focus animates the sphere, not the layout.** The obvious implementation — transition
+`grid-template-columns` — does not work: measured in a real page, the stage jumped 374px to
+1440px in a single frame with a 500ms transition sitting on it, and every sampled frame read
+the end value. So the layout snaps and the **canvas** does the animation. `focus` eases 0..1
+over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot drift), and
+`drawSphere` interpolates the sphere's **centre and radius** from the docked rect to the
+window's. `dockRect()` measures the docked position by taking the class off and putting it
+back inside one synchronous block, so nothing is painted in between and it stays correct
+after a resize.
+
+**Two classes, and the split is what makes leaving smooth.** `orbstage` is the mechanism —
+the stage as a fixed overlay — and must stay until the sphere has finished shrinking.
+`orbfocus` is the **intent**, and flips on the click in both directions, so the chat and
+the ambient glow move *with* the orb. Carrying both on one class meant leaving cost 1100ms
+against 500ms to enter, with the chat still invisible for the first 520ms; and the glow,
+sized as a percentage of a `.stage` whose box changes when the overlay drops, snapped
+760px to 248px in a single frame. `.stage::before` is therefore sized off `--presence-w`
+and `vw`, **never a percentage of `.stage`**. Measured after: 500ms each way, and the glow
+reaches its docked 307px before the overlay is released. Three things learned by breaking them: the point size scales with `focus`
+too (`ORB_R` 0.40 -> `ORB_R_FOCUS` 0.46 spreads a fixed 760 particles over a window-sized
+sphere, which reads as dust unless the points grow with it); landing the layout must **not**
+depend on a frame being drawn, because `requestAnimationFrame` is throttled to nothing when
+the window is occluded (measured in an embedded pane: 0 frames in 300ms with
+`visibilityState` still `'visible'`), so a `setTimeout` finishes it or the class sticks on
+with the chat at `opacity:0` and no way back; and switching to a view that hides the stage
+has to land it **immediately** for the same reason — the loop stops, so the easing never
+would. `reduced_motion` takes the instant path by design, which is why the orb-focus tests
+build their own Playwright context: the shared one is `reduced_motion="reduce"`. Real window effects
 (alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`,
 targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S
 — so a same-named third-party app is never touched; graceful no-op elsewhere)
