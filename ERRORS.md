@@ -5,6 +5,24 @@ near-miss. Newest first.
 
 ## Session 2026-09-17
 
+- **The fallback ladder decided everything from `bool(reply)`.** A retired model id (410),
+  a rejected key (401), a model the account cannot call (404), a refused parameter (400)
+  and a genuinely overloaded endpoint (503) all reached it as the same empty reply and were
+  recorded identically as "degraded" - so a permanent misconfiguration was retried every
+  60s forever and reported to the user as *busy*, which is advice to wait for something
+  that will never recover. This is the boundary underneath **both** of the outages already
+  in this file: the ultra tier 400ing on every request while health called it congested,
+  and chat pointed at models NVIDIA had retired where "a new key can't revive a retired
+  model". Fix: `classify_failure` splits DEGRADED from BROKEN, the reason travels to
+  `ModelStatus`, broken tiers get a 900s cooldown instead of 60s, and health names the tier
+  and what to change. **Rule: when a boundary collapses several causes into one value, the
+  code above it cannot make a correct decision no matter how well it is written - and every
+  bug that follows looks like a bug in the caller.**
+- **`stream_answer` swallowed its failure entirely** - no record, on the path that serves
+  every chat turn, so a stream that never started was indistinguishable from a model with
+  nothing to say. Same rule as the reliability pass, still being rediscovered: an `except`
+  that only returns a fallback must record the reason.
+
 - **The call that only picks a path could take as long as the answer.** Routing shared one
   `timeout = 45` with everything else, and it is spent *before* the reply starts, so the
   user watches an empty screen for the whole of it. Measured over 300 recorded turns: the

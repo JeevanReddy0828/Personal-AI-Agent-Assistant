@@ -529,6 +529,26 @@ short "_my smart model was busy_" note, and records the outcome in
 `health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the
 web pill shows "smart/ultra model busy" while the fast tier stays healthy.
 
+**A tier that is loaded and a tier that is misconfigured are different facts.** The whole
+fallback ladder used to decide from `bool(reply)`, and a retired model id (HTTP 410), a
+rejected key (401), a model the account cannot call (404), a refused parameter (400) and a
+genuinely overloaded endpoint (503) all arrive as the same empty reply. So a permanent
+misconfiguration was retried every 60s forever and reported as *busy* - advice to wait, for
+something that never recovers. ERRORS.md records that costing real time twice.
+`classify_failure` splits them: `DEGRADED` (429/503/timeout/network, 60s cooldown) from
+`BROKEN` (400/401/403/404/410/422, 900s, and wording that names the model to change).
+`ModelStatus.record(tier, ok, reason=, detail=)` keeps the reason, `broken_tiers()` and
+`reason()` read it back, and `/api/health` exposes `broken_tiers` + `tier_reasons` beside
+the existing `degraded_tier`. Three rules this must keep: an **unexplained** failure stays
+`DEGRADED`, because guessing "broken" would stop trying a tier that was only having a bad
+minute; `BROKEN_COOLDOWN` is long but **not** forever, since a key can be fixed while the
+app runs and a tier never retried can never be seen to recover; and the state string stays
+`"degraded"` - health, the web pill and the tests all read it, and `broken` is new
+information rather than a rename. The provider reports why through an optional
+`on_failure` **callback argument**, never a field on the provider: one provider serves
+every request thread. A caller that passes no sink behaves exactly as before, which is why
+the advisor, the document tool and the copilot needed no change.
+
 After all primary (e.g. NVIDIA) tiers, an optional **cross-provider fallback** is
 tried: `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`, default a free model;
 `OPENROUTER_BASE_URL`) builds an OpenRouter planner (`app._build_openrouter_planner`,

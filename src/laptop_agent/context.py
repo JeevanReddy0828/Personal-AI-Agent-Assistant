@@ -581,6 +581,18 @@ def context_block(history: list[dict[str, str]] | None, query: str = "", budget:
     return build_context(history, query, budget=budget).text
 
 
+def accepts_keyword(fn, name: str) -> bool:
+    """Whether `fn` takes a keyword called `name`. Checked by signature so a provider's
+    own TypeError is never mistaken for an unsupported keyword - the same reason
+    `accepts_context_query` exists, generalised so the next optional keyword does not
+    need a third near-identical probe."""
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == name or p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters)
+
+
 def accepts_context_query(fn) -> bool:
     """Whether a provider's answer/stream_answer takes ``context_query=`` (test doubles
     and older providers do not); checked by signature so a provider's own TypeError is

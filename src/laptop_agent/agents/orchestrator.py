@@ -24,6 +24,7 @@ from laptop_agent.context import (
     ADVISOR_BUDGET,
     AGENT_BUDGET,
     accepts_context_query,
+    accepts_keyword,
     build_context,
     context_block,
     normalize_history,
@@ -276,15 +277,37 @@ class AgentOrchestrator:
         ]
 
     @staticmethod
-    def _call_with_query(fn, command, profile, history, query):
-        """Call a provider's answer/stream_answer, passing ``context_query`` only when the
-        provider accepts it (test doubles and older providers do not)."""
+    def _call_with_query(fn, command, profile, history, query, on_failure=None):
+        """Call a provider's answer/stream_answer, passing the optional keywords only when
+        the provider accepts them (test doubles and older providers do not).
+
+        ``on_failure`` is how the tier says *why* it produced nothing. Without it every
+        cause - a retired model, a rejected key, an unprovisioned id, an overloaded
+        endpoint - arrives as the same empty string, and the ladder cannot tell a tier
+        that needs a minute from one that needs a human."""
+        extra: dict[str, object] = {}
         if query is not None and accepts_context_query(fn):
-            return fn(command, profile, None, history, context_query=query)
-        return fn(command, profile, None, history)
+            extra["context_query"] = query
+        if on_failure is not None and accepts_keyword(fn, "on_failure"):
+            extra["on_failure"] = on_failure
+        return fn(command, profile, None, history, **extra)
+
+    def _record_tier(self, tier: str, reply: str, why: list[tuple[str, str]]) -> None:
+        """Record how a tier behaved, keeping the reason it gave.
+
+        A tier that answered is fine. A tier that did not is *busy* unless it said
+        otherwise - an unexplained failure is the transient assumption, because guessing
+        "broken" would stop trying a tier that was only having a bad minute.
+        """
+        if reply:
+            self.model_status.record(tier, True)
+            return
+        kind, detail = why[-1] if why else ("", "")
+        self.model_status.record(tier, False, reason=kind, detail=detail)
 
     @classmethod
-    def _tier_reply(cls, provider, command, profile, history, on_token, query=None) -> str:
+    def _tier_reply(cls, provider, command, profile, history, on_token, query=None,
+                    failures: list[tuple[str, str]] | None = None) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
         (e.g. it was unreachable/congested), which signals the caller to fall back.
@@ -292,11 +315,13 @@ class AgentOrchestrator:
         check_cancelled()
         if provider is None:
             return ""
+        # A local sink, so one provider shared by every request thread stays safe.
+        sink = None if failures is None else (lambda kind, detail: failures.append((kind, detail)))
         streamer = getattr(provider, "stream_answer", None)
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
             try:
-                for token in cls._call_with_query(streamer, command, profile, history, query):
+                for token in cls._call_with_query(streamer, command, profile, history, query, sink):
                     check_cancelled()
                     chunks.append(token)
                     on_token(token)
@@ -310,7 +335,7 @@ class AgentOrchestrator:
             return "".join(chunks).strip()
         answer_fn = getattr(provider, "answer", None)
         if answer_fn is not None:
-            reply = (cls._call_with_query(answer_fn, command, profile, history, query) or "").strip()
+            reply = (cls._call_with_query(answer_fn, command, profile, history, query, sink) or "").strip()
             check_cancelled()
             return reply
         return ""
@@ -1331,8 +1356,10 @@ class AgentOrchestrator:
                     if not self.model_status.should_attempt(tier_label):
                         continue
                     attempted.add(tier_label)
-                    reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
-                    self.model_status.record(tier_label, bool(reply))
+                    why: list[tuple[str, str]] = []
+                    reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
+                                             on_token, failures=why)
+                    self._record_tier(tier_label, reply, why)
                     if reply:
                         response, model_used, answered = reply, tier_label, True
                         break
@@ -1349,9 +1376,11 @@ class AgentOrchestrator:
                     # than being counted as a dead endpoint.
                     deferred = real_fast and not planned.response and planned.confidence > 0
                     if fast_provider is not None and fast_available and (on_token is not None or deferred):
-                        reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token)
+                        why = []
+                        reply = self._tier_reply(fast_provider, command, profile, history_turns,
+                                                 on_token, failures=why)
                         if real_fast:
-                            self.model_status.record("fast", bool(reply))
+                            self._record_tier("fast", reply, why)
                         if reply:
                             response, model_used, answered = reply, "fast", True
                     elif real_fast and fast_available and planned.response and planned.confidence > 0:
@@ -1364,15 +1393,19 @@ class AgentOrchestrator:
                     # primary tier that has not already been tried.
                     for tier_planner, tier_label in self._recovery_chat_tiers(attempted):
                         attempted.add(tier_label)
-                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns, on_token)
-                        self.model_status.record(tier_label, bool(reply))
+                        why = []
+                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
+                                                 on_token, failures=why)
+                        self._record_tier(tier_label, reply, why)
                         if reply:
                             response, model_used, answered = reply, tier_label, True
                             break
                 if not answered and self.fallback_planner is not None and self.model_status.should_attempt("openrouter"):
                     # Cross-provider safety net is also cooled down after an error.
-                    reply = self._tier_reply(self.fallback_planner.provider, command, profile, history_turns, on_token)
-                    self.model_status.record("openrouter", bool(reply))
+                    why = []
+                    reply = self._tier_reply(self.fallback_planner.provider, command, profile,
+                                             history_turns, on_token, failures=why)
+                    self._record_tier("openrouter", reply, why)
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
                 if not answered and not response:

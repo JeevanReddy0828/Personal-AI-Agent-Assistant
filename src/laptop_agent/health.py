@@ -37,7 +37,8 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
     # Per-tier reachability from real chat turns (fast/smart/ultra), so the UI can
     # show "the advanced model is busy" even while the fast tier is healthy.
     status = getattr(orchestrator, "model_status", None)
-    tier_status = status.snapshot() if status is not None else {"tiers": {}, "degraded": False}
+    tier_status = (status.snapshot() if status is not None
+                   else {"tiers": {}, "degraded": False, "broken": [], "reasons": {}})
 
     return {
         "overall": overall,
@@ -48,6 +49,12 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
             "provider": "openai-compatible" if llm_configured else "heuristic",
             "tiers": tier_status["tiers"],
             "degraded_tier": tier_status["degraded"],
+            # A busy tier is worth waiting for; a broken one never recovers on its own, so
+            # it is named separately along with what to change. Reported as "busy", a
+            # retired model id had people waiting for an endpoint that was never coming
+            # back - see ERRORS.md, twice.
+            "broken_tiers": tier_status.get("broken", []),
+            "tier_reasons": tier_status.get("reasons", {}),
         },
         # Health is served without a chat token, so expose connection state only;
         # model identifiers and local vault paths belong in local configuration.
