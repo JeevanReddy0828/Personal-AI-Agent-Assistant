@@ -549,6 +549,25 @@ information rather than a rename. The provider reports why through an optional
 every request thread. A caller that passes no sink behaves exactly as before, which is why
 the advisor, the document tool and the copilot needed no change.
 
+**Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
+`data_dir/model_status.json`, so a retired model id or a rejected key is still known at
+startup instead of being rediscovered by failing a real chat turn while the user waits.
+Four decisions hold it together. Only `BROKEN` is written - reachability is ephemeral, and
+persisting "busy" would skip, at tomorrow's startup, a tier that was merely loaded for a
+minute yesterday. The file stores **wall clock, never `time.monotonic()`**, which counts
+from a point that restarts with the process: a persisted monotonic stamp compared against a
+fresh clock puts the cooldown anywhere between instantly-expired and centuries, so `_load`
+reconstructs the *remaining* wait from elapsed real time. The knowledge persists but the
+blocking does not outlive its cooldown, so a key fixed while the app was closed is proved
+on the next turn and the record clears on the first success. And the write happens only
+when the broken set changes, so an ordinary chat turn costs no IO.
+
+The path is a **constructor parameter**, not `load_config()`: that reads the process-wide
+config, so under the test runner every orchestrator shared one file and a tier one test
+recorded as broken was still broken for the next. Persisted state that ignores its caller's
+own config is shared state. (`TraceStore` on the adjacent line still reads the global
+config - harmless for timings, but the same shape.)
+
 After all primary (e.g. NVIDIA) tiers, an optional **cross-provider fallback** is
 tried: `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`, default a free model;
 `OPENROUTER_BASE_URL`) builds an OpenRouter planner (`app._build_openrouter_planner`,

@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import tempfile
+import time
 import unittest
 import urllib.error
 from pathlib import Path
@@ -205,6 +207,131 @@ class HealthTests(unittest.TestCase):
         self.assertIn("retired", report["llm"]["tier_reasons"]["ultra"])
         self.assertTrue(report["llm"]["degraded_tier"], "a broken tier is also degraded")
 
+
+
+class PersistenceTests(unittest.TestCase):
+    """A retired model id is still retired after a restart. Without this the app forgets
+    every launch and rediscovers it the only way it can - by failing a real chat turn
+    while the user waits."""
+
+    def store(self, root: Path) -> Path:
+        return Path(root) / "model_status.json"
+
+    def test_a_broken_tier_survives_a_restart_with_its_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            first = ModelStatus(path)
+            first.record("ultra", False, reason=BROKEN, detail="retired (nvidia/ultra) - HTTP 410")
+
+            restarted = ModelStatus(path)
+            self.assertEqual(restarted.status("ultra"), BROKEN)
+            self.assertIn("retired", restarted.reason("ultra"))
+            self.assertEqual(restarted.broken_tiers(), ["ultra"])
+
+    def test_a_busy_tier_is_never_written(self) -> None:
+        """Reachability is ephemeral. Persisting "busy" would skip, at tomorrow's startup,
+        a tier that was merely loaded for a minute yesterday."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            status = ModelStatus(path)
+            status.record("smart", False, reason=DEGRADED, detail="HTTP 503")
+            status.record("fast", True)
+
+            restarted = ModelStatus(path)
+            self.assertEqual(restarted.status("smart"), "unknown")
+            self.assertEqual(restarted.status("fast"), "unknown")
+
+    def test_the_remaining_cooldown_carries_across_the_restart(self) -> None:
+        """`time.monotonic()` counts from a point that restarts with the process, so a
+        persisted monotonic stamp is meaningless against a fresh clock - the cooldown
+        would come out anywhere from instantly-expired to centuries. The file stores wall
+        clock and the remaining wait is reconstructed from it."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            path.write_text(json.dumps({"broken": {
+                "ultra": {"at": time.time() - 10, "reason": "retired"}}}), encoding="utf-8")
+            self.assertFalse(ModelStatus(path).should_attempt("ultra"),
+                             "a tier broken 10s ago was retried immediately after a restart")
+
+    def test_an_expired_cooldown_is_retried_after_a_restart(self) -> None:
+        """The knowledge persists; the blocking does not outlive its cooldown. A key fixed
+        while the app was closed has to get a chance to prove itself."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            path.write_text(json.dumps({"broken": {
+                "ultra": {"at": time.time() - (BROKEN_COOLDOWN + 60), "reason": "retired"}}}),
+                encoding="utf-8")
+            self.assertTrue(ModelStatus(path).should_attempt("ultra"))
+
+    def test_a_clock_that_moved_backwards_does_not_block_forever(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            path.write_text(json.dumps({"broken": {
+                "ultra": {"at": time.time() + 86400, "reason": "retired"}}}), encoding="utf-8")
+            status = ModelStatus(path)
+            self.assertTrue(status.should_attempt("ultra", cooldown_seconds=0))
+
+    def test_recovering_removes_it_from_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            status = ModelStatus(path)
+            status.record("ultra", False, reason=BROKEN, detail="retired")
+            status.record("ultra", True)
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["broken"], {})
+            self.assertEqual(ModelStatus(path).status("ultra"), "unknown")
+
+    def test_breaking_again_after_a_recovery_gets_a_fresh_cooldown(self) -> None:
+        """Found by reverting: clearing the old timestamp on recovery looked like a no-op,
+        because the file is written from the *state* either way. It is not. Without it a
+        tier that breaks, recovers and breaks again inherits the first break's timestamp,
+        its cooldown is already long expired, and it is retried on every single turn -
+        which is the failing round-trip this whole mechanism exists to avoid."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            status = ModelStatus(path)
+            status.record("ultra", False, reason=BROKEN, detail="retired")
+            # Age the first break well past its cooldown, then recover and break again.
+            status._broken_at["ultra"] = time.time() - (BROKEN_COOLDOWN * 10)
+            status.record("ultra", True)
+            status.record("ultra", False, reason=BROKEN, detail="retired again")
+
+            stored = json.loads(path.read_text(encoding="utf-8"))["broken"]["ultra"]["at"]
+            self.assertLess(time.time() - stored, BROKEN_COOLDOWN,
+                            "the second break kept the first one's timestamp")
+            self.assertFalse(status.should_attempt("ultra"),
+                             "a freshly broken tier is being retried immediately")
+
+    def test_an_ordinary_turn_does_not_touch_the_disk(self) -> None:
+        """Only a change to the broken set is written, so a healthy chat turn costs no IO."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.store(raw)
+            status = ModelStatus(path)
+            status.record("fast", True)
+            self.assertFalse(path.exists(), "a successful turn wrote a file")
+
+            status.record("ultra", False, reason=BROKEN, detail="retired")
+            stamp = path.stat().st_mtime_ns
+            for _ in range(5):
+                status.record("fast", True)
+                status.record("ultra", False, reason=BROKEN, detail="retired")
+            self.assertEqual(path.stat().st_mtime_ns, stamp, "an unchanged state was rewritten")
+
+    def test_a_corrupt_file_does_not_take_the_app_down(self) -> None:
+        for bad in ("not json at all", '{"broken": "wrong shape"}',
+                    '{"broken": {"ultra": {"at": "soon"}}}', "{}"):
+            with self.subTest(bad):
+                with tempfile.TemporaryDirectory() as raw:
+                    path = self.store(raw)
+                    path.write_text(bad, encoding="utf-8")
+                    self.assertEqual(ModelStatus(path).status("ultra"), "unknown")
+
+    def test_without_a_path_nothing_is_written(self) -> None:
+        """Every existing caller and test constructs it bare and must stay in-memory."""
+        status = ModelStatus()
+        status.record("ultra", False, reason=BROKEN, detail="retired")
+        self.assertEqual(status.status("ultra"), BROKEN)
+        self.assertIsNone(status.path)
 
 if __name__ == "__main__":
     unittest.main()

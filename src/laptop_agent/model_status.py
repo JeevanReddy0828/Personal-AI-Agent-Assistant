@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
+from pathlib import Path
+
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import atomic_write_text, read_json
 
 # Chat model tiers the orchestrator may use, in fallback order. It escalates
 # fast -> smart -> ultra by complexity, then degrades the other way when a tier is
@@ -41,25 +46,97 @@ class ModelStatus:
     Thread-safe: the web server answers chat turns on worker threads.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
         self._lock = threading.Lock()
         self._state: dict[str, str] = {}  # tier -> "ok" | "degraded" | "broken"
-        self._updated_at: dict[str, float] = {}
+        self._updated_at: dict[str, float] = {}   # monotonic, for cooldowns
         self._detail: dict[str, str] = {}
+        self._broken_at: dict[str, float] = {}    # wall clock, for the file
+        # Without a path this is purely in-memory, exactly as before.
+        self.path = path
+        if path is not None:
+            self._load()
+
+    # --- persistence -----------------------------------------------------------------
+    # Only BROKEN is written. "degraded" is genuinely ephemeral - it changes with provider
+    # load - and persisting it would mean a tier that was busy for a minute yesterday is
+    # skipped at tomorrow's startup, which is worse than knowing nothing. A retired model
+    # id or a rejected key is still true after a restart, so that is worth carrying.
+
+    def _load(self) -> None:
+        """Restore known-broken tiers, keeping whatever is left of their cooldown.
+
+        The stored time is wall clock, never `time.monotonic()`: monotonic counts from an
+        arbitrary point that RESTARTS WITH THE PROCESS, so a persisted monotonic stamp
+        compared against a fresh clock is meaningless - the cooldown would come out
+        anywhere from instantly-expired to centuries.
+        """
+        assert self.path is not None
+        data = read_json(self.path, {}) or {}
+        entries = data.get("broken")
+        if not isinstance(entries, dict):
+            return
+        now_wall, now_mono = time.time(), time.monotonic()
+        for tier, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                at = float(entry.get("at", 0.0))
+            except (TypeError, ValueError):
+                continue
+            # A clock that moved backwards must not grant an infinite cooldown.
+            elapsed = min(max(0.0, now_wall - at), BROKEN_COOLDOWN * 10)
+            self._state[tier] = BROKEN
+            self._detail[tier] = str(entry.get("reason") or "")
+            self._broken_at[tier] = at
+            self._updated_at[tier] = now_mono - elapsed
+
+    def _save_locked(self) -> None:
+        """Write the broken set. Called only when that set changes, so an ordinary chat
+        turn never touches the disk."""
+        if self.path is None:
+            return
+        payload = {
+            "broken": {
+                tier: {"at": self._broken_at.get(tier, time.time()),
+                       "reason": self._detail.get(tier, "")}
+                for tier, state in self._state.items() if state == BROKEN
+            }
+        }
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(self.path, json.dumps(payload, indent=2))
+        except OSError as exc:
+            # Knowing a tier is broken is a convenience, not a correctness requirement:
+            # never let saving it break the turn that discovered it.
+            record_failure("model_status/save", exc, path=str(self.path))
 
     def record(self, tier: str, ok: bool, reason: str = "", detail: str = "") -> None:
         """Record an outcome. `reason` is DEGRADED or BROKEN; anything else means busy,
         because an unexplained failure is the transient assumption, not the permanent one -
         guessing "broken" would stop trying a tier that was only having a bad minute."""
         with self._lock:
+            before = self._broken_signature()
             if ok:
                 self._state[tier] = OK
                 self._detail.pop(tier, None)
+                self._broken_at.pop(tier, None)
             else:
                 self._state[tier] = BROKEN if reason == BROKEN else DEGRADED
                 if detail:
                     self._detail[tier] = detail
+                if self._state[tier] == BROKEN:
+                    self._broken_at.setdefault(tier, time.time())
+                else:
+                    self._broken_at.pop(tier, None)
             self._updated_at[tier] = time.monotonic()
+            if self.path is not None and self._broken_signature() != before:
+                self._save_locked()
+
+    def _broken_signature(self) -> tuple[tuple[str, str], ...]:
+        """What is worth writing: which tiers are broken, and why."""
+        return tuple(sorted((tier, self._detail.get(tier, ""))
+                            for tier, state in self._state.items() if state == BROKEN))
 
     def should_attempt(self, tier: str, cooldown_seconds: float | None = None) -> bool:
         """Whether a provider should receive another request now.
