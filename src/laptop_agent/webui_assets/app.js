@@ -67,7 +67,11 @@
   }
   /* ---- 3D particle sphere: a cloud of light points that rotates, breathes,
         energises while J.A.R.V.I.S works, and scatters under the cursor ---- */
-  const NP=760, pts=[];
+  // Three times the points, every third of which is the docked sphere; the rest fade in
+  // with `focus`. Needed alongside the size magnification, not instead of it: magnifying
+  // alone keeps the dots apart, and the docked orb's glow comes from them OVERLAPPING
+  // under `lighter` compositing, which a sparser sphere cannot reproduce at any size.
+  const NP=2280, INFILL=3, pts=[];
   (function(){const gold=Math.PI*(3-Math.sqrt(5));for(let i=0;i<NP;i++){const y=1-(i/(NP-1))*2,rr=Math.sqrt(1-y*y),th=gold*i;
     pts.push({x:Math.cos(th)*rr,y:y,z:Math.sin(th)*rr,ph:Math.random()*6.283,dx:0,dy:0});}})();
   const MAG=[208,74,255], CYAN=[95,208,230];      // two-tone gradient like the reference orb
@@ -150,13 +154,18 @@
     cctx.clearRect(0,0,w,h);
     stepFocus();
     // Docked, the canvas IS the dock rect and these collapse to the plain centre.
-    let cx=w/2,cy=h/2,span=Math.min(w,h);
+    let cx=w/2,cy=h/2,span=Math.min(w,h),dockSpan=0;
     if(focus>0&&dock){
       const dx=dock.left+dock.width/2-r.left, dy=dock.top+dock.height/2-r.top;
-      const dspan=Math.min(dock.width,dock.height);
-      cx=dx+(cx-dx)*focus; cy=dy+(cy-dy)*focus; span=dspan+(span-dspan)*focus;
+      dockSpan=Math.min(dock.width,dock.height);
+      cx=dx+(cx-dx)*focus; cy=dy+(cy-dy)*focus; span=dockSpan+(span-dockSpan)*focus;
     }
     const R=span*(ORB_R+(ORB_R_FOCUS-ORB_R)*focus);
+    // How much bigger the sphere is than its docked self. Point size follows it, so
+    // focusing magnifies the orb instead of spreading the same dots thinner: 760 points
+    // over 6.7x the area at a fixed size is dust, and adding points instead just made it
+    // a duller, banded sphere (the golden-angle spiral aliases when you subsample it).
+    const magnify=(focus>0&&dockSpan)?R/(dockSpan*ORB_R):1;
     energy+=(targetEnergy()-energy)*0.06; shock*=0.92;
     const e=Math.min(1.8,energy+shock*0.7);
     // "searching the internet": while the agent works, the globe expands, spins up,
@@ -176,6 +185,8 @@
     cctx.fillStyle=amb;cctx.fillRect(0,0,w,h);
     cctx.globalCompositeOperation='lighter';
     for(let i=0;i<NP;i++){const p=pts[i];
+      const infill=(i%INFILL)!==0;
+      if(infill&&focus<0.02)continue;              // docked: the original 760 points, same cost
       const jit=e*0.05*Math.sin(t*3+p.ph), s=1+jit;
       const bx=p.x*s,by=p.y*s,bz=p.z*s;
       const x1=bx*cosY+bz*sinY, z1=-bx*sinY+bz*cosY;
@@ -188,14 +199,15 @@
       const mix=(x1+1)/2; let cr=MAG[0]+(CYAN[0]-MAG[0])*mix,cg=MAG[1]+(CYAN[1]-MAG[1])*mix,cb=MAG[2]+(CYAN[2]-MAG[2])*mix;
       if(tint){cr=(cr+tint[0])/2;cg=(cg+tint[1])/2;cb=(cb+tint[2])/2;}
       const depth=(z2+1)/2, tw=0.62+0.38*Math.sin(t*2.2+p.ph);
-      let a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35)*(1+focus*0.6);
+      let a=Math.min(1,(0.1+depth*0.8)*(0.55+e*0.55)*tw), sz=(0.5+depth*1.8)*persp*(1+e*0.35)*magnify;
+      if(infill)a*=focus;                          // the added points arrive with the growth
       // scan band: particles the sweep crosses flare brighter and whiter
       const near=expand*Math.max(0,1-Math.abs(by-scanLat)/0.16);
       if(near>0){a=Math.min(1,a+near*0.55);sz*=1+near*1.3;cr=cr+(235-cr)*near;cg=cg+(248-cg)*near;cb=cb+(255-cb)*near;}
       cctx.fillStyle='rgba('+(cr|0)+','+(cg|0)+','+(cb|0)+','+a.toFixed(3)+')';
       cctx.beginPath();cctx.arc(sx,sy,sz,0,6.283);cctx.fill();
     }
-    const ccr=R*0.12*(0.8+e*0.45+Math.sin(t*3)*0.06);
+    const ccr=R*0.12*(0.8+e*0.45+Math.sin(t*3)*0.06)*(1-focus*0.38);
     const cg2=cctx.createRadialGradient(cx,cy,0,cx,cy,ccr*3.2);
     cg2.addColorStop(0,'rgba(255,255,255,'+(0.45+e*0.4).toFixed(3)+')');cg2.addColorStop(.4,'rgba('+acc[0]+','+acc[1]+','+acc[2]+',0.45)');cg2.addColorStop(1,'transparent');
     cctx.fillStyle=cg2;cctx.beginPath();cctx.arc(cx,cy,ccr*3.2,0,6.283);cctx.fill();
