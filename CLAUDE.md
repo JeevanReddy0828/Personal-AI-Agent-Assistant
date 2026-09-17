@@ -456,10 +456,19 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
   `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) with automatic DuckDuckGo
   fallback, else DDG directly. `app.py` shares one backend across `websearch` and
   `research`. API backends take an injectable HTTP transport (offline-tested).
-- **AgentContext** is a frozen dataclass of all tools/subsystems. Adding a field
-  means updating `app.py`'s `build_orchestrator` AND the test builder in
-  `tests/test_orchestrator.py` (this is the usual source of a wave of failures
-  after a merge — fix the builder).
+- **AgentContext** is a frozen dataclass of all tools/subsystems, wired in exactly one
+  place: `app.build_context(config, approval_callback)`. Adding a field means editing
+  **that function and nothing else** — the test builder starts from the same wiring and
+  `dataclasses.replace`s only the nine tools it needs to fake, so a new field reaches the
+  tests without being named there. Verified by doing it: a 25th field added to the
+  dataclass and to `build_context`, with the test builder untouched, leaves all 131
+  orchestrator tests passing. Forgetting `build_context` fails loudly and by name
+  (`TypeError: ... missing 1 required positional argument: 'probe_field'`), and
+  `test_one_place_wires_every_field_of_the_agent_context` is the single test that says so.
+  This used to be two files, and forgetting the second turned every orchestrator test into
+  the same TypeError — "the usual source of a wave of failures after a merge".
+  `build_context` is safe to call in a test: measured at 21ms with a temp config, touching
+  no network and creating only lock files.
 - **Two autonomy layers, don't conflate them.** `autopilot.py` runs a *static*
   plan restricted to a safe read-only allowlist (blocks anything risky).
   `reasoning.py`'s `AutonomousAgent` is the *LLM-driven* plan/act/observe/replan

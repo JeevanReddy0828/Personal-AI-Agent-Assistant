@@ -5,6 +5,23 @@ near-miss. Newest first.
 
 ## Session 2026-09-17
 
+- **Two places listed the same 24 fields.** `AgentContext` was wired once in
+  `app.build_orchestrator` and again in the test builder, so adding a field meant editing
+  two files and forgetting the second turned every orchestrator test into the same
+  TypeError - what CLAUDE.md called "the usual source of a wave of failures after a merge".
+  The wiring is now `app.build_context`, and the tests start from it and
+  `dataclasses.replace` only the nine tools they fake. **Rule: when a list must be repeated
+  in two places, the second copy is not documentation of the first, it is a future merge
+  conflict. Measure whether the real wiring can simply be reused - here it cost 21ms,
+  touched no network, and made the duplicate unnecessary.**
+- **Mangled the same line twice with shell-and-Python escaping.** Writing
+  `b"PNG
+"` through a heredoc put a real newline in the file, and the repair
+  attempt broke it again. ERRORS.md already carries two entries about exactly this
+  (a stray backslash in a regex, prefix-anchored import surgery). **Rule: for a line
+  containing escapes, edit by exact match or by line index - never rebuild it through a
+  heredoc. Better still, write `bytes([0x89])` and have no escape to mangle.**
+
 - **A guard that looked like a no-op, caught by reverting it.** Clearing a tier's stored
   break time when it recovers appeared to do nothing - the file is written from the state
   either way, and the suite passed with the line removed. It is load-bearing: without it a

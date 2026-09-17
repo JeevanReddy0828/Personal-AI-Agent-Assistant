@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dataclasses import replace
+
+from laptop_agent.app import build_context
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.config import AppConfig
@@ -79,9 +82,10 @@ class OrchestratorTests(unittest.TestCase):
         self.assertIn("555", contact)
         self.assertEqual(AgentOrchestrator._contact_from_resume(""), "")
 
-    def build(self, tmp: Path) -> AgentOrchestrator:
-        gate = ApprovalGate(lambda request: True)
-        config = AppConfig(
+    def config(self, tmp: Path) -> AppConfig:
+        """The isolated test configuration. Separate so a test can wire a context
+        from it without building a whole orchestrator."""
+        return AppConfig(
             data_dir=tmp,
             memory_path=tmp / "memory.json",
             audit_log_path=tmp / "audit.jsonl",
@@ -113,67 +117,64 @@ class OrchestratorTests(unittest.TestCase):
             llm_api_key=None,
             obsidian_vault=str(tmp / "vault"),
         )
-        desktop = DesktopTool(gate, screenshot_backend=lambda path: path.write_bytes(b"\x89PNG\r\n"))
-        web = WebTool(gate, config.downloads_dir)
-        return AgentOrchestrator(
-            AgentContext(
-                memory=MemoryStore(config.memory_path),
-                files=FileTool(gate),
-                web=web,
-                websearch=WebSearchTool(
-                    gate,
-                    search_backend=lambda query, limit: [
-                        {"title": f"Result for {query}", "url": "https://example.com/1", "snippet": "snippet one"},
-                        {"title": "Second", "url": "https://example.com/2", "snippet": "snippet two"},
-                    ][:limit],
-                ),
-                browser=BrowserAutomationTool(gate),
-                desktop=desktop,
-                windows=WindowTool(gate, backend=_FakeWindows()),
-                email=EmailTool(gate, config),
-                music=MusicTool(
-                    gate,
-                    desktop,
-                    web,
-                    resolver=lambda query: [{"id": "kJQP7kiw5Fk", "title": f"{query} - top hit"}],
-                ),
-                research=ResearchTool(
-                    gate,
-                    search_backend=lambda query, limit: [
-                        {"title": f"{query} overview", "url": "https://example.com/a", "snippet": "intro"},
-                        {"title": f"{query} details", "url": "https://example.com/b", "snippet": "more"},
-                    ][:limit],
-                    fetch_backend=lambda url: (
-                        f"Detailed page body for {url}. It explains the subject thoroughly. "
-                        "The topic matters because it improves understanding. Many readers find it useful."
-                    ),
-                ),
-                terminal=TerminalTool(
-                    gate,
-                    runner=lambda command, cwd, timeout: subprocess.CompletedProcess(
-                        command,
-                        0,
-                        stdout=f"ran::{command}::in::{cwd.name}",
-                        stderr="",
-                    ),
-                ),
-                transcribe=TranscribeTool(
-                    ocr_backend=lambda path: f"ocr-text::{path.name}",
-                    asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
-                ),
-                webcam=WebcamTool(capture_backend=lambda device, dest: (dest.write_bytes(b"\x89PNG-fake"), dest)[1]),
-                audit=AuditLogger(config.audit_log_path),
-                tasks=TaskTracker(),
-                workflows=WorkflowTracker(config.data_dir / "workflows.json"),
-                reminders=ReminderStore(config.data_dir / "reminders.json"),
-                knowledge=KnowledgeBase(config.data_dir / "knowledge.json"),
-                obsidian=ObsidianVault(config.obsidian_vault),
-                jobs=JobTracker(config.data_dir / "jobs.json"),
-                jobright=JobrightTool(gate, session_path=config.data_dir / "jobright_session.json"),
-                autopilot=AutopilotTracker(config.data_dir / "autopilot.json"),
-                agent_runs=AgentRunTracker(config.data_dir / "agent_runs.json"),
-                scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
+
+    def build(self, tmp: Path) -> AgentOrchestrator:
+        config = self.config(tmp)
+        # Start from the app's own wiring and fake only what a test must control.
+        # Both places used to list all 24 AgentContext fields, so adding one meant editing
+        # two files and forgetting the second turned every orchestrator test into the same
+        # TypeError. A new field now reaches the tests without being named here at all.
+        context = build_context(config, lambda request: True)
+        gate = context.web.approval_gate
+        # bytes([0x89]) rather than an escape: this line was mangled twice by the
+        # escaping layers between here and the file, which ERRORS.md warns about.
+        desktop = DesktopTool(
+            gate, screenshot_backend=lambda path: path.write_bytes(bytes([0x89]) + b"PNG"))
+        context = replace(
+            context,
+            desktop=desktop,
+            windows=WindowTool(gate, backend=_FakeWindows()),
+            websearch=WebSearchTool(
+                gate,
+                search_backend=lambda query, limit: [
+                    {"title": f"Result for {query}", "url": "https://example.com/1", "snippet": "snippet one"},
+                    {"title": "Second", "url": "https://example.com/2", "snippet": "snippet two"},
+                ][:limit],
             ),
+            music=MusicTool(
+                gate,
+                desktop,
+                context.web,
+                resolver=lambda query: [{"id": "kJQP7kiw5Fk", "title": f"{query} - top hit"}],
+            ),
+            research=ResearchTool(
+                gate,
+                search_backend=lambda query, limit: [
+                    {"title": f"{query} overview", "url": "https://example.com/a", "snippet": "intro"},
+                    {"title": f"{query} details", "url": "https://example.com/b", "snippet": "more"},
+                ][:limit],
+                fetch_backend=lambda url: (
+                    f"Detailed page body for {url}. It explains the subject thoroughly. "
+                    "The topic matters because it improves understanding. Many readers find it useful."
+                ),
+            ),
+            terminal=TerminalTool(
+                gate,
+                runner=lambda command, cwd, timeout: subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=f"ran::{command}::in::{cwd.name}",
+                    stderr="",
+                ),
+            ),
+            transcribe=TranscribeTool(
+                ocr_backend=lambda path: f"ocr-text::{path.name}",
+                asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
+            ),
+            webcam=WebcamTool(capture_backend=lambda device, dest: (dest.write_bytes(bytes([0x89]) + b"PNG-fake"), dest)[1]),
+        )
+        return AgentOrchestrator(
+            context,
             Planner(HeuristicPlannerProvider()),
             # Per-test. The default reads the process-wide config, which the runner
             # points at one directory for the whole suite - so without this a tier one
@@ -181,6 +182,19 @@ class OrchestratorTests(unittest.TestCase):
             # land wherever the real app keeps its own.
             data_dir=tmp,
         )
+
+    def test_one_place_wires_every_field_of_the_agent_context(self) -> None:
+        """`build_context` is the single wiring. If a field is added to AgentContext and
+        not wired there, this is the one failure that says so by name - instead of the
+        same TypeError repeated across every test that builds an orchestrator, which
+        CLAUDE.md calls "the usual source of a wave of failures after a merge".
+        """
+        from dataclasses import fields
+
+        with tempfile.TemporaryDirectory() as raw:
+            context = build_context(self.config(Path(raw)), lambda request: True)
+            unwired = [f.name for f in fields(context) if getattr(context, f.name) is None]
+            self.assertEqual(unwired, [], "AgentContext fields left unwired by build_context")
 
     def test_everything_persisted_lands_in_the_given_data_dir(self) -> None:
         """Nothing this orchestrator writes may escape into the process-wide data
@@ -1954,6 +1968,8 @@ class SubtaskReportTests(unittest.TestCase):
     were in `data`, which the chat page never renders, so a batch told you a score."""
 
     # Borrow the suite's builder without inheriting its ~110 tests.
+    # `build` now delegates to `config`, so borrow both rather than one of them.
+    config = OrchestratorTests.config
     build = OrchestratorTests.build
 
     def test_each_subtask_is_named_with_its_outcome(self) -> None:
