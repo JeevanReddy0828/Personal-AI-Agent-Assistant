@@ -11,6 +11,11 @@
 # The app auto-detects the model in models\ (or set VOSK_MODEL). Set
 # LAPTOP_AGENT_STT=vosk to force it; 'auto' (default) already prefers Vosk when a
 # model is present.
+#
+# tzdata is bundled because Windows ships no time zone database: without it zoneinfo
+# cannot resolve a named zone, so "time in Tokyo" degrades to an install hint that a
+# packaged user cannot act on. It is ~700KB. The package still declares no runtime
+# dependencies - this is the bundle's own copy.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -29,6 +34,7 @@ python -m PyInstaller `
     --collect-all pyttsx3 `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
+    --collect-all tzdata `
     --collect-all vosk `
     @addModel `
     --distpath "$root\dist" `
