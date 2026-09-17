@@ -120,16 +120,48 @@ class AuditRotationTests(unittest.TestCase):
             self.assertLess(path.stat().st_size, 20_000)
 
     def test_events_are_still_readable_after_rotation(self) -> None:
+        """`tail` read only the current file, so straight after a rotation it returned
+        however few lines had landed since and said nothing about it. The old assertion
+        was `tail(5) == 5`, which passed or failed on byte arithmetic alone: six records
+        fit a generation on Windows so it passed there, four fit in CI so it failed. The
+        real call is `tail(50)`, so the audit view went nearly empty after every rotation.
+        Assert against what is actually on disk instead of a number that depends on how
+        long a timestamp happens to be."""
         from laptop_agent.audit import AuditLogger
 
         with tempfile.TemporaryDirectory() as tmp:
-            logger = AuditLogger(Path(tmp) / "audit.jsonl")
+            path = Path(tmp) / "audit.jsonl"
+            logger = AuditLogger(path)
             logger.MAX_BYTES = 1_000
             for index in range(120):
                 logger.record("approval", action=f"thing {index}", padding="y" * 40)
+
+            def line_count(target: Path) -> int:
+                if not target.exists():
+                    return 0
+                return len(target.read_text(encoding="utf-8").strip().splitlines())
+
+            current = line_count(path)
+            kept = current + line_count(path.with_suffix(".jsonl.1"))
+            self.assertGreater(kept, current, "rotation kept no previous generation")
+
             recent = logger.tail(5)
             self.assertEqual(len(recent), 5)
             self.assertIn("thing 119", str(recent[-1]))
+
+            # The regression itself: asking for more than the current generation holds
+            # has to reach back into the rotated one.
+            deep = logger.tail(kept)
+            self.assertEqual(
+                len(deep), kept,
+                f"tail stopped at the current generation: got {len(deep)} of {kept}",
+            )
+            self.assertGreater(len(deep), current, "the rotated generation was not read")
+            self.assertIn("thing 119", str(deep[-1]), "newest event is not last")
+            actions = [event["payload"]["action"] for event in deep]
+            self.assertEqual(actions, sorted(actions, key=lambda a: int(a.split()[1])),
+                             "events came back out of order")
+            self.assertEqual(len(logger.tail(kept + 50)), kept, "invented events beyond the log")
 
 
 class CommandLengthTests(unittest.TestCase):
