@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import urllib.error
+import urllib.request
 
 from laptop_agent.planner.core import PlanDecision, Planner
 from laptop_agent.planner.openai_compatible import _FEWSHOT, _SYSTEM_PROMPT, OpenAICompatiblePlannerProvider
@@ -38,8 +40,12 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertEqual(decision.command, "tasks")
 
     def test_transport_error_returns_chat(self) -> None:
+        """A transport error that is not a timeout: the endpoint really is unreachable, so
+        saying so is right. A *timeout* is deliberately different now — see
+        RoutingDeadlineTests, where it falls through and lets the chat tier answer rather
+        than reporting a working model as unreachable."""
         def boom(payload: dict) -> str:
-            raise TimeoutError("slow")
+            raise urllib.error.URLError("connection refused")
 
         decision = OpenAICompatiblePlannerProvider("k", "m", transport=boom).plan("hi", "help", {})
         self.assertTrue(decision.is_chat)
@@ -327,6 +333,77 @@ class ChatPromptActionClaimsTests(unittest.TestCase):
         for phrase in ("never ask", "permission", "arranging windows",
                        "done, started or initiated", "approval card"):
             self.assertIn(phrase, lowered, f"the chat prompt no longer covers: {phrase}")
+
+
+
+class RoutingDeadlineTests(unittest.TestCase):
+    """Routing is spent BEFORE the answer starts, so the user sits looking at nothing for
+    the whole of it. Measured over 300 real turns: the LLM router ran on 8% of them at a
+    median of 951ms, a p90 of 2492ms and a worst case of 7954ms - and every one of those
+    was bounded only by the 45s ceiling shared with the answer itself."""
+
+    def test_routing_uses_its_own_short_deadline(self) -> None:
+        seen = {}
+        real = urllib.request.urlopen
+
+        def spy(request, timeout=None, **kwargs):
+            seen["timeout"] = timeout
+            raise TimeoutError("timed out")
+
+        urllib.request.urlopen = spy
+        try:
+            provider = OpenAICompatiblePlannerProvider("k", "m")
+            provider.plan("what is a b-tree", "help", {})
+        finally:
+            urllib.request.urlopen = real
+        self.assertEqual(seen.get("timeout"), provider.route_timeout)
+        self.assertLess(
+            provider.route_timeout, provider.timeout,
+            "routing waits as long as a full answer")
+
+    def test_a_slow_router_still_lets_the_answer_happen(self) -> None:
+        """A timeout means slow, not unreachable. Returning the canned "I could not reach
+        my language model" here would replace a working answer with an error, because only
+        the classify call ran out of time."""
+        for raising in (lambda payload: (_ for _ in ()).throw(TimeoutError("timed out")),
+                        lambda payload: (_ for _ in ()).throw(
+                            urllib.error.URLError(TimeoutError("timed out")))):
+            with self.subTest(raising):
+                decision = OpenAICompatiblePlannerProvider(
+                    "k", "m", transport=raising).plan("what is a b-tree", "help", {})
+                self.assertEqual(decision.action, "chat")
+                self.assertFalse(
+                    decision.response,
+                    "a slow router answered for the chat tier instead of letting it answer")
+
+    def test_an_unreachable_model_still_says_so(self) -> None:
+        def refused(payload):
+            raise urllib.error.URLError("connection refused")
+
+        decision = OpenAICompatiblePlannerProvider(
+            "k", "m", transport=refused).plan("what is a b-tree", "help", {})
+        self.assertEqual(decision.action, "chat")
+        self.assertIn("could not reach", (decision.response or "").lower())
+
+    def test_a_routing_failure_is_recorded(self) -> None:
+        """An except that only returns a fallback is how two outages stayed invisible."""
+        from laptop_agent.failures import FAILURES
+
+        before = len(FAILURES.recent(50))
+        OpenAICompatiblePlannerProvider(
+            "k", "m", transport=lambda payload: (_ for _ in ()).throw(TimeoutError("x"))
+        ).plan("what is a b-tree", "help", {})
+        after = FAILURES.recent(50)
+        self.assertGreater(len(after), before, "the routing failure was swallowed silently")
+        self.assertTrue(any("planner/route" in str(entry) for entry in after))
+
+    def test_an_injected_transport_is_still_called_with_the_payload_alone(self) -> None:
+        """Tests inject `lambda payload: ...`; the deadline must not change that contract."""
+        calls = []
+        provider = OpenAICompatiblePlannerProvider(
+            "k", "m", transport=lambda payload: calls.append(payload) or '{"action":"chat"}')
+        provider.plan("hello", "help", {})
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

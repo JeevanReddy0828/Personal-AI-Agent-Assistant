@@ -125,6 +125,24 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
    routing from ~1000ms to ~5ms, and it removed a real defect where the LLM router
    sent ordinary questions to the `solve` research pipeline (21s, 24s, 82s, never
    streaming a token). Verify changes here with `latency` / `/api/traces`.
+
+   **The routing call has its own deadline (`route_timeout`, 2.5s).** Measured over 300
+   recorded turns: 77% route `direct` at 0ms, 15% `heuristic` at a 2ms median, and the
+   remaining **8% reach the LLM router at a 951ms median, a 2492ms p90 and a 7954ms worst
+   case** - those turns take 4505ms end to end, because the classify call is spent *before*
+   the answer begins and the user is looking at nothing for all of it. It was bounded only
+   by the 45s ceiling shared with the answer itself. Past a couple of seconds the
+   heuristic's own answer beats waiting for a better one. A routing **timeout** now returns
+   `action=chat` with **no** response text so the chat ladder answers; it used to return
+   "I could not reach my language model", replacing a working answer with an error because
+   only the classify call ran out of time. A genuine connection failure still says so.
+   Both record to `failures.py`.
+
+   Measured in the same pass and deliberately **not** changed, so nobody repeats the work:
+   `build_context` costs 0.06ms memoized and 4.16ms cold on an 80-turn transcript, and a
+   whole local turn is 16.4ms whether the history holds 0, 20 or 80 turns - against a
+   1723ms median time-to-first-token, none of that is worth touching. The remaining TTFT
+   is the model answering, which is network, not ours.
 6. **Never commit secrets.** `.env` is gitignored. Scan staged diffs for
    `nvapi-` (and the Gmail app password) before every push.
 7. **Match the surrounding style.** Concise comments, full type hints,
