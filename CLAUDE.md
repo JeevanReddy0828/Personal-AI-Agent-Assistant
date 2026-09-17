@@ -562,11 +562,17 @@ blocking does not outlive its cooldown, so a key fixed while the app was closed 
 on the next turn and the record clears on the first success. And the write happens only
 when the broken set changes, so an ordinary chat turn costs no IO.
 
-The path is a **constructor parameter**, not `load_config()`: that reads the process-wide
-config, so under the test runner every orchestrator shared one file and a tier one test
-recorded as broken was still broken for the next. Persisted state that ignores its caller's
-own config is shared state. (`TraceStore` on the adjacent line still reads the global
-config - harmless for timings, but the same shape.)
+**The orchestrator has one `data_dir`, and everything it persists goes through it** -
+traces, tier health, generated images, generated documents. It is a constructor parameter,
+not `load_config()` at each use: that reads the process-wide config, so under the test
+runner every orchestrator shared one directory. A tier one test recorded as broken was
+still broken for the next, and generated files landed wherever the running app keeps its
+own - which is how 300 traces from a test run ended up in the live `.agent_data`. Persisted
+state that ignores its caller's own config is shared state. One handle means the next store
+added needs no parameter of its own, and
+`test_everything_persisted_lands_in_the_given_data_dir` sweeps the process-wide directory
+for anything that escaped, so the guard covers stores that do not exist yet rather than
+today's four.
 
 After all primary (e.g. NVIDIA) tiers, an optional **cross-provider fallback** is
 tried: `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`, default a free model;

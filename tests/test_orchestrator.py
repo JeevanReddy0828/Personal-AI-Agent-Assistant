@@ -175,11 +175,46 @@ class OrchestratorTests(unittest.TestCase):
                 scheduler=SchedulerStore(config.data_dir / "scheduler.json"),
             ),
             Planner(HeuristicPlannerProvider()),
-            # Per-test, so a tier one test records as broken is not still broken for the
-            # next. The default reads the process-wide config, which the runner points at
-            # one shared directory for the whole suite.
-            model_status_path=tmp / "model_status.json",
+            # Per-test. The default reads the process-wide config, which the runner
+            # points at one directory for the whole suite - so without this a tier one
+            # test records as broken is still broken for the next, and generated files
+            # land wherever the real app keeps its own.
+            data_dir=tmp,
         )
+
+    def test_everything_persisted_lands_in_the_given_data_dir(self) -> None:
+        """Nothing this orchestrator writes may escape into the process-wide data
+        directory.
+
+        Written as a sweep rather than a list of the known stores, because the failure
+        recurs by ADDITION: someone adds the next persisted thing, reaches for
+        `load_config().data_dir` like the line above it, and it silently shares state with
+        every other orchestrator. That is how traces from a test run ended up in the live
+        `.agent_data`, and how a tier one test marked broken stayed broken for the next.
+        """
+        from laptop_agent.config import load_config
+
+        shared = load_config().data_dir
+        listing = lambda: set(shared.rglob("*")) if shared.exists() else set()
+        before = listing()
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            orchestrator = self.build(root)
+            # A handful of turns that persist something: a trace each, plus memory.
+            asyncio.run(orchestrator.handle("remember name = Ada"))
+            asyncio.run(orchestrator.handle("reminder add 2026-12-25 07:30 open presents"))
+            orchestrator.model_status.record("ultra", False, reason="broken", detail="retired")
+
+            escaped = listing() - before
+            self.assertEqual(
+                escaped, set(),
+                "these were written outside the orchestrator's own data_dir: "
+                + repr(sorted(str(path) for path in escaped)),
+            )
+            # And they really did land in the directory it was given.
+            self.assertTrue((root / "traces.json").exists(), "no trace was recorded at all")
+            self.assertTrue((root / "model_status.json").exists())
 
     def test_remember_and_memory(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
