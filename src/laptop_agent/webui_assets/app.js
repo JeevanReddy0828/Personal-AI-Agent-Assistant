@@ -24,7 +24,8 @@
   const chat=document.getElementById('chat'), ta=document.getElementById('ta'), sendBtn=document.getElementById('sendBtn'),
         attachBtn=document.getElementById('attachBtn'), fileIn=document.getElementById('file'), chips=document.getElementById('chips'),
         micBtn=document.getElementById('micBtn'), reactor=document.getElementById('reactor'), drop=document.getElementById('drop'),
-        voiceBtn=document.getElementById('voiceBtn'), voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
+        voiceBtn=document.getElementById('voiceBtn'), orbVoiceBtn=document.getElementById('orbVoiceBtn'),
+        voice=document.getElementById('voice'), vstate=document.getElementById('vstate'),
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
@@ -1499,7 +1500,17 @@
   if(window.speechSynthesis)speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
   window.addEventListener('pagehide',()=>{endVoice();stopGen();});
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
-  voiceBtn.onclick=()=>{if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();};
+  // One handler, two buttons. The orb-focus one is a second surface for the same toggle,
+  // not a second implementation — the availability check below is the thing that must not
+  // be duplicated, since it is the only place that knows voice cannot run here at all.
+  function toggleVoice(){if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();}
+  voiceBtn.onclick=toggleVoice;
+  if(orbVoiceBtn)orbVoiceBtn.onclick=toggleVoice;
+  // Both surfaces show the same state. Whichever one is on screen has to be right.
+  function paintVoiceButtons(on){
+    voiceBtn.classList.toggle('on',on);
+    if(orbVoiceBtn){orbVoiceBtn.classList.toggle('on',on);orbVoiceBtn.setAttribute('aria-pressed',String(on));}
+  }
   vend.onclick=endVoice;
   if(vint)vint.onclick=interruptNow;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
@@ -1507,8 +1518,8 @@
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
-  function startVoice(){voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');voiceBtn.classList.add('on');listen();}
-  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');voiceBtn.classList.remove('on');setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function startVoice(){voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);listen();}
+  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.

@@ -940,3 +940,54 @@ class BrowserRegressions(unittest.TestCase):
             outcome["focusedGlow"], settled["glow"] * 1.5,
             "the glow did not grow with the orb at all",
         )
+
+    def test_voice_can_be_started_while_the_orb_is_focused(self):
+        """Orb focus hides the whole chat column, and the Voice pill lives in the composer.
+        So voice could be ENDED from orb focus — Interrupt and End voice are in the stage —
+        but never started: a click at the pill's own coordinates landed on the canvas."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                const hit = el => {
+                    const r = el.getBoundingClientRect();
+                    const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                    return t === el || el.contains(t);
+                };
+                const label = el => [...el.querySelectorAll('.vlabel')]
+                    .filter(s => getComputedStyle(s).display !== 'none')
+                    .map(s => s.textContent).join('');
+                document.getElementById('orbBtn').click();
+                await wait(400);
+                const pill = document.getElementById('voiceBtn');
+                const orbBtn = document.getElementById('orbVoiceBtn');
+                const reachable = !!orbBtn && hit(orbBtn);
+                const offLabel = label(orbBtn);
+                orbBtn.click();
+                await wait(150);
+                const voicing = document.body.classList.contains('voicing');
+                const onLabel = label(orbBtn);
+                const stillReachable = hit(orbBtn);
+                orbBtn.click();
+                await wait(150);
+                return { focused: document.body.classList.contains('orbfocus'),
+                         pillReachable: hit(pill),
+                         orbBtnReachable: reachable,
+                         voicing: voicing, offLabel: offLabel, onLabel: onLabel,
+                         stillReachable: stillReachable,
+                         endedAgain: document.body.classList.contains('voicing'),
+                         pillTracks: pill.classList.contains('on') };
+            }"""
+        )
+        self.assertTrue(outcome["focused"], "orb focus never engaged")
+        self.assertFalse(outcome["pillReachable"],
+                         "the composer pill is reachable in orb focus — this test proves nothing")
+        self.assertTrue(outcome["orbBtnReachable"], "the orb-focus voice button cannot be clicked")
+        self.assertTrue(outcome["voicing"], "clicking it did not start voice")
+        self.assertEqual(outcome["offLabel"], "Start voice")
+        self.assertEqual(outcome["onLabel"], "End voice")
+        # It toggles both ways rather than handing off to the .voice panel, which has been
+        # display:none since f6a145d dropped the written overlay — End voice and Interrupt
+        # are in that panel, so there is nothing on screen to hand off to.
+        self.assertTrue(outcome["stillReachable"], "it vanished once voice was on, stranding the mode")
+        self.assertFalse(outcome["endedAgain"], "a second click did not end voice")
+        self.assertFalse(outcome["pillTracks"], "the composer pill did not follow the same state")

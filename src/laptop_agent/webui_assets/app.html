@@ -64,6 +64,14 @@
   <section class="stage" aria-label="Assistant presence">
     <canvas id="core"></canvas>
     <div class="corestate" id="corestate"><span class="blip"></span><b>Ready</b></div>
+    <!-- Orb focus hides the whole chat column, and the Voice pill lives in the composer,
+         so voice could be ended from here but never started. This is the same toggle,
+         on the one surface orb focus leaves standing. -->
+    <button class="orbvoice" id="orbVoiceBtn" title="Voice mode — talk to J.A.R.V.I.S hands-free" aria-pressed="false">
+      <span class="vico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></span>
+      <span class="vlabel off-label">Start voice</span>
+      <span class="vlabel on-label">End voice</span>
+    </button>
     <div class="voice" id="voice" data-state="listening">
       <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="vstate" id="vstate">Listening</div>
