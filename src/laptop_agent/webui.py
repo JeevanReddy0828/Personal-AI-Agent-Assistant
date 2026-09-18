@@ -673,7 +673,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         if etag:
             self.send_header("ETag", etag)
-            self._cache("no-cache")   # revalidate, but reuse on 304
+            # `private`, not bare `no-cache`: the page embeds the per-process API token,
+            # which authorises shell, file writes and mail. Until this response actually
+            # became cacheable the point was moot — the blanket `no-store` suppressed it —
+            # but now a shared cache would be allowed to hold it, and LAN mode is plain
+            # HTTP. `private` keeps the browser's own cache and the 304 saving, and keeps
+            # the token off every cache but the one that asked for it.
+            self._cache("private, no-cache")   # revalidate, but reuse on 304
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -700,7 +706,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("If-None-Match") == etag:
                 self.send_response(304)
                 self.send_header("ETag", etag)
-                self._cache("no-cache")
+                self._cache("private, no-cache")
                 self.end_headers()
                 return
             self._send(200, body, "text/html; charset=utf-8", etag=etag)
@@ -860,7 +866,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self._cache("no-cache")
+        self._cache("private, no-cache")   # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:
@@ -948,7 +954,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self._cache("no-cache")
+        self._cache("private, no-cache")   # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:

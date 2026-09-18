@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 import unittest
 import urllib.error
 import urllib.request
@@ -59,7 +60,16 @@ class CacheHeaderTests(unittest.TestCase):
 
     def test_the_page_carries_exactly_one_cache_control(self) -> None:
         _status, _body, headers = self.request("/")
-        self.assertEqual(self.cache_values(headers), ["no-cache"])
+        self.assertEqual(self.cache_values(headers), ["private, no-cache"])
+
+    def test_the_page_is_never_offered_to_a_shared_cache(self) -> None:
+        """The page embeds the per-process API token, and that token is shell, files and
+        mail on this laptop. It only became cacheable at all when the blanket `no-store`
+        stopped overriding the route, so `private` has to arrive in the same change."""
+        _status, body, headers = self.request("/")
+        self.assertIn(b"X-Jarvis-Token", body, "the page no longer carries the token; revisit this")
+        for value in self.cache_values(headers):
+            self.assertIn("private", value, "a token-bearing page was offered to shared caches")
 
     def test_an_api_answer_defaults_to_no_store(self) -> None:
         _status, _body, headers = self.request("/api/metrics")
@@ -86,8 +96,21 @@ class CacheHeaderTests(unittest.TestCase):
         status, second, headers = self.request("/", headers={"If-None-Match": etag})
         self.assertEqual(status, 304)
         self.assertEqual(second, b"")
-        self.assertEqual(self.cache_values(headers), ["no-cache"])
+        self.assertEqual(self.cache_values(headers), ["private, no-cache"])
         self.assertGreater(len(body), 100_000, "the 200 really is the whole page")
+
+    def test_nothing_user_specific_is_offered_to_a_shared_cache(self) -> None:
+        """Every route that opts out of the `no-store` default must say `private`. None of
+        them were storable at all until the blanket `no-store` stopped overriding them, so
+        each one is newly exposed and has to be checked, not just the page."""
+        import re
+
+        source = (Path(self.webui.__file__)).read_text(encoding="utf-8")
+        chosen = re.findall(r'_cache\("([^"]+)"\)', source)
+        self.assertGreaterEqual(len(chosen), 4, "the cache call sites moved; revisit this")
+        for value in chosen:
+            self.assertIn("private", value,
+                          f"a route opts out of no-store as {value!r}, which shared caches may hold")
 
     def test_every_route_answers_with_at_most_one_cache_control(self) -> None:
         for path in ("/", "/api/metrics", "/api/health", "/api/traces", "/nope"):
