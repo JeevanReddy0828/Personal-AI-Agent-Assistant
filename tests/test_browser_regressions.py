@@ -649,6 +649,13 @@ class BrowserRegressions(unittest.TestCase):
                 range.dispatchEvent(new Event('input'));
                 const label = document.getElementById('bargeVal').textContent;
 
+                // On screen, not merely hidden=false. The meter used to live inside
+                // #voice, which has been display:none since f6a145d dropped the written
+                // overlay — so it reported itself shown while rendering nothing at all,
+                // and this test passed throughout.
+                const onScreen = () => box.getBoundingClientRect().height > 0
+                    && getComputedStyle(box).visibility !== 'hidden';
+
                 const hiddenBefore = box.hidden;
                 sttServer = true; sttChosen = true; sttEngine = 'test-engine';
                 voiceActive = true; speaking = true; bargeReset();
@@ -657,6 +664,7 @@ class BrowserRegressions(unittest.TestCase):
                 if (!proc) { voiceActive = false; speaking = false;
                     return { armed: false }; }
                 const shownWhileArmed = !box.hidden;
+                const paintedWhileArmed = onScreen();
                 const threshold = trig();
 
                 await feed(0.02, 6);                 // our own voice, learned as the leak
@@ -669,12 +677,16 @@ class BrowserRegressions(unittest.TestCase):
                 voiceActive = false; speaking = false;
                 return { armed: true, label: label, threshold: threshold,
                          hiddenBefore: hiddenBefore, shownWhileArmed: shownWhileArmed,
+                         paintedWhileArmed: paintedWhileArmed, paintedAfter: onScreen(),
                          hiddenAfter: hiddenAfter, quiet: quiet, loud: loud };
             }"""
         )
         self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
         self.assertTrue(outcome["hiddenBefore"], "the meter is on screen when nothing is listening")
         self.assertTrue(outcome["shownWhileArmed"], "the meter stayed hidden while barge-in listened")
+        self.assertTrue(outcome["paintedWhileArmed"],
+                        "the meter reported itself shown but rendered nothing on screen")
+        self.assertFalse(outcome["paintedAfter"], "the meter was still drawn after the microphone went")
         self.assertTrue(outcome["hiddenAfter"], "the meter outlived the microphone")
         self.assertEqual(outcome["label"], "0.080", "the slider does not report the level it set")
         self.assertEqual(
