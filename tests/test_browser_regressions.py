@@ -922,6 +922,81 @@ class BrowserRegressions(unittest.TestCase):
             "the bar did not grow when the room got louder",
         )
 
+    def test_the_microphone_meter_is_readable_where_the_presence_panel_is_not(self):
+        """#121 finally put the meter on screen — at the foot of `.stage`. But `.stage` is
+        display:none under `body.compact` and at both width breakpoints, so the number the
+        0.045 barge-in floor has to be tuned against was still unreadable on a small laptop,
+        on a phone, and for anyone using the compact-layout toggle. The dock is fixed to the
+        viewport now and moves to sit above the composer wherever the presence panel is not
+        on screen. Asserts a real box, not `hidden === false`: an element inside a
+        display:none parent reports `hidden` as false, which is exactly how the meter
+        shipped invisible for three months."""
+        armed = self.page.evaluate(
+            """async () => {
+                navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop() {} }] });
+                let proc = null;
+                window.AudioContext = function () {
+                    this.sampleRate = 48000;
+                    this.createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+                    this.createGain = () => ({ gain: { value: 0 }, connect() {}, disconnect() {} });
+                    this.createScriptProcessor = () => { proc = { onaudioprocess: null, connect() {}, disconnect() {} }; return proc; };
+                    this.close = () => {};
+                };
+                window.webkitAudioContext = window.AudioContext;
+                sttServer = true; sttChosen = true; sttEngine = 'test-engine';
+                voiceActive = true; speaking = true; bargeReset(); bargeStart();
+                await new Promise(r => setTimeout(r, 80));
+                return !!proc;
+            }"""
+        )
+        self.assertTrue(armed, "barge-in never armed in server-STT mode")
+        geometry = """() => {
+            const meter = document.getElementById('vmeter');
+            const box = document.querySelector('.composer .box');
+            const m = meter.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return { height: m.height, width: m.width, top: m.top, bottom: m.bottom,
+                     left: m.left, right: m.right, boxTop: b.top,
+                     visibility: getComputedStyle(meter).visibility,
+                     stage: getComputedStyle(document.querySelector('.stage')).display,
+                     stageRect: document.querySelector('.stage').getBoundingClientRect().toJSON() };
+        }"""
+        try:
+            # Every layout that takes the presence panel away: the compact toggle, the
+            # tablet breakpoint and a phone.
+            for label, width, height, compact in (
+                ("compact toggle", 1440, 950, True),
+                ("tablet width", 1000, 900, False),
+                ("phone width", 390, 844, False),
+            ):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.evaluate("on => setCompact(on)", arg=compact)
+                self.page.wait_for_timeout(120)
+                seen = self.page.evaluate(geometry)
+                self.assertEqual(seen["stage"], "none",
+                                 f"{label}: the presence panel is on screen, so this proves nothing")
+                self.assertGreater(seen["height"], 0, f"{label}: the meter has no box on screen")
+                self.assertGreater(seen["width"], 0, f"{label}: the meter has no box on screen")
+                self.assertNotEqual(seen["visibility"], "hidden", f"{label}: the meter is invisible")
+                # Readable means not sitting on top of the composer, and not off the edge.
+                self.assertLessEqual(seen["bottom"], seen["boxTop"] + 1,
+                                     f"{label}: the meter covers the composer")
+                self.assertGreaterEqual(seen["left"], 0, f"{label}: the meter runs off the left edge")
+                self.assertLessEqual(seen["right"], width, f"{label}: the meter runs off the right edge")
+                self.assertGreater(seen["top"], 0, f"{label}: the meter is above the top of the window")
+            # …and the default layout still reads it over the presence panel, where #121 put it.
+            self.page.set_viewport_size({"width": 1440, "height": 950})
+            self.page.evaluate("setCompact(false)")
+            self.page.wait_for_timeout(120)
+            wide = self.page.evaluate(geometry)
+            self.assertNotEqual(wide["stage"], "none", "the presence panel vanished at 1440px")
+            self.assertGreater(wide["height"], 0, "the meter lost its box over the presence panel")
+            self.assertGreaterEqual(wide["left"], wide["stageRect"]["x"],
+                                    "the meter no longer sits over the presence panel")
+            self.assertLessEqual(wide["right"], wide["stageRect"]["x"] + wide["stageRect"]["width"],
+                                 "the meter spilled out of the presence panel and over the chat")
+        finally:
+            self.page.evaluate("try{bargeStop();}catch(e){} voiceActive=false; speaking=false;")
+
     def _motion_page(self):
         """A page that actually animates. The shared context is reduced_motion="reduce",
         where orb focus deliberately jumps straight to the end state."""
