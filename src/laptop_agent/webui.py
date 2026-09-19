@@ -496,11 +496,30 @@ def _refuse_if_running() -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Set by a response that chooses its own caching. `end_headers` fills in `no-store`
+    # for everything else, which is every dynamic API answer. It used to send that
+    # unconditionally, so it landed on top of the deliberate choices too and a response
+    # went out carrying two Cache-Control headers — `no-store` wins when they are folded,
+    # which silently killed both of them: a browser never stored the page, so it never
+    # sent If-None-Match and the ETag/304 path could not fire (measured on a warm reload:
+    # no If-None-Match, 200, the full 196KB), and a generated image was re-fetched on
+    # every render despite asking for a day of caching.
+    _chose_cache: bool = False
+
+    def send_response(self, code, message=None) -> None:
+        self._chose_cache = False   # one response, one choice; reset before it is made
+        super().send_response(code, message)
+
+    def _cache(self, value: str) -> None:
+        self.send_header("Cache-Control", value)
+        self._chose_cache = True
+
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Cache-Control", "no-store")
+        if not self._chose_cache:
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", (
             f"default-src 'self'; script-src 'nonce-{_SCRIPT_NONCE}'; "
             "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
@@ -546,8 +565,14 @@ class Handler(BaseHTTPRequestHandler):
         return self._lan_session() in _LAN_SESSIONS
 
     def _unlock_page(self) -> None:
+        # Takes the default `no-store`, and must: this page carries a per-process script
+        # nonce, so a cached copy outlives the process and after a restart every script on
+        # it is silently blocked by the CSP — the unlock form just stopped responding to
+        # Enter, with nothing in the console but the request that never happened. The main
+        # page solves the same problem with an ETag that changes on restart; this one is
+        # small and rarely fetched, so it does not need to.
         self._send(401, _UNLOCK_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
-                   "text/html; charset=utf-8", no_store=True)
+                   "text/html; charset=utf-8")
 
     def _pair(self) -> None:
         """Exchange the passcode for a session cookie. The one endpoint that runs before
@@ -640,7 +665,7 @@ class Handler(BaseHTTPRequestHandler):
             # a boundary that loses its cause turns a loud failure into a silent one.
             record_failure("webui/drain", exc, path=self.path)
 
-    def _send(self, code: int, body: bytes, content_type: str, no_store: bool = False,
+    def _send(self, code: int, body: bytes, content_type: str,
               etag: str | None = None) -> None:
         self._drain_request_body()
         self.send_response(code)
@@ -648,13 +673,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         if etag:
             self.send_header("ETag", etag)
-            self.send_header("Cache-Control", "no-cache")   # revalidate, but reuse on 304
-        if no_store:
-            # Both HTML pages carry a per-process script nonce. A cached copy outlives the
-            # process, so after a restart the nonce no longer matches the CSP and every
-            # script on the page is silently blocked — the unlock form just stopped
-            # responding to Enter, with nothing in the console but the missing request.
-            self.send_header("Cache-Control", "no-store")
+            # `private`, not bare `no-cache`: the page embeds the per-process API token,
+            # which authorises shell, file writes and mail. Until this response actually
+            # became cacheable the point was moot — the blanket `no-store` suppressed it —
+            # but now a shared cache would be allowed to hold it, and LAN mode is plain
+            # HTTP. `private` keeps the browser's own cache and the 304 saving, and keeps
+            # the token off every cache but the one that asked for it.
+            self._cache("private, no-cache")   # revalidate, but reuse on 304
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -681,7 +706,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("If-None-Match") == etag:
                 self.send_response(304)
                 self.send_header("ETag", etag)
-                self.send_header("Cache-Control", "no-cache")
+                self._cache("private, no-cache")
                 self.end_headers()
                 return
             self._send(200, body, "text/html; charset=utf-8", etag=etag)
@@ -841,7 +866,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
+        self._cache("private, no-cache")   # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:
@@ -929,7 +954,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
+        self._cache("private, no-cache")   # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:
@@ -1080,7 +1105,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "private, max-age=86400")
+        self._cache("private, max-age=86400")
         self.end_headers()
         self.wfile.write(data)
 

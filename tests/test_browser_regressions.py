@@ -649,6 +649,13 @@ class BrowserRegressions(unittest.TestCase):
                 range.dispatchEvent(new Event('input'));
                 const label = document.getElementById('bargeVal').textContent;
 
+                // On screen, not merely hidden=false. The meter used to live inside
+                // #voice, which has been display:none since f6a145d dropped the written
+                // overlay — so it reported itself shown while rendering nothing at all,
+                // and this test passed throughout.
+                const onScreen = () => box.getBoundingClientRect().height > 0
+                    && getComputedStyle(box).visibility !== 'hidden';
+
                 const hiddenBefore = box.hidden;
                 sttServer = true; sttChosen = true; sttEngine = 'test-engine';
                 voiceActive = true; speaking = true; bargeReset();
@@ -657,6 +664,7 @@ class BrowserRegressions(unittest.TestCase):
                 if (!proc) { voiceActive = false; speaking = false;
                     return { armed: false }; }
                 const shownWhileArmed = !box.hidden;
+                const paintedWhileArmed = onScreen();
                 const threshold = trig();
 
                 await feed(0.02, 6);                 // our own voice, learned as the leak
@@ -669,12 +677,16 @@ class BrowserRegressions(unittest.TestCase):
                 voiceActive = false; speaking = false;
                 return { armed: true, label: label, threshold: threshold,
                          hiddenBefore: hiddenBefore, shownWhileArmed: shownWhileArmed,
+                         paintedWhileArmed: paintedWhileArmed, paintedAfter: onScreen(),
                          hiddenAfter: hiddenAfter, quiet: quiet, loud: loud };
             }"""
         )
         self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
         self.assertTrue(outcome["hiddenBefore"], "the meter is on screen when nothing is listening")
         self.assertTrue(outcome["shownWhileArmed"], "the meter stayed hidden while barge-in listened")
+        self.assertTrue(outcome["paintedWhileArmed"],
+                        "the meter reported itself shown but rendered nothing on screen")
+        self.assertFalse(outcome["paintedAfter"], "the meter was still drawn after the microphone went")
         self.assertTrue(outcome["hiddenAfter"], "the meter outlived the microphone")
         self.assertEqual(outcome["label"], "0.080", "the slider does not report the level it set")
         self.assertEqual(
@@ -940,3 +952,54 @@ class BrowserRegressions(unittest.TestCase):
             outcome["focusedGlow"], settled["glow"] * 1.5,
             "the glow did not grow with the orb at all",
         )
+
+    def test_voice_can_be_started_while_the_orb_is_focused(self):
+        """Orb focus hides the whole chat column, and the Voice pill lives in the composer.
+        So voice could be ENDED from orb focus — Interrupt and End voice are in the stage —
+        but never started: a click at the pill's own coordinates landed on the canvas."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const wait = ms => new Promise(r => setTimeout(r, ms));
+                const hit = el => {
+                    const r = el.getBoundingClientRect();
+                    const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                    return t === el || el.contains(t);
+                };
+                const label = el => [...el.querySelectorAll('.vlabel')]
+                    .filter(s => getComputedStyle(s).display !== 'none')
+                    .map(s => s.textContent).join('');
+                document.getElementById('orbBtn').click();
+                await wait(400);
+                const pill = document.getElementById('voiceBtn');
+                const orbBtn = document.getElementById('orbVoiceBtn');
+                const reachable = !!orbBtn && hit(orbBtn);
+                const offLabel = label(orbBtn);
+                orbBtn.click();
+                await wait(150);
+                const voicing = document.body.classList.contains('voicing');
+                const onLabel = label(orbBtn);
+                const stillReachable = hit(orbBtn);
+                orbBtn.click();
+                await wait(150);
+                return { focused: document.body.classList.contains('orbfocus'),
+                         pillReachable: hit(pill),
+                         orbBtnReachable: reachable,
+                         voicing: voicing, offLabel: offLabel, onLabel: onLabel,
+                         stillReachable: stillReachable,
+                         endedAgain: document.body.classList.contains('voicing'),
+                         pillTracks: pill.classList.contains('on') };
+            }"""
+        )
+        self.assertTrue(outcome["focused"], "orb focus never engaged")
+        self.assertFalse(outcome["pillReachable"],
+                         "the composer pill is reachable in orb focus — this test proves nothing")
+        self.assertTrue(outcome["orbBtnReachable"], "the orb-focus voice button cannot be clicked")
+        self.assertTrue(outcome["voicing"], "clicking it did not start voice")
+        self.assertEqual(outcome["offLabel"], "Start voice")
+        self.assertEqual(outcome["onLabel"], "End voice")
+        # It toggles both ways rather than handing off to the .voice panel, which has been
+        # display:none since f6a145d dropped the written overlay — End voice and Interrupt
+        # are in that panel, so there is nothing on screen to hand off to.
+        self.assertTrue(outcome["stillReachable"], "it vanished once voice was on, stranding the mode")
+        self.assertFalse(outcome["endedAgain"], "a second click did not end voice")
+        self.assertFalse(outcome["pillTracks"], "the composer pill did not follow the same state")
