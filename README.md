@@ -171,8 +171,8 @@ Talk naturally — most of these are reached by plain language; the explicit com
 
 ### 🎨 Interfaces & UX
 CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
-Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt) ·
-a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · settings popover (compact / always-on-top / transparency) · status pill + per-reply model/latency line.
+Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt, with a live microphone meter showing what the mic hears against the level it must beat to cut in) ·
+a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
 
 ---
 

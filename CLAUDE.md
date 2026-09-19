@@ -709,7 +709,8 @@ has no Web Speech API at all.
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
 closure, and that is why the feature could be "fixed" twice and still reported as not
 working — nobody could see what the microphone was hearing or what it had to beat. Both are
-now on screen: the voice panel meters **peak / learned leak / threshold** live while
+now on screen: a meter in `.stagedock` at the foot of the presence panel shows
+**peak / learned leak / threshold** live while
 barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
 it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
 per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
@@ -717,6 +718,21 @@ gear popover sets the floor, persisted in `localStorage`. Tune it against the me
 against the source. Note the threshold is a `max`, so raising the slider below the learned
 leak changes nothing — that is deliberate, a threshold under our own echo would fire on
 every sentence we speak.
+
+**And for three months it metered into a hidden element.** The meter shipped inside
+`#voice`, but `f6a145d` had already dropped the written overlay in June: it removed
+`voice.classList.add('on')` from `startVoice`/`endVoice` and left `.voice.on{display:flex}`
+behind, so **`#voice` has been `display:none` ever since** — along with `vstate`, `vtrans`,
+`vdbg` and the Interrupt / End voice buttons, which are still in there and still dead. The
+test passed throughout, because it asserted `#vmeter.hidden` is false, and `hidden` is
+false on an element inside a `display:none` parent. **An element's own visibility
+attribute says nothing about whether it is on screen** — assert a box:
+`getBoundingClientRect().height > 0`. The meter now lives in `.stagedock`, a flex column
+at the foot of the stage holding it above the orb-focus voice toggle, so neither has to
+know whether the other is there. The panel stays hidden: the violet shift is the design
+f6a145d chose, and this restores the one piece of it that has to be readable, not the
+overlay. Known gap: `.stagedock` is inside `.stage`, which is `display:none` in compact
+layout and below the tablet breakpoint, so the meter cannot be seen in those layouts.
 
 ## Running it
 
@@ -762,8 +778,31 @@ never arrives cannot hold a thread, and records to `failures.py` rather than swa
 placeholder is fixed for the life of the process, yet it was re-rendered and sent in full
 on every load — and `Cache-Control: no-store` (added so a cached copy could not outlive its
 script nonce) made that unavoidable. `_rendered_page()` builds it once with an ETag over
-the bytes; the route answers `If-None-Match` with a 304. Measured: 183,536 bytes -> 0, and
-the ETag still changes on restart, which is exactly when the cached copy stops working.
+the bytes; the route answers `If-None-Match` with a 304. The ETag still changes on restart,
+which is exactly when the cached copy stops working.
+
+**That saved nothing at all until #121, and the measurement is why nobody noticed.**
+`end_headers` sent `Cache-Control: no-store` on **every** response, on top of whatever the
+route had chosen, so the page went out with two Cache-Control headers. Folded, `no-store`
+wins — and a browser forbidden to *store* the page has nothing to revalidate, so it never
+sends `If-None-Match` and the 304 can never fire. "183,536 bytes -> 0" was measured with
+curl passing the ETag by hand, which proves the server answers a conditional request and
+says nothing about whether a browser ever makes one. Measured in Chromium on a warm
+reload: no `If-None-Match`, 200, the full 196KB, every time. The same blanket also ate
+`private, max-age=86400` on `/api/image`, so every generated picture was re-fetched on
+every render. **Measure the thing the user's client actually does, not the thing your
+tool can be told to do.** A response now picks its caching through `_cache()` and
+`end_headers` fills in `no-store` only when nothing did, so the safe default still covers
+every dynamic API answer.
+
+**Everything that opts out of `no-store` says `private`.** The page embeds the
+per-process API token — shell, files and mail on this laptop — and the two SSE streams
+carry the conversation. None of them were storable by anything while the blanket was
+winning, so `no-cache` alone cost nothing; the moment the route's own choice took effect
+it became a real exposure, on plain HTTP, with a phone on the same wifi.
+`test_nothing_user_specific_is_offered_to_a_shared_cache` reads the `_cache()` call sites
+out of the source rather than listing routes, so an opt-out added later is already
+covered.
 
 **Reaching it from a phone (`LAN_MODE`).** The app refused any bind but loopback, and
 `_trusted_request` refused any Host but loopback, so a phone got a connection refused or a
@@ -857,7 +896,7 @@ surface it lands on, and credit the author in a comment above the rule. Tailwind
 variants are unusable here — no Tailwind, and the CSP blocks CDNs. Browser
 regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,
 `#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`,
-`#orbBtn`/`#orbFocusSw`, `#core`.
+`#orbBtn`/`#orbFocusSw`/`#orbVoiceBtn`, `#vmeter`, `#core`.
 
 The header gear popover holds the **adaptive-HUD** settings: a compact-layout toggle
 (chat only — hides the rail and the presence panel), its mirror image **Focus the orb**
@@ -873,6 +912,17 @@ over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot dr
 window's. `dockRect()` measures the docked position by taking the class off and putting it
 back inside one synchronous block, so nothing is painted in between and it stays correct
 after a resize.
+
+**Orb focus needs its own voice control.** It hides the whole chat column
+(`body.orbfocus main.chatcol{opacity:0;pointer-events:none}`) and the Voice pill lives in
+the composer, so voice could not be **started** while the orb was focused — a click at the
+pill's own coordinates landed on `#core`. `#orbVoiceBtn` sits in `.stagedock`, the one
+surface orb focus leaves standing, and toggles both ways rather than handing off to the
+`.voice` panel's End voice / Interrupt, which are not on screen to hand off to (see the
+voice section). It shares one click handler and one `paintVoiceButtons` with the composer
+pill — the availability check (`!SR && !NATIVE`) is the part that must not be duplicated,
+and both surfaces must show the same state, since switching view or leaving focus swaps
+which one is visible mid-session.
 
 **Two classes, and the split is what makes leaving smooth.** `orbstage` is the mechanism —
 the stage as a fixed overlay — and must stay until the sphere has finished shrinking.

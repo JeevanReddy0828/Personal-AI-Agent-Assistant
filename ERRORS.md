@@ -3,6 +3,43 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-19
+
+- **A feature shipped, tested and documented, that had never once been on screen.** The
+  barge-in meter (#109) was added inside `#voice`. But `f6a145d` had removed
+  `voice.classList.add('on')` back in June - deliberately, to drop the written overlay -
+  and left `.voice.on{display:flex}` behind, so `#voice` has been `display:none` ever
+  since. Three months of "tune the 0.045 floor against the meter" advice, against an
+  element that rendered nothing. Its test passed the whole time because it asserted
+  `#vmeter.hidden` is false, and `hidden` is false on an element inside a `display:none`
+  parent. **Rule: an element's own visibility attribute is not evidence it is on screen.
+  Assert a box - `getBoundingClientRect().height > 0` - and remember that deleting the
+  code that SHOWS a thing leaves every rule that styles it looking perfectly healthy.**
+
+- **A measurement that proved the wrong client.** CLAUDE.md recorded the page ETag as
+  "183,536 bytes -> 0". True - for curl passing `If-None-Match` by hand. A browser was
+  never going to send one, because a duplicate `Cache-Control: no-store` from
+  `end_headers` forbade storing the page it would revalidate, so the 304 path was
+  unreachable in the only client that matters. Warm reload in Chromium: no
+  `If-None-Match`, 200, the full 196KB, every time. **Rule: measure what the user's client
+  actually does, not what your tool can be instructed to do. A hand-set request header
+  tests the server's half of a negotiation and says nothing about the other half.**
+
+- **Fixed a header bug and opened a token leak with the same line.** Making the route's
+  `no-cache` take effect meant the page - which embeds the API token for shell, files and
+  mail - became genuinely storable for the first time, and bare `no-cache` lets shared
+  caches hold it, over plain HTTP, with a phone on the same wifi. Found in review of my
+  own change; the first fix then missed the two SSE streams carrying the conversation.
+  **Rule: when a directive that was being overridden starts taking effect, every consumer
+  of it is new behaviour and needs re-reviewing as if freshly written - and sweep the call
+  sites from the source rather than listing the ones you remember.**
+
+- **A revert that changed nothing because the revert was wrong.** Verifying a CSS guard, I
+  inserted `display:none` into a rule that later declares `display:flex`; the later one
+  won, the test passed, and for a moment that read as "the guard is dead". **Rule: when
+  reverting proves nothing, suspect the revert before concluding the code or the test is
+  dead - and in CSS, check for a later declaration in the same block.**
+
 ## Session 2026-09-17
 
 - **Two places listed the same 24 fields.** `AgentContext` was wired once in
