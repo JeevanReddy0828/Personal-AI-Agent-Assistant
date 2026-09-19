@@ -147,6 +147,56 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_generate_an_image_phrasing_also_routes(self) -> None:
         self.assertEqual(self.plan("generate an image of a brass compass").command, "image a brass compass")
 
+    def test_asking_to_see_reminders_routes_instantly_however_it_is_phrased(self) -> None:
+        """This was an exact set of four strings. Everything else went to the LLM router —
+        or, when the phrasing avoided the word "my", to no router at all."""
+        for text in (
+            "what are my reminders", "what are my reminders?", "what reminders do i have",
+            "do i have any reminders", "any reminders", "show me my reminders",
+            "list my reminders", "check my reminders", "tell me my reminders",
+            "see my reminders", "whats on my reminder list", "reminders", "my reminders",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, "reminders")
+
+    def test_due_is_read_inside_the_question_not_anywhere_in_the_sentence(self) -> None:
+        for text in ("what reminders are due", "which reminders are due",
+                     "any reminders due", "reminders due", "due reminders",
+                     "show due reminders"):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, "reminders due")
+        # The trap: "due" appears, but this is a creation. Testing `due` against the whole
+        # sentence would file it as a listing and silently drop the reminder.
+        self.assertEqual(self.plan("remind me to pay the bill due friday").command,
+                         "reminder add to pay the bill due friday")
+
+    def test_creating_a_reminder_still_wins_over_listing_one(self) -> None:
+        for text, expected in (
+            ("remind me to call mom at 6pm", "reminder add to call mom at 6pm"),
+            ("set a reminder for the dentist tomorrow", "reminder add for the dentist tomorrow"),
+            ("add a reminder to water plants", "reminder add to water plants"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, expected)
+
+    def test_a_question_about_reminders_in_general_is_not_a_listing(self) -> None:
+        # Requires the plural or an explicit "my reminder", so a definition stays chat.
+        for text in ("what is a reminder", "how do reminders work in ios"):
+            with self.subTest(text=text):
+                self.assertIsNone(getattr(self.plan(text), "command", None))
+
+    def test_a_plural_tool_word_is_still_a_tool_word(self) -> None:
+        """`reminder\b` does not match "reminders". Only files/notes/jobs were listed in
+        the plural, so these were classified as plain knowledge questions and answered by
+        a model that cannot see any of them."""
+        for text in (
+            "do i have any reminders", "do i have any drafts", "do i have any documents",
+            "do i have any tasks", "do i have any downloads", "do i have any screenshots",
+            "do i have any workflows", "what reminders do i have",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(is_plain_question(text), text)
+
     def test_a_plain_question_skips_the_router(self) -> None:
         # These need no classification call: nothing in them names something to act on.
         for text in (
