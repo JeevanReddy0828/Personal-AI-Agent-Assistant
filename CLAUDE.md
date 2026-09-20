@@ -126,6 +126,29 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
    sent ordinary questions to the `solve` research pipeline (21s, 24s, 82s, never
    streaming a token). Verify changes here with `latency` / `/api/traces`.
 
+   **"Conservative" is a property of `_TOOL_SIGNALS`, and it had a hole in it.** The
+   alternation ends in `\b`, so `reminder\b` does not match "reminders", and only `files`,
+   `notes` and `jobs` were ever written in the plural. So "do i have any reminders /
+   drafts / documents / tasks / downloads / screenshots / workflows" were all classified
+   as plain knowledge and answered by the chat model, which cannot see any of them — the
+   exact regression this short-circuit is documented as unable to cause. `do i have any
+   notes` behaved, purely by accident of spelling. A trailing `s?` covers the whole list;
+   a false positive costs one routing call, which is the direction this must err in, and
+   measured over 20 genuine knowledge questions none flipped. **Adding a noun here means
+   adding it in the form the user says it.**
+
+   **A route matched by an exact set of strings is a route that does not exist.**
+   `_reminder` listed four literals, so fourteen ways of asking to see the list missed —
+   including "can you show me my reminders", which `strip_address` cannot help with since
+   it removes greetings and the wake word but not "can you". `_REMINDER_ASK` carries the
+   same polite prefix `_ARRANGE_ASK` already uses, and both `^`-anchor **inside the
+   pattern** rather than relying on the caller's `.match()`: left to the call site,
+   `.search("remind me to tell bob to check my reminders")` matched, so any later reuse
+   would have turned a creation into a listing and dropped the reminder. Two traps worth
+   keeping: read "due" **inside** the listing branch, because against the whole sentence
+   "remind me to pay the bill due friday" files as a listing; and require the plural (or
+   an explicit "my reminder") so "what is a reminder" stays a definition question.
+
    **The routing call has its own deadline (`route_timeout`, 2.5s).** Measured over 300
    recorded turns: 77% route `direct` at 0ms, 15% `heuristic` at a 2ms median, and the
    remaining **8% reach the LLM router at a 951ms median, a 2492ms p90 and a 7954ms worst
