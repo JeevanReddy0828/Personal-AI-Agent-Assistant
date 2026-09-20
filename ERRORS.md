@@ -3,6 +3,33 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-20
+
+- **A short-circuit that could not regress tool routing, regressed tool routing.**
+  `is_plain_question` is documented as conservative: anything naming a tool or the user's
+  own data falls through to the router. But the word list ends each alternative with
+  ``, so `reminder` never matched "reminders", and only `files`, `notes` and `jobs`
+  were ever written in the plural. "do i have any reminders / drafts / documents / tasks
+  / downloads / screenshots / workflows" were classified as plain knowledge and answered
+  by the chat model, which can see none of them. **Rule: when a guard's correctness rests
+  on a hand-written list, the bug will be an omission from the list, not a flaw in the
+  logic - enumerate the list against real inputs rather than reading the code.** A
+  one-character `s?` covered all of it.
+
+- **The recorded symptom was a third of the defect.** The backlog said one phrasing of
+  "what are my reminders" went to the LLM. Measuring found fourteen phrasings missing and
+  two reaching no router at all. **Rule: reproduce a backlog item before believing its
+  scope. A bug report describes where someone happened to stand, not the size of the
+  hole.**
+
+- **Nearly verified a fix by breaking an unrelated feature.** Reverting the polite-prefix
+  regex to watch its test fail, the script matched on line *content* and hit
+  `_ARRANGE_ASK` - whose constant name sits on the line above the pattern. The test output
+  came back empty rather than with the expected failure, which is the only reason it was
+  caught. **Rule: anchor a scripted edit to the line that names the thing (`startswith
+  "_NAME = "`), never to a substring of the body, and treat an unexpected *shape* of
+  output as a failed step rather than a passed one.**
+
 ## Session 2026-09-19
 
 - **A feature shipped, tested and documented, that had never once been on screen.** The
