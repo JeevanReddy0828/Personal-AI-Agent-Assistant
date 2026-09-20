@@ -155,6 +155,12 @@ class HeuristicPlannerTests(unittest.TestCase):
             "do i have any reminders", "any reminders", "show me my reminders",
             "list my reminders", "check my reminders", "tell me my reminders",
             "see my reminders", "whats on my reminder list", "reminders", "my reminders",
+            # Politeness. `strip_address` removes greetings and the wake word but not
+            # "can you", so without the prefix the commonest spoken form of all missed.
+            "can you show me my reminders", "could you list my reminders",
+            "would you show my reminders", "please show my reminders",
+            "i want to see my reminders", "pull up my reminders",
+            "give me my reminders", "read out my reminders", "read my reminders",
         ):
             with self.subTest(text=text):
                 self.assertEqual(self.plan(text).command, "reminders")
@@ -170,9 +176,17 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertEqual(self.plan("remind me to pay the bill due friday").command,
                          "reminder add to pay the bill due friday")
 
+    def test_the_listing_pattern_cannot_match_part_way_through_a_sentence(self) -> None:
+        """The anchor is in the pattern, not in the caller's `.match()`. Left to the call
+        site, a later `.search()` would turn this creation into a listing and drop it."""
+        from laptop_agent.planner.heuristic import _REMINDER_ASK
+
+        self.assertIsNone(_REMINDER_ASK.search("remind me to tell bob to check my reminders"))
+
     def test_creating_a_reminder_still_wins_over_listing_one(self) -> None:
         for text, expected in (
             ("remind me to call mom at 6pm", "reminder add to call mom at 6pm"),
+            ("can you remind me to call mom at 6pm", "reminder add to call mom at 6pm"),
             ("set a reminder for the dentist tomorrow", "reminder add for the dentist tomorrow"),
             ("add a reminder to water plants", "reminder add to water plants"),
         ):

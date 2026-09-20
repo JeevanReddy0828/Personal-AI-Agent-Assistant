@@ -73,12 +73,19 @@ _TOOL_SIGNALS = re.compile(
     r"|volume|agent|autopilot|workflow|research|solve|my|mine|our)s?\b",
     re.IGNORECASE,
 )
-# Asking to see the reminder list. Anchored at the start so "remind me to …" and "set a
-# reminder …" cannot match it — those are creations, handled further down — and requiring
-# the plural (or an explicit "my reminder") so "what is a reminder" stays a definition.
+# Asking to see the reminder list. The `^` is in the pattern, not left to the caller's
+# `.match()`, so "remind me to tell bob to check my reminders" cannot match it under a
+# later `.search()` and have the reminder silently turned into a listing — and so it
+# reads the same way as `_ARRANGE_ASK` and `_DECK_ASK` above. Creations are handled
+# further down. It requires the plural (or an explicit "my reminder") so "what is a
+# reminder" stays a definition question.
+# The polite prefix is the same one `_ARRANGE_ASK` carries: `strip_address` removes
+# greetings and the wake word but not "can you", so without it the commonest spoken form
+# of all — "can you show me my reminders" — missed, which is the very bug this fixes.
 _REMINDER_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+|i\s+(?:want|need)\s+(?:to\s+)?)?"
     r"(?:what(?:'s|s| is| are)?|which|do i have|have i got|any|show|list|check|see|view"
-    r"|tell me|got)\b[^?]{0,40}?\b(?:reminders|my reminder)\b",
+    r"|read(?:\s+out)?|pull\s+up|give me|tell me|got)\b[^?]{0,40}?\b(?:reminders|my reminder)\b",
     re.IGNORECASE,
 )
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
