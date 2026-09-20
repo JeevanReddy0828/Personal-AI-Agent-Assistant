@@ -49,8 +49,16 @@ _ARRANGE_PHRASE = re.compile(
 # A question or a decision is refused outright below, since "should i put the legend on the
 # right" is a fullmatch and belongs to the advisor.
 # Measured over 1469 real sentences from this repo's own docs: zero matches.
+# A name ending in a copula is a sentence about something, not the name of a window.
+# "in the middle" is ordinary English — "the value is in the middle and the key is on the
+# left" fullmatches everything above and is not a request to move anything. No window is
+# called "the value is". This narrows the class rather than closing it ("the answer lies
+# in the middle and the question is on the left" still gets through with a different
+# verb); the residual cost is one harmless, self-reporting tool call.
+_ARRANGE_NOT_A_NAME = r"(?<!\bis)(?<!\bare)(?<!\bwas)(?<!\bwere)(?<!\bsits)(?<!\blies)(?<!\bgoes)"
 _ARRANGE_CLAUSE = (
-    r"[\w'.+-]+(?:\s+[\w'.+-]+){0,2}\s+(?:on|to|in|at)\s+(?:the\s+)?"
+    r"[\w'.+-]+(?:\s+[\w'.+-]+){0,2}" + _ARRANGE_NOT_A_NAME
+    + r"\s+(?:on|to|in|at)\s+(?:the\s+)?"
     + _POSITION_WORD + r"(?:\s+(?:side|half|hand\s+side))?"
 )
 _ARRANGE_PLACEMENTS = re.compile(

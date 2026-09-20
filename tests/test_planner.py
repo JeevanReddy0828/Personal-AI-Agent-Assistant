@@ -76,9 +76,24 @@ class HeuristicPlannerTests(unittest.TestCase):
                      "the report on the left is wrong",
                      "the left engine and the right engine",
                      "is the logo on the left or on the right",
-                     "what is on the left and what is on the right"):
+                     "what is on the left and what is on the right",
+                     # "in the middle" is ordinary English, and these fullmatch every
+                     # structural rule above. A name ending in a copula is a sentence
+                     # about something, not the name of a window.
+                     "the value is in the middle and the key is on the left",
+                     "the bug is in the middle and the fix is on the right",
+                     "the labels are on the left and the values are on the right",
+                     "the header was on the top and the footer was on the bottom"):
             with self.subTest(text=text):
                 self.assertFalse((self.plan(text).command or "").startswith("window "), text)
+
+    def test_in_the_top_left_is_still_a_placement(self) -> None:
+        """The copula guard must not cost the `in` preposition itself — people say
+        "spotify in the top left" as readily as "on the top left"."""
+        for text in ("spotify in the top left and notepad in the bottom right",
+                     "chrome in the left half and slack in the right half"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("window "), text)
 
     def test_no_sentence_in_this_repos_own_prose_routes_to_the_window_tool(self) -> None:
         """A corpus, not a hand-picked list. The risk of matching name-then-position is
