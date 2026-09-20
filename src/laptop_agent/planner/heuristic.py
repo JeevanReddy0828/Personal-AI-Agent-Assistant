@@ -57,6 +57,12 @@ _DECIDING = re.compile(
     re.IGNORECASE,
 )
 # Anything naming a tool, a destination, or the user's own data goes to the real router.
+# Note the trailing `s?`. Without it `reminder\b` does not match "reminders", and only
+# `files`, `notes` and `jobs` were ever written in the plural — so "do i have any drafts /
+# documents / tasks / downloads / screenshots / workflows / reminders" all read as plain
+# knowledge questions and were answered by the chat model, which cannot see any of them.
+# A false positive here is harmless by design: it costs one routing call, and the router
+# is exactly where ambiguous text is supposed to go.
 _TOOL_SIGNALS = re.compile(
     r"\b(?:file|files|folder|directory|path|inbox|email|mail|gmail|send|reply|draft|download"
     r"|upload|open|launch|run|shell|terminal|browser|website|url|link|schedule|remind|reminder"
@@ -64,9 +70,26 @@ _TOOL_SIGNALS = re.compile(
     r"|weather|forecast|temperature|distance|route|trip|map|directions|hotel|restaurant|job"
     r"|jobs|resume|apply|application|pipeline|transcribe|ocr|screen|screenshot|webcam|camera"
     r"|youtube|video|image|picture|draw|photo|document|pdf|docx|csv|spreadsheet|music|play"
-    r"|volume|agent|autopilot|workflow|research|solve|my|mine|our)\b",
+    r"|volume|agent|autopilot|workflow|research|solve|my|mine|our)s?\b",
     re.IGNORECASE,
 )
+# Asking to see the reminder list. The `^` is in the pattern, not left to the caller's
+# `.match()`, so "remind me to tell bob to check my reminders" cannot match it under a
+# later `.search()` and have the reminder silently turned into a listing — and so it
+# reads the same way as `_ARRANGE_ASK` and `_DECK_ASK` above. Creations are handled
+# further down. It requires the plural (or an explicit "my reminder") so "what is a
+# reminder" stays a definition question.
+# The polite prefix is the same one `_ARRANGE_ASK` carries: `strip_address` removes
+# greetings and the wake word but not "can you", so without it the commonest spoken form
+# of all — "can you show me my reminders" — missed, which is the very bug this fixes.
+_REMINDER_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+|i\s+(?:want|need)\s+(?:to\s+)?)?"
+    r"(?:what(?:'s|s| is| are)?|which|do i have|have i got|any|show|list|check|see|view"
+    r"|read(?:\s+out)?|pull\s+up|give me|tell me|got)\b[^?]{0,40}?\b(?:reminders|my reminder)\b",
+    re.IGNORECASE,
+)
+_REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
+                            re.IGNORECASE)
 # A path, a URL or a filename is a target, not a topic.
 _TARGETY = re.compile(
     r"[A-Za-z]:[\/]|(?:^|\s)[./~][\w./\-]+|https?://"
@@ -390,9 +413,24 @@ class HeuristicPlannerProvider:
 
     def _reminder(self, text: str) -> PlanDecision | None:
         lowered = text.lower().strip()
-        if lowered in {"reminders", "show reminders", "list reminders", "my reminders"}:
+        # Asking to SEE the list, in any of the ways people actually ask. This was an
+        # exact set of four strings, so "what are my reminders", "what reminders do i
+        # have", "do i have any reminders", "any reminders", "show me my reminders",
+        # "list my reminders" and "check my reminders" all missed it — and the two
+        # phrased without "my" were not even sent to the LLM router, because nothing in
+        # them looked like a tool, so the chat model answered from nothing.
+        # It requires the plural, or "my reminder": bare singular keeps "what is a
+        # reminder" a definition question rather than a listing.
+        ask = _REMINDER_ASK.match(lowered)
+        if ask:
+            # Checked inside the listing branch, never on the bare word: "remind me to
+            # pay the bill due friday" contains "due" and is an ADD.
+            if re.search(r"\b(?:due|overdue|outstanding)\b", lowered):
+                return self._command("reminders due", "User wants due reminders.", 0.86)
             return self._command("reminders", "User wants to list active reminders.", 0.86)
-        if lowered in {"reminders due", "due reminders", "what reminders are due", "show due reminders"}:
+        if _REMINDER_BARE.fullmatch(lowered):
+            return self._command("reminders", "User wants to list active reminders.", 0.86)
+        if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._command("reminders due", "User wants due reminders.", 0.86)
         done = re.search(r"\b(?:complete|finish|mark done|mark complete)\s+reminder\s+#?(\d+)\b", text, re.IGNORECASE)
         if done:
