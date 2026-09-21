@@ -3,8 +3,19 @@ from __future__ import annotations
 import re
 
 from laptop_agent.planner.core import PlanDecision
+from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
-_POSITION_WORD = r"(?:left|right|top|bottom|centre|center|middle|full\s*screen|fullscreen|third)"
+# Built from the tool's own vocabulary, never hand-written. The previous list here was a
+# copy that had already drifted: it had `left` and `third` but none of `top left`,
+# `bottom right`, `left third` or `right half`, so "notepad on the top left" could not
+# route even though the tool parses it perfectly. A hand-maintained copy of a list fails
+# by omission from the copy — the same way `_TOOL_SIGNALS` did. Longest first so
+# "top left" wins over "left". `windows.py` is stdlib-only at import (its ctypes layer is
+# behind an injectable backend), so this costs nothing.
+_POSITION_WORD = "(?:" + "|".join(
+    re.escape(phrase).replace(r"\ ", r"\s+")
+    for phrase in sorted(set(_LAYOUTS) | set(_LAYOUT_ALIASES), key=len, reverse=True)
+) + ")"
 # Arranging windows, as it is actually said out loud. `window`/`split`/`snap`/`arrange`
 # are already direct command prefixes, so this only has to catch the natural phrasings:
 # "put X on the left", "move X to the top right", "maximise X", "left side X right side Y".
@@ -24,6 +35,36 @@ _ARRANGE_ASK = re.compile(
 # a position and so matched nothing above.
 _ARRANGE_PHRASE = re.compile(
     r"\bsplit\s*(?:the\s+)?(?:screen|windows?|view)\b|\bside\s+by\s+side\b|\bsnap\s+layout\b",
+    re.IGNORECASE,
+)
+# Name-then-position with no verb at all: "whatsapp on the left and chrome on the right".
+# The tool already parses this correctly — only the router never sent it.
+#
+# Matching a bare `<name> on the <position>` is what makes this dangerous, so three things
+# hold it in: every clause needs an explicit preposition (without one, "turn left and then
+# right" reads as two placements); there must be TWO or more clauses, because a lone
+# placement is where ordinary prose lives ("my keys are on the right"); and the pattern
+# must consume the WHOLE sentence, which is what rejects "the chrome finish on the right
+# handle is worn" and "what is on the left side of the brain" — both have words left over.
+# A question or a decision is refused outright below, since "should i put the legend on the
+# right" is a fullmatch and belongs to the advisor.
+# Measured over 1469 real sentences from this repo's own docs: zero matches.
+# A name ending in a copula is a sentence about something, not the name of a window.
+# "in the middle" is ordinary English — "the value is in the middle and the key is on the
+# left" fullmatches everything above and is not a request to move anything. No window is
+# called "the value is". This narrows the class rather than closing it ("the answer lies
+# in the middle and the question is on the left" still gets through with a different
+# verb); the residual cost is one harmless, self-reporting tool call.
+_ARRANGE_NOT_A_NAME = r"(?<!\bis)(?<!\bare)(?<!\bwas)(?<!\bwere)(?<!\bsits)(?<!\blies)(?<!\bgoes)"
+_ARRANGE_CLAUSE = (
+    r"[\w'.+-]+(?:\s+[\w'.+-]+){0,2}" + _ARRANGE_NOT_A_NAME
+    + r"\s+(?:on|to|in|at)\s+(?:the\s+)?"
+    + _POSITION_WORD + r"(?:\s+(?:side|half|hand\s+side))?"
+)
+_ARRANGE_PLACEMENTS = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+"
+    r"|i\s+(?:want|need|would\s+like)\s+(?:to\s+)?)?"
+    + _ARRANGE_CLAUSE + r"(?:\s*(?:,|and|&)\s*" + _ARRANGE_CLAUSE + r")+\s*[.!]?\s*$",
     re.IGNORECASE,
 )
 
@@ -666,7 +707,13 @@ class HeuristicPlannerProvider:
         placements, because the position can come before the name when it is spoken.
         """
         probe = text or ""
-        if not _ARRANGE_ASK.match(probe) and not _ARRANGE_PHRASE.search(probe):
+        placements = bool(_ARRANGE_PLACEMENTS.match(probe))
+        if placements and (_ASKING.match(probe) or _DECIDING.search(probe)):
+            # "should i put the legend on the right" is a clean fullmatch and is a
+            # decision for the advisor; "what is on the left and what is on the right"
+            # is a question. Neither is a request to move a window.
+            return None
+        if not placements and not _ARRANGE_ASK.match(probe) and not _ARRANGE_PHRASE.search(probe):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
 

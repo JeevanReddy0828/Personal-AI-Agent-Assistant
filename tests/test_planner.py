@@ -36,6 +36,84 @@ class HeuristicPlannerTests(unittest.TestCase):
             decision = self.plan(text)
             self.assertFalse((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
 
+    def test_placements_route_without_any_verb(self) -> None:
+        """How it gets said when nobody is being careful: name, position, name, position,
+        with no "put" or "move" anywhere. The tool has always parsed these correctly — the
+        router simply never sent them."""
+        for text in ("i want whatsapp on the left and chrome on the right",
+                     "whatsapp on the left and chrome on the right",
+                     "whatsapp to the left and chrome to the right",
+                     "can you put whatsapp on the left and chrome on the right",
+                     "notepad on the top left and spotify on the bottom right",
+                     "chrome on the left half and slack on the right half"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("window "), text)
+
+    def test_the_position_vocabulary_comes_from_the_tool(self) -> None:
+        """It used to be hand-copied into the planner and had already drifted: no corners,
+        no thirds, no halves. So "notepad on the top left" could not route even though
+        `parse_placements` reads it perfectly. Derived now, so the two cannot disagree."""
+        from laptop_agent.planner.heuristic import _POSITION_WORD
+        from laptop_agent.tools.windows import LAYOUTS, _ALIASES
+
+        for phrase in ("top left", "bottom right", "left third", "right half"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase.replace(" ", r"\s+"), _POSITION_WORD, phrase)
+        self.assertEqual(
+            len(set(LAYOUTS) | set(_ALIASES)), _POSITION_WORD.count("|") + 1,
+            "the planner's position list no longer covers the tool's vocabulary",
+        )
+
+    def test_a_bare_placement_sentence_is_not_a_window_request(self) -> None:
+        """The reason this route was left undone. Every one of these is a clean
+        `<something> on the <position>`, and none is a request to move a window."""
+        for text in ("i want to go left at the next junction",
+                     "what is on the left side of the brain",
+                     "the chrome finish on the right handle is worn",
+                     "should i put the legend on the right",
+                     "turn left and then right",
+                     "my keys are on the right",
+                     "the report on the left is wrong",
+                     "the left engine and the right engine",
+                     "is the logo on the left or on the right",
+                     "what is on the left and what is on the right",
+                     # "in the middle" is ordinary English, and these fullmatch every
+                     # structural rule above. A name ending in a copula is a sentence
+                     # about something, not the name of a window.
+                     "the value is in the middle and the key is on the left",
+                     "the bug is in the middle and the fix is on the right",
+                     "the labels are on the left and the values are on the right",
+                     "the header was on the top and the footer was on the bottom"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith("window "), text)
+
+    def test_in_the_top_left_is_still_a_placement(self) -> None:
+        """The copula guard must not cost the `in` preposition itself — people say
+        "spotify in the top left" as readily as "on the top left"."""
+        for text in ("spotify in the top left and notepad in the bottom right",
+                     "chrome in the left half and slack in the right half"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("window "), text)
+
+    def test_no_sentence_in_this_repos_own_prose_routes_to_the_window_tool(self) -> None:
+        """A corpus, not a hand-picked list. The risk of matching name-then-position is
+        that it starts grabbing ordinary sentences, and the only honest way to know is to
+        run it over real ones."""
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        blobs = [(root / name).read_text(encoding="utf-8")
+                 for name in ("CLAUDE.md", "README.md", "ERRORS.md") if (root / name).exists()]
+        sentences = []
+        for blob in blobs:
+            sentences += [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", blob)
+                          if 10 < len(s.strip()) < 200]
+        self.assertGreater(len(sentences), 500, "corpus did not load")
+        grabbed = [s for s in sentences
+                   if (self.plan(s).command or "").startswith("window ")]
+        self.assertEqual(grabbed, [], f"{len(grabbed)} ordinary sentences routed to the window tool")
+
     def test_routes_a_slide_deck_request(self) -> None:
         """The document route needed a trailing format ("... as a pdf"), which a deck
         request never has — so "create a ppt for sun and planets" fell through to the LLM
