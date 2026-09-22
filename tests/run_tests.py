@@ -12,6 +12,36 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 sys.dont_write_bytecode = True
 
+# Already covered by the `*.log` rule in .gitignore.
+FAILURE_REPORT = ROOT / "test-failures.log"
+
+
+def write_failure_report(result, path: Path, argv: list[str] | None = None) -> int:
+    """Persist every failure and error with its traceback, and say where.
+
+    `TextTestRunner` prints all of this — *above* the summary line, which makes it the
+    first thing lost to `| tail -3`, to a scrolled-back terminal, and to a CI log view
+    that keeps only the end. A run here once reported `FAILED (errors=1)` with no name
+    captured and was never reproduced; a whole class of that is just truncation, and a
+    file survives truncation.
+
+    Returns the number of entries written, so the caller can name the count on the last
+    line of output, where a tail will still show it.
+    """
+    entries = [("ERROR", test, trace) for test, trace in getattr(result, "errors", [])]
+    entries += [("FAIL", test, trace) for test, trace in getattr(result, "failures", [])]
+    lines = [
+        f"{len(entries)} failure(s)/error(s)",
+        f"python   {sys.version.split()[0]} on {sys.platform}",
+        f"argv     {' '.join(argv or sys.argv)}",
+        f"ran      {getattr(result, 'testsRun', '?')} tests",
+        "",
+    ]
+    for kind, test, trace in entries:
+        lines += [f"=== {kind}: {test} ===", trace.rstrip(), ""]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return len(entries)
+
 
 def main() -> int:
     import laptop_agent.config as config
@@ -39,7 +69,15 @@ def main() -> int:
             pattern = sys.argv[1] if len(sys.argv) > 1 else "test_*.py"
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern=pattern)
             result = unittest.TextTestRunner(verbosity=1).run(suite)
-            return 0 if result.wasSuccessful() else 1
+            if result.wasSuccessful():
+                # A stale report from an earlier run is worse than none: it describes a
+                # failure that no longer exists, in a file nothing else clears.
+                FAILURE_REPORT.unlink(missing_ok=True)
+                return 0
+            count = write_failure_report(result, FAILURE_REPORT, sys.argv)
+            # Last line on purpose — after the summary, so a `| tail` still shows it.
+            print(f"\n{count} failure(s)/error(s) written to {FAILURE_REPORT}")
+            return 1
         finally:
             os.chdir(ROOT)
 
