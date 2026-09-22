@@ -30,6 +30,12 @@ def write_failure_report(result, path: Path, argv: list[str] | None = None) -> i
     """
     entries = [("ERROR", test, trace) for test, trace in getattr(result, "errors", [])]
     entries += [("FAIL", test, trace) for test, trace in getattr(result, "failures", [])]
+    # `wasSuccessful()` is false when this is non-empty, independently of the other two.
+    # Without it a run that failed *only* because an `expectedFailure` started passing
+    # would write "0 failure(s)/error(s)" — a report claiming nothing is wrong, for a run
+    # that just failed, which is worse than no file because it looks authoritative.
+    entries += [("UNEXPECTED SUCCESS", test, "This test is marked expectedFailure and passed.")
+                for test in getattr(result, "unexpectedSuccesses", [])]
     lines = [
         f"{len(entries)} failure(s)/error(s)",
         f"python   {sys.version.split()[0]} on {sys.platform}",
@@ -69,14 +75,27 @@ def main() -> int:
             pattern = sys.argv[1] if len(sys.argv) > 1 else "test_*.py"
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern=pattern)
             result = unittest.TextTestRunner(verbosity=1).run(suite)
+            # The report is a convenience and must never outrank the result it describes.
+            # Unguarded, an unwritable path (read-only checkout, full disk) raised out of
+            # here and the pathlib traceback pushed the summary and the test names off the
+            # end of a `| tail` — the aid against lost diagnostics losing the diagnosis.
+            # On the success path it was worse: a green suite reported as a runner crash,
+            # because housekeeping sat on the critical path of the return.
             if result.wasSuccessful():
-                # A stale report from an earlier run is worse than none: it describes a
-                # failure that no longer exists, in a file nothing else clears.
-                FAILURE_REPORT.unlink(missing_ok=True)
+                try:
+                    # A stale report from an earlier run is worse than none: it describes
+                    # a failure that no longer exists, in a file nothing else clears.
+                    FAILURE_REPORT.unlink(missing_ok=True)
+                except OSError as exc:
+                    print(f"note: could not clear {FAILURE_REPORT}: {exc}")
                 return 0
-            count = write_failure_report(result, FAILURE_REPORT, sys.argv)
-            # Last line on purpose — after the summary, so a `| tail` still shows it.
-            print(f"\n{count} failure(s)/error(s) written to {FAILURE_REPORT}")
+            try:
+                count = write_failure_report(result, FAILURE_REPORT, sys.argv)
+                # Last line on purpose — after the summary, so a `| tail` still shows it.
+                print(f"\n{count} failure(s)/error(s) written to {FAILURE_REPORT}")
+            except OSError as exc:
+                print(f"\nnote: could not write {FAILURE_REPORT}: {exc}"
+                      f"\nThe failures are above, in the runner's own output.")
             return 1
         finally:
             os.chdir(ROOT)
