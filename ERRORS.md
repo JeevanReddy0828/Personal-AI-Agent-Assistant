@@ -3,6 +3,36 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-20 (later)
+
+- **A corpus that measured the wrong register, and said so confidently.** Matching bare
+  name-then-position for window arrangement risks grabbing ordinary sentences, so I swept
+  2148 real sentences from this repo's own CLAUDE.md, README.md and ERRORS.md, got zero
+  matches, and wrote that number into the PR as proof. Review then found
+  "the value is in the middle and the key is on the left" routing to the window tool. The
+  corpus is technical documentation - long sentences with subordinate clauses that leave
+  words over, which is precisely what the whole-sentence rule rejects. The exposure was in
+  *short conversational statements*, which that corpus barely contains. **Rule: a corpus
+  proves nothing about a register it does not contain. Before quoting a zero, ask which
+  inputs would break the rule and check the corpus actually holds that shape - a large N
+  in the wrong register is more convincing than no evidence, and worse.**
+
+- **The same list-duplication bug twice in two days.** `_TOOL_SIGNALS` failed by omission
+  (no plurals); `_POSITION_WORD` failed by omission (no corners, thirds or halves,
+  hand-copied from `windows.LAYOUTS` and drifted). Both were guards whose correctness
+  rested on a hand-maintained copy of a list that exists elsewhere in the repo. **Rule:
+  when a pattern enumerates a vocabulary another module owns, derive it from that module.
+  If the import is not possible, the duplication is a scheduled failure - write the test
+  that compares the two lists.**
+
+- **Walked into the heredoc-escaping trap again**, mangling `test_planner.py` with regex
+  escapes inside a non-raw string and having to revert the file. ERRORS.md already carried
+  three entries about this exact thing - and writing *this* entry through a heredoc turned
+  its own escape into a real newline, so the paragraph warning about the trap arrived
+  broken by the trap. **Rule: a heredoc containing regex escapes is not a caution, it is a
+  prohibition - use exact-match editing for those lines, including when the line is prose
+  about escaping.**
+
 ## Session 2026-09-20
 
 - **A short-circuit that could not regress tool routing, regressed tool routing.**

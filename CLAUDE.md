@@ -257,7 +257,30 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             POSITIONS first and reads the gaps between them as names, because splitting on
             "and" cannot parse how this is actually said out loud - by voice it arrived as
             "left side WhatsApp right side Chrome", position before name with no
-            conjunction. A window matches on its title *or* its executable, since neither
+            conjunction.
+            **The parser was never the gap; the router was.** `parse_placements` read
+            "whatsapp on the left and chrome on the right" correctly all along, but with no
+            verb in it nothing routed there, so it went to the LLM. `_ARRANGE_PLACEMENTS`
+            takes the verb-less form, and matching a bare `<name> on the <position>` is
+            exactly as dangerous as it sounds - four rules hold it in, each chosen against a
+            sentence that breaks without it: every clause needs an explicit **preposition**
+            ("turn left and then right" is two placements otherwise); there must be **two or
+            more** clauses (a lone placement is where ordinary prose lives - "my keys are on
+            the right"); the pattern must consume the **whole sentence** ("the chrome finish
+            on the right handle is worn" leaves words over); and a clause whose **name ends
+            in a copula** is refused, because "the value is in the middle and the key is on
+            the left" satisfies the other three and no window is called "the value is".
+            Questions and decisions are refused outright - "should i put the legend on the
+            right" is a clean fullmatch and belongs to the advisor. This narrows the class
+            rather than closing it ("the answer lies in the middle..." still slips through),
+            and a false positive costs one harmless, self-reporting tool call.
+            **`_POSITION_WORD` is derived from `LAYOUTS`/`_ALIASES`, never hand-written.**
+            The planner's copy had already drifted - `left` and `third` but no `top left`,
+            `bottom right`, `left third` or `right half` - so "notepad on the top left"
+            could not route against a parser that handles it perfectly. Same failure as
+            `_TOOL_SIGNALS`: a hand-maintained copy of a list fails by omission from the
+            copy. `windows.py` is stdlib-only at import, so the planner can import it.
+            A window matches on its title *or* its executable, since neither
             alone is enough (Chrome is titled after the page it shows; WhatsApp's process is
             `WhatsApp.Root.exe`). Ranked, not just filtered: a window matching in **both**
             title and executable beats one matching in only one of them, then shortest
