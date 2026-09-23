@@ -3,6 +3,25 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-22
+
+- **A ghost that was probably truncation, not flakiness.** The backlog carried "one
+  unreproduced test error": `FAILED (errors=1)` with no name captured. `TextTestRunner`
+  prints the name and the traceback - immediately above the summary line, so `| tail -3`
+  throws away the only part worth having and keeps the part that says nothing. Every
+  command in this session that ran the suite piped it through `tail`, including the ones
+  that found real failures; those were caught only because I widened the grep afterwards.
+  **Rule: the console is not a durable record. When a diagnostic has to survive being
+  read later, by someone who no longer has the shell, write it to a file and print the
+  path last - after the summary, where a tail still shows it.**
+
+- **Committed two binaries I had been told to discard.** `git add -A` swept up
+  `docs/review/*.png`, which the Chromium suite rewrites on every run and which CLAUDE.md
+  explicitly says to `git checkout --` unless a review PR wants new evidence. I had
+  discarded them correctly four times earlier in the session and then stopped checking.
+  **Rule: a known-noisy path deserves a discard immediately before `git add`, not a habit
+  of remembering - the habit is what fails on the fifth repetition.**
+
 ## Session 2026-09-20 (later)
 
 - **A corpus that measured the wrong register, and said so confidently.** Matching bare

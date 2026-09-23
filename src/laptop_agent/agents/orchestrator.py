@@ -207,6 +207,12 @@ class AgentOrchestrator:
         # Per-turn latency traces (timings only, never prompts or replies), so a slow
         # turn can be explained instead of guessed at.
         self.traces = TraceStore(self.data_dir / "traces.json")
+        # The failure log is a process-wide singleton (every tool, provider and request
+        # handler writes to it), so it cannot take its path in a constructor like the two
+        # above — it is pointed at this orchestrator's own directory instead. It used to
+        # keep nothing: the traces here recorded four `image` turns failing after ~61s
+        # each, and every reason had died with the process that caught it.
+        FAILURES.attach(self.data_dir / "failures.json")
         self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.

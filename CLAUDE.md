@@ -1055,6 +1055,19 @@ on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/r
 
 Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
 
+**A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
+deleted on the next clean run so a stale report cannot mislead) holding each test id and
+traceback plus the interpreter, platform and argv. `TextTestRunner` already prints all of
+that — *above* the summary — so it is the first thing lost to `| tail -3`, a scrolled
+terminal or a CI log view that keeps only the end, which is how this repo acquired "one
+unreproduced test error: `FAILED (errors=1)` with no name captured". The path is printed
+as the **last** line, after the summary, so a tail still shows where the detail went.
+**The console is not a durable record.** Twelve consecutive local runs of the full unit
+suite (36.8–39.9s each) did not reproduce the original error, so it remains unexplained —
+the file does not diagnose it, it only guarantees the next one cannot be lost the same
+way. If it does recur, `test_approvals.py` is where to look first: its timeouts are 0.2s
+and 0.3s against 2.0s joins, which is the shape that only fires on a loaded machine.
+
 ## Working alongside another agent (Codex)
 
 Both Claude and Codex edit this repo. To avoid collisions:
