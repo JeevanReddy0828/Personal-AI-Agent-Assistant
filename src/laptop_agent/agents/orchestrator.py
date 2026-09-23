@@ -51,6 +51,7 @@ from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
+from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
 from laptop_agent.tools.textcard import wants_text_rendered
@@ -1015,6 +1016,10 @@ class AgentOrchestrator:
         if lowered in {"failures", "errors", "what broke", "recent errors"}:
             return self._failure_report()
 
+        if lowered in {"selfcheck", "self check", "self-check", "does everything work",
+                       "check yourself", "diagnose"}:
+            return self._selfcheck()
+
         if lowered.startswith(("calculate ", "calc ", "compute ")):
             rest = command.split(" ", 1)[1]
             return self._calculator.compute(rest)
@@ -1609,6 +1614,33 @@ class AgentOrchestrator:
             **{k: v for k, v in clock.data.items() if k != "iso"},
             iso=clock.data["iso"],
         )
+
+    def _selfcheck(self) -> ToolResult:
+        """`selfcheck` — do the things I say still reach the tools that handle them?
+
+        Offline and instant, so it can be run at any moment without spending the user's
+        free-tier quota to find out whether their own phrasings work. It asserts
+        outcomes rather than shapes, because every expensive bug here looked healthy
+        beside a passing test: a meter that rendered nothing for three months, an ETag
+        that never saved a byte, and two routing holes that answered questions about the
+        user's own data with a model that could not see it.
+        """
+        checks, verdict = run_selfcheck(self.router)
+        failed = [check for check in checks if not check.ok]
+        lines = [verdict, ""]
+        for check in failed:
+            lines.append(f"  FAIL  {check.name}")
+            lines.append(f"        {check.detail}")
+        if not failed:
+            lines.append(f"  Routing contract: {len(checks)} phrasings, all reaching the "
+                         "right tool, none grabbing ordinary prose.")
+        payload = {
+            "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
+            "passed": len(checks) - len(failed),
+            "failed": len(failed),
+        }
+        build = ToolResult.success if not failed else ToolResult.failure
+        return build("\n".join(lines).rstrip(), **payload)
 
     @staticmethod
     def _failure_report() -> ToolResult:
