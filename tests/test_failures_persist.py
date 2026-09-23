@@ -145,3 +145,36 @@ class OrchestratorAttachesTheLogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttachIsIdempotentTests(unittest.TestCase):
+    """The orchestrator attaches on construction, and a test run builds many. A record
+    already in memory has also been written to the file, so a second attach to the same
+    path counted it twice — the ring filled with copies until `recent(50)` saturated and
+    an unrelated test failed with "50 not greater than 50"."""
+
+    def test_attaching_twice_does_not_duplicate_a_record(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "failures.json"
+            log = FailureLog()
+            log.attach(path)
+            log.record("once", "only once")
+            for _ in range(5):
+                log.attach(path)
+            wheres = [row["where"] for row in log.recent(50)]
+        self.assertEqual(wheres, ["once"], f"the record was duplicated: {wheres}")
+
+    def test_repeated_attach_does_not_grow_the_file(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "failures.json"
+            log = FailureLog()
+            log.attach(path)
+            for index in range(3):
+                log.record(f"where_{index}", "boom")
+            first = len(json.loads(path.read_text(encoding="utf-8")))
+            for _ in range(4):
+                log.attach(path)
+            log.record("last", "boom")
+            grown = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(first, 3)
+        self.assertEqual(len(grown), 4, f"attach duplicated history on disk: {len(grown)} rows")

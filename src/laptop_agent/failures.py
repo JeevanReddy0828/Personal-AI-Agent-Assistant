@@ -89,7 +89,22 @@ class FailureLog:
             self._path = path
             # Anything recorded before the path was known (imports, early startup) keeps
             # its place at the end — the file is history, this session is the tail of it.
-            merged = (loaded + list(self._records))[-(self._records.maxlen or 1):]
+            #
+            # Deduplicated, because a record already in memory has ALSO been written to
+            # this file, so a second `attach` to the same path would count it twice. That
+            # is not hypothetical: the orchestrator attaches on construction, a test run
+            # builds many, and the ring filled with copies until `recent(50)` saturated
+            # and `test_a_routing_failure_is_recorded` failed with "50 not greater than
+            # 50". `when` is a wall-clock float, so the four fields identify a record.
+            seen: set[tuple[str, str, str, float]] = set()
+            merged: list[Failure] = []
+            for entry in loaded + list(self._records):
+                key = (entry.where, entry.kind, entry.message, entry.when)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(entry)
+            merged = merged[-(self._records.maxlen or 1):]
             self._records.clear()
             self._counts.clear()
             for entry in merged:

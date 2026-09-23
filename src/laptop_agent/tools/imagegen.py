@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
 # A backend takes the model id and the request body and returns the parsed JSON
@@ -46,6 +47,11 @@ def _slug(text: str, limit: int = 40) -> str:
     return cleaned[:limit].strip("-") or "image"
 
 
+# Below this there is no point opening a connection: the attempt would be cut off before
+# a hosted diffusion model could plausibly answer, and the user would wait for nothing.
+MIN_ATTEMPT_SECONDS = 5.0
+
+
 class ImageGenerationError(RuntimeError):
     """One model attempt failed; the caller may still try the fallback."""
 
@@ -66,7 +72,12 @@ class ImageTool:
         model: str = DEFAULT_MODEL,
         backend: ImageBackend | None = None,
         approval_gate: ApprovalGate | None = None,
-        timeout: int = 120,
+        # The TOTAL budget for the request, every attempt included — not per attempt.
+        # It was 120 per attempt, so a primary plus a fallback could hold the user for
+        # 180 seconds before admitting failure. Klein answers in ~2s when it is healthy;
+        # 45 is generous for a queued one and bounded enough to stay a wait rather than
+        # an outage.
+        timeout: int = 45,
         base_url: str = BASE_URL,
         fallback_model: str | None = None,
         fallback_api_key: str | None = None,
@@ -90,7 +101,7 @@ class ImageTool:
     def _key_for(self, model: str) -> str:
         return self.fallback_api_key if model == self.fallback_model else self.api_key
 
-    def _http_backend(self, model: str, body: dict) -> dict:
+    def _http_backend(self, model: str, body: dict, budget: float = 0.0) -> dict:
         request = urllib.request.Request(
             f"{self.base_url}/{model}",
             data=json.dumps(body).encode("utf-8"),
@@ -100,16 +111,20 @@ class ImageTool:
                 "Accept": "application/json",
             },
         )
-        # The fallback only runs after the primary already spent its budget, so give it
-        # half — a last resort must not double the time the user waits for a failure.
-        budget = self.timeout if model == self.model else max(20, self.timeout // 2)
-        with urllib.request.urlopen(request, timeout=budget) as response:
+        with urllib.request.urlopen(request, timeout=budget or self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def _attempt(self, model: str, body: dict) -> bytes:
+    def _call(self, model: str, body: dict, budget: float) -> dict:
+        """An injected backend is a synchronous fake with no notion of a deadline, so the
+        budget only reaches the real HTTP path. Keeps the `(model, body)` test contract."""
+        if self._injected:
+            return self._backend(model, body)
+        return self._http_backend(model, body, budget)
+
+    def _attempt(self, model: str, body: dict, budget: float = 0.0) -> bytes:
         """One model attempt, raising ImageGenerationError with a readable reason."""
         try:
-            payload = self._backend(model, body)
+            payload = self._call(model, body, budget)
         except urllib.error.HTTPError as exc:
             raise ImageGenerationError(f"{model} refused the request (HTTP {exc.code})") from exc
         except (urllib.error.URLError, TimeoutError) as exc:
@@ -153,12 +168,36 @@ class ImageTool:
         candidates = [self.model] + ([self.fallback_model] if self.fallback_model else [])
         problems: list[str] = []
         raw, used = b"", ""
-        for candidate in candidates:
+        # ONE deadline for the whole request, not a budget per attempt. Per-attempt
+        # budgets add up: the primary had `timeout` and the fallback half of it, so a
+        # double failure cost 1.5x — 180s on the defaults — while the comment claimed a
+        # last resort "must not double the time the user waits". Measured on the real
+        # traces: four image turns failed at 60.4s, 61.0s, 62.6s and 62.9s, which is a
+        # primary erroring in about a second and then the full fallback budget spent on
+        # `flux.1-schnell`, a model CLAUDE.md already records as timing out at 90s.
+        deadline = time.monotonic() + self.timeout
+        for index, candidate in enumerate(candidates):
+            remaining = deadline - time.monotonic()
+            # The first attempt always runs. The deadline bounds the EXTRA attempts, and
+            # a misconfigured or tiny budget must not turn image generation into a no-op
+            # that never even asks — found by a test that set the budget to zero and got
+            # a refusal naming the primary it had not tried.
+            if index and remaining < MIN_ATTEMPT_SECONDS:
+                problems.append(
+                    f"{candidate} was not tried (the {self.timeout}s budget was already spent)"
+                )
+                break
             try:
-                raw, used = self._attempt(candidate, body), candidate
+                raw, used = self._attempt(candidate, body, max(remaining, MIN_ATTEMPT_SECONDS)), candidate
                 break
             except ImageGenerationError as exc:
                 problems.append(str(exc))
+                # The rule this file was breaking: an `except` that only returns a
+                # fallback leaves the next person debugging from guesswork. There were
+                # zero `record_failure` calls here, so every reason four failed image
+                # turns produced was discarded at the moment it was understood.
+                record_failure("imagegen/attempt", exc, model=candidate,
+                               waited_s=round(self.timeout - (deadline - time.monotonic()), 1))
         if not raw:
             return ToolResult.failure(
                 "I could not generate that picture. " + "; ".join(problems) + ".",
