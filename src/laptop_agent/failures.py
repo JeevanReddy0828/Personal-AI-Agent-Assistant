@@ -14,17 +14,31 @@ crash the app - it is that catching something must also *record* it. A caught ex
 is a fact about the system, and if nothing writes it down the next person debugs from
 guesswork.
 
-Read it with the `failures` command or `/api/failures`. In-memory and bounded: this is a
-diagnostic for the session you are in, not an audit trail (audit.py is that).
+Read it with the `failures` command or `/api/failures`.
+
+**It outlives the process, because the reason is worth nothing if it does not.** This was
+an in-memory ring "for the session you are in", which defeated the purpose above: measured
+on the real `.agent_data`, four `image` turns failed after ~61 seconds each and not one of
+their reasons survived to be read, so the question "why does image generation fail" could
+not be answered from the log that exists to answer it. Bounded still (`MAX_RECORDS`), and
+still not an audit trail - audit.py is that.
+
+`when` is **wall clock, never `time.monotonic()`**: monotonic counts from a point that
+restarts with the process, so a persisted monotonic stamp read back by a fresh one puts
+the age anywhere between negative and centuries. `model_status.py` learned this first.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, read_json
 
 MAX_RECORDS = 200
 
@@ -43,7 +57,7 @@ class Failure:
             "where": self.where,
             "kind": self.kind,
             "message": self.message,
-            "age_seconds": round(time.monotonic() - self.when, 1),
+            "age_seconds": round(max(0.0, time.time() - self.when), 1),
             "context": dict(self.context),
             "trace_tail": self.trace_tail,
         }
@@ -57,6 +71,45 @@ class FailureLog:
         self._lock = threading.Lock()
         self._records: deque[Failure] = deque(maxlen=max(1, limit))
         self._counts: dict[str, int] = {}
+        self._path: Path | None = None
+
+    def attach(self, path: Path) -> None:
+        """Start persisting here, and adopt whatever is already written.
+
+        The caller supplies the path — this never reads `load_config()`, which would make
+        one process-wide directory out of every caller's own, the way traces from a test
+        run once landed in the live `.agent_data`.
+        """
+        try:
+            loaded = [Failure(**dict(row, context=dict(row.get("context") or {})))
+                      for row in (read_json(path, []) or []) if isinstance(row, dict)]
+        except Exception:
+            loaded = []          # a corrupt or half-written file must not cost the log
+        with self._lock:
+            self._path = path
+            # Anything recorded before the path was known (imports, early startup) keeps
+            # its place at the end — the file is history, this session is the tail of it.
+            merged = (loaded + list(self._records))[-(self._records.maxlen or 1):]
+            self._records.clear()
+            self._counts.clear()
+            for entry in merged:
+                self._records.append(entry)
+                key = f"{entry.where}:{entry.kind}"
+                self._counts[key] = self._counts.get(key, 0) + 1
+
+    def _save_locked(self) -> None:
+        """Best effort, and silent on failure by design: this is the recorder of last
+        resort, so a write error here must not become the unhandled exception that a
+        handled one was being recorded for."""
+        if self._path is None:
+            return
+        try:
+            rows = [{"where": r.where, "kind": r.kind, "message": r.message,
+                     "when": r.when, "context": dict(r.context), "trace_tail": r.trace_tail}
+                    for r in self._records]
+            atomic_write_text(self._path, json.dumps(rows, indent=2))
+        except Exception:
+            pass
 
     def record(self, where: str, error: BaseException | str, **context: object) -> None:
         try:
@@ -78,7 +131,7 @@ class FailureLog:
                 where=str(where)[:80],
                 kind=kind,
                 message=str(message)[:400],
-                when=time.monotonic(),
+                when=time.time(),
                 context={str(k): _small(v) for k, v in list(context.items())[:8]},
                 trace_tail=tail,
             )
@@ -86,6 +139,7 @@ class FailureLog:
                 self._records.append(entry)
                 key = f"{where}:{kind}"
                 self._counts[key] = self._counts.get(key, 0) + 1
+                self._save_locked()
         except Exception:
             # Recording is best-effort by definition. Losing a diagnostic must never
             # escalate into a crash.
@@ -113,6 +167,7 @@ class FailureLog:
         with self._lock:
             self._records.clear()
             self._counts.clear()
+            self._save_locked()
 
 
 def _small(value: object) -> object:
