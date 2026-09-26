@@ -64,10 +64,16 @@ _STANDARD_ONLY = {"est", "cst", "mst", "pst", "jst", "ist", "gst", "sgt", "hkt",
 
 # A question about the clock, not about the world. Routed here it is answered from the
 # operating system; routed to a web search it produced a five-hour error.
+# What may follow the time word is part of the pattern. It used to stop at the word, so
+# anything that merely STARTED with it was a clock question: "time management tips" and
+# "date night ideas" read the clock, and "time for a break" failed with "I do not know the
+# time zone 'a break'".
 _ASKS_THE_TIME = re.compile(
     r"^\s*(?:what(?:'s| is)?|whats|tell me|show me|give me)?\s*"
-    r"(?:the\s+)?(?:current\s+|today'?s\s+|now\s+)?"
-    r"(?:date\s*(?:and|&|/|,)?\s*time|time\s*(?:and|&|/|,)?\s*date|time|date|day)\b",
+    r"(?:the\s+)?(?:current\s+|today'?s\s+|now\s+|local\s+)?"
+    r"(?:date\s*(?:and|&|/|,)?\s*time|time\s*(?:and|&|/|,)?\s*date|time|date|day)\b"
+    r"(?:\s+(?:is\s+it|it\s+is|now|right\s+now|today|currently|please|here|there"
+    r"|(?:in|at)\s+[a-z][a-z /_.-]{0,40}))*\s*$",
     re.IGNORECASE,
 )
 _TIME_WORD = re.compile(r"\b(?:time|date|day|clock|o'?clock)\b", re.IGNORECASE)

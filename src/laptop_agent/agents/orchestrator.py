@@ -41,7 +41,7 @@ from laptop_agent.metrics import system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import is_diagram_subject, is_plain_question
+from laptop_agent.planner.heuristic import SMALL_TALK, is_diagram_subject, is_plain_question
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import TimeParseError, describe, parse_when
@@ -52,7 +52,7 @@ from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
-from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
+from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
@@ -71,7 +71,7 @@ from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_tra
 from laptop_agent.tools.document import DocumentTool
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
-from laptop_agent.tools.weather import WeatherTool
+from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -623,17 +623,29 @@ class AgentOrchestrator:
     ) -> ToolResult:
         """Route one turn, timing it. The inner leg of a planned command runs under the
         same trace, so a tool's own time is not counted as a second turn."""
-        if not _allow_planner or current_trace() is not None:
+        if current_trace() is not None:
             return await self._handle(text, _allow_planner, history, on_token)
+        if not _allow_planner:
+            # A top-level command with no routing: an agent step, an autopilot step, a
+            # scheduled job. Untraced, but held to the same promise as a user's turn.
+            try:
+                return await self._handle(text, _allow_planner, history, on_token)
+            except ApprovalDenied:
+                raise
+            except Exception as exc:
+                return self._unexpected_failure(exc, text.strip().split(" ", 1)[0].lower())
         trace = TurnTrace()
         token = begin_trace(trace)
         try:
             result = await self._handle(text, _allow_planner, history, self._traced_tokens(on_token, trace))
             trace.finish(result.ok)
             return result
-        except Exception:
+        except ApprovalDenied:
             trace.finish(False)
             raise
+        except Exception as exc:
+            trace.finish(False)
+            return self._unexpected_failure(exc, trace.verb or "")
         finally:
             end_trace(token)
             if not trace.verb and trace.route_source in ("", "direct"):
@@ -648,6 +660,24 @@ class AgentOrchestrator:
                 self.traces.add(trace)
             except OSError:
                 pass  # a trace is diagnostics; never fail a turn over one
+
+    def _unexpected_failure(self, exc: Exception, verb: str) -> ToolResult:
+        """The last line of defence: whatever a tool raised, the user gets an answer.
+
+        Fuzzing every command prefix with hostile arguments found 21 ways to raise out of
+        handle() - a NUL byte or a 3000-character name reaching pathlib, a sum too large to
+        print - and each one ended the CLI session outright and showed the web page a raw
+        "Error: ...". A tool bug still has to be fixed where it lives; this only guarantees
+        an answer, and that the reason is written down instead of lost. Only the command
+        word is recorded, never the user's text.
+        """
+        record_failure("orchestrator.handle", exc, verb=verb if verb in self._command_verbs() else "")
+        detail = " ".join(str(exc).split())[:200] or type(exc).__name__
+        return ToolResult.failure(
+            f"Sorry — that failed with an unexpected error ({type(exc).__name__}: {detail}). "
+            "I've logged it; ask me for `failures` to see the details.",
+            error=type(exc).__name__,
+        )
 
     async def _dispatch_meta(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for help, memory, audit, the daily briefing."""
@@ -1029,7 +1059,13 @@ class AgentOrchestrator:
             return self._news_tool().headlines()
 
         if lowered.startswith("news "):
-            return self._news_tool().headlines(command[len("news ") :].strip())
+            # "news about nvidia" searched for "about nvidia" and titled the answer "Top
+            # stories about about nvidia".
+            topic = re.sub(r"^(?:about|on|regarding|for|from|in|re|of)\s+", "",
+                           command[len("news ") :].strip(), flags=re.IGNORECASE)
+            topic = re.sub(r"\b(?:today|tonight|now|right now|please|headlines?)\s*$", "", topic,
+                           flags=re.IGNORECASE).strip(" ?.!,")
+            return self._news_tool().headlines(topic) if topic else self._news_tool().headlines()
 
         if lowered.startswith("document "):
             return self._document_tool().create(command[len("document ") :].strip())
@@ -1037,9 +1073,36 @@ class AgentOrchestrator:
         if lowered.startswith("image "):
             return self._generate_image(command[len("image ") :].strip())
 
+        if lowered in {"weather", "forecast", "weather here", "local weather", "weather forecast"}:
+            return self._forecast("")
+
         if lowered.startswith("weather "):
-            return self._weather_tool().forecast(command[len("weather ") :].strip())
+            return self._forecast(command[len("weather ") :])
         return None
+
+    # Profile keys that say where the user is: "remember my city is Austin" stores `city`.
+    _HOME_KEYS = frozenset({
+        "city", "location", "home city", "hometown", "home town", "town", "home", "where i live",
+        "zip", "zip code", "postcode",
+    })
+
+    def _forecast(self, raw: str) -> ToolResult:
+        """`weather [place]`. With no place, the forecast is for where the user is."""
+        place = clean_place(raw) or self._home_place()
+        if not place:
+            return ToolResult.failure(
+                "Where should I check? Name a city — or tell me once, \"remember my city is "
+                "Austin\", and I'll use it from then on."
+            )
+        return self._weather_tool().forecast(place)
+
+    def _home_place(self) -> str:
+        """A remembered city, else the approximate location from the IP address."""
+        for key, value in self.context.memory.get_profile().items():
+            if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() in self._HOME_KEYS and str(value).strip():
+                return str(value).strip()
+        located = self._travel_tool().here()
+        return str(located.data.get("label") or "") if located.ok else ""
 
     async def _dispatch_travel(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for distance, trips, maps and places."""
@@ -1278,6 +1341,69 @@ class AgentOrchestrator:
             traced.reset = reset
         return traced
 
+    # The direct prefixes are a command language - `weather austin`, `schedule daily at 8 ::
+    # briefing` - and ordinary English starts sentences with the same words. Driving a
+    # conversational corpus through handle() found them colliding: "split $120 between 4
+    # people" arranged windows, "schedule a meeting with john tomorrow at 3pm" and "email
+    # bob@example.com about lunch tomorrow" were answered with command syntax, "time for a
+    # break" failed on a time zone called 'a break'. When the words after the prefix do not
+    # fit its grammar, the router decides instead. Only the user's own text is checked: a
+    # command a router built still reaches its tool and gets the tool's own usage message.
+    # Not the modals: `solve should i use postgres or mysql` is a command, and so is
+    # `solve is option b safer for this`.
+    _PROSE_OPENERS = frozenset({
+        "is", "was", "are", "were", "looks", "seems", "sucks", "shows", "says", "feels", "has",
+        "had", "isn't", "wasn't",
+    })
+    _PROSE_PRONE = frozenset({
+        "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date",
+        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
+        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
+        "compute", "recall", "agent", "terminal", "shell", "media",
+    })
+
+    def _reads_as_prose(self, command: str, lowered: str) -> bool:
+        verb, _, rest = lowered.partition(" ")
+        rest = rest.strip()
+        if verb not in self._PROSE_PRONE or not rest:
+            return False
+        first = rest.split(None, 1)[0]
+        if first in self._PROSE_OPENERS:
+            return True
+        if verb in {"split", "windows", "arrange", "snap"}:
+            return not parse_placements(command)
+        # A typo in the command form ("schedule briefing", "email hello") still gets the
+        # tool's usage message; English is recognised by how it goes on.
+        if verb == "schedule":
+            return "::" not in rest and bool(re.match(
+                r"(?:a|an|the|my|our|some|time|lunch|dinner|coffee|drinks|meetings?|calls?"
+                r"|appointments?|interviews?)\b", rest))
+        if verb == "email":
+            if " subject " in rest or re.match(r"(?:digest|search|unread|api|oauth|tokens?)\b", rest):
+                return False
+            return bool(re.search(r"@|\b(?:about|saying|that|regarding|asking|telling|to say)\b", rest))
+        if verb in {"time", "date", "clock"}:
+            return not asks_the_time(command) and _requested_zone(rest)[0] is None
+        if verb == "distance":
+            return not re.search(r"\s(?:to|and)\s|->|→", f" {rest} ")
+        if verb == "trip":
+            return len([stop for stop in re.split(r"\s+(?:to|then)\s+|->|→|\|", rest) if stop.strip()]) < 2
+        if verb == "download":
+            return not re.search(r"https?://|www\.|\b[\w-]+\.[a-z]{2,}\b", rest)
+        if verb == "forget":
+            return rest.rstrip(" .!") in {"it", "about it", "that", "this", "it then", "about that", "all that"}
+        if verb == "remember":
+            return bool(re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
+        if verb in {"calculate", "calc", "compute"}:
+            return not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+        if verb == "map":
+            return first == "out"
+        if verb == "workflow":
+            return ";;" not in rest and rest not in {"status", "dashboard", "retry failed"}
+        if verb == "media":
+            return rest not in {"playpause", "next", "previous", "stop", "volumeup", "volumedown", "mute"}
+        return False
+
     def _command_verbs(self) -> frozenset[str]:
         if self._command_verbs_cache is None:
             self._command_verbs_cache = frozenset(
@@ -1315,10 +1441,11 @@ class AgentOrchestrator:
         # The dispatch is a table, not a 500-line chain. Each group returns a result or
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
-        for dispatch in self._DISPATCH:
-            handled = await dispatch(self, command, lowered, history_turns)
-            if handled is not None:
-                return handled
+        if not (_allow_planner and self._reads_as_prose(command, lowered)):
+            for dispatch in self._DISPATCH:
+                handled = await dispatch(self, command, lowered, history_turns)
+                if handled is not None:
+                    return handled
 
         if _allow_planner:
             planned = self._route(command, self.context.memory.get_profile(), history_turns)
@@ -1357,7 +1484,7 @@ class AgentOrchestrator:
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
                 # LLM or the search returns nothing.
-                needs_fresh = self._needs_fresh_info(command)
+                needs_fresh = planned.explanation != SMALL_TALK and self._needs_fresh_info(command)
                 if needs_fresh:
                     grounded = self._grounded_news_answer(command, history_turns, on_token)
                     if grounded is not None:
@@ -1393,8 +1520,13 @@ class AgentOrchestrator:
                         attempted.add("fast")
                     # A router that chose chat but left the text to the answerer (a
                     # follow-up on the conversation) is asked for the reply too, rather
-                    # than being counted as a dead endpoint.
-                    deferred = real_fast and not planned.response and planned.confidence > 0
+                    # than being counted as a dead endpoint. So is the instant router's
+                    # canned small talk: it is the fallback for when no model answers, never
+                    # the model's answer. Taking it as one is how "translate hello to
+                    # spanish" was answered "I am here and ready..." on every client that
+                    # does not stream.
+                    canned = planned.explanation == SMALL_TALK
+                    deferred = real_fast and (not planned.response or canned) and planned.confidence > 0
                     if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         why = []
                         reply = self._tier_reply(fast_provider, command, profile, history_turns,
@@ -1403,7 +1535,7 @@ class AgentOrchestrator:
                             self._record_tier("fast", reply, why)
                         if reply:
                             response, model_used, answered = reply, "fast", True
-                    elif real_fast and fast_available and planned.response and planned.confidence > 0:
+                    elif real_fast and fast_available and planned.response and planned.confidence > 0 and not canned:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
                     elif real_fast and fast_available:
@@ -1499,13 +1631,25 @@ class AgentOrchestrator:
         r"\b(?:update|news|latest) on\b",
     )
 
+    # Not questions about the world: how the user feels, the assistant itself, and the
+    # user's own day. "i'm feeling sad today", "who are you" and "what's on my calendar
+    # today" were each answered from a web search for the sentence, citing whatever came back.
+    _NOT_FRESH = re.compile(
+        r"^\s*(?:i'?m|i\s+am|i\s+feel|i\s+felt|i'?ve\s+been|i\s+was|i\s+had|i\s+have\s+been|feeling)\b"
+        r"|\bwho\s+(?:are|r)\s+(?:you|u)\b|\bwho\s+(?:made|created|built|designed)\s+you\b"
+        r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
+        r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
+        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
+        re.IGNORECASE,
+    )
+
     def _needs_fresh_info(self, text: str) -> bool:
         if self.context.websearch is None:
             return False
         # The time is on the clock, not on the web. Asked "what is the current date and
         # time in EST" this searched, scraped a stale page, and answered 1:00 PM while
         # the machine's own clock read 6:26 PM.
-        if asks_the_time(text):
+        if asks_the_time(text) or self._NOT_FRESH.search(text):
             return False
         lowered = " " + text.lower()
         if any(keyword in lowered for keyword in self._FRESH_KEYWORDS):
@@ -1773,7 +1917,7 @@ class AgentOrchestrator:
                 "  run command <command>",
                 "  run command in <cwd> :: <command>",
                 "  play music <file-folder-or-url>",
-                "  media playpause|next|previous|stop",
+                "  media playpause|next|previous|stop|volumeup|volumedown|mute",
                 "  email search <query>",
                 "  email unread",
                 "  email digest  (summarize your unread inbox)",
@@ -3438,6 +3582,8 @@ class AgentOrchestrator:
         agent_id = raw.strip().lower()
         if not agent_id:
             return ToolResult.failure("Use: agent <id>")
+        if agent_id == "run":   # "agent run" with its goal missing, not an agent named "run"
+            return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
         detail = self.control_room.detail(agent_id)
         if detail is None:
             return ToolResult.failure(

@@ -124,6 +124,81 @@ class CalculatorToolTests(unittest.TestCase):
         self.assertIn("banana", result.message)
 
 
+class EverydayArithmeticTests(unittest.TestCase):
+    """The sums people actually say. Each of these reached a chat model (which is the wrong
+    tool for arithmetic) or failed outright, found by driving a conversational corpus
+    through the real orchestrator."""
+
+    def value(self, text: str):
+        result = CalculatorTool().compute(text)
+        self.assertTrue(result.ok, f"{text!r}: {result.message}")
+        return result.data["result"]
+
+    def test_to_the_power_of_is_an_operator_not_a_square(self) -> None:
+        # It was rewritten to "**2", so "2 to the power of 10" became "2 **2 10".
+        self.assertEqual(self.value("what's 2 to the power of 10"), "1,024")
+        self.assertEqual(self.value("2 to the 10th"), "1,024")
+        self.assertEqual(self.value("3 squared"), "9")
+        self.assertEqual(self.value("2 cubed"), "8")
+
+    def test_percentages_tips_and_discounts(self) -> None:
+        self.assertEqual(self.value("what's 15% of 80"), "12")
+        self.assertEqual(self.value("15 percent of 80"), "12")
+        self.assertEqual(self.value("what's a 20% tip on $45"), "9")
+        self.assertEqual(self.value("25% off 80"), "60")
+        # A bare % is still modulo.
+        self.assertEqual(evaluate("10 % 3"), 1)
+        self.assertEqual(evaluate("10 mod 3"), 1)
+
+    def test_roots_splits_and_times(self) -> None:
+        self.assertEqual(self.value("what's the square root of 144"), "12")
+        self.assertEqual(self.value("sqrt 2"), "1.414213562")
+        self.assertEqual(self.value("split $120 between 4 people"), "30")
+        self.assertEqual(self.value("12 x 13"), "156")
+
+    def test_dictated_numbers(self) -> None:
+        self.assertEqual(self.value("What's five plus five?"), "10")
+        self.assertEqual(self.value("twelve times twelve"), "144")
+        self.assertEqual(self.value("one hundred and twenty plus five"), "125")
+        self.assertEqual(self.value("a hundred divided by four"), "25")
+
+    def test_everyday_sums_are_recognised_and_prose_is_not(self) -> None:
+        for text in ("what's 15% of 80", "what is five plus five", "sqrt 2",
+                     "split $120 between 4 people", "what's the square root of 144"):
+            self.assertTrue(looks_like_arithmetic(text), text)
+        for text in ("split the bill", "what is one direction", "i have 2 kids and 3 dogs",
+                     "two and three", "top 10 movies of 2024", "split screen"):
+            self.assertFalse(looks_like_arithmetic(text), text)
+
+
+class HugeResultTests(unittest.TestCase):
+    """Fuzzing found two ways out of `compute` with an exception, and one way to hang it.
+    An exception here escaped the whole turn: the CLI session ended and the web page
+    showed a raw "Error: ..."."""
+
+    def test_a_result_too_long_to_print_is_shown_in_scientific_form(self) -> None:
+        # Python refuses to turn an int of more than 4,300 digits into text.
+        result = CalculatorTool().compute("10**4000*10**1000")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("5,001-digit number", result.message)
+
+    def test_a_result_too_large_for_a_float_still_answers(self) -> None:
+        # `value=float(result)` raised OverflowError after the sum had succeeded.
+        result = CalculatorTool().compute("9**4096")
+        self.assertTrue(result.ok, result.message)
+        self.assertIsNone(result.data["value"])
+
+    def test_a_giant_power_is_refused_before_it_is_computed(self) -> None:
+        # Ran for over 100 seconds on a worker thread before this.
+        import time
+
+        started = time.perf_counter()
+        result = CalculatorTool().compute("(123456789**4096)**4096")
+        self.assertFalse(result.ok)
+        self.assertIn("too large", result.message)
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
 

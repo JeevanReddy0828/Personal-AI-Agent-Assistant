@@ -53,5 +53,32 @@ class WeatherTests(unittest.TestCase):
             denied.forecast("Austin")
 
 
+class PlaceCleaningTests(unittest.TestCase):
+    """`weather in london` reached the geocoder as "in london" (and then, trimmed, as
+    "in"); `weather today` asked it for a town called Today."""
+
+    def test_the_words_around_a_place_are_not_the_place(self) -> None:
+        from laptop_agent.tools.weather import clean_place
+
+        cases = {
+            "in london": "london", "today": "", "in new york tomorrow": "new york", "in": "",
+            "for Dallas tomorrow": "Dallas", "this weekend in denver": "denver",
+            "like in paris right now": "paris", "near me": "", "Austin, TX": "Austin, TX",
+            "Tomorrowland": "Tomorrowland", "Fort Worth": "Fort Worth",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(clean_place(raw), expected, raw)
+
+    def test_the_tool_geocodes_the_cleaned_place(self) -> None:
+        asked: list[str] = []
+
+        def transport(url: str) -> dict:
+            asked.append(url)
+            return GEO if "geocoding" in url else FORECAST
+
+        self.assertTrue(WeatherTool(transport=transport).forecast("in london tomorrow").ok)
+        self.assertIn("name=london&", asked[0])
+
+
 if __name__ == "__main__":
     unittest.main()

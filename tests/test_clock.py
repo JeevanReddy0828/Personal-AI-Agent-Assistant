@@ -120,6 +120,16 @@ class RoutingTests(unittest.TestCase):
         ):
             self.assertFalse(asks_the_time(text), text)
 
+    def test_a_sentence_that_only_starts_with_the_word_is_not_a_clock_question(self) -> None:
+        # The pattern stopped at the time word, so these read the clock - and "time for a
+        # break" failed with "I do not know the time zone 'a break'".
+        for text in ("time management tips", "date night ideas", "time for a break",
+                     "day trip ideas", "time flies"):
+            self.assertFalse(asks_the_time(text), text)
+        for text in ("what's the time?", "what day is it today", "time in london right now",
+                     "whats the time please"):
+            self.assertTrue(asks_the_time(text), text)
+
 
 class PromptStampTests(unittest.TestCase):
     def test_the_prompt_names_the_moment_and_forbids_searching_for_it(self) -> None:

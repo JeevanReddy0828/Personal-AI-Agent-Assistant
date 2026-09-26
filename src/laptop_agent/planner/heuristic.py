@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from laptop_agent.planner.core import PlanDecision
+from laptop_agent.tools.weather import clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
 # Built from the tool's own vocabulary, never hand-written. The previous list here was a
@@ -131,6 +132,93 @@ _REMINDER_ASK = re.compile(
 )
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
                             re.IGNORECASE)
+# Media control only when the whole message IS the control. "pause" and "resume" used to
+# match anywhere in the text, so "update my resume", "how to write a good resume" and "what
+# does pause mean" all toggled playback. Measured by driving a conversational corpus
+# through the real orchestrator; those four were the only media commands it produced.
+# "next"/"skip" need their noun: "next" alone is as likely to mean the next question.
+_POLITE = r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
+_MEDIA_NOUN = r"(?:the\s+|this\s+|my\s+|that\s+)?(?:music|song|track|video|playback|audio|player|tune)"
+_MEDIA_END = r"(?:\s+please)?\s*[.!]*\s*$"
+_MEDIA_KEYS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(_POLITE + pattern + _MEDIA_END, re.IGNORECASE), key)
+    for pattern, key in (
+        (rf"(?:pause|unpause|play\s*/\s*pause)(?:\s+(?:it|{_MEDIA_NOUN}))?", "playpause"),
+        (rf"(?:resume|continue)\s+(?:playing|{_MEDIA_NOUN})", "playpause"),
+        (r"(?:play\s+(?:the\s+)?)?next\s+(?:song|track|video)|skip\s+(?:this\s+|the\s+)?(?:song|track|video)",
+         "next"),
+        (r"(?:play\s+(?:the\s+)?)?(?:previous|last|prior)\s+(?:song|track|video)|go\s+back\s+a\s+(?:song|track)",
+         "previous"),
+        (rf"stop\s+(?:playing|{_MEDIA_NOUN})", "stop"),
+        (r"(?:volume\s+up|turn\s+(?:it|the\s+(?:volume|music|sound))\s+up|louder"
+         r"|(?:increase|raise)\s+(?:the\s+)?volume)", "volumeup"),
+        (r"(?:volume\s+down|turn\s+(?:it|the\s+(?:volume|music|sound))\s+down|quieter|softer"
+         r"|(?:decrease|lower|reduce)\s+(?:the\s+)?volume)", "volumedown"),
+        (r"(?:mute|unmute)(?:\s+(?:it|the\s+(?:sound|audio|volume|music)))?", "mute"),
+    )
+)
+# "play X" only as a request that starts with it. The substring version sent "how do i play
+# chess" and "how do i play guitar better" to YouTube.
+_PLAY = re.compile(
+    _POLITE + r"(?:open\s+[\w.]+\s+and\s+)?"
+    r"(?:play|put\s+on|start\s+playing|i\s+(?:want|wanna|would\s+like)\s+to\s+"
+    r"(?:hear|listen\s+to)|let\s+me\s+hear)\s+(?:me\s+)?(?:some\s+)?(?:music\s+(?=\S))?"
+    r"(?P<target>.+?)(?:\s+please)?\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+# Things people "play" that are not music.
+_NOT_MUSIC = re.compile(
+    r"\b(?:games?|chess|trivia|quiz|questions|tic[\s-]?tac[\s-]?toe|rock[\s,]+paper|hide\s+and\s+seek"
+    r"|with\s+me|along|role|devil'?s\s+advocate|pretend|dumb|fair|it\s+safe|it\s+cool)\b",
+    re.IGNORECASE,
+)
+# Small talk, recognised as the WHOLE message. The old test was a substring search for
+# "hi ", "hey " and "hello", which matched "sushi ", "they ", "whey " and "othello" - and
+# without a model, or on any client that does not stream, the canned greeting was the
+# answer: "i want sushi for dinner, any ideas?" got "I am here and ready. I can help with
+# files...". A reply here is a fallback; with a model configured the chat tier answers.
+SMALL_TALK = "small-talk"
+_SMALL_TALK: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(r"^\s*" + pattern + r"(?:\s*,?\s*(?:jarvis|buddy|mate|man))?[\s!.,?]*$", re.IGNORECASE), reply)
+    for pattern, reply in (
+        (r"(?:hi|hello|hey|hiya|howdy|yo|greetings|hi\s+there|hello\s+there|hey\s+there|jarvis)",
+         "Hello! What can I do for you?"),
+        (r"good\s+(?:morning|afternoon|evening)", "Hello! What can I do for you?"),
+        (r"(?:how\s+are\s+you(?:\s+doing)?(?:\s+today)?|how's\s+it\s+going|how\s+is\s+it\s+going"
+         r"|what'?s\s+up|sup|how\s+do\s+you\s+do)",
+         "I'm running well, thanks for asking. What can I do for you?"),
+        (r"(?:thanks|thank\s+you|thank\s+you\s+(?:so|very)\s+much|thx|ty|cheers|much\s+appreciated"
+         r"|thanks\s+a\s+lot|appreciate\s+it)", "You're welcome!"),
+        (r"(?:bye|goodbye|good\s+bye|see\s+you|see\s+ya|later|good\s*night|night)", "Goodbye! I'm here whenever you need me."),
+        (r"(?:ok|okay|cool|nice|great|awesome|got\s+it|sounds\s+good|alright|all\s+right|perfect)",
+         "Great. Anything else?"),
+        (r"(?:never\s*mind|forget\s+(?:it|about\s+it|that)|no\s+worries|scratch\s+that|cancel\s+that)",
+         "No problem."),
+    )
+)
+# A question about the weather, with or without a place in it.
+_WEATHER_ASK = re.compile(
+    r"^\s*(?:what(?:'s|s| is)|how(?:'s| is)|show\s+me|give\s+me|check|get)\s+(?:the\s+)?"
+    r"(?:(?:today'?s|tomorrow'?s|current|local)\s+)?(?:weather|forecast|temperature)\b"
+    r"|^\s*(?:the\s+)?(?:weather|forecast)(?:\s+(?:today|tonight|tomorrow|now|right\s+now"
+    r"|this\s+week(?:end)?|please|report|update))*\s*[?.!]*\s*$"
+    r"|^\s*(?:is\s+it|will\s+it|is\s+it\s+(?:going|gonna)\s+to|it'?s\s+(?:going|gonna)\s+to"
+    r"|(?:going|gonna)\s+to)\s+(?:be\s+)?(?:rain|snow|hail|storm|drizzl|pour|sunny|cloudy|windy|hot"
+    r"|cold|warm|chilly|freezing|humid|clear)\w*\b"
+    r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+is\s+it\b"
+    r"|^\s*do\s+i\s+need\s+(?:an?\s+)?(?:umbrella|jacket|coat|raincoat|sunscreen|sweater|hoodie)\b"
+    r"|^\s*[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\s+(?:weather|forecast)(?:\s+(?:today|tonight"
+    r"|tomorrow|now|this\s+week(?:end)?))?\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+# "delhi weather tomorrow": the place comes first.
+_WEATHER_NAMED = re.compile(r"^\s*([a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2})\s+(?:weather|forecast)\b",
+                            re.IGNORECASE)
+_WEATHER_NOT_NAMES = {
+    "what's", "whats", "what", "how's", "how", "is", "will", "do", "show", "give", "check", "get",
+    "the", "today's", "todays", "tomorrow's", "tomorrows", "current", "local", "weekend", "weekly",
+    "daily", "hourly", "nice", "bad", "good", "great", "crazy", "this", "that", "any", "some", "my",
+}
 # A path, a URL or a filename is a target, not a topic.
 _TARGETY = re.compile(
     r"[A-Za-z]:[\/]|(?:^|\s)[./~][\w./\-]+|https?://"
@@ -412,13 +500,9 @@ class HeuristicPlannerProvider:
         if job:
             return job
 
-        if any(phrase in lowered for phrase in ("hello", "hi ", "hey ", "how are you")):
-            return PlanDecision(
-                action="chat",
-                confidence=0.6,
-                explanation="Basic conversational greeting.",
-                response="I am here and ready. I can help with files, browser tasks, email drafts, music, audit logs, and planned job-application workflows.",
-            )
+        for pattern, reply in _SMALL_TALK:
+            if pattern.match(raw):
+                return PlanDecision(action="chat", confidence=0.6, explanation=SMALL_TALK, response=reply)
 
         return PlanDecision(
             action="chat",
@@ -434,7 +518,10 @@ class HeuristicPlannerProvider:
             return self._command("summarize file README.md", "User wants the README summarized.", 0.84)
         if re.search(r"\bwhat\b.*\b(remember|know)\b.*\b(about )?me\b", lowered) or lowered in {"my profile", "show my profile"}:
             return self._command("memory", "User wants to see what is remembered about them.", 0.84)
-        if re.search(r"\b(my |the )?task", lowered) and re.search(r"\b(show|list|how|status|recent|going|doing)\b", lowered):
+        # The dashboard of parallel `multi` runs, asked for by name. Any sentence with "task"
+        # and "how" used to open it, so "how do i prioritize tasks at work" got a dashboard.
+        if re.search(r"\b(?:show|list|view)\s+(?:me\s+)?(?:my\s+|the\s+)?tasks\b|\btask\s+(?:status|dashboard)\b"
+                     r"|\bhow\s+are\s+(?:my|the)\s+tasks\s+(?:going|doing)\b", lowered):
             return self._command("tasks", "User wants the task dashboard.", 0.8)
         if re.search(r"\b(look at|read|see|check|what.?s on|view|describe)\b.*\bscreen\b", lowered) or "my screen" in lowered:
             return self._command("read screen", "User wants the agent to look at the screen.", 0.82)
@@ -645,7 +732,11 @@ class HeuristicPlannerProvider:
             return self._command(
                 f"web search flights from {m.group(1).strip()} to {m.group(2).strip()}", "User wants flights.", 0.8
             )
-        m = re.search(r"\b(?:flights?|airfare|fly)\b.*?\bto\s+(.+)$", text, re.IGNORECASE)
+        # A bare "fly ... to" matched "how do birds fly to the south" and "i'm afraid to fly
+        # to be honest"; flying is a request only when someone plans to do it.
+        m = re.search(r"\b(?:flights?|airfare|plane\s+tickets?)\b.*?\bto\s+(.+)$", text, re.IGNORECASE)
+        if not m:
+            m = re.search(r"\b(?:want|need|planning|plan|going|have)\s+to\s+fly\s+to\s+(.+)$", text, re.IGNORECASE)
         if m:
             dest = m.group(1).strip().strip("?.!,'\"")
             return self._command(f"web search flights to {dest}", "User wants flights.", 0.78) if dest else None
@@ -763,21 +854,27 @@ class HeuristicPlannerProvider:
         return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
 
     def _weather(self, text: str) -> PlanDecision | None:
-        """Real forecast (Open-Meteo) instead of opening a web search for weather."""
-        if not re.search(r"\b(weather|forecast|temperature)\b", text, re.IGNORECASE):
+        """Real forecast (Open-Meteo) instead of opening a web search for weather.
+
+        A question with no place is answered for where the user is: `weather` with no
+        argument uses a remembered city, else the IP location. Those questions - "will it
+        rain tomorrow", "do i need an umbrella", "what's the weather" - used to reach a
+        chat model that cannot see the sky, or a web search for the sentence itself.
+        """
+        asked = _WEATHER_ASK.match(text)
+        if not asked and not re.search(r"\b(weather|forecast|temperature)\b", text, re.IGNORECASE):
             return None
         match = re.search(r"\b(?:in|for|at|near|around)\s+(.+)$", text, re.IGNORECASE)
-        if not match:
-            return None
-        location = re.sub(
-            r"\b(today|tonight|tomorrow|right now|now|this (?:week|weekend|morning|afternoon|evening)|currently|like)\b",
-            "",
-            match.group(1),
-            flags=re.IGNORECASE,
-        ).strip(" ?.!,'\"")
-        if not location:
-            return None
-        return self._command(f"weather {location}", "User wants a weather forecast.", 0.85)
+        location = clean_place(match.group(1)) if match else ""
+        if not location and asked:
+            named = _WEATHER_NAMED.match(text)
+            if named and named.group(1).split()[0].lower() not in _WEATHER_NOT_NAMES:
+                location = clean_place(named.group(1))
+        if location:
+            return self._command(f"weather {location}", "User wants a weather forecast.", 0.85)
+        if asked:
+            return self._command("weather", "User wants the forecast where they are.", 0.85)
+        return None
 
     def _local_lookup(self, text: str) -> PlanDecision | None:
         """Recommendation / local-place queries go to web search — live data beats
@@ -1013,10 +1110,24 @@ class HeuristicPlannerProvider:
 
     def _web_search(self, text: str) -> PlanDecision | None:
         match = re.search(
-            r"\b(?:search the web for|search online for|google|look up|web search(?: for)?|search the internet for)\s+(.+)$",
+            r"\b(?:search the web for|search online for|look up|web search(?: for)?|search the internet for)\s+(.+)$",
             text,
             re.IGNORECASE,
         )
+        # "google" is a verb only at the front. Anywhere in the sentence it is as often the
+        # company: "tailor my resume for the google job" searched the web for "job".
+        if not match:
+            match = re.match(_POLITE + r"google\s+(.+)$", text, re.IGNORECASE)
+        # "search for best laptops", the commonest phrasing of all, unless it names the
+        # user's own data, which belongs to the files, mail or notes tools.
+        if not match:
+            match = re.match(_POLITE + r"search\s+(?:for\s+)?(.+)$", text, re.IGNORECASE)
+            if match and re.search(
+                r"\b(?:my|our|files?|folders?|emails?|inbox|mail|notes?|vault|knowledge|documents?"
+                r"|youtube|yt)\b",
+                match.group(1), re.IGNORECASE,
+            ):
+                match = None
         if not match:
             return None
         query = match.group(1).strip().strip("'\"?")
@@ -1095,15 +1206,15 @@ class HeuristicPlannerProvider:
         return None
 
     def _music(self, text: str) -> PlanDecision | None:
-        lowered = text.lower()
-        if "pause" in lowered or "resume" in lowered:
-            return self._command("media playpause", "User wants media playback toggled.", 0.8)
-        if "next song" in lowered or "skip song" in lowered:
-            return self._command("media next", "User wants the next media track.", 0.8)
-        match = re.search(r"\bplay\s+(?:music\s+)?(.+)$", text, re.IGNORECASE)
+        for pattern, key in _MEDIA_KEYS:
+            if pattern.match(text):
+                return self._command(f"media {key}", "User wants media playback controlled.", 0.8)
+        match = _PLAY.match(text)
         if not match:
             return None
-        target = match.group(1).strip().strip("'\"")
+        target = match.group("target").strip().strip("'\"")
+        if not target or _NOT_MUSIC.search(target):
+            return None
         return self._command(f"play music {target}", "User wants to play music from a target.", 0.75)
 
     def _job_application(self, text: str) -> PlanDecision | None:
