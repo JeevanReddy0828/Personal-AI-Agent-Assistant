@@ -157,3 +157,16 @@ class MusicTool:
             ctypes.windll.user32.keybd_event(code, 0, 0, 0)
             ctypes.windll.user32.keybd_event(code, 0, 2, 0)
         return ToolResult.success(f"Sent media key: {key}")
+
+    def set_volume(self, percent: int) -> ToolResult:
+        """"set the volume to 50" with the keys alone: fifty presses down reach zero from
+        any level, then each press up is one 2% step. It went to a chat model, which could
+        not do it and was free to say it had."""
+        if not sys.platform.startswith("win"):
+            return ToolResult.failure("Setting the volume is currently implemented for Windows only.")
+        level = max(0, min(100, int(percent)))
+        for code, presses in ((0xAE, 50), (0xAF, round(level / 2))):
+            for _ in range(presses):
+                ctypes.windll.user32.keybd_event(code, 0, 0, 0)
+                ctypes.windll.user32.keybd_event(code, 0, 2, 0)
+        return ToolResult.success(f"Volume set to about {level}%.", level=level)

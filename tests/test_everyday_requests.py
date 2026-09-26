@@ -185,6 +185,12 @@ CONTRACT: tuple[tuple[str, str], ...] = (
     ("what's 1/4 of 200", "calculate"),
     ("hey jarvis, what's my name", "what's my name"),
     ("hey jarvis, flip a coin", "flip a coin"),
+    # Found by the third corpus.
+    ("set the volume to 50", "media volume 50"),
+    ("what do you remember", "memory"),
+    ("what did i ask you to remember", "memory"),
+    ("change my name to Jeev", "remember"),
+    ("what's my next reminder", "reminders next"),
 )
 
 # Sentences that must reach no tool at all. Every one of these ran a command once.

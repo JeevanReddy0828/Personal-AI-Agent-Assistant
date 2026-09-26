@@ -174,14 +174,48 @@ _LET_GO = re.compile(
 _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
 _SNOOZE = re.compile(
     r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
-    r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?P<minutes>\d+)\s*(?:minutes?|mins?|m))?\s*[.!]*$",
+    r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?:another\s+)?(?P<minutes>\d+)\s*(?:more\s+)?(?:minutes?|mins?|m))?"
+    r"(?:\s+more)?\s*[.!]*$",
     re.IGNORECASE,
 )
+# "stop" and "cancel" are different requests: "stop the alarm" means the one ringing, and
+# with nothing ringing it must not delete a weekday alarm - which it did.
 _CANCEL = re.compile(
-    _POLITE + r"(?:delete|cancel|remove|drop|stop|turn\s+off|dismiss)\s+(?:the\s+|my\s+|this\s+)?"
-    r"(?P<rest>.+?)\s*[.!]*$",
+    _POLITE + r"(?P<verb>delete|cancel|remove|drop|stop|turn\s+off|shut\s+off|dismiss|silence|clear|wipe|erase"
+    r"|get\s+rid\s+of)\s+(?:the\s+|my\s+|this\s+)?(?P<rest>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
+_STOP_VERBS = {"stop", "turn off", "shut off", "dismiss", "silence"}
+# "what's my next reminder", "when is my alarm", "what time is my alarm set for"
+_NEXT_ASK = re.compile(
+    r"^\s*(?:(?:what(?:'s|s|\s+is)|when(?:'s|s|\s+is)|show\s+(?:me\s+)?)\s+(?:my\s+|the\s+)?next\s+"
+    r"(?P<kind>reminder|alarm|timer)"
+    r"|what\s+time\s+is\s+my\s+(?P<alarm>alarm)(?:\s+set\s+for)?"
+    r"|when\s+(?:does|will)\s+my\s+(?P<goes>alarm|timer)\s+go\s+off"
+    r"|is\s+my\s+(?P<set>alarm)\s+set)\s*[?.!]*$",
+    re.IGNORECASE,
+)
+# A list edit that names no list: "delete milk from my list". Which list it means depends
+# on what lists exist, which only the assistant knows, so the sentence is passed on whole.
+_NAMELESS_REMOVE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
+                              r"(?:off(?:\s+of)?|from)\s+(?:my|the|our)\s+list\s*[.!]*$", re.IGNORECASE)
+_NAMELESS_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?)\s+(?P<items>.+?)\s+(?:to|on|onto)\s+"
+                           r"(?:my|the|our)\s+list\s*[.!]*$", re.IGNORECASE)
+# "set the volume to 50", "volume 30%", "turn the volume to 20 percent"
+_VOLUME_LEVEL = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:(?:set|change|put|turn|make)\s+(?:the\s+)?volume"
+    r"\s+(?:to|at)|volume(?:\s+(?:to|at))?)\s+(?P<level>\d{1,3})\s*(?:%|percent)?(?:\s+please)?\s*[.!]*$",
+    re.IGNORECASE,
+)
+
+
+def nameless_list_edit(text: str) -> tuple[str, str] | None:
+    """("add"|"remove", the items) for a list edit that names no list, else None."""
+    for verb, pattern in (("remove", _NAMELESS_REMOVE), ("add", _NAMELESS_ADD)):
+        match = pattern.match(text or "")
+        if match:
+            return verb, match.group("items").strip()
+    return None
 # Media control only when the whole message IS the control. "pause" and "resume" used to
 # match anywhere in the text, so "update my resume", "how to write a good resume" and "what
 # does pause mean" all toggled playback. Measured by driving a conversational corpus
@@ -272,6 +306,12 @@ _PERSONAL_KEY = (
 _MY_FACT = re.compile(
     r"^\s*(?:by\s+the\s+way[,\s]+|fyi[,\s]+|just\s+so\s+you\s+know[,\s]+)?my\s+"
     r"(?P<key>" + _PERSONAL_KEY + r")\s+is\s+(?P<value>.+?)\s*[.!]*$",
+    re.IGNORECASE,
+)
+# Correcting one: "change my name to Jeev", "update my city to Dallas".
+_FACT_CHANGE = re.compile(
+    r"^\s*(?:please\s+)?(?:change|update|set|correct)\s+my\s+(?P<key>" + _PERSONAL_KEY + r")\s+to\s+"
+    r"(?P<value>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
 # Asking for one back: "what's my name", "do you remember my wife's birthday", "where do i
@@ -717,7 +757,9 @@ class HeuristicPlannerProvider:
             return self._command("scan files .", "User wants the files in the current folder.", 0.84)
         if re.search(r"\b(summari[sz]e|gist|overview|tl;?dr)\b.*\breadme\b", lowered) or re.search(r"\breadme\b.*\b(summari[sz]e|gist|overview)\b", lowered):
             return self._command("summarize file README.md", "User wants the README summarized.", 0.84)
-        if re.search(r"\bwhat\b.*\b(remember|know)\b.*\b(about )?me\b", lowered) or lowered in {"my profile", "show my profile"}:
+        if (re.search(r"\bwhat\b.*\b(remember|know)\b.*\b(about )?me\b", lowered) or lowered in {"my profile", "show my profile"}
+                or re.fullmatch(r"what\s+(?:do\s+you|have\s+you|did\s+i\s+(?:ask|tell)\s+you\s+to)\s+(?:remember(?:ed)?|know)"
+                                r"[?.!\s]*", lowered)):
             return self._command("memory", "User wants to see what is remembered about them.", 0.84)
         # The dashboard of parallel `multi` runs, asked for by name. Any sentence with "task"
         # and "how" used to open it, so "how do i prioritize tasks at work" got a dashboard.
@@ -759,6 +801,11 @@ class HeuristicPlannerProvider:
             return self._command("reminders", "User wants to list active reminders.", 0.86)
         if _REMINDER_BARE.fullmatch(lowered):
             return self._command("reminders", "User wants to list active reminders.", 0.86)
+        upcoming = _NEXT_ASK.match(lowered)
+        if upcoming:
+            kind = next((group for group in upcoming.groups() if group), "reminder")
+            return self._command("reminders next" + ("" if kind == "reminder" else f" {kind}"),
+                                 "User wants the next reminder.", 0.86)
         if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._command("reminders due", "User wants due reminders.", 0.86)
         done = re.search(
@@ -801,7 +848,11 @@ class HeuristicPlannerProvider:
         if cancel:
             target = self._reminder_target(cancel.group("rest"))
             if target is not None:
-                return self._command(f"reminder delete {target}".strip(), "User wants a reminder cancelled.", 0.86)
+                verb = " ".join(cancel.group("verb").lower().split())
+                action = "stop" if verb in _STOP_VERBS and not target.startswith("all ") else "delete"
+                return self._command(f"reminder {action} {target}".strip(), "User wants a reminder cancelled.", 0.86)
+        if re.fullmatch(r"\s*(?:time\s+left|how\s+much\s+time\s+(?:is\s+)?left)\s*[?.!]*", spoken, re.IGNORECASE):
+            return self._command("timers", "User asked about running timers.", 0.84)
         # The whole remainder goes through, exactly as said, because `timeparse` reads the
         # time far better than a pattern here could and it is the one place that should.
         # This used to require an ISO date, so "can you remind me to call mom at 6pm" fell
@@ -828,6 +879,12 @@ class HeuristicPlannerProvider:
             return self._command(text.strip().rstrip("?.! "), "The user asked for something they told me.", 0.86)
         if is_chance_request(text):
             return self._command(text.strip().rstrip("?.! "), "A random draw.", 0.9)
+        if nameless_list_edit(text):
+            return self._command(text.strip().rstrip(".! "), "A list edit that names no list.", 0.84)
+        changed = _FACT_CHANGE.match(text)
+        if changed:
+            key = re.sub(r"\s+", "_", changed.group("key").strip().lower())
+            return self._command(f"remember {key} = {changed.group('value').strip()}", "A fact, corrected.", 0.86)
         added = _LIST_ADD.match(text)
         if added:
             return self._command(f"list {added.group('name')} add {added.group('items')}", "Add to a list.", 0.88)
@@ -882,7 +939,9 @@ class HeuristicPlannerProvider:
     def _reminder_target(rest: str) -> str | None:
         """What "cancel <rest>" names, as `reminder delete` takes it, or None when <rest> is
         not a reminder at all ("stop the music")."""
-        bulk = re.fullmatch(r"all(?:\s+of)?(?:\s+(?:my|the))?\s+(?P<kind>reminders|timers|alarms)", rest, re.IGNORECASE)
+        # "all my reminders", or the plural alone: "clear my reminders".
+        bulk = re.fullmatch(r"(?:all(?:\s+of)?(?:\s+(?:my|the))?\s+)?(?P<kind>reminders|timers|alarms)", rest,
+                            re.IGNORECASE)
         if bulk:
             return f"all {bulk.group('kind').lower()}"
         named = re.fullmatch(
@@ -1565,6 +1624,9 @@ class HeuristicPlannerProvider:
         for pattern, key in _MEDIA_KEYS:
             if pattern.match(text):
                 return self._command(f"media {key}", "User wants media playback controlled.", 0.8)
+        level = _VOLUME_LEVEL.match(text)
+        if level:
+            return self._command(f"media volume {level.group('level')}", "User wants a volume level.", 0.84)
         match = _PLAY.match(text)
         if not match:
             return None

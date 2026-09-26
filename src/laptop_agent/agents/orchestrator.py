@@ -43,12 +43,18 @@ from laptop_agent.metrics import battery_status, system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import SMALL_TALK, fact_question, is_diagram_subject, is_plain_question
+from laptop_agent.planner.heuristic import (
+    SMALL_TALK,
+    fact_question,
+    is_diagram_subject,
+    is_plain_question,
+    nameless_list_edit,
+)
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
-from laptop_agent.scheduler import ScheduleError, SchedulerStore
+from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
@@ -186,6 +192,48 @@ def _spoken_request(expression: str) -> str:
     return spoken_to_digits(cleaned)
 
 
+_CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|krw|brl|zar|dollars?|bucks|euros?"
+             r"|rupees?|yen|yuan|pesos?|dirhams?|francs?|pounds?|reais|ringgit|baht|rand|bitcoins?|btc|ethereum|eth)")
+
+# Where one request ends and the next begins, in speech.
+_JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
+# A second request in a sentence starts with its own verb or question word; "hotels in
+# paris" after "search for flights and" does not, and is the first request's object.
+_REQUEST_START = re.compile(
+    r"\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|will\s+you\s+)?(?:set|remind|add|put|play|pause|"
+    r"stop|turn|open|launch|start|what(?:'s|s)?|how(?:'s|s)?|when(?:'s|s)?|where(?:'s|s)?|who(?:'s|s)?|is|are|do|does|"
+    r"tell|show|read|check|search|find|look|email|send|wake|cancel|delete|remove|clear|snooze|take|make|create|"
+    r"draw|write|convert|calculate|give|get|schedule|book|flip|roll|pick|mute|unmute|skip|resume|volume|lower|"
+    r"raise|increase|decrease|remember|forget|note|download|summari[sz]e|translate|define|change|update|"
+    r"weather|news|mark|list|go|navigate|close|save|run)\b",
+    re.IGNORECASE,
+)
+# A reply that is not an answer to the question just asked: a refusal, or a question of
+# its own. A lone "Will" is a name, so the modals only count with words after them.
+_NOT_AN_ANSWER = re.compile(
+    r"\s*(?:no|nope|nah|not|never|skip|cancel|stop|nevermind|idk|none|nothing|hm+|um+|uh+)\b"
+    r"|\s*(?:i\s+don'?t|don'?t|forget|why|what|how|who|when|where|which|can|could|would|will|is|are|do|does)\s+\w",
+    re.IGNORECASE,
+)
+_FILLER_REPLY = frozenset({"it's", "its", "it", "is", "the", "a", "an", "my", "to", "at", "in", "on", "of", "that",
+                           "this", "about", "for", "and", "so", "well", "ok", "okay", "yes", "yeah", "sure"})
+
+
+def _meaningful(value: str) -> bool:
+    """Whether a reply carries an answer: "it's" and "to" alone do not - they were filed as
+    a name and as a reminder."""
+    words = re.findall(r"[\w'-]+", value.lower())
+    return bool(words) and any(word not in _FILLER_REPLY for word in words)
+
+
+# Direct commands whose argument is free text: an "and" inside it belongs to it.
+_WHOLE_ARGUMENT = frozenset({
+    "email", "send", "remember", "note", "document", "image", "research", "solve", "ask", "agent", "autopilot",
+    "workflow", "multi", "schedule", "run", "terminal", "shell", "write", "draft", "summarize", "translate",
+})
+_HOW_LONG_LEFT = re.compile(r"(?:how\s+much\s+longer|how\s+much\s+time(?:\s+is)?\s+left|how\s+long\s+(?:is\s+)?left"
+                            r"|time\s+left|how\s+long\s+to\s+go)[\s?.!]*")
+
 # "shopping list", "the grocery list" - a list named on its own.
 _BARE_LIST = re.compile(r"(?:(?:show|read|open|check)\s+(?:me\s+)?)?(?:(?:my|the|our)\s+)?"
                         r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list[\s?.!]*")
@@ -198,9 +246,14 @@ _WHICH_LIST = re.compile(
 
 
 # A repeat said in a reminder: "every day at 8am", "daily", "every 30 minutes".
+_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_DAY_NAMES = "(?:" + "|".join(_WEEKDAY_NAMES) + ")"
+# A plural day ("on mondays") repeats; a singular one ("on monday") is a date.
 _REPEAT = re.compile(
-    r"\b(?:every\s+(?:\d+\s+(?:minutes?|hours?)|day|morning|evening|night|hour|weekday|weekend"
-    r"|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|daily|hourly|each\s+day)\b",
+    r"\b(?:every\s+(?:\d+\s+(?:minutes?|hours?)|day|morning|evening|night|hour|weekdays?|weekends?|week|month"
+    rf"|{_DAY_NAMES}(?:\s*(?:,|and|&)\s*{_DAY_NAMES})*)"
+    rf"|(?:on\s+)?(?:weekdays|weekends|{_DAY_NAMES}s(?:\s*(?:,|and|&)\s*{_DAY_NAMES}s)*)"
+    r"|daily|hourly|each\s+day|everyday)\b",
     re.IGNORECASE,
 )
 _UNIT_WORDS = r"seconds?|secs?|minutes?|mins?|hours?|hrs?|days?"
@@ -842,6 +895,9 @@ class AgentOrchestrator:
         if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._reminders_due()
 
+        if lowered in {"reminders next", "reminders next alarm", "reminders next timer"}:
+            return self._next_reminder(lowered.split()[-1] if lowered.endswith(("alarm", "timer")) else "")
+
         if lowered.startswith("reminder add "):
             return self._reminder_add(command[len("reminder add ") :].strip())
 
@@ -858,6 +914,9 @@ class AgentOrchestrator:
 
         if re.match(r"reminder (?:delete|cancel|remove)(?: |$)", lowered):
             return self._reminder_remove(command.split(" ", 2)[2] if len(command.split(" ", 2)) > 2 else "")
+
+        if lowered == "reminder stop" or lowered.startswith("reminder stop "):
+            return self._reminder_stop(command[len("reminder stop") :].strip())
 
         if lowered == "reminder snooze" or lowered.startswith("reminder snooze "):
             return self._reminder_snooze(command[len("reminder snooze") :].strip())
@@ -1327,6 +1386,10 @@ class AgentOrchestrator:
         if lowered.startswith("play music "):
             return self.context.music.play(command[len("play music ") :].strip())
 
+        level = re.fullmatch(r"media volume (\d{1,3})%?", lowered)
+        if level:
+            return self.context.music.set_volume(int(level.group(1)))
+
         if lowered.startswith("media "):
             return self.context.music.media_key(command[len("media ") :].strip())
         return None
@@ -1472,10 +1535,38 @@ class AgentOrchestrator:
         if lowered.startswith("convert ") and looks_like_conversion(command):
             return UnitTool().convert(command)
 
+        # "how much longer" means the timer, when one is running.
+        if _HOW_LONG_LEFT.fullmatch(lowered) and any(due > datetime.now().astimezone() for due, _ in self._dated("timer")):
+            return self._timers()
+
+        edit = nameless_list_edit(command)
+        if edit is not None:
+            return self._nameless_list_edit(*edit)
+
         asked = date_question(command)
         if asked is not None:
             return self._date_answer(*asked)
         return None
+
+    def _nameless_list_edit(self, verb: str, items: str) -> ToolResult:
+        """"delete milk from my list" / "add eggs to the list", with no list named: the one
+        list it can only mean, or a question naming the choices."""
+        lists = self.context.memory.lists()
+        if verb == "remove":
+            wanted = items.strip().lower()
+            holding = [name for name, entries in lists.items()
+                       if any(wanted == entry.lower() or wanted in entry.lower() for entry in entries)]
+            if len(holding) == 1:
+                return self._list_command(f"{holding[0]} remove {items}")
+            if not holding:
+                return ToolResult.failure(f"{items} isn't on any of your lists.")
+            return ToolResult.failure(f"{items} is on your {' and '.join(holding)} lists — which one?")
+        if len(lists) == 1:
+            return self._list_command(f"{next(iter(lists))} add {items}")
+        if not lists:
+            return ToolResult.failure(f"Which list should {items} go on? For example \"add {items} to my shopping list\".")
+        return ToolResult.failure(f"Which list — {', '.join(sorted(lists))}? For example \"add {items} to my "
+                                  f"{sorted(lists)[0]} list\".")
 
     def _date_answer(self, kind: str, what: str, other: str = "") -> ToolResult | None:
         """How many days until something, what day it falls on, or the days between two.
@@ -1494,6 +1585,10 @@ class AgentOrchestrator:
             return ToolResult.success(
                 f"**{days} days** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
                 f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
+        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?\s*", what, re.IGNORECASE)
+        if kind != "between" and upcoming:
+            # "when is my next reminder" is not a date anyone told us.
+            return self._next_reminder("" if upcoming.group(1).lower() == "reminder" else upcoming.group(1).lower())
         found = resolve_date(what, now, profile)
         if found is None:
             # "when is my dentist appointment" - a reminder may say.
@@ -1763,7 +1858,8 @@ class AgentOrchestrator:
         if verb == "workflow":
             return ";;" not in rest and rest not in {"status", "dashboard", "retry failed"}
         if verb == "media":
-            return rest not in {"playpause", "next", "previous", "stop", "volumeup", "volumedown", "mute"}
+            return rest not in {"playpause", "next", "previous", "stop", "volumeup", "volumedown", "mute"} and not (
+                re.fullmatch(r"volume \d{1,3}%?", rest))
         if verb == "timer":
             return not re.search(r"(?:\d|\ban?\b|\bhalf\b)\s*(?:" + _UNIT_WORDS + r")\b",
                                  spoken_to_digits(rest))
@@ -1781,12 +1877,125 @@ class AgentOrchestrator:
             )
         return self._command_verbs_cache
 
+    def _follow_up(self, command: str, history_turns) -> str | None:
+        """A short reply to a question this assistant just asked, made into the request it
+        completes: "set a timer" -> "How long should the timer run?" -> "10 minutes" used to
+        arrive as a bare "10 minutes" that nothing could act on. None when the last turn
+        asked nothing, or the reply is a request, a question or a refusal of its own."""
+        # The page and the CLI send {"role", "text"}; normalize_history reads either shape.
+        # Reading "content" alone passed every unit test and did nothing in the real page.
+        turns = normalize_history(history_turns)
+        if len(turns) < 2 or turns[-1][0] != "assistant":
+            return None
+        asked = turns[-1][1]
+        before = next((text.rstrip(".!?") for role, text in reversed(turns[:-1]) if role == "user"), "")
+        reply = command.strip().rstrip(".!")
+        if not reply or len(reply.split()) > 8 or _NOT_AN_ANSWER.match(reply):
+            return None
+        routed = self.router.plan(reply, "", {})
+        if routed.is_command or routed.explanation == SMALL_TALK:
+            return None
+        now = datetime.now().astimezone()
+        if asked.startswith("How long should the timer run?"):
+            return f"timer {reply}" if _TIMER_PART.search(spoken_to_digits(reply)) else None
+        if asked.startswith("When should the alarm go off?"):
+            return f"alarm {reply}"
+        if asked.startswith("What should I remind you about") and before:
+            subject = re.sub(r"^(?:to|that|about)\b\s*", "", reply, flags=re.IGNORECASE)
+            return f"{before} to {subject}" if _meaningful(subject) else None
+        if asked.startswith("I could not find a time in that.") and before:
+            for candidate in (reply, f"at {reply}"):
+                try:
+                    if parse_when(spoken_to_digits(candidate), now) is not None:
+                        return f"{before} {candidate}"
+                except TimeParseError:
+                    return None
+            return None
+        untold = re.match(r"You haven't told me (?:your (?P<key>.+?)|(?P<live>where you live)) yet\.", asked)
+        if untold:
+            value = re.sub(r"^(?:it'?s|it\s+is|i'?m|i\s+am|i\s+live\s+in|in|call\s+me)\b\s*", "", reply, flags=re.IGNORECASE)
+            key = "city" if untold.group("live") else untold.group("key").replace(" ", "_")
+            return f"remember {key} = {value}" if _meaningful(value) else None
+        undated = re.match(r"I don't know when your (?P<what>.+?) is — ", asked)
+        if undated:
+            value = re.sub(r"^(?:it'?s|it\s+is)(?:\s+on)?\b\s*|^on\b\s*", "", reply, flags=re.IGNORECASE)
+            if not _meaningful(value) or resolve_date(value, now, {}) is None:
+                return None
+            return f"remember {undated.group('what').replace(' ', '_')} = {value}"
+        if asked.startswith("Which one? ") and before:
+            ids = re.findall(r"#(\d+)", asked)
+            action = self.router.plan(before, "", {}).command or ""
+            verb = re.match(r"reminder (?:delete|done|snooze)", action)
+            if not ids or not verb:
+                return None
+            ordinals = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2, "fourth": 3,
+                        "4th": 3, "fifth": 4, "5th": 4, "last": -1, "latest": -1}
+            spoken = re.sub(r"^(?:the\s+)?(.+?)(?:\s+one)?$", r"\1", reply.lower())
+            picked = (ids[ordinals[spoken]] if spoken in ordinals
+                      else spoken.lstrip("#") if spoken.lstrip("#") in ids else spoken)
+            return f"{verb.group(0)} {picked}"
+        return None
+
+    def _split_requests(self, command: str) -> list[str] | None:
+        """Two requests said in one breath, each its own command - or None.
+
+        "set a timer for 5 minutes and remind me to call mom at 6pm" set the timer and
+        silently dropped the reminder. A sentence is split only where every part both
+        starts like a request and routes to a command on its own, so "remind me to buy milk
+        and eggs at 6pm" and "add milk and eggs to my list" stay whole ("eggs at 6pm" is
+        not a request), and of the ways to split it the one with the most parts wins.
+        """
+        joins = list(_JOINER.finditer(command))
+        if not joins or len(joins) > 4 or "::" in command or ";;" in command:
+            return None
+        if command.split(None, 1)[0].lower() in _WHOLE_ARGUMENT:
+            return None
+        routes: dict[str, bool] = {}
+
+        def routed(part: str) -> bool:
+            if part not in routes:
+                routes[part] = self.router.plan(part, "", {}).is_command
+            return routes[part]
+
+        best: list[str] | None = None
+        for mask in range(1, 2 ** len(joins)):
+            cuts = [join for bit, join in enumerate(joins) if mask >> bit & 1]
+            edges = [0] + [edge for join in cuts for edge in (join.start(), join.end())] + [len(command)]
+            parts = [command[edges[i]: edges[i + 1]].strip(" ,") for i in range(0, len(edges), 2)]
+            if any(not part for part in parts):
+                continue
+            if any(not _REQUEST_START.match(part) for part in parts[1:]):
+                continue
+            if all(routed(part) for part in parts) and (best is None or len(parts) > len(best)):
+                best = parts
+        return best
+
+    async def _run_each(self, parts: list[str], history_turns) -> ToolResult:
+        """Each request of a split sentence, handled exactly as if said on its own."""
+        results: list[tuple[str, ToolResult]] = []
+        for part in parts:
+            try:
+                result = await self._handle(part, True, history_turns, None, _whole=False)
+            except ApprovalDenied as exc:
+                result = ToolResult.failure(f"Not approved — {exc}")
+            results.append((part, result))
+        data: dict[str, object] = {}
+        for _part, result in results:
+            data.update({key: value for key, value in (result.data or {}).items() if key != "planner"})
+        ran = [((result.data or {}).get("planner") or {}).get("planned_command") or part for part, result in results]
+        data["parts"] = [{"request": part, "command": command, "ok": result.ok, "message": result.message}
+                         for (part, result), command in zip(results, ran)]
+        data["planner"] = {"planned_command": " ;; ".join(ran), "source": "split"}
+        return ToolResult(ok=all(result.ok for _part, result in results),
+                          message="\n\n".join(result.message for _part, result in results), data=data)
+
     async def _handle(
         self,
         text: str,
         _allow_planner: bool = True,
         history: list[dict[str, str]] | None = None,
         on_token=None,
+        _whole: bool = True,
     ) -> ToolResult:
         check_cancelled()
         command = text.strip()
@@ -1805,6 +2014,14 @@ class AgentOrchestrator:
                 length=len(command),
                 limit=MAX_COMMAND_CHARS,
             )
+
+        if _allow_planner and _whole:
+            answered = self._follow_up(command, history_turns)
+            if answered is not None:
+                command, lowered = answered, answered.lower()
+            groups = self._split_requests(command)
+            if groups:
+                return await self._run_each(groups, history_turns)
 
         # The dispatch is a table, not a 500-line chain. Each group returns a result or
         # None to mean 'not mine'; order is preserved exactly as it was, and the
@@ -2000,6 +2217,9 @@ class AgentOrchestrator:
         r"\bwhen (?:is|does|will|did)\b.*\b(?:release|come out|launch|start|happen)\b",
         r"\bwar\b.*\b(?:end|ended|over|still|update|status|now|going|latest)\b",
         r"\b(?:update|news|latest) on\b",
+        # Money in another currency: a rate moves daily and a model only has an old one.
+        # "5 pounds to kg" is a weight, and has no currency on its other side.
+        rf"\b{_CURRENCY}\b.{{0,30}}\b(?:to|in|into|=)\b.{{0,15}}\b{_CURRENCY}\b",
     )
 
     # Not questions about the world: how the user feels, the assistant itself, and the
@@ -2233,7 +2453,8 @@ class AgentOrchestrator:
                 "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
                 "  schedule list | schedule remove <id> | schedule run due",
                 "  remind me <what> <when>  (\"to call mom at 6pm\", \"in 20 minutes\", \"every day at 8am\")",
-                "  reminders | reminders due | reminder done <id> | reminder delete <id|words>",
+                "  reminders | reminders due | reminders next [alarm|timer] | reminder done <id>",
+                "  reminder delete <id|words|all>  ·  reminder stop <words>  (only what is going off now)",
                 "  reminder snooze [id] [<n>m]",
                 "  timer <duration> [label]  ·  alarm <time>  ·  timers  (running timers and the time left)",
                 "  lists | list <name> show | list <name> add <items> | list <name> remove <item> | list <name> clear",
@@ -2436,18 +2657,43 @@ class AgentOrchestrator:
             label = f"Timer ({amount})"
         return self._set_reminder(f"in {seconds} seconds", label=label, what="timer")
 
+    def _dated(self, kind: str = "") -> list[tuple[datetime, dict]]:
+        """Active reminders with their due time, soonest first; only timers or alarms when
+        `kind` names one."""
+        dated = []
+        for item in self.context.reminders.list():
+            if kind and not re.search(rf"\b{kind}\b", str(item.get("message", "")), re.IGNORECASE):
+                continue
+            try:
+                dated.append((datetime.fromisoformat(str(item.get("due_at", ""))), item))
+            except ValueError:
+                continue
+        return sorted(dated, key=lambda pair: pair[0])
+
+    def _next_reminder(self, kind: str = "") -> ToolResult:
+        """"what's my next reminder", "when is my alarm". "when is my next reminder" was
+        read as a date the user had never told us and answered "I don't know"."""
+        now = datetime.now().astimezone()
+        noun = kind or "reminder"
+        upcoming = [(due, item) for due, item in self._dated(kind) if due > now]
+        repeating = [job for job in self._repeating_reminders()
+                     if not kind or re.search(rf"\b{kind}\b", job.spec, re.IGNORECASE)]
+        parts = []
+        if upcoming:
+            due, item = upcoming[0]
+            what = "" if str(item["message"]).lower() == kind else f": {item['message']}"
+            parts.append(f"Your next {noun} is {describe(due, now)}{what}.")
+        if repeating:
+            parts.append("Repeating: " + "; ".join(
+                f"{job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating) + ".")
+        if not parts:
+            return ToolResult.success(f"You have no {noun}s coming up.")
+        return ToolResult.success(" ".join(parts), reminder=upcoming[0][1] if upcoming else None)
+
     def _timers(self) -> ToolResult:
         """Running timers and what is left on each - "how much time is left on my timer"."""
         now = datetime.now().astimezone()
-        running = []
-        for item in self.context.reminders.list():
-            if not re.search(r"\btimer\b", str(item.get("message", "")), re.IGNORECASE):
-                continue
-            try:
-                due = datetime.fromisoformat(str(item.get("due_at", "")))
-            except ValueError:
-                continue
-            running.append((due, item))
+        running = self._dated("timer")
         if not running:
             return ToolResult.success("No timer is running. Say \"set a timer for 10 minutes\" to start one.",
                                       timers=[])
@@ -2465,48 +2711,75 @@ class AgentOrchestrator:
         cleaned = re.sub(r"^(?:for|to|at)\s+", "at ", _spoken_request(expression), flags=re.IGNORECASE)
         if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.|p\.m\.))?", cleaned, re.IGNORECASE):
             cleaned = "at " + cleaned
+        # "every weekday at 7" was set once, for tomorrow, and the repeat was dropped unsaid.
+        repeat = _REPEAT.search(cleaned)
+        if repeat:
+            return self._repeating_reminder(cleaned, repeat, label="Alarm", default_half="am")
         return self._set_reminder(cleaned, default_half="am", label="Alarm", what="alarm")
 
-    def _repeating_reminder(self, cleaned: str, repeat: re.Match[str]) -> ToolResult:
+    def _repeating_reminder(self, cleaned: str, repeat: re.Match[str], label: str = "",
+                            default_half: str = "") -> ToolResult:
         """"remind me every day at 8am to take my vitamins", on the scheduler.
 
         It used to become ONE reminder at 8am today reading "every day to take my vitamins".
-        A repeat the scheduler cannot express - weekly, weekdays - is set once and says so.
+        Weekdays, weekends and named days repeat too ("every monday", "on weekdays"); only
+        "every week" and "every month" without a day are set once, and say so.
         """
         rule = repeat.group(0).lower()
-        # "every monday" keeps its "monday": dropped with the rest of the rule, the one-off
-        # fallback below landed on today instead of the coming Monday.
+        # "every monday" keeps its "monday" in what is parsed: dropped with the rest of the
+        # rule, the one-off fallback below landed on today instead of the coming Monday.
         weekday = re.search(r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", rule)
         body = (cleaned[: repeat.start()] + " " + (weekday.group(1) if weekday else "") + " "
                 + cleaned[repeat.end():]).strip()
         now = datetime.now().astimezone()
         try:
-            when = parse_when(body, now)
+            when = parse_when(body, now, default_half=default_half)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
-        message = _reminder_message(body, when.start, when.end) if when else _reminder_message(body, 0, 0)
+        message = label or (_reminder_message(body, when.start, when.end) if when else _reminder_message(body, 0, 0))
         if not message:
             return ToolResult.failure("What should I remind you about?")
+        days = parse_days(re.sub(r"^(?:every|on)\s+", "", rule)) if re.search(
+            r"week(?:day|end)|" + _DAY_NAMES, rule) else ()
         interval = re.match(r"every\s+(\d+)\s+(minutes?|hours?)", rule)
         if interval or rule in {"every hour", "hourly"}:
             schedule = f"every {interval.group(1)} {interval.group(2)}" if interval else "every hour"
-        elif re.search(r"\b(?:day|daily|morning|evening|night)\b", rule):
+        elif days or re.search(r"\b(?:day|daily|morning|evening|night|everyday)\b", rule):
             if when is not None:
                 clock = when.at.astimezone(now.tzinfo)
             else:
                 hour = 18 if "evening" in rule else 21 if "night" in rule else 9
                 clock = now.replace(hour=hour, minute=0)
-            schedule = f"daily at {clock.hour:02d}:{clock.minute:02d}"
+            on = ("weekdays" if days == (0, 1, 2, 3, 4) else "weekends" if days == (5, 6)
+                  else " and ".join(f"{_WEEKDAY_NAMES[day]}s" for day in days) if days else "daily")
+            schedule = f"{on} at {clock.hour:02d}:{clock.minute:02d}"
         else:
-            once = self._set_reminder(body) if when else ToolResult.failure("When should I remind you?")
+            if when:
+                once = self._set_reminder(body, default_half=default_half, label=label,
+                                          what="alarm" if label == "Alarm" else "reminder")
+            else:
+                once = ToolResult.failure("When should I remind you?")
             if once.ok:
-                once.message = (once.message.rstrip(".") + ". I can repeat reminders daily or every "
-                                f"few hours, but not {rule} yet, so this one is set once.")
+                once.message = (once.message.rstrip(".") + ". I can repeat daily, on weekdays or on given "
+                                f"days, or every few hours, but not {rule} yet, so this one is set once.")
             return once
+        spec = f"reminder add now {message}"
         try:
-            job = self.context.scheduler.add("command", f"reminder add now {message}", schedule, now)
+            wanted = parse_schedule(schedule).to_dict()
         except ScheduleError as exc:
             return ToolResult.failure(str(exc))
+        # Said twice, it rang twice: the same request makes the same job once.
+        for existing in self._repeating_reminders():
+            if existing.spec == spec and existing.schedule.to_dict() == wanted:
+                return ToolResult.success(f"That's already set — {existing.schedule.describe()}: {message}.",
+                                          job=existing.to_dict())
+        try:
+            job = self.context.scheduler.add("command", spec, schedule, now)
+        except ScheduleError as exc:
+            return ToolResult.failure(str(exc))
+        if label == "Alarm":
+            return ToolResult.success(f"Alarm set — {job.schedule.describe()}. Say \"cancel the alarm\" to stop it.",
+                                      job=job.to_dict())
         return ToolResult.success(
             f"Repeating reminder set — {job.schedule.describe()}: {message}. "
             f"Say \"cancel the {message.split()[-1]} reminder\" to stop it.",
@@ -2558,6 +2831,12 @@ class AgentOrchestrator:
             return max(active, key=lambda item: int(item.get("id", 0))), ""
         words = [word for word in re.findall(r"[a-z0-9']+", wanted) if word not in {"the", "my", "a", "to", "about", "for"}]
         matches = [item for item in active if all(word in str(item.get("message", "")).lower() for word in words)]
+        if len(matches) > 1 and words and words[0] in {"timer", "alarm"}:
+            # "stop the alarm" means the one ringing, not tomorrow's.
+            now = datetime.now().astimezone()
+            ringing = [item for due, item in self._dated() if due <= now and item in matches]
+            if ringing:
+                return ringing[0], ""
         if len(matches) == 1 or (matches and words and words[0] in {"timer", "alarm"}):
             return max(matches, key=lambda item: int(item.get("id", 0))), ""
         if not matches:
@@ -2572,11 +2851,17 @@ class AgentOrchestrator:
         return ToolResult.success(f"Done: {reminder['message']}.", id=reminder["id"], completed=True)
 
     def _reminder_remove(self, raw: str) -> ToolResult:
-        """Cancel a reminder by id, "last", or its words - one-off or repeating."""
+        """Cancel a reminder by id, "last", or its words - one-off or repeating. The one
+        going off now comes first: cancelling a ringing alarm deleted its weekday schedule
+        and left it ringing."""
         words = raw.strip().lower()
         bulk = re.fullmatch(r"all(?:\s+(?P<kind>reminders|timers|alarms))?", words)
         if bulk:
             return self._remove_all(bulk.group("kind") or "reminders")
+        ringing = None if words.lstrip("#").isdigit() else self._ringing(words)
+        if ringing is not None:
+            self.context.reminders.complete(int(ringing["id"]))
+            return ToolResult.success(f"Stopped: {ringing['message']}.", id=ringing["id"], completed=True)
         for job in self._repeating_reminders():
             spoken = job.spec[len("reminder add now "):].lower()
             if words and not words.isdigit() and all(w in spoken for w in re.findall(r"[a-z0-9']+", words)
@@ -2588,6 +2873,45 @@ class AgentOrchestrator:
             return ToolResult.failure(why)
         self.context.reminders.remove(int(reminder["id"]))
         return ToolResult.success(f"Cancelled: {reminder['message']}.", id=reminder["id"], removed=True)
+
+    def _ringing(self, words: str) -> dict | None:
+        """The reminder going off now (or overdue) that these words name, if any."""
+        now = datetime.now().astimezone()
+        wanted = [word for word in re.findall(r"[a-z0-9']+", words.lower())
+                  if word not in {"the", "my", "a", "to", "about", "for", "reminder", "this", "that", "it", "last"}]
+        for due, item in self._dated():
+            if due > now:
+                break
+            if all(word in str(item.get("message", "")).lower() for word in wanted):
+                return item
+        return None
+
+    def _reminder_stop(self, raw: str) -> ToolResult:
+        """"stop the alarm": the one ringing, or a running timer. Anything else is only
+        described - an ambiguous word must not delete an alarm set for the morning."""
+        ringing = self._ringing(raw)
+        if ringing is not None:
+            self.context.reminders.complete(int(ringing["id"]))
+            return ToolResult.success(f"Stopped: {ringing['message']}.", id=ringing["id"], completed=True)
+        reminder, why = self._find_reminder(raw) if raw.strip() else (None, "")
+        if reminder is not None and re.search(r"\btimer\b", str(reminder["message"]), re.IGNORECASE):
+            self.context.reminders.remove(int(reminder["id"]))
+            return ToolResult.success(f"Stopped: {reminder['message']}.", id=reminder["id"], removed=True)
+        now = datetime.now().astimezone()
+        wanted = [word for word in re.findall(r"[a-z0-9']+", raw.lower())
+                  if word not in {"the", "my", "a", "to", "about", "for", "reminder", "this", "that", "it"}]
+        jobs = [job for job in self._repeating_reminders()
+                if wanted and all(word in job.spec.lower() for word in wanted)]
+        set_up = []
+        if reminder is not None:
+            due = datetime.fromisoformat(str(reminder["due_at"]))
+            set_up.append(f"{reminder['message']} is set for {describe(due, now)}")
+        set_up += [f"{job.spec[len('reminder add now '):]} repeats {job.schedule.describe()}" for job in jobs]
+        if not set_up:
+            return ToolResult.failure(why or "Nothing is going off right now.")
+        name = raw.strip() or "reminder"
+        return ToolResult.success(f"Nothing is going off right now. {'; '.join(set_up)}. "
+                                  f"Say \"cancel the {name}\" if you want it removed.")
 
     def _remove_all(self, kind: str) -> ToolResult:
         """"cancel all my reminders" - asks first when it would remove more than one, since

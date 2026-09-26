@@ -76,6 +76,11 @@ class MemoryTests(unittest.TestCase):
         result, ran = self.everyday.say("hey jarvis, what's my name")
         self.assertEqual((result.message, ran), ("Your name is Jeevan.", "what's my name"))
 
+    def test_a_fact_can_be_corrected(self) -> None:
+        self.say("my name is Jeevan")
+        self.assertIn("your name is Jeev", self.say("change my name to Jeev"))
+        self.assertEqual(self.say("what's my name"), "Your name is Jeev.")
+
     def test_a_question_about_something_else_goes_on(self) -> None:
         # "my ip" is not a fact anyone told it, and must not be answered "you haven't told me".
         result, ran = self.everyday.say("what's my ip")
@@ -129,6 +134,17 @@ class ListTests(unittest.TestCase):
         # A near spelling of a list that exists is that list, not a second one beside it.
         self.assertIn("to your shopping list (2 items)", self.say("add milk to my shoping list"))
         self.assertEqual(sorted(self.everyday.orchestrator.context.memory.lists()), ["shopping", "todo"])
+
+    def test_a_list_edit_that_names_no_list(self) -> None:
+        self.assertIn("Which list should milk go on?", self.say("add milk to my list"))
+        self.say("add milk and eggs to my shopping list")
+        self.assertIn("Added bread to your shopping list", self.say("add bread to the list"))   # the only one
+        self.assertIn("Removed milk from your shopping list", self.say("delete milk from my list"))
+        self.say("add call mom to my todo list")
+        self.assertIn("Which list — shopping, todo?", self.say("put butter on the list"))
+        self.assertIn("isn't on any of your lists", self.say("remove caviar from my list"))
+        self.say("add bread to my todo list")
+        self.assertIn("on your shopping and todo lists — which one?", self.say("remove bread from the list"))
 
     def test_a_list_that_does_not_exist_is_not_invented(self) -> None:
         result, ran = self.everyday.say("python list")

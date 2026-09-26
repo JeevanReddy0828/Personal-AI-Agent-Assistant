@@ -21,6 +21,9 @@ from datetime import date, datetime, timedelta
 
 # Shared with scheduler.parse_schedule. Weeks are here; months are not, because "in 2
 # months" has no single correct answer and a reminder may not guess.
+# Past this a datetime overflows long before anyone could want the reminder.
+_LONGEST_WAIT = 20 * 365 * 86400
+
 DURATION_UNITS: dict[str, int] = {
     "second": 1, "seconds": 1, "sec": 1, "secs": 1, "s": 1,
     "minute": 60, "minutes": 60, "min": 60, "mins": 60, "m": 60,
@@ -228,9 +231,13 @@ def _iso(text: str, now: datetime) -> When | None:
 
 
 def _duration(text: str, now: datetime) -> When | None:
+    """"in 20 minutes", "in an hour and a half", "in 2 hours and 30 minutes". The whole
+    length is one span: "in an hour and a half to stretch" was set an hour out and filed
+    as "and a half to stretch"."""
     units = "|".join(sorted(DURATION_UNITS, key=len, reverse=True))
     match = re.search(
-        rf"\bin\s+(?:(?P<n>\d+)|(?P<article>an?)|(?P<half>half\s+an?))\s*(?P<unit>{units})\b",
+        rf"\bin\s+(?:(?P<n>\d+)(?P<and_half>\s+and\s+a\s+half)?|(?P<article>an?)|(?P<half>half\s+an?))"
+        rf"\s*(?P<unit>{units})\b(?P<half_after>\s+and\s+a\s+half)?",
         text)
     if not match:
         return None
@@ -241,9 +248,18 @@ def _duration(text: str, now: datetime) -> When | None:
         seconds = unit_seconds
     else:
         seconds = int(match.group("n")) * unit_seconds
+    if match.group("and_half") or match.group("half_after"):
+        seconds += unit_seconds / 2
+    end = match.end()
+    more = re.compile(rf"\s*,?\s*(?:and\s+)?(?P<n>\d+)\s*(?P<unit>{units})\b")
+    while extra := more.match(text, end):
+        seconds += int(extra.group("n")) * DURATION_UNITS[extra.group("unit")]
+        end = extra.end()
     if seconds <= 0:
         raise TimeParseError("A reminder cannot be set for no time at all.")
-    return When(now + timedelta(seconds=seconds), match.start(), match.end())
+    if seconds > _LONGEST_WAIT:
+        raise TimeParseError("That's too far ahead for me to keep track of. Pick a date within the next few years.")
+    return When(now + timedelta(seconds=seconds), match.start(), end)
 
 
 # Words that say which half of the day a bare hour is in. "remind me to take out the trash

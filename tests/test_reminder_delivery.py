@@ -107,7 +107,8 @@ class VoiceRoutingTests(unittest.TestCase):
             "cancel the last reminder": "reminder delete last",
             "cancel the reminder to call mom": "reminder delete call mom",
             "cancel the vitamins reminder": "reminder delete vitamins",
-            "stop the timer": "reminder delete timer",
+            "stop the timer": "reminder stop timer",       # stop: what is going off, never a schedule
+            "turn off my alarm": "reminder stop alarm",
             "mark reminder 1 done": "reminder done 1",
             "snooze": "reminder snooze",
             "snooze for five minutes": "reminder snooze 5m",
@@ -126,6 +127,14 @@ class VoiceRoutingTests(unittest.TestCase):
             "stop reminding me about the oven": "reminder delete the oven",
             "cancel all my reminders": "reminder delete all reminders",
             "delete all timers": "reminder delete all timers",
+            "clear my reminders": "reminder delete all reminders",
+            "snooze 5 more minutes": "reminder snooze 5m",
+            "snooze for another 10 minutes": "reminder snooze 10m",
+            "what's my next reminder": "reminders next",
+            "when does my alarm go off": "reminders next alarm",
+            "is my alarm set": "reminders next alarm",
+            "set an alarm for every weekday at 7": "alarm every weekday at 7",
+            "time left": "timers",
         }
         for text, expected in cases.items():
             self.assertEqual(self.command(text), expected, text)
@@ -186,10 +195,75 @@ class ReminderConversationTests(unittest.TestCase):
         (item,) = self.reminders.due()
         self.assertEqual(item["message"], "take my vitamins")
 
-    def test_a_weekly_repeat_is_set_once_and_says_so(self) -> None:
+    def test_a_weekly_repeat_repeats_on_its_day(self) -> None:
+        # It used to be set once, for the coming Monday, with a note that it would not repeat.
         message = self.say("remind me every monday at 10 to water plants")
-        self.assertIn("Monday at 10:00 AM", message)
+        self.assertIn("Repeating reminder set — Mondays at 10:00: water plants.", message)
+        (job,) = self.everyday.orchestrator.context.scheduler.list_jobs()
+        self.assertEqual(job.schedule.days, (0,))
+        self.assertIn("weekdays at 08:00", self.say("remind me on weekdays at 8am to stand up"))
+        # What still cannot repeat is set once, and says so.
+        message = self.say("remind me every month on 2026-10-01 at 9 to pay rent")
         self.assertIn("set once", message)
+
+    def test_an_alarm_can_repeat(self) -> None:
+        # "every weekday at 7" was set once, for tomorrow, and the repeat dropped unsaid.
+        self.assertEqual(self.say("set an alarm for every weekday at 7"),
+                         "Alarm set — weekdays at 07:00. Say \"cancel the alarm\" to stop it.")
+        self.assertIn("daily at 06:30", self.say("wake me up every day at 6:30"))
+        self.assertIn("Repeating: weekdays at 07:00 — Alarm", self.say("when is my next alarm"))
+        # The same request twice is one alarm, not two ringing together.
+        self.assertIn("already set", self.say("set an alarm for every weekday at 7"))
+        self.assertEqual(len(self.everyday.orchestrator.context.scheduler.list_jobs()), 2)
+
+    def test_stop_only_stops_what_is_going_off(self) -> None:
+        # "stop the alarm" with nothing ringing deleted the weekday alarm - an overslept morning.
+        self.say("set an alarm for every weekday at 7")
+        message = self.say("stop the alarm")
+        self.assertIn("Nothing is going off right now", message)
+        self.assertEqual(len(self.everyday.orchestrator.context.scheduler.list_jobs()), 1)
+        # What is ringing is what stops, and the schedule behind it stays.
+        self.reminders.add((datetime.now(UTC) - timedelta(seconds=5)).isoformat(), "Alarm")
+        self.reminders.add((datetime.now(UTC) + timedelta(hours=20)).isoformat(), "Alarm")
+        self.assertEqual(self.say("turn off the alarm"), "Stopped: Alarm.")
+        self.assertEqual(self.reminders.due(), [])
+        self.assertEqual(len(self.reminders.list()), 1)
+        self.assertEqual(len(self.everyday.orchestrator.context.scheduler.list_jobs()), 1)
+        # A running timer is stopped by "stop"; "cancel" is what removes a schedule.
+        self.say("set a timer for 10 minutes")
+        self.assertIn("Stopped: Timer (10 minutes).", self.say("stop the timer"))
+        self.assertIn("Stopped the repeating reminder: Alarm.", self.say("cancel the alarm"))
+
+    def test_cancelling_a_ringing_alarm_keeps_its_schedule(self) -> None:
+        # The repeating job was matched first: its schedule was deleted, and it kept ringing.
+        self.say("set an alarm for every weekday at 7")
+        self.reminders.add((datetime.now(UTC) - timedelta(seconds=5)).isoformat(), "Alarm")   # this morning's
+        self.assertEqual(self.say("cancel the alarm"), "Stopped: Alarm.")
+        self.assertEqual(self.reminders.due(), [])
+        self.assertEqual(len(self.everyday.orchestrator.context.scheduler.list_jobs()), 1)
+
+    def test_next_and_how_much_longer(self) -> None:
+        self.assertIn("You have no reminders coming up.", self.say("what's my next reminder"))
+        self.say("remind me to call mom tomorrow at 6pm")
+        self.say("remind me to stretch in 2 hours")
+        self.assertIn(": stretch.", self.say("when is my next reminder"))    # the sooner one
+        self.say("set a pasta timer for 10 minutes")
+        self.assertRegex(self.say("how much longer"), r"^Pasta timer: \*\*")
+        self.assertRegex(self.say("time left"), r"^Pasta timer: \*\*")
+
+    def test_durations_said_in_parts(self) -> None:
+        self.assertIn(": stretch", self.say("remind me in an hour and a half to stretch"))
+        (item,) = self.reminders.list()
+        due = datetime.fromisoformat(item["due_at"])
+        self.assertAlmostEqual((due - datetime.now(UTC)).total_seconds(), 5400, delta=5)
+        self.assertIn("too far ahead", self.say("remind me in 99999999999 days to stretch"))
+
+    def test_snooze_said_loosely(self) -> None:
+        self.reminders.add((datetime.now(UTC) - timedelta(seconds=5)).isoformat(), "stretch")
+        self.assertIn("Snoozed until", self.say("snooze 5 more minutes"))
+        (item,) = self.reminders.list()
+        due = datetime.fromisoformat(item["due_at"])
+        self.assertAlmostEqual((due - datetime.now(UTC)).total_seconds(), 300, delta=5)
 
     def test_cancel_snooze_and_done_by_what_you_say(self) -> None:
         self.say("remind me to call mom at 6pm")
