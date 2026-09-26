@@ -5,6 +5,21 @@ near-miss. Newest first.
 
 ## Session 2026-09-26 — everyday-requests hardening
 
+- **Eight commits were red on Windows and nobody looked.** CI ran on every push to the
+  branch; I ran the suite only locally, on Linux, and first read a CI result once the PR
+  existed - two Windows-only failures (an 8.3 short temp path, and a path Windows reports
+  missing where Linux raises) had been red since the third commit. **Rule: after the
+  first push to a branch, read its CI run - every job, not the summary - before building
+  further on it. A local pass on one OS says nothing about the others the matrix runs.**
+
+- **The voice loop answered itself, again, through three separate holes.** The echo guard
+  compared a transcript with one spoken sentence at a time, so a transcript straddling two
+  of our sentences matched neither; server barge-in learned our echo level before playback
+  had started (so it learned silence) and then transcribed 12s of its own reply; and the
+  server-STT listening turn had neither the echo check nor the 400ms tail guard the
+  browser path had. **Rule: two implementations of one guard drift - when a check exists
+  on one path of the voice loop, grep for the other path before calling the loop fixed.**
+
 - **Tests that build their own input shape passed against code that did nothing in the
   real client.** Follow-up answers ("set a timer" → "How long?" → "10 minutes") read
   `history[i]["content"]`. Every unit test passed - I had written the fixture with
