@@ -1630,7 +1630,11 @@
     const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
     const a=norm(q); if(!a)return false;
     const aw=a.split(' ');
-    for(const spoken of spokenRecent){
+    // Also each pair said back to back: the microphone does not hear sentence boundaries,
+    // so "…in snow. The weather in…" matched neither half well enough and was answered as
+    // the user. Pairs, never the whole history - a long blob matches any real sentence.
+    const heard=spokenRecent.concat(spokenRecent.slice(1).map((s,i)=>spokenRecent[i]+' '+s));
+    for(const spoken of heard){
       const b=norm(spoken); if(!b)continue;
       if(b.includes(a)||a.includes(b))return true;
       const bw=new Set(b.split(' '));
@@ -1709,6 +1713,10 @@
     try{s.ac.close();}catch(e){}
     try{s.stream.getTracks().forEach(t=>t.stop());}catch(e){}
   }
+  function ourVoicePlaying(){
+    try{if(activeAudio&&!activeAudio.paused&&activeAudio.currentTime>0)return true;}catch(e){}
+    try{return !!(window.speechSynthesis&&speechSynthesis.speaking);}catch(e){return false;}
+  }
   async function serverBargeStart(){
     if(sBarge||!voiceActive||bargeOff||!navigator.mediaDevices)return;
     const generation=voiceGeneration;
@@ -1752,7 +1760,10 @@
       const now=performance.now();
       meterPaint(peak,floor,level());
       if(!fired){
-        // The first frames are our own voice leaking past echo cancellation: measure it.
+        // The first frames of PLAYBACK are our own voice leaking past echo cancellation:
+        // measure it. This started before the audio was even fetched, learned silence, set
+        // the bar at the floor, and then our own voice cleared it and was answered.
+        if(!ourVoicePlaying())return;
         if(learned++<6){floor=Math.max(floor,peak);return;}
         if(peak>level()){loudMs+=ch.length/rate*1000;lastLoud=now;}
         else if(now-lastLoud>250)loudMs=0;               // a cough or a door is not a sentence
@@ -1761,6 +1772,9 @@
         // Stop talking immediately. Not stopSpeaking(), which would tear down this very
         // capture — the rest of what the user is saying still has to be recorded.
         fired=true; barged=true; firedAt=now; lastLoud=now; ttsEpoch++;
+        // Keep ~0.6s before the trigger (the start of what the user said), not the 12s of
+        // our own reply that the buffer held - that was transcribed and sent as a question.
+        const keep=Math.ceil(0.6*rate/4096); if(samples.length>keep)samples.splice(0,samples.length-keep);
         try{speechSynthesis.cancel();}catch(_){}
         try{if(activeAudio)activeAudio.pause();}catch(_){}
         releaseAudio(); ttsQueue=[]; speaking=false; streamComplete=true;
@@ -1882,7 +1896,9 @@
         if(!d.ok&&d.message)vtrans.textContent=d.message;
       }catch(e){}
       if(!voiceActive||generation!==voiceGeneration)return;
-      if(q.length<2){listen();return;}
+      // The browser path always had these two guards; this one had neither, so anything
+      // it caught of our own voice - a reminder read aloud, a reply's tail - was answered.
+      if(q.length<2||isEcho(q)){listen();return;}
       vtrans.textContent=q;vSet('thinking','Thinking');
       await send(q);
     };
@@ -1891,6 +1907,7 @@
       const ch=e.inputBuffer.getChannelData(0); samples.push(new Float32Array(ch));
       let peak=0;for(let i=0;i<ch.length;i+=8){const v=Math.abs(ch[i]);if(v>peak)peak=v;}
       const now=performance.now();
+      if(now-speechEndedAt<400)return;                  // the tail of what we just said
       if(peak>0.035){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
       else if(spoke&&now-lastLoud>1000){vmark('settle');finish();return;}   // ~1s silence after speech
       if(now-t0>12000)finish();                                              // hard cap

@@ -442,7 +442,11 @@ class BrowserRegressions(unittest.TestCase):
                     mostWords:  isEcho('here is a red fox in the snow'),
                     userSpeech: isEcho('stop and draw a cat instead'),
                     shortWord:  isEcho('stop'),
-                    empty:      isEcho('')
+                    empty:      isEcho(''),
+                    // The microphone does not hear sentence boundaries: the end of one
+                    // sentence and the start of the next arrive as one transcript.
+                    straddle:   isEcho('red fox in snow the weather'),
+                    userAbout:  isEcho('what is the weather in hyderabad tomorrow')
                 };
             }"""
         )
@@ -452,6 +456,10 @@ class BrowserRegressions(unittest.TestCase):
         self.assertFalse(outcome["userSpeech"], "the user's own interruption must get through")
         self.assertFalse(outcome["shortWord"], "a single word must not be eaten as echo")
         self.assertFalse(outcome["empty"])
+        # Straddling two of our sentences matched neither well enough, so the reply was
+        # answered as if the user had said it - the loop, reported twice.
+        self.assertTrue(outcome["straddle"], "a transcript spanning two of our sentences is echo")
+        self.assertFalse(outcome["userAbout"], "a user question sharing a few of our words is theirs")
 
     def test_sending_works_without_a_secure_context(self):
         """Reached over http on a LAN address — how a phone reaches it — the page is not a
@@ -592,13 +600,17 @@ class BrowserRegressions(unittest.TestCase):
                 if (!armed) { voiceActive = false; speaking = false;
                     return { armed: false, heldThroughOurOwnVoice: false, stopped: false }; }
                 const epoch0 = ttsEpoch;
-                feed(0.02, 6);                       // our own voice, learned as the floor
-                feed(0.02, 6);                       // still only us: must not trigger
+                // The reply is still being fetched: the room is quiet. Learning here set
+                // the bar at the floor, and our own voice then cleared it - the loop.
+                feed(0.001, 8);
+                activeAudio = { paused: false, currentTime: 0.5, pause() {} };   // playback starts
+                feed(0.06, 6);                       // our own voice, learned as the floor
+                feed(0.06, 6);                       // still only us: must not trigger
                 const heldThroughOurOwnVoice = (ttsEpoch === epoch0 && speaking === true);
                 feed(0.35, 4);                       // the user starts talking
                 const stopped = (ttsEpoch > epoch0 && speaking === false);
                 try { bargeStop(); } catch (e) {}
-                voiceActive = false; speaking = false;
+                activeAudio = null; voiceActive = false; speaking = false;
                 return { armed: armed, heldThroughOurOwnVoice: heldThroughOurOwnVoice, stopped: stopped };
             }"""
         )
