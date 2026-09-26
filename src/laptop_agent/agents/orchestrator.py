@@ -2023,9 +2023,10 @@ class AgentOrchestrator:
                 limit=MAX_COMMAND_CHARS,
             )
 
-        # A path segment longer than any filesystem allows. Linux refuses it with an error
-        # (caught below); Windows just reports it missing, and the reply echoed all of it.
-        if lowered.startswith(_FILE_VERBS) and re.search(r"[^\s/\\]{256,}", command):
+        # A NUL byte, or a path segment longer than any filesystem allows. Linux refuses
+        # these with an error (explained by the last line of defence); Windows on 3.13 just
+        # reports them missing, and the reply echoed the whole name back.
+        if lowered.startswith(_FILE_VERBS) and ("\x00" in command or re.search(r"[^\s/\\]{256,}", command)):
             return ToolResult.failure(_UNUSABLE_PATH)
 
         if _allow_planner and _whole:
