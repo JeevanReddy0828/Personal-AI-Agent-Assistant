@@ -287,6 +287,16 @@
   .apbtn:hover{border-color:var(--hair-3);color:var(--text)}
   .apbtn.yes{background:var(--warn);border-color:var(--warn);color:#1a1206}
   .apbtn.yes:hover{filter:brightness(1.08)}
+  /* Reminder card: something the user asked to be told, arriving on time. Accent, not warn
+     - it is a message, not a decision - and top-right, so it never covers an approval. */
+  #remtray{position:fixed;right:18px;top:64px;z-index:71;display:flex;flex-direction:column;gap:10px;max-width:min(380px,calc(100vw - 36px))}
+  .remcard{background:var(--surface-2);border:1px solid var(--accent);border-radius:var(--r-lg);
+    padding:14px 16px;box-shadow:var(--shadow-2);animation:apin var(--med) var(--ease)}
+  @media (prefers-reduced-motion:reduce){.remcard{animation:none}}
+  .remcard h4{margin:0 0 6px;font:600 12.5px/1.3 var(--sans);color:var(--accent)}
+  .remmsg{font:500 15px/1.45 var(--sans);color:var(--text);word-break:break-word;margin-bottom:12px}
+  .apbtn.remdone{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .apbtn.remdone:hover{filter:brightness(1.08)}
 
   .att{display:inline-flex;align-items:center;gap:6px;margin:8px 6px 0 0;background:rgba(255,255,255,.04);border:1px solid var(--hair-2);border-radius:8px;padding:5px 10px;font:12.5px var(--sans);color:var(--text-2)}
   .att .ic{color:var(--muted)}

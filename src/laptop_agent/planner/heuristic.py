@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from laptop_agent.planner.core import PlanDecision
+from laptop_agent.timeparse import spoken_to_digits
 from laptop_agent.tools.weather import clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
@@ -132,6 +133,32 @@ _REMINDER_ASK = re.compile(
 )
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
                             re.IGNORECASE)
+# Timers, alarms and managing reminders, read after spoken numbers become digits.
+_DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)\b"
+_TIMER_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
+    r"(?:(?:set|start|put\s+on|make|create|run|give\s+me)\s+)?(?:me\s+)?(?:an?\s+)?"
+    r"(?:" + _DURATION + r"\s+(?:[a-z]+\s+)?timer\b|timer\b|[a-z]+\s+timer\b)",
+    re.IGNORECASE,
+)
+_ALARM_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
+    r"(?:set\s+(?:an?\s+|my\s+|the\s+)?alarm|wake\s+me(?:\s+up)?|alarm)\s+(?:for\s+|at\s+|to\s+)?"
+    r"(?P<when>.+?)\s*[.!?]*$",
+    re.IGNORECASE,
+)
+_TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
+_SNOOZE = re.compile(
+    r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
+    r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?P<minutes>\d+)\s*(?:minutes?|mins?|m))?\s*[.!]*$",
+    re.IGNORECASE,
+)
+_CANCEL = re.compile(
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
+    r"(?:delete|cancel|remove|drop|stop|turn\s+off|dismiss)\s+(?:the\s+|my\s+|this\s+)?"
+    r"(?P<rest>.+?)\s*[.!]*$",
+    re.IGNORECASE,
+)
 # Media control only when the whole message IS the control. "pause" and "resume" used to
 # match anywhere in the text, so "update my resume", "how to write a good resume" and "what
 # does pause mean" all toggled playback. Measured by driving a conversational corpus
@@ -192,8 +219,9 @@ _SMALL_TALK: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"(?:bye|goodbye|good\s+bye|see\s+you|see\s+ya|later|good\s*night|night)", "Goodbye! I'm here whenever you need me."),
         (r"(?:ok|okay|cool|nice|great|awesome|got\s+it|sounds\s+good|alright|all\s+right|perfect)",
          "Great. Anything else?"),
-        (r"(?:never\s*mind|forget\s+(?:it|about\s+it|that)|no\s+worries|scratch\s+that|cancel\s+that)",
-         "No problem."),
+        # Not "cancel that": after "Reminder #4 set" it means cancel the reminder, and only
+        # the router, which sees the conversation, can tell.
+        (r"(?:never\s*mind|forget\s+(?:it|about\s+it)|no\s+worries)", "No problem."),
     )
 )
 # A question about the weather, with or without a place in it.
@@ -560,9 +588,34 @@ class HeuristicPlannerProvider:
             return self._command("reminders", "User wants to list active reminders.", 0.86)
         if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._command("reminders due", "User wants due reminders.", 0.86)
-        done = re.search(r"\b(?:complete|finish|mark done|mark complete)\s+reminder\s+#?(\d+)\b", text, re.IGNORECASE)
+        done = re.search(
+            r"\b(?:complete|finish|mark done|mark complete)\s+reminder\s+#?(\d+)\b"
+            r"|\b(?:mark\s+)?reminder\s+#?(\d+)\s+(?:as\s+)?(?:done|complete|completed|finished)\b"
+            r"|\b(?:done|finished)\s+with\s+reminder\s+#?(\d+)\b",
+            text, re.IGNORECASE,
+        )
         if done:
-            return self._command(f"reminder done {done.group(1)}", "User wants to complete a reminder.", 0.84)
+            number = next(group for group in done.groups() if group)
+            return self._command(f"reminder done {number}", "User wants to complete a reminder.", 0.84)
+        # Timers and alarms are reminders that are only a time. Every phrasing of them used
+        # to reach a chat model, which cannot set one and was free to say it had.
+        spoken = spoken_to_digits(text)
+        if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
+            return self._command(f"timer {spoken.strip()}", "User wants a countdown timer.", 0.9)
+        alarm = _ALARM_ASK.match(spoken)
+        if alarm and _TIME_TOKEN.search(alarm.group("when")):
+            return self._command(f"alarm {alarm.group('when').strip()}", "User wants an alarm.", 0.9)
+        snooze = _SNOOZE.match(spoken)
+        if snooze:
+            # "5m", never a bare 5: a bare number is a reminder id.
+            minutes = f"{snooze.group('minutes')}m" if snooze.group("minutes") else ""
+            parts = [part for part in (snooze.group("id"), minutes) if part]
+            return self._command(" ".join(["reminder snooze", *parts]), "User wants a reminder later.", 0.86)
+        cancel = _CANCEL.match(spoken)
+        if cancel:
+            target = self._reminder_target(cancel.group("rest"))
+            if target is not None:
+                return self._command(f"reminder delete {target}".strip(), "User wants a reminder cancelled.", 0.86)
         # The whole remainder goes through, exactly as said, because `timeparse` reads the
         # time far better than a pattern here could and it is the one place that should.
         # This used to require an ISO date, so "can you remind me to call mom at 6pm" fell
@@ -578,6 +631,28 @@ class HeuristicPlannerProvider:
             if rest:
                 return self._command(
                     f"reminder add {rest}", "User wants to create a reminder.", 0.86)
+        return None
+
+    @staticmethod
+    def _reminder_target(rest: str) -> str | None:
+        """What "cancel <rest>" names, as `reminder delete` takes it, or None when <rest> is
+        not a reminder at all ("stop the music")."""
+        named = re.fullmatch(
+            r"(?:(?P<which>last|latest|most\s+recent)\s+)?(?P<kind>reminder|timer|alarm)"
+            r"(?:\s+(?:#|number\s+)?(?P<id>\d+))?(?:\s+(?:to|about|for)\s+(?P<about>.+))?",
+            rest, re.IGNORECASE,
+        )
+        if named:
+            if named.group("id"):
+                return named.group("id")
+            if named.group("which"):
+                return "last"
+            if named.group("about"):
+                return named.group("about")
+            return "" if named.group("kind").lower() == "reminder" else named.group("kind").lower()
+        described = re.fullmatch(r"(?P<about>.+?)\s+(?:reminder|timer|alarm)", rest, re.IGNORECASE)
+        if described and len(described.group("about").split()) <= 4:
+            return described.group("about")
         return None
 
     def _workflow(self, text: str) -> PlanDecision | None:

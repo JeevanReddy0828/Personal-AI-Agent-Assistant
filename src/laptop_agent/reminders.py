@@ -20,9 +20,11 @@ class Reminder:
 class ReminderStore:
     """Persistent local reminder list.
 
-    This does not schedule OS notifications by itself. It stores reminders so
-    the assistant can list upcoming items, show due items, and mark work done
-    from any UI without adding platform-specific background services.
+    It schedules no OS notifications itself: the interfaces deliver what is due. The web
+    page polls `/api/reminders` and raises a card, a chime, a browser notification and -
+    in voice mode - speech; the CLI prints due reminders from a background thread. Until
+    that existed nothing ever read `due()` on its own, so a reminder was stored, confirmed
+    and then never reminded anyone.
     """
 
     def __init__(self, path: Path) -> None:
@@ -78,6 +80,29 @@ class ReminderStore:
         if changed:
             self._save(store)
         return changed
+
+    @synchronized
+    def remove(self, reminder_id: int) -> dict[str, object] | None:
+        """Delete one reminder outright; returns what was removed, or None."""
+        store = self._load()
+        for index, item in enumerate(store["reminders"]):
+            if int(item.get("id", 0)) == reminder_id:
+                removed = store["reminders"].pop(index)
+                self._save(store)
+                return removed
+        return None
+
+    @synchronized
+    def snooze(self, reminder_id: int, until: datetime) -> dict[str, object] | None:
+        """Move an active reminder to a later instant; returns it, or None if there is none."""
+        store = self._load()
+        for item in store["reminders"]:
+            if int(item.get("id", 0)) == reminder_id and not item.get("done"):
+                item["due_at"] = until.astimezone(UTC).isoformat()
+                item["snoozed"] = int(item.get("snoozed", 0) or 0) + 1
+                self._save(store)
+                return dict(item)
+        return None
 
     @staticmethod
     def _parse_due_at(value: str) -> datetime:

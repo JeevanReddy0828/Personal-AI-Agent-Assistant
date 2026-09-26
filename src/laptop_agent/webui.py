@@ -34,6 +34,7 @@ import socket
 import threading
 import time
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
@@ -47,6 +48,7 @@ from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.timeparse import describe
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
 from laptop_agent.webui_page import PAGE
 from laptop_agent.window_fx import apply_window_effects
@@ -277,6 +279,34 @@ def _schedule_snapshot() -> dict:
     """Current scheduled jobs as plain JSON for the web panel."""
     result = asyncio.run(_orchestrator.handle("schedule list"))
     return {"ok": result.ok, "message": result.message, "jobs": _json_safe(result.data.get("jobs", []))}
+
+
+def _reminders_snapshot() -> dict:
+    """What is due now and what comes next, for the page to deliver.
+
+    Nothing ever read `due()` on its own: a reminder was stored, confirmed and then never
+    reminded anyone. The page polls this and raises a card, a chime, a browser notification
+    and - in voice mode - speech. `next_in` says how soon to look again, so a 30-second timer
+    goes off on time without polling every second for the rest of the day.
+
+    Read straight from the store, never through `handle()`: every turn there writes a
+    latency trace, and a poll every half minute would push the real turns out of the ring.
+    """
+    now = datetime.now().astimezone()
+    due: list[dict] = []
+    upcoming: list[dict] = []
+    for item in _orchestrator.context.reminders.list():
+        try:
+            at = datetime.fromisoformat(str(item.get("due_at", "")))
+        except ValueError:
+            continue
+        entry = {"id": item.get("id"), "message": item.get("message"), "due_at": at.isoformat(),
+                 "due_spoken": describe(at, now)}
+        (due if at <= now else upcoming).append(entry)
+    next_in = None
+    if upcoming:
+        next_in = round(max(0.0, (datetime.fromisoformat(upcoming[0]["due_at"]) - now).total_seconds()), 1)
+    return {"ok": True, "now": now.isoformat(), "due": due, "upcoming": upcoming[:10], "next_in": next_in}
 
 
 # Injectable so tests exercise the /api/tts success path without a speech engine.
@@ -734,6 +764,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif path == "/api/schedule":
             self._json(200, _schedule_snapshot())
+        elif path == "/api/reminders":
+            self._json(200, _reminders_snapshot())
         elif path == "/api/failures":
             self._json(200, {"ok": True, "summary": FAILURES.summary(), "recent": FAILURES.recent(40)})
         elif path == "/api/approvals":
@@ -829,6 +861,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/reminders":
+            self._handle_reminders()
         elif self.path == "/api/jobs":
             self._handle_jobs()
         elif self.path == "/api/copilot":
@@ -1227,6 +1261,26 @@ class Handler(BaseHTTPRequestHandler):
             ok, message = False, str(exc)
         snap = _jobs_snapshot()
         self._json(200, {"ok": ok, "message": message, "jobs": snap["jobs"], "stats": snap["stats"]})
+
+    def _handle_reminders(self) -> None:
+        """Done / snooze / cancel from a delivered reminder's card, then the fresh snapshot.
+
+        Routed through the same commands a spoken "snooze" or "cancel that reminder" uses,
+        so the card and the voice cannot disagree about what those words do.
+        """
+        payload = self._read_json()
+        action = str(payload.get("action", "")).strip().lower()
+        reminder_id = payload.get("id")
+        if action not in {"done", "snooze", "delete"} or not isinstance(reminder_id, int) or isinstance(reminder_id, bool):
+            self._json(400, {"ok": False, "message": "Use action done|snooze|delete with a reminder id."})
+            return
+        command = f"reminder {action} {reminder_id}"
+        if action == "snooze":
+            minutes = payload.get("minutes", 10)
+            minutes = minutes if isinstance(minutes, int) and not isinstance(minutes, bool) else 10
+            command += f" {max(1, min(minutes, 1440))}m"
+        result = asyncio.run(_orchestrator.handle(command))
+        self._json(200, {**_reminders_snapshot(), "ok": result.ok, "message": result.message})
 
     def _handle_schedule(self) -> None:
         """Add / remove / toggle a scheduled job, then return the refreshed list.
