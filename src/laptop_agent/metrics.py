@@ -115,3 +115,47 @@ def _gpu() -> list[dict[str, object]]:
         except ValueError:
             continue
     return gpus
+
+
+def battery_status() -> dict[str, object] | None:
+    """Charge and whether it is plugged in, or None on a machine with no battery.
+
+    psutil when present; otherwise the platform's own report, so "how much battery do I
+    have" does not depend on an optional package. Asked of a chat model, that question
+    got a guess - the model cannot see the machine it runs beside.
+    """
+    try:
+        import psutil  # type: ignore
+
+        battery = psutil.sensors_battery()
+        if battery is None:
+            return None
+        return {"percent": round(battery.percent), "plugged": bool(battery.power_plugged)}
+    except (ImportError, AttributeError, OSError):
+        pass
+    import sys
+
+    if sys.platform.startswith("win"):
+        import ctypes
+
+        class _PowerStatus(ctypes.Structure):
+            _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
+                        ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
+                        ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+
+        status = _PowerStatus()
+        if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
+            return None
+        if status.BatteryFlag == 128 or status.BatteryLifePercent == 255:   # no battery / unknown
+            return None
+        return {"percent": int(status.BatteryLifePercent), "plugged": status.ACLineStatus == 1}
+    from pathlib import Path
+
+    for supply in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        try:
+            percent = int((supply / "capacity").read_text().strip())
+            state = (supply / "status").read_text().strip().lower()
+        except (OSError, ValueError):
+            continue
+        return {"percent": percent, "plugged": state in {"charging", "full", "not charging"}}
+    return None

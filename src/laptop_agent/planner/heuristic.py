@@ -82,6 +82,13 @@ _DECK_ASK = re.compile(
 )
 
 
+_DOC_HEAD = re.compile(
+    r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
+    r"(?:me\s+)?(?:an?\s+)?(?P<kind>pdf|word\s+doc(?:ument)?|docx|doc|markdown\s+(?:file|doc)|md\s+file)"
+    r"(?:\s+(?:file|document))?\s+(?:about|on|for|of|covering|regarding|summari[sz]ing)\s+(?P<topic>\S.*?)\s*[.!]*$",
+    re.IGNORECASE,
+)
+
 # --- Is this a plain question, or a request to do something? -------------------------
 # Asking a model to classify a question costs a round-trip and carries the whole command
 # vocabulary (~1800 tokens) in the prompt. Worse, measured on real turns, the router sent
@@ -224,6 +231,100 @@ _SMALL_TALK: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"(?:never\s*mind|forget\s+(?:it|about\s+it)|no\s+worries)", "No problem."),
     )
 )
+# --- The user's own life: lists, facts about them, the calendar stand-in, this machine.
+# Every one of these reached a chat model that could not act on it, measured by driving a
+# conversational corpus through the real orchestrator.
+_LIST_NAME = r"(?:my|the|our)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list"
+_LIST_ADD = re.compile(_POLITE + r"(?:add|put|throw|stick|write)\s+(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+"
+                       + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
+_LIST_SHOW = re.compile(_POLITE + r"(?:what(?:'s|s|\s+is|\s+are)?\s+(?:on|in)|show(?:\s+me)?|read(?:\s+me)?"
+                        r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on)\s+" + _LIST_NAME + r"\s*[?.!]*$",
+                        re.IGNORECASE)
+_LIST_REMOVE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
+                          r"(?:off(?:\s+of)?|from)\s+" + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
+_LIST_CLEAR = re.compile(_POLITE + r"(?:clear|empty|wipe|reset)\s+(?:out\s+)?" + _LIST_NAME + r"\s*[.!]*$",
+                         re.IGNORECASE)
+_LISTS = re.compile(r"^\s*(?:what|which)\s+lists\s+do\s+i\s+have\b|^\s*show\s+(?:me\s+)?(?:all\s+)?my\s+lists\s*[?.!]*$",
+                    re.IGNORECASE)
+# A fact about the user, said without "remember": only keys that are plainly about them, so
+# "my car is broken" and "my code is failing" are left for conversation.
+_MY_FACT = re.compile(
+    r"^\s*(?:by\s+the\s+way[,\s]+|fyi[,\s]+|just\s+so\s+you\s+know[,\s]+)?my\s+"
+    r"(?P<key>name|birthday|city|hometown|home\s+town|address|email(?:\s+address)?|phone(?:\s+number)?"
+    r"|favou?rite\s+[a-z]+|anniversary|(?:wife|husband|partner|mom|mother|dad|father|son|daughter|brother"
+    r"|sister|boss|girlfriend|boyfriend)'?s\s+(?:name|birthday|phone(?:\s+number)?))\s+is\s+(?P<value>.+?)\s*[.!]*$",
+    re.IGNORECASE,
+)
+_CALL_ME = re.compile(r"^\s*(?:please\s+|from\s+now\s+on[,\s]+)?call\s+me\s+(?P<name>[a-z][\w'-]{1,20})"
+                      r"(?:\s+from\s+now\s+on)?\s*[.!]*$", re.IGNORECASE)
+_NOT_A_NAME = {"back", "later", "when", "if", "at", "tomorrow", "tonight", "today", "maybe", "now", "soon",
+               "crazy", "out", "anytime", "whenever", "please", "sometime"}
+_I_LIVE = re.compile(r"^\s*i\s+live\s+in\s+(?P<city>[a-z][\w .,'-]{1,40}?)\s*[.!]*$", re.IGNORECASE)
+_NOTE = re.compile(
+    _POLITE + r"(?:take\s+a\s+note|make\s+a\s+note|note\s+to\s+self|note|jot\s+(?:this\s+)?down"
+    r"|write\s+this\s+down)(?:\s+(?:that|to))?\s*[:,-]?\s+(?P<text>\S.*?)\s*$",
+    re.IGNORECASE,
+)
+# No calendar is connected. Asking about it gets the truth and the reminders; asking to add
+# to it gets a reminder, said as one.
+_CALENDAR_SHOW = re.compile(
+    r"^\s*(?:what(?:'s|s|\s+is)|show(?:\s+me)?|check|read(?:\s+me)?|open)\s+(?:on\s+)?(?:my\s+)?"
+    r"(?:calendar|agenda|schedule\s+(?:for\s+)?(?:today|tomorrow|this\s+week))\b"
+    r"|^\s*what(?:'s|s|\s+is)\s+on\s+my\s+calendar\b"
+    r"|^\s*what\s+do\s+i\s+have\s+(?:on\s+)?(?:today|tomorrow|this\s+week(?:end)?)\s*[?.!]*$"
+    r"|^\s*am\s+i\s+(?:free|busy|available)\b"
+    r"|^\s*do\s+i\s+have\s+(?:any(?:thing)?\s+)?(?:meetings?|appointments?|plans|events?)\b",
+    re.IGNORECASE,
+)
+_CALENDAR_ADD = re.compile(
+    _POLITE + r"(?:(?:add|put)\s+(?P<what>.+?)\s+(?:to|on|in)\s+my\s+calendar(?P<when>.*?)"
+    r"|(?:schedule|book|set\s+up|arrange)\s+(?P<event>(?:a|an|my|the)\s+(?:meeting|call|appointment|lunch"
+    r"|dinner|coffee|interview|session|catch[\s-]?up|chat|visit)\b.*?))\s*[.!]*$",
+    re.IGNORECASE,
+)
+_SYSTEM_ASK = re.compile(
+    r"^\s*(?:how\s+much\s+battery|what(?:'s|s|\s+is)\s+(?:my|the)\s+battery|battery\s+(?:level|life|status"
+    r"|left|percentage)|am\s+i\s+charging|(?:what(?:'s|s|\s+is)\s+(?:my|the)\s+)?(?:cpu|ram)\s+(?:usage|use|load)"
+    r"|how\s+much\s+(?:free\s+)?(?:disk\s+)?(?:space|storage)\s+(?:do\s+i\s+have|is\s+left|left|is\s+free)"
+    r"|(?:free\s+)?disk\s+space|system\s+status|computer\s+status"
+    r"|how(?:'s|s|\s+is)\s+my\s+(?:computer|laptop|pc|machine)\s+doing)\b",
+    re.IGNORECASE,
+)
+# Apps opened by name, and what to hand the OS for each. Only names on these lists route:
+# "open the door" and "start a business" are not programs.
+_DESKTOP_APPS = {
+    "notepad": "notepad", "calculator": "calc", "calc": "calc", "paint": "mspaint",
+    "file explorer": "explorer", "explorer": "explorer", "files": "explorer",
+    "settings": "ms-settings:", "task manager": "taskmgr", "command prompt": "cmd", "cmd": "cmd",
+    "terminal": "wt", "powershell": "powershell", "word": "winword", "microsoft word": "winword",
+    "excel": "excel", "microsoft excel": "excel", "powerpoint": "powerpnt", "outlook": "outlook",
+    "teams": "msteams:", "microsoft teams": "msteams:", "spotify": "spotify:", "chrome": "chrome",
+    "google chrome": "chrome", "edge": "microsoft-edge:", "microsoft edge": "microsoft-edge:",
+    "firefox": "firefox", "vs code": "code", "vscode": "code", "visual studio code": "code",
+    "slack": "slack:", "discord": "discord:", "whatsapp": "whatsapp:", "zoom": "zoommtg:",
+    "obsidian": "obsidian:", "steam": "steam:", "vlc": "vlc", "snipping tool": "snippingtool",
+}
+_WEB_APPS = {
+    "gmail": "https://mail.google.com", "google calendar": "https://calendar.google.com",
+    "google drive": "https://drive.google.com", "google docs": "https://docs.google.com",
+    "google maps": "https://maps.google.com", "youtube music": "https://music.youtube.com",
+    "netflix": "https://www.netflix.com", "linkedin": "https://www.linkedin.com",
+    "github": "https://github.com", "reddit": "https://www.reddit.com", "amazon": "https://www.amazon.com",
+    "whatsapp web": "https://web.whatsapp.com", "chatgpt": "https://chatgpt.com",
+}
+_OPEN_APP = re.compile(_POLITE + r"(?:open|launch|start|run|bring\s+up|fire\s+up)\s+(?:up\s+)?(?:the\s+|my\s+)?"
+                       r"(?P<app>[a-z][\w .+-]{0,30}?)(?:\s+app(?:lication)?)?(?:\s+for\s+me|\s+please)?\s*[.!]*$",
+                       re.IGNORECASE)
+_SCREENSHOT = re.compile(_POLITE + r"(?:take|grab|capture|get|snap)\s+(?:a\s+|me\s+a\s+)?screen\s*shot"
+                         r"(?:\s+of\s+(?:my|the)\s+screen)?(?:\s+please)?\s*[.!]*$", re.IGNORECASE)
+_JOBS_ASK = re.compile(
+    r"^\s*(?:show|list|open)\s+(?:me\s+)?my\s+(?:jobs|job\s+applications|applications|job\s+tracker|pipeline)\b"
+    r"|^\s*how(?:'s|s|\s+is)\s+my\s+job\s+(?:search|hunt|pipeline)\s+going\b"
+    r"|^\s*what\s+jobs\s+have\s+i\s+applied\s+(?:to|for)\b",
+    re.IGNORECASE,
+)
+_JOBRIGHT_ASK = re.compile(r"^\s*(?:pull|get|fetch|grab|check)\s+(?:new\s+|the\s+latest\s+)?(?:jobs|leads|job\s+leads)"
+                           r"\s+(?:from|on)\s+jobright\b", re.IGNORECASE)
 # A question about the weather, with or without a place in it.
 _WEATHER_ASK = re.compile(
     r"^\s*(?:what(?:'s|s| is)|how(?:'s| is)|show\s+me|give\s+me|check|get)\s+(?:the\s+)?"
@@ -363,6 +464,10 @@ class HeuristicPlannerProvider:
         reminder = self._reminder(raw)
         if reminder:
             return reminder
+
+        personal = self._personal(raw)
+        if personal:
+            return personal
 
         terminal = self._terminal(raw)
         if terminal:
@@ -532,12 +637,11 @@ class HeuristicPlannerProvider:
             if pattern.match(raw):
                 return PlanDecision(action="chat", confidence=0.6, explanation=SMALL_TALK, response=reply)
 
-        return PlanDecision(
-            action="chat",
-            confidence=0.25,
-            explanation="No high-confidence tool route found.",
-            response="I understand the request, but I do not know the right tool route yet. Try 'help', or phrase it as a command like 'scan files .'",
-        )
+        # No text of its own: which reply is true - no model connected, models unreachable -
+        # is for the orchestrator to say. This used to answer "I do not know the right tool
+        # route yet" to "thanks" and to "what is photosynthesis", and even when a model was
+        # configured and merely busy.
+        return PlanDecision(action="chat", confidence=0.25, explanation="No high-confidence tool route found.")
 
     def _casual(self, lowered: str) -> PlanDecision | None:
         if re.search(r"\b(file|files|what.*here)\b", lowered) and re.search(r"\b(here|this folder|this directory|current (folder|directory))\b", lowered):
@@ -631,6 +735,58 @@ class HeuristicPlannerProvider:
             if rest:
                 return self._command(
                     f"reminder add {rest}", "User wants to create a reminder.", 0.86)
+        return None
+
+    def _personal(self, text: str) -> PlanDecision | None:
+        """Lists, facts about the user, notes, the calendar stand-in, this machine, apps."""
+        added = _LIST_ADD.match(text)
+        if added:
+            return self._command(f"list {added.group('name')} add {added.group('items')}", "Add to a list.", 0.88)
+        shown = _LIST_SHOW.match(text)
+        if shown:
+            return self._command(f"list {shown.group('name')} show", "Read a list.", 0.88)
+        removed = _LIST_REMOVE.match(text)
+        if removed:
+            return self._command(f"list {removed.group('name')} remove {removed.group('items')}", "Remove from a list.", 0.88)
+        cleared = _LIST_CLEAR.match(text)
+        if cleared:
+            return self._command(f"list {cleared.group('name')} clear", "Clear a list.", 0.86)
+        if _LISTS.match(text):
+            return self._command("lists", "Show every list.", 0.86)
+        fact = _MY_FACT.match(text)
+        if fact:
+            key = re.sub(r"\s+", "_", fact.group("key").strip().lower())
+            return self._command(f"remember {key} = {fact.group('value').strip()}", "A fact about the user.", 0.86)
+        called = _CALL_ME.match(text)
+        if called and called.group("name").lower() not in _NOT_A_NAME:
+            return self._command(f"remember name = {called.group('name')}", "What to call the user.", 0.84)
+        lives = _I_LIVE.match(text)
+        if lives:
+            return self._command(f"remember city = {lives.group('city')}", "Where the user lives.", 0.84)
+        noted = _NOTE.match(text)
+        if noted:
+            return self._command(f"remember {noted.group('text')}", "Something to remember.", 0.84)
+        if _CALENDAR_SHOW.match(text):
+            return self._command("calendar", "The user asked about their calendar.", 0.86)
+        booked = _CALENDAR_ADD.match(text)
+        if booked:
+            event = booked.group("event") or f"{booked.group('what')} {booked.group('when') or ''}"
+            return self._command(f"calendar add {' '.join(event.split())}", "Add to the calendar.", 0.84)
+        if _SYSTEM_ASK.match(text):
+            return self._command("system status", "The user asked about this machine.", 0.86)
+        if _SCREENSHOT.match(text):
+            return self._command("screenshot", "Take a screenshot.", 0.86)
+        opened = _OPEN_APP.match(text)
+        if opened:
+            app = re.sub(r"\s+", " ", opened.group("app").strip().lower())
+            if app in _WEB_APPS:
+                return self._command(f"open url {_WEB_APPS[app]}", f"Open {app}.", 0.84)
+            if app in _DESKTOP_APPS:
+                return self._command(f"open app {_DESKTOP_APPS[app]}", f"Open {app}.", 0.84)
+        if _JOBRIGHT_ASK.match(text):
+            return self._command("jobright pull", "Pull job leads from Jobright.", 0.84)
+        if _JOBS_ASK.match(text):
+            return self._command("jobs", "The user asked about their job search.", 0.84)
         return None
 
     @staticmethod
@@ -762,7 +918,8 @@ class HeuristicPlannerProvider:
     def _around(self, text: str) -> PlanDecision | None:
         """Places around the user's current (IP-derived) location: 'restaurants near
         me', 'gas around me'. Needs a known category, else fall through to search."""
-        if not re.search(r"\b(?:near|around|by|close to)\s+me\b|\baround here\b", text, re.IGNORECASE):
+        if not re.search(r"\b(?:near|around|by|close to)\s+me\b|\baround here\b|\bnearby\b|\bclose\s+by\b",
+                         text, re.IGNORECASE):
             return None
         m = re.search(
             r"\b(hotels?|motels?|hostels?|restaurants?|food|cafes?|coffee|bars?|pubs?|gas|fuel|petrol|"
@@ -835,6 +992,14 @@ class HeuristicPlannerProvider:
         topic = ""
         if about:
             topic = (about.group(1) or about.group(2) or "").strip(" ?.!,'\"")
+        # "tech news", "sports headlines": the topic comes first, with no preposition.
+        leading = re.match(r"^\s*(?P<topic>[a-z][\w&.-]*(?:\s+[a-z][\w&.-]*)?)\s+(?:news|headlines)\s*[?.!]*$",
+                           text, re.IGNORECASE)
+        if not topic and leading and leading.group("topic").lower().split()[0] not in {
+                "the", "latest", "today's", "todays", "any", "some", "top", "breaking", "recent", "new",
+                "current", "daily", "morning", "evening", "good", "bad", "fake", "what's", "whats", "show",
+                "give", "get", "read", "tell", "check", "local", "more"}:
+            topic = leading.group("topic")
         topic = re.sub(r"^(?:in|from|about|on|of|for|the|a)\b\s*", "", topic, flags=re.IGNORECASE).strip()
         topic = re.sub(
             r"^(?:today|now|right now|this (?:morning|afternoon|evening|week)|headlines?|stories)\b\s*",
@@ -896,6 +1061,12 @@ class HeuristicPlannerProvider:
             # Pass the whole sentence through so the tool can still read the format off it.
             if _DECK_ASK.match(text or ""):
                 return self._command(f"document {text.strip()}", "User wants a slide deck file.", 0.85)
+            # So does "make a pdf about healthy eating", the commonest way to ask for one.
+            head = _DOC_HEAD.match(text or "")
+            if head:
+                kind = head.group("kind").lower()
+                fmt = "word" if kind.startswith(("word", "doc")) else "markdown" if kind.startswith(("markdown", "md")) else "pdf"
+                return self._command(f"document {head.group('topic').strip()} as {fmt}", "User wants a document file.", 0.85)
             return None
         match = re.match(
             r"^\s*(?:can you |could you |please )?"
@@ -921,10 +1092,28 @@ class HeuristicPlannerProvider:
             text,
             re.IGNORECASE,
         )
+        # "draw a cat" and "sketch a dragon" name the picture directly. "draw" is also a
+        # verb of conclusions, lines and attention, which are not pictures - and "paint the
+        # wall blue" is a chore, so paint only counts in the longer form above.
+        if not match:
+            match = re.match(
+                # The stop-list is checked past any article: with the article optional, the
+                # engine otherwise backtracks and tests "a" instead of "a conclusion".
+                r"^\s*(?:can you |could you |please )?(?:draw|sketch)\s+(?:me\s+)?"
+                r"(?!(?:(?:an?|some|the)\s+)?(?:up|conclusions?|lines?|attention|blood|near|back|closer|breath"
+                r"|money|cash|parallels?|comparisons?|distinctions?|inspiration|lots|straws|curtains?|bath|water"
+                r"|blank|it|this|that)\b)"
+                r"(?:an?\s+|some\s+|the\s+)?([a-z].*)$",
+                text,
+                re.IGNORECASE,
+            )
         if not match:
             return None
         subject = match.group(1).strip().strip("?.!,'\"")
-        if not subject:
+        if not subject or subject.lower() in {"picture", "image", "photo", "drawing", "pic", "something", "anything"}:
+            return None
+        # A diagram is drawn in the reply as Mermaid; a diffusion model makes nonsense of it.
+        if is_diagram_subject(subject):
             return None
         return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
 
@@ -1324,7 +1513,25 @@ class HeuristicPlannerProvider:
             re.IGNORECASE,
         )
         if not match:
-            return None
+            # How it is said: "email bob@x.com about lunch", "send an email to amy@x.com
+            # saying I'll be late". The direct `email` prefix answered these with its syntax.
+            said = re.match(
+                _POLITE + r"(?:(?:send|write|draft)\s+(?:an?\s+)?e-?mail\s+to|e-?mail|send)\s+(?P<to>\S+@[\w.-]+\w)[,:]?\s+"
+                r"(?:an?\s+e-?mail\s+)?(?P<how>about|regarding|re:?|saying|that|to\s+say|telling\s+(?:them|him|her))\s+"
+                r"(?P<what>\S.*?)\s*[.!]*$",
+                text, re.IGNORECASE,
+            )
+            if not said:
+                return None
+            what = said.group("what").strip()
+            if said.group("how").lower() in {"about", "regarding", "re", "re:"}:
+                subject, body = what, f"Draft email about: {what}"
+            else:
+                words = what.split()
+                subject = " ".join(words[:7]) + ("…" if len(words) > 7 else "")
+                subject, body = subject[:1].upper() + subject[1:], what
+            return self._command(f"email to {said.group('to')} subject {subject} body {body}",
+                                 "User wants an email draft.", 0.65)
         to = match.group(1).strip()
         subject = match.group(2).strip()
         body = f"Draft email about: {subject}"

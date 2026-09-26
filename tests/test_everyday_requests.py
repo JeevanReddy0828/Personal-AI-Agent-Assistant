@@ -159,6 +159,15 @@ CONTRACT: tuple[tuple[str, str], ...] = (
     ("play lofi hip hop", "play music"),
     ("what time is it in tokyo", "time"),
     ("news", "news"),
+    ("set a timer for five minutes", "timer"),
+    ("wake me up at 7", "alarm"),
+    ("snooze for 5 minutes", "reminder snooze"),
+    ("add milk to my shopping list", "list"),
+    ("what's on my calendar today", "calendar"),
+    ("schedule a meeting with john tomorrow at 3pm", "calendar add"),
+    ("my name is jeevan", "remember"),
+    ("how much battery do i have", "system status"),
+    ("tech news", "news"),
 )
 
 # Sentences that must reach no tool at all. Every one of these ran a command once.
@@ -321,12 +330,17 @@ class ProseIsNotACommandTests(unittest.TestCase):
     def test_prose_reaches_the_router(self) -> None:
         result, ran = self.everyday.say("split $120 between 4 people")
         self.assertIn("**30**", result.message)
-        for text in ("schedule a meeting with john tomorrow at 3pm",
-                     "email bob@example.com about lunch tomorrow", "time for a break",
+        for text in ("schedule a meeting with john tomorrow at 3pm", "time for a break",
                      "weather is lovely today", "windows 11 keeps crashing"):
             result, ran = self.everyday.say(text)
             self.assertNotIn("Use:", result.message, text)
             self.assertNotIn("time zone", result.message, text)
+        # Said naturally, an email becomes a draft - which asks first, as it must.
+        self.everyday.approvals.clear()
+        result, ran = self.everyday.say("email bob@example.com about lunch tomorrow")
+        self.assertEqual(ran, "(denied)")
+        self.assertTrue(any("email draft to bob@example.com" in action for _risk, action in self.everyday.approvals),
+                        self.everyday.approvals)
 
     def test_a_typo_in_the_command_form_still_gets_its_usage_message(self) -> None:
         result, _ran = self.everyday.say("schedule briefing")

@@ -36,8 +36,8 @@ from laptop_agent.context import (
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
-from laptop_agent.memory import MemoryStore
-from laptop_agent.metrics import system_metrics
+from laptop_agent.memory import MemoryStore, list_name
+from laptop_agent.metrics import battery_status, system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
@@ -137,6 +137,15 @@ def _has_own_subject(text: str) -> bool:
     """Whether the user's own words name something to draw, rather than point at it."""
     words = re.findall(r"[a-z0-9']+", (text or "").lower())
     return any(word not in _SUBJECT_FILLER for word in words)
+
+
+# What a turn with no model to answer it says, when none is configured at all.
+_NO_MODEL_REPLY = (
+    "I can't answer open questions yet — no language model is connected. I can still set "
+    "reminders, timers and alarms, keep your lists, check the weather and the news, do exact "
+    "maths, tell the time anywhere, and work with your files. Add an OPENAI_API_KEY to .env to "
+    "talk about anything (see the README)."
+)
 
 
 # The longest thing a person types in a chat box. An attached file is the right home for
@@ -726,7 +735,8 @@ class AgentOrchestrator:
             return self._forget(command[len("forget ") :])
 
         if lowered in {"memory", "show memory"}:
-            return ToolResult.success("Memory loaded.", memory=self.context.memory.dump())
+            memory = self.context.memory.dump()
+            return ToolResult.success(self._memory_text(memory), memory=memory)
 
         if lowered in {"audit", "show audit"}:
             return ToolResult.success("Recent audit events.", events=self.context.audit.tail())
@@ -1239,6 +1249,10 @@ class AgentOrchestrator:
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
+        if lowered in {"screenshot", "take a screenshot", "take screenshot", "screen shot"}:
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
+
         if lowered.startswith("screenshot "):
             return self.context.desktop.screenshot(command[len("screenshot ") :].strip())
 
@@ -1346,6 +1360,127 @@ class AgentOrchestrator:
             return await self._run_many(command[len("multi ") :])
         return None
 
+    async def _dispatch_personal(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for lists, the calendar stand-in and this machine's own state.
+
+        Last in the table on purpose: `list jobs`, `list notes` and `list windows` are
+        exact commands of the groups above and must keep reaching them.
+        """
+        if lowered in {"lists", "my lists", "show lists", "show my lists"}:
+            return self._lists()
+
+        if lowered.startswith("list "):
+            listed = self._list_command(command[len("list ") :].strip())
+            if listed is not None:
+                return listed
+
+        if lowered in {"calendar", "agenda", "my calendar", "my agenda"}:
+            return self._calendar()
+
+        if lowered.startswith("calendar add "):
+            return self._calendar_add(command[len("calendar add ") :].strip())
+
+        if lowered in {"system status", "status", "battery", "disk space", "computer status"}:
+            return self._system_status()
+        return None
+
+    def _lists(self) -> ToolResult:
+        lists = self.context.memory.lists()
+        if not lists:
+            return ToolResult.success("You have no lists yet. Try \"add milk to my shopping list\".", lists={})
+        lines = [f"- **{name}** ({len(items)}): " + ", ".join(items[:6]) + ("…" if len(items) > 6 else "")
+                 for name, items in sorted(lists.items())]
+        return ToolResult.success("Your lists:\n" + "\n".join(lines), lists=lists)
+
+    def _list_command(self, rest: str) -> ToolResult | None:
+        """`list <name> show|add <items>|remove <item>|clear`, or `list <existing name>`.
+
+        None when the words are not a list command: "list" is an ordinary English verb, and
+        "list files in downloads" or "list the planets" must keep reaching the router.
+        """
+        match = re.match(r"(?P<name>.+?)\s+(?P<verb>show|add|remove|clear)\b\s*(?P<items>.*)$", rest, re.IGNORECASE)
+        name = (match.group("name") if match else rest).strip()
+        if not match and list_name(name) not in self.context.memory.lists():
+            return None
+        if not name:
+            return ToolResult.failure("Which list? Try \"what's on my shopping list\".")
+        label = f"your {list_name(name)} list"
+        if not match or match.group("verb").lower() == "show":
+            items = self.context.memory.list_items(name)
+            if not items:
+                return ToolResult.success(f"{label.capitalize()} is empty.", items=[])
+            return ToolResult.success(f"{label.capitalize()} ({len(items)}):\n" + "\n".join(f"- {item}" for item in items),
+                                      items=items)
+        verb, raw_items = match.group("verb").lower(), match.group("items").strip()
+        if verb == "clear":
+            removed = self.context.memory.clear_list(name)
+            return ToolResult.success(f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed)
+        if not raw_items:
+            return ToolResult.failure(f"What should I {verb} {'to' if verb == 'add' else 'from'} {label}?")
+        if verb == "remove":
+            removed_item = self.context.memory.remove_from_list(name, raw_items)
+            if removed_item is None:
+                return ToolResult.failure(f"{raw_items} isn't on {label}.")
+            return ToolResult.success(f"Removed {removed_item} from {label}.", removed=removed_item)
+        items = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", raw_items) if item.strip(" .")]
+        added = self.context.memory.add_to_list(name, items)
+        total = len(self.context.memory.list_items(name))
+        if not added:
+            return ToolResult.success(f"{', '.join(items)} {'is' if len(items) == 1 else 'are'} already on {label}.",
+                                      items=self.context.memory.list_items(name))
+        spoken = added[0] if len(added) == 1 else ", ".join(added[:-1]) + " and " + added[-1]
+        return ToolResult.success(f"Added {spoken} to {label} ({total} item{'s' if total != 1 else ''}).",
+                                  added=added, items=self.context.memory.list_items(name))
+
+    def _calendar(self) -> ToolResult:
+        """No calendar is connected, and the answer says so instead of guessing.
+
+        "what's on my calendar today" was answered from a web search for the sentence.
+        The honest answer is that none is connected - followed by the nearest thing that
+        is real here, the reminders.
+        """
+        now = datetime.now().astimezone()
+        upcoming = self.context.reminders.list()[:8]
+        lines = [_reminder_line(item, now) for item in upcoming]
+        text = "I can't see your calendar — no calendar is connected here yet."
+        if lines:
+            text += " Here's what you've asked me to remind you about:\n" + "\n".join(lines)
+        else:
+            text += " You have no reminders set either; say \"remind me to … at …\" and I'll keep track."
+        return ToolResult.success(text, reminders=upcoming, calendar_connected=False)
+
+    def _calendar_add(self, text: str) -> ToolResult:
+        """"add the dentist to my calendar next tuesday at 9": a reminder, said as one."""
+        result = self._reminder_add(text)
+        prefix = "I can't write to your calendar yet (none is connected), so "
+        result.message = prefix + ("I set a reminder instead. " if result.ok
+                                   else "I tried to set a reminder instead, but: ") + result.message
+        return result
+
+    def _system_status(self) -> ToolResult:
+        """Battery, CPU, memory and disk, read from this machine rather than guessed."""
+        import shutil
+
+        metrics = system_metrics()
+        battery = battery_status()
+        lines = []
+        if battery is not None:
+            lines.append(f"- Battery: {battery['percent']}%{' (charging)' if battery['plugged'] else ''}")
+        if metrics.get("cpu_percent") is not None:
+            lines.append(f"- CPU: {metrics['cpu_percent']}%")
+        if metrics.get("ram_percent") is not None:
+            lines.append(f"- Memory: {metrics['ram_percent']}% used")
+        try:
+            disk = shutil.disk_usage(Path.home().anchor or "/")
+            lines.append(f"- Disk: {disk.free / 1e9:.0f} GB free of {disk.total / 1e9:.0f} GB")
+        except OSError as exc:
+            record_failure("orchestrator.system_status", exc)
+        for gpu in metrics.get("gpus") or []:
+            lines.append(f"- GPU {gpu.get('name')}: {gpu.get('util_percent')}%")
+        if battery is None:
+            lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
+        return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
+
     # Dispatch order, as data. A group returns a ToolResult or None; the first
     # non-None wins, exactly as the original if/elif chain did.
     _DISPATCH = (
@@ -1366,6 +1501,7 @@ class AgentOrchestrator:
         _dispatch_desktop,
         _dispatch_email,
         _dispatch_batch,
+        _dispatch_personal,
     )
 
     @staticmethod
@@ -1538,7 +1674,7 @@ class AgentOrchestrator:
                     if grounded is not None:
                         return grounded
                 response = planned.response or ""
-                profile = self.context.memory.get_profile()
+                profile = self._facts()
                 level = self._complexity(command)
                 _, requested_label = self._pick_chat_model(level)
                 model_used = "fast"
@@ -1609,7 +1745,10 @@ class AgentOrchestrator:
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
                 if not answered and not response:
-                    response = "I couldn't reach any configured language model just now. Please try again in a minute."
+                    response = (
+                        "I couldn't reach any configured language model just now. Please try again in a minute."
+                        if self._has_language_model() else _NO_MODEL_REPLY
+                    )
                     model_used = "unavailable"
                 degraded = model_used != requested_label
                 trace = current_trace()
@@ -2018,6 +2157,11 @@ class AgentOrchestrator:
         if when is None:
             if what == "alarm":
                 return ToolResult.failure("When should the alarm go off? Try \"wake me up at 7\".")
+            if re.search(r"\byesterday\b|\blast\s+(?:night|week|month)\b", cleaned, re.IGNORECASE):
+                return ToolResult.failure("That's already in the past. When should I remind you?")
+            if re.search(r"\bin\s+\d+\s+(?:months?|years?)\b", cleaned, re.IGNORECASE):
+                return ToolResult.failure("I set reminders minutes, hours, days or weeks ahead, or on a "
+                                          "date — for example \"on 2027-03-01 at 9\".")
             return ToolResult.failure(
                 "I could not find a time in that. Try \"remind me to call mom at 6pm\", "
                 "\"tomorrow at 9\", \"in 20 minutes\" or a date like 2026-12-25 07:30."
@@ -3466,39 +3610,75 @@ class AgentOrchestrator:
                 return "Your knowledge base is empty. Index a file to get started."
             return f"You have {len(docs)} document(s) indexed: " + ", ".join(str(d.get("source", "")) for d in docs[:6]) + "."
         if isinstance(data.get("memory"), dict):
-            profile = data["memory"].get("profile", {})
-            if not profile:
-                return "I don't have anything saved about you yet."
-            # One run-on "k = v, k = v, …" sentence stopped being readable the moment there
-            # were more than a few facts, and it is read aloud in voice mode too.
-            if len(profile) > 3:
-                lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
-                return f"Here's what I remember about you:\n" + "\n".join(lines)
-            return "Here's what I remember: " + ", ".join(
-                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())
-            ) + "."
+            return AgentOrchestrator._memory_text(data["memory"])
         return result.message
 
+    @staticmethod
+    def _memory_text(memory: dict) -> str:
+        """What is remembered about the user, facts and notes both.
+
+        Notes were saved ("Saved note.") and then never shown: "what do you know about me"
+        answered "I don't have anything saved about you yet" straight after "remember that
+        I parked on level 3".
+        """
+        profile = memory.get("profile") or {}
+        notes = [str(note) for note in (memory.get("notes") or []) if str(note).strip()]
+        if not profile and not notes:
+            return "I don't have anything saved about you yet."
+        parts = []
+        # One run-on "k = v, k = v, …" sentence stopped being readable the moment there
+        # were more than a few facts, and it is read aloud in voice mode too.
+        if len(profile) > 3 or (profile and notes):
+            lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
+            parts.append("Here's what I remember about you:\n" + "\n".join(lines))
+        elif profile:
+            parts.append("Here's what I remember: " + ", ".join(
+                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())) + ".")
+        if notes:
+            shown = notes[-12:]
+            parts.append("Things you asked me to remember:\n" + "\n".join(f"- {note}" for note in shown)
+                         + (f"\n…and {len(notes) - len(shown)} older." if len(notes) > len(shown) else ""))
+        return "\n\n".join(parts)
+
+    def _facts(self) -> dict[str, object]:
+        """The profile as the chat model sees it, with the user's notes folded in.
+
+        The model was given the profile alone, so "where did I park" after "remember that I
+        parked on level 3" was answered by a model that had never been told.
+        """
+        facts: dict[str, object] = dict(self.context.memory.get_profile())
+        notes = [str(note) for note in (self.context.memory.dump().get("notes") or []) if str(note).strip()]
+        if notes:
+            facts["things_the_user_asked_me_to_remember"] = " | ".join(notes[-15:])[-1500:]
+        return facts
+
     def _remember(self, expression: str) -> ToolResult:
-        if "=" not in expression:
-            natural = re.match(r"(?:that\s+)?(?:my\s+)?([\w -]{1,40})\s+is\s+(.+)$", expression.strip(), re.IGNORECASE)
-            if natural:
+        # "remember that I parked on level 3" is a note about parking, not "that I parked...".
+        text = re.sub(r"^\s*that\s+", "", expression.strip(), flags=re.IGNORECASE).strip().rstrip(".!")
+        if "=" not in text:
+            # The key may carry an apostrophe: "my wife's birthday is june 5" missed this and
+            # became an anonymous note, so "when is my wife's birthday" had no fact to find.
+            natural = re.match(r"(?:my\s+|the\s+)?([\w' -]{1,40}?)\s+(?:is|are)\s+(.+)$", text, re.IGNORECASE)
+            if natural and not re.match(r"(?:i|we|you|he|she|they|it|there|this|that)\b",
+                                        natural.group(1), re.IGNORECASE):
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
                 self.context.memory.set_profile_value(key, value)
                 self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
-                return ToolResult.success(f"Remembered profile value: {key}")
-            self.context.memory.add_note(expression.strip())
-            self._mirror_to_vault(expression.strip())
-            return ToolResult.success("Saved note.")
-        key, value = expression.split("=", 1)
+                return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
+            if not text:
+                return ToolResult.failure("What should I remember?")
+            self.context.memory.add_note(text)
+            self._mirror_to_vault(text)
+            return ToolResult.success(f"Got it, I'll remember that: {text}", note=text)
+        key, value = text.split("=", 1)
         key = key.strip()
         value = value.strip()
         if not key or not value:
             return ToolResult.failure("Use: remember <key> = <value>")
         self.context.memory.set_profile_value(key, value)
         self._mirror_to_vault(f"{key}: {value}")
-        return ToolResult.success(f"Remembered profile value: {key}")
+        return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
 
     def _forget(self, raw: str) -> ToolResult:
         key = raw.strip().strip("'\"?.")
@@ -3510,6 +3690,10 @@ class AgentOrchestrator:
         removed = self.context.memory.forget_profile_value(key)
         if removed is not None:
             return ToolResult.success(f"Forgotten: {removed}", forgot=removed)
+        # A note is forgotten by its words: "forget that I parked on level 3".
+        dropped = self.context.memory.forget_notes(key)
+        if dropped:
+            return ToolResult.success("Forgotten: " + "; ".join(dropped), forgot=dropped)
         profile = self.context.memory.get_profile()
         if not profile:
             return ToolResult.failure("There is nothing saved about you yet.")
@@ -3799,10 +3983,16 @@ class AgentOrchestrator:
             lines.append("\nNo activity yet.")
         return ToolResult.success("\n".join(lines), agent=detail)
 
+    def _has_language_model(self) -> bool:
+        return any(
+            planner is not None and type(getattr(planner, "provider", None)).__name__ != "HeuristicPlannerProvider"
+            for planner in (self.planner, self.smart_planner, self.ultra_planner, self.fallback_planner)
+        )
+
     @staticmethod
     def _conversation_fallback(text: str) -> ToolResult:
-        return ToolResult.success(
-            "I can chat at a basic level in this MVP, but I do not have an LLM provider connected yet. "
-            "Use 'help' for tool commands, or plug a model into AgentOrchestrator for open-ended conversation.",
-            heard=text,
-        )
+        # Reached by a command no tool recognised, from a router or an agent step. It used
+        # to claim no language model was connected, which was usually untrue.
+        shown = " ".join((text or "").split())[:80]
+        return ToolResult.failure(f"I don't know how to do that yet: “{shown}”. Say 'help' to see what I can do.",
+                                  heard=text)
