@@ -300,15 +300,24 @@ class LastLineOfDefenceTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
 
             def broken(*args, **kwargs):
-                raise ValueError("embedded null byte")
+                raise RuntimeError("the index is locked")
 
             everyday.orchestrator.context.files.read_text = broken
             result = asyncio.run(everyday.orchestrator.handle("read file notes.txt"))
             self.assertFalse(result.ok)
             self.assertIn("unexpected error", result.message)
             self.assertIn("failures", result.message)
-            self.assertTrue(any(item["where"] == "orchestrator.handle" and "null byte" in item["message"]
+            self.assertTrue(any(item["where"] == "orchestrator.handle" and "locked" in item["message"]
                                 for item in FAILURES.recent()))
+
+    def test_a_path_the_os_refuses_is_explained_not_dumped(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            for command in ("read file \x00", "read file " + "a" * 3000):
+                result = asyncio.run(everyday.orchestrator.handle(command))
+                self.assertFalse(result.ok)
+                self.assertIn("isn't a file name I can use", result.message)
+                self.assertNotIn("aaaa", result.message)
 
     def test_a_refused_approval_still_propagates(self) -> None:
         """The web handler turns ApprovalDenied into "Not approved"; swallowing it here would

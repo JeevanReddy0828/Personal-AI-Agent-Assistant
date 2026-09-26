@@ -3,6 +3,7 @@ from __future__ import annotations
 from laptop_agent.cancellation import check_cancelled, OperationCancelled
 
 import asyncio
+import errno
 import html
 import hashlib
 import json
@@ -711,6 +712,12 @@ class AgentOrchestrator:
         word is recorded, never the user's text.
         """
         record_failure("orchestrator.handle", exc, verb=verb if verb in self._command_verbs() else "")
+        # The commonest cause by far: a path the operating system refuses outright.
+        unusable = (isinstance(exc, ValueError) and "null" in str(exc)) or (
+            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206))
+        if unusable:
+            return ToolResult.failure("That isn't a file name I can use — it is too long or contains "
+                                      "characters no file can have.", error=type(exc).__name__)
         detail = " ".join(str(exc).split())[:200] or type(exc).__name__
         return ToolResult.failure(
             f"Sorry — that failed with an unexpected error ({type(exc).__name__}: {detail}). "
@@ -1425,10 +1432,14 @@ class AgentOrchestrator:
         items = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", raw_items) if item.strip(" .")]
         added = self.context.memory.add_to_list(name, items)
         total = len(self.context.memory.list_items(name))
+
+        def said(words: list[str]) -> str:
+            return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
         if not added:
-            return ToolResult.success(f"{', '.join(items)} {'is' if len(items) == 1 else 'are'} already on {label}.",
+            return ToolResult.success(f"{said(items).capitalize()} {'is' if len(items) == 1 else 'are'} already on {label}.",
                                       items=self.context.memory.list_items(name))
-        spoken = added[0] if len(added) == 1 else ", ".join(added[:-1]) + " and " + added[-1]
+        spoken = said(added)
         return ToolResult.success(f"Added {spoken} to {label} ({total} item{'s' if total != 1 else ''}).",
                                   added=added, items=self.context.memory.list_items(name))
 
@@ -2181,7 +2192,10 @@ class AgentOrchestrator:
         # backfill - but it is never left to look like it was scheduled ahead.
         note = "" if when.at > now else " (that time has already passed, so it is due now)"
         if what == "timer":
-            text = f"Timer set: {message}. It goes off {spoken}."
+            # "Pasta timer (10 minutes)" -> "Pasta timer set for 10 minutes."
+            named = re.fullmatch(r"(?P<name>.+?) \((?P<amount>.+)\)", message)
+            text = (f"{named.group('name')} set for {named.group('amount')}. It goes off {spoken}."
+                    if named else f"Timer set. It goes off {spoken}.")
         elif what == "alarm":
             text = f"Alarm set for {spoken}."
         else:

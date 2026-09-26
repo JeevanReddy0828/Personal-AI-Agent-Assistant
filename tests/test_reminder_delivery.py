@@ -135,13 +135,15 @@ class ReminderConversationTests(unittest.TestCase):
         return result.message
 
     def test_a_timer_is_a_reminder_that_goes_off(self) -> None:
-        self.assertIn("Timer set: Timer (5 minutes)", self.say("set a timer for five minutes"))
+        self.assertIn("Timer set for 5 minutes. It goes off", self.say("set a timer for five minutes"))
         (item,) = self.reminders.list()
         due = datetime.fromisoformat(item["due_at"])
         self.assertAlmostEqual((due - datetime.now(UTC)).total_seconds(), 300, delta=5)
 
     def test_a_named_timer_keeps_its_name(self) -> None:
-        self.assertIn("Pasta timer (10 minutes)", self.say("set a pasta timer for 10 minutes"))
+        self.assertIn("Pasta timer set for 10 minutes", self.say("set a pasta timer for 10 minutes"))
+        (item,) = self.reminders.list()
+        self.assertEqual(item["message"], "Pasta timer (10 minutes)")   # what the card will say
 
     def test_an_alarm_is_in_the_morning(self) -> None:
         self.assertIn("Alarm set for", self.say("wake me up at 7"))
