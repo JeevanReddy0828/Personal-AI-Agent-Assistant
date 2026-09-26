@@ -586,6 +586,7 @@ class BrowserRegressions(unittest.TestCase):
                 };
                 window.webkitAudioContext = window.AudioContext;
                 const feed = (peak, frames) => {
+                    if (!proc || !proc.onaudioprocess) return;   // not listening at this moment
                     for (let i = 0; i < frames; i++) {
                         const ch = new Float32Array(FRAME);
                         for (let j = 0; j < FRAME; j++) ch[j] = (j % 2) ? peak : -peak;
@@ -600,18 +601,39 @@ class BrowserRegressions(unittest.TestCase):
                 if (!armed) { voiceActive = false; speaking = false;
                     return { armed: false, heldThroughOurOwnVoice: false, stopped: false }; }
                 const epoch0 = ttsEpoch;
+                const sent = [];
+                const realSend = send, realFetch = window.fetch;
+                send = async (q) => { sent.push(q); };
+                let heard = 'G men.';
+                window.fetch = async (url, init) => (String(url).includes('/api/transcribe')
+                    ? { ok: true, json: async () => ({ ok: true, text: heard }) }
+                    : realFetch(url, init));
+                const wait = ms => new Promise(r => setTimeout(r, ms));
                 // The reply is still being fetched: the room is quiet. Learning here set
                 // the bar at the floor, and our own voice then cleared it - the loop.
                 feed(0.001, 8);
-                activeAudio = { paused: false, currentTime: 0.5, pause() {} };   // playback starts
+                const audio = { paused: false, currentTime: 0.5, src: '',
+                                pause() { this.paused = true; }, play() { this.paused = false; return Promise.resolve(); } };
+                activeAudio = audio;                 // playback starts
                 feed(0.06, 6);                       // our own voice, learned as the floor
                 feed(0.06, 6);                       // still only us: must not trigger
-                const heldThroughOurOwnVoice = (ttsEpoch === epoch0 && speaking === true);
-                feed(0.35, 4);                       // the user starts talking
-                const stopped = (ttsEpoch > epoch0 && speaking === false);
+                const heldThroughOurOwnVoice = (ttsEpoch === epoch0 && speaking === true && !audio.paused);
+                feed(0.35, 4);                       // something loud
+                const pausedNotKilled = (audio.paused && ttsEpoch === epoch0 && speaking === true);
+                await wait(1100); feed(0.001, 1);    // silence ends it; it transcribes as noise
+                await wait(150);
+                const resumedOnNoise = (!audio.paused && ttsEpoch === epoch0 && speaking === true && sent.length === 0);
+                await wait(80);                      // listening again for a real interruption
+                heard = 'stop and tell me the weather';
+                feed(0.06, 6); feed(0.35, 4);        // the user talks over the reply
+                await wait(1100); feed(0.001, 1);
+                await wait(150);
+                const stopped = (ttsEpoch > epoch0 && speaking === false && sent[0] === heard);
                 try { bargeStop(); } catch (e) {}
+                send = realSend; window.fetch = realFetch;
                 activeAudio = null; voiceActive = false; speaking = false;
-                return { armed: armed, heldThroughOurOwnVoice: heldThroughOurOwnVoice, stopped: stopped };
+                return { armed: armed, heldThroughOurOwnVoice: heldThroughOurOwnVoice, pausedNotKilled: pausedNotKilled,
+                         resumedOnNoise: resumedOnNoise, stopped: stopped, sent: sent };
             }"""
         )
         self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
@@ -619,7 +641,11 @@ class BrowserRegressions(unittest.TestCase):
             outcome["heldThroughOurOwnVoice"],
             "our own speech leaking into the mic triggered a barge-in",
         )
-        self.assertTrue(outcome["stopped"], "talking over the reply did not stop it")
+        # A loud moment only pauses: the recipe used to end at "cilant" and "G men." was
+        # answered as a question.
+        self.assertTrue(outcome["pausedNotKilled"], "a loud moment killed the reply instead of pausing it")
+        self.assertTrue(outcome["resumedOnNoise"], "a garbled two-word transcript was answered: " + repr(outcome["sent"]))
+        self.assertTrue(outcome["stopped"], "talking over the reply did not stop it: " + repr(outcome["sent"]))
 
     def test_voice_panel_shows_the_microphone_level_against_the_threshold(self):
         """Barge-in was fixed twice and still reported as not working, because the level it

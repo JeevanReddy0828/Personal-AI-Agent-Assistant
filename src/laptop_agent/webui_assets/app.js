@@ -1580,7 +1580,7 @@
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
   function startVoice(){voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);listen();}
-  function endVoice(){voiceGeneration++;voiceActive=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function endVoice(){voiceGeneration++;voiceActive=false;bargePaused=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
@@ -1603,7 +1603,9 @@
     if(!ttsQueue.length){if(streamComplete)afterTurn();return;}
     speakChunk(ttsQueue.shift());
   }
-  function afterTurn(){bargeStop();if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},500);else setCore('idle');}  // echo-guard delay; release the barge mic before listening reopens it
+  // 800ms, not 500: Bluetooth speakers are still playing the reply's last words for a few
+  // hundred ms after the browser reports it ended, and the microphone heard them.
+  function afterTurn(){bargeStop();if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},800);else setCore('idle');}  // echo-guard delay; release the barge mic before listening reopens it
   // What is actually worth saying out loud. A picture, a link target or a code block has
   // nothing speakable in it, and reading a URL aloud used to feed a garbled "slash api
   // slash image question mark name equals…" back into the microphone — which the echo
@@ -1713,6 +1715,21 @@
     try{s.ac.close();}catch(e){}
     try{s.stream.getTracks().forEach(t=>t.stop());}catch(e){}
   }
+  let bargePaused=false;
+  function commitBarge(){
+    bargePaused=false; barged=true; ttsEpoch++;
+    try{speechSynthesis.cancel();}catch(_){}
+    try{if(activeAudio)activeAudio.pause();}catch(_){}
+    releaseAudio(); ttsQueue=[]; speaking=false; streamComplete=true;
+    if(busy)stopGen();
+  }
+  function resumeAfterFalseBarge(){
+    if(!bargePaused){listen();return;}
+    bargePaused=false;
+    try{if(activeAudio)activeAudio.play();else speechSynthesis.resume();}catch(_){}
+    setCore('speaking'); vSet('speaking','Speaking');
+    if(speaking)serverBargeStart();                     // keep listening for a real interruption
+  }
   function ourVoicePlaying(){
     try{if(activeAudio&&!activeAudio.paused&&activeAudio.currentTime>0)return true;}catch(e){}
     try{return !!(window.speechSynthesis&&speechSynthesis.speaking);}catch(e){return false;}
@@ -1747,7 +1764,10 @@
         const d=await r.json(); q=(d.text||'').trim();
       }catch(e){}
       if(!voiceActive||generation!==voiceGeneration)return;
-      if(q.length<2||isEcho(q)){listen();return;}        // heard ourselves after all, or nothing usable
+      // Three words and not our own, the rule the browser barge-in always had. Anything
+      // less - "G men.", "Properly." - is our voice or the room, and the reply resumes.
+      if(q.split(/\s+/).filter(Boolean).length<3||isEcho(q)){resumeAfterFalseBarge();return;}
+      commitBarge();
       vtrans.textContent=q; vSet('thinking','Thinking');
       send(q);
     };
@@ -1771,14 +1791,15 @@
         if(!bargeAllowed()){serverBargeStop();return;}
         // Stop talking immediately. Not stopSpeaking(), which would tear down this very
         // capture — the rest of what the user is saying still has to be recorded.
-        fired=true; barged=true; firedAt=now; lastLoud=now; ttsEpoch++;
+        fired=true; firedAt=now; lastLoud=now;
         // Keep ~0.6s before the trigger (the start of what the user said), not the 12s of
         // our own reply that the buffer held - that was transcribed and sent as a question.
         const keep=Math.ceil(0.6*rate/4096); if(samples.length>keep)samples.splice(0,samples.length-keep);
-        try{speechSynthesis.cancel();}catch(_){}
-        try{if(activeAudio)activeAudio.pause();}catch(_){}
-        releaseAudio(); ttsQueue=[]; speaking=false; streamComplete=true;
-        if(busy)stopGen();
+        // Pause, not stop: until the words are heard this may be our own voice or the room,
+        // and cutting the reply for it lost the rest of the answer (the biryani recipe ended
+        // at "cilant"). commitBarge() makes it final; resumeAfterFalseBarge() undoes it.
+        bargePaused=true;
+        try{if(activeAudio)activeAudio.pause();else speechSynthesis.pause();}catch(_){}
         setCore('listening'); vSet('listening','Listening'); vtrans.textContent='Listening — go ahead';
         return;
       }
@@ -1803,7 +1824,7 @@
     barge.onend=()=>{if(barge&&voiceActive&&speaking&&!barged){try{barge.start();}catch(e){}}};
     try{barge.start();}catch(e){}
   }
-  function stopSpeaking(){ttsEpoch++;try{speechSynthesis.cancel();}catch(e){}try{if(activeAudio)activeAudio.pause();}catch(e){}releaseAudio();ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
+  function stopSpeaking(){bargePaused=false;ttsEpoch++;try{speechSynthesis.cancel();}catch(e){}try{if(activeAudio)activeAudio.pause();}catch(e){}releaseAudio();ttsQueue=[];speaking=false;streamComplete=true;bargeStop();}
   // Manual cut-in: stop speaking AND stop generating, then listen. Without stopGen the
   // reply kept being written server-side and its next sentence was spoken over the top.
   function interruptNow(){if(!voiceActive)return;bargeReset();stopSpeaking();if(busy)stopGen();vSet('listening','Listening');listen();}
@@ -1881,7 +1902,7 @@
     const ac=new (window.AudioContext||window.webkitAudioContext)();
     const srcN=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();
     sink.gain.value=0;  // route through a muted sink so the graph runs without speaker feedback
-    const samples=[]; let spoke=false,lastLoud=performance.now(),stopped=false,t0=performance.now();
+    const samples=[]; let spoke=false,loudFor=0,lastLoud=performance.now(),stopped=false,t0=performance.now();
     const cleanup=()=>{try{proc.disconnect();}catch(e){}try{srcN.disconnect();}catch(e){}try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
     captureStop=()=>{stopped=true;cleanup();recognizing=false;};
     const finish=async()=>{
@@ -1907,8 +1928,10 @@
       const ch=e.inputBuffer.getChannelData(0); samples.push(new Float32Array(ch));
       let peak=0;for(let i=0;i<ch.length;i+=8){const v=Math.abs(ch[i]);if(v>peak)peak=v;}
       const now=performance.now();
-      if(now-speechEndedAt<400)return;                  // the tail of what we just said
-      if(peak>0.035){if(!spoke){spoke=true;vmark('speech');}lastLoud=now;}
+      if(now-speechEndedAt<800)return;                  // the tail of what we just said
+      // A quarter second of sound, not one loud 85ms frame: a click or a speaker's tail
+      // was transcribed into "Properly." and answered.
+      if(peak>0.035){loudFor+=ch.length/(ac.sampleRate||48000)*1000;lastLoud=now;if(!spoke&&loudFor>=250){spoke=true;vmark('speech');}}
       else if(spoke&&now-lastLoud>1000){vmark('settle');finish();return;}   // ~1s silence after speech
       if(now-t0>12000)finish();                                              // hard cap
     };
