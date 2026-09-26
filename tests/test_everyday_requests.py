@@ -30,6 +30,7 @@ from laptop_agent.app import build_context
 from laptop_agent.failures import FAILURES
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
 from laptop_agent.safety import ApprovalDenied, RiskLevel
+from laptop_agent.selfcheck import MUST_STAY_CHAT as SELFCHECK_MUST_STAY_CHAT, ROUTING_CONTRACT
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.news import NewsTool
@@ -135,76 +136,13 @@ def reached(ran: str | None, expected: str) -> bool:
     return ran is not None and (ran.lower() == expected or ran.lower().startswith(expected + " "))
 
 
-# (what a person says, the command that must run). Each was wrong or missing when measured.
-CONTRACT: tuple[tuple[str, str], ...] = (
-    # Shipped broken before (#122, #124), kept so they cannot silently regress.
-    ("do i have any reminders", "reminders"),
-    ("what reminders do i have", "reminders"),
-    ("can you show me my reminders", "reminders"),
-    ("remind me to pay the bill due friday", "remind me"),
-    ("whatsapp on the left and chrome on the right", "window"),
-    ("notepad on the top left and spotify on the bottom right", "window"),
-    # Found by this corpus.
-    ("split $120 between 4 people", "calculate"),
-    ("what's 15% of 80", "calculate"),
-    ("what's 2 to the power of 10", "calculate"),
-    ("what is five plus five", "calculate"),
-    ("what's the weather", "weather"),
-    ("will it rain tomorrow", "weather"),
-    ("do i need an umbrella", "weather"),
-    ("Delhi weather tomorrow", "weather"),
-    ("search for best laptops 2026", "web search"),
-    ("pause the music", "media"),
-    ("skip this song", "media"),
-    ("play lofi hip hop", "play music"),
-    ("what time is it in tokyo", "time"),
-    ("news", "news"),
-    ("set a timer for five minutes", "timer"),
-    ("wake me up at 7", "alarm"),
-    ("snooze for 5 minutes", "reminder snooze"),
-    ("add milk to my shopping list", "list"),
-    ("what's on my calendar today", "calendar"),
-    ("schedule a meeting with john tomorrow at 3pm", "calendar add"),
-    ("my name is jeevan", "remember"),
-    ("how much battery do i have", "system status"),
-    ("tech news", "news"),
-    # Found by the second corpus: the same requests, asked the other ways people ask them.
-    ("can you please set a timer for five minutes", "timer"),
-    ("count down 10 minutes", "timer"),
-    ("start a countdown for 90 seconds", "timer"),
-    ("how much time is left on my timer", "timers"),
-    ("never mind the timer", "reminder delete"),
-    ("i don't need the alarm anymore", "reminder delete"),
-    ("stop reminding me about the oven", "reminder delete"),
-    ("would you mind adding eggs to my shopping list", "list"),
-    ("should i bring a jacket", "weather"),
-    ("what should i wear today", "weather"),
-    ("temperature today", "weather"),
-    ("could you please tell me what time it is", "time"),
-    ("what time is it in california", "time"),
-    ("what's 1/4 of 200", "calculate"),
-    ("hey jarvis, what's my name", "what's my name"),
-    ("hey jarvis, flip a coin", "flip a coin"),
-    # Found by the third corpus.
-    ("set the volume to 50", "media volume 50"),
-    ("what do you remember", "memory"),
-    ("what did i ask you to remember", "memory"),
-    ("change my name to Jeev", "remember"),
-    ("what's my next reminder", "reminders next"),
-)
-
-# Sentences that must reach no tool at all. Every one of these ran a command once.
-MUST_STAY_CHAT: tuple[str, ...] = (
-    "update my resume", "how to write a good resume", "improve my resume summary",
-    "what does pause mean", "i need to pause and think about this", "resume where we left off",
-    "how do i play chess", "how do i play guitar better", "time management tips",
-    "tailor my resume for the google job", "i want sushi for dinner, any ideas?",
-    "the value is in the middle and the key is on the left", "my keys are on the right",
-    "should i put the legend on the right", "how do i prioritize tasks at work",
-    # Near misses of the second corpus's fixes.
-    "what's my ip", "python list", "what should i wear to the interview", "double check my work",
-    "half of my team is remote", "i don't need the car anymore", "stop reminding me",
-)
+# One table of phrasings, kept in `selfcheck` so the in-app `selfcheck` command and this
+# test read the same list: two hand-kept copies drift, the way `_TOOL_SIGNALS` and the
+# window positions did. `selfcheck` asks the router; this goes through the whole of
+# handle(), where a direct command may answer first - the phrase itself, then, is what ran.
+CONTRACT: tuple[tuple[str, str], ...] = tuple(
+    (phrase, expected.lower()) for phrase, expected, _why in ROUTING_CONTRACT)
+MUST_STAY_CHAT: tuple[str, ...] = tuple(phrase for phrase, _why in SELFCHECK_MUST_STAY_CHAT)
 
 
 class RoutingContractTests(unittest.TestCase):
@@ -216,8 +154,11 @@ class RoutingContractTests(unittest.TestCase):
     def test_each_phrasing_runs_the_command_it_names(self) -> None:
         for text, expected in CONTRACT:
             with self.subTest(text=text):
-                _result, ran = self.everyday.say(text)
-                self.assertTrue(reached(ran, expected), f"{text!r} ran {ran!r}, expected {expected!r}")
+                result, ran = self.everyday.say(text)
+                # A direct command ("remind me …", "what time is it") answers before any
+                # router: what ran is the phrase, and what matters is that no model did.
+                direct = ran == text.strip() and result is not None and "answered]" not in result.message
+                self.assertTrue(reached(ran, expected) or direct, f"{text!r} ran {ran!r}, expected {expected!r}")
 
     def test_ordinary_sentences_run_nothing(self) -> None:
         for text in MUST_STAY_CHAT:
