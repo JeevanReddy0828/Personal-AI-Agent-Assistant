@@ -5,6 +5,13 @@ near-miss. Newest first.
 
 ## Session 2026-09-26 — everyday-requests hardening
 
+- **A test that names a time of day without a date passes or fails by the hour it runs.**
+  `test_which_one_then_the_pick` set "call mom at 6pm" beside "buy milk tomorrow at 9" and
+  cancelled "the second one". After 6pm, "6pm" means tomorrow evening, so milk sorted first
+  and the wrong reminder went - on CI's UTC runners, every run from 14:00 to 20:00 EDT. It
+  passed the morning it was written. **Rule: in a reminder or timer test, give every time
+  a day, or the suite depends on the clock.**
+
 - **Pausing on a loud moment made the trigger provisional, and the counter behind it kept
   treating it as final.** Barge-in's three-in-25s switch counted every loud moment, so once
   the reply paused instead of stopping, three coughs in one reply switched voice

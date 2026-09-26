@@ -111,7 +111,9 @@ class FollowUpTests(unittest.TestCase):
         self.assertIn("3 March", self.talk.say("when is my birthday"))
 
     def test_which_one_then_the_pick(self) -> None:
-        self.talk.say("remind me to call mom at 6pm")
+        # Both tomorrow, so their order does not depend on the hour the suite runs: "at 6pm"
+        # said after 6pm means tomorrow evening, which sorted after "tomorrow at 9".
+        self.talk.say("remind me to call mom tomorrow at 8am")
         self.talk.say("remind me to buy milk tomorrow at 9")
         self.assertIn("Which one?", self.talk.say("cancel my reminder"))
         self.assertIn("Cancelled: buy milk.", self.talk.say("the second one"))
