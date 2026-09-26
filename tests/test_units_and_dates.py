@@ -104,6 +104,25 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertIn("You have a reminder for that: dentist appointment",
                       self.say("when is my dentist appointment")[0].message)
         self.assertIn("haven't told me", self.say("when is my anniversary")[0].message)
+        self.assertIn("I don't know when your birthday is", self.say("how many days until my birthday")[0].message)
+
+    def test_counted_in_the_unit_asked_for(self) -> None:
+        # "how many weeks until christmas" was answered "90 days".
+        message = self.say("how many weeks until christmas")[0].message
+        self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
+        self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
+
+    def test_today_and_tomorrow_by_name(self) -> None:
+        # "what's today" went to a web search for the sentence; "what day is tomorrow" said
+        # "Tomorrow is on Sunday ... — tomorrow".
+        today = datetime.now().astimezone().date()
+        for text, day in (("what's today", today), ("what's the date tomorrow", today + timedelta(days=1)),
+                          ("what's tomorrow's date", today + timedelta(days=1)),
+                          ("what day was yesterday", today - timedelta(days=1))):
+            message = self.say(text)[0].message
+            self.assertIn(f"**{day:%A}, {day.day} {day:%B %Y}**", message, text)
+            self.assertNotIn("— tomorrow", message)
+        self.assertTrue(self.say("what day was yesterday")[0].message.startswith("Yesterday was"))
 
     def test_a_question_this_cannot_answer_goes_on(self) -> None:
         result, ran = self.say("when is the next train")

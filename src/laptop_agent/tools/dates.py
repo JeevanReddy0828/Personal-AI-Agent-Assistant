@@ -59,6 +59,8 @@ _HOLIDAYS = {
     "veterans day": lambda y: date(y, 11, 11), "boxing day": lambda y: date(y, 12, 26),
 }
 _HOLIDAY = "(?:" + "|".join(re.escape(name) for name in sorted(_HOLIDAYS, key=len, reverse=True)) + ")"
+_OFFSETS = {"today": 0, "tomorrow": 1, "yesterday": -1, "day after tomorrow": 2, "day before yesterday": -2}
+RELATIVE_DAYS = frozenset(_OFFSETS)
 
 
 def next_holiday(name: str, today: date) -> date | None:
@@ -97,6 +99,9 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
         found = next_holiday(holiday.group(1), today)
         if found:
             return found, " ".join(word[:1].upper() + word[1:] for word in holiday.group(1).lower().split())
+    relative = _OFFSETS.get(" ".join(cleaned.lower().split()))
+    if relative is not None:
+        return today + timedelta(days=relative), cleaned.lower()
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+year", cleaned, re.IGNORECASE):
         return date(today.year, 12, 31), "the end of the year"
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+month", cleaned, re.IGNORECASE):
@@ -134,7 +139,7 @@ def describe_day(day: date, today: date) -> str:
 
 # "how many days until christmas", "how long till my birthday", "days until friday"
 _UNTIL = re.compile(
-    r"^\s*(?:how\s+many\s+(?:more\s+)?(?:days|sleeps|weeks)\s+(?:until|till|til|to|before|left\s+(?:until|till|before))"
+    r"^\s*(?:how\s+many\s+(?:more\s+)?(?P<unit>days|sleeps|weeks)\s+(?:until|till|til|to|before|left\s+(?:until|till|before))"
     r"|how\s+long\s+(?:is\s+it\s+)?(?:until|till|til|before)|days\s+(?:until|till|til|to|left\s+until))\s+"
     r"(?P<what>.+?)\s*[?.!]*$",
     re.IGNORECASE,
@@ -149,14 +154,28 @@ _BETWEEN = re.compile(
     r"^\s*(?:how\s+many\s+days\s+(?:are\s+there\s+)?|days\s+)between\s+(?P<a>.+?)\s+and\s+(?P<b>.+?)\s*[?.!]*$",
     re.IGNORECASE,
 )
+# "what's today", "what's the date tomorrow", "what's tomorrow's date": the date of a day
+# named relative to this one. "what's today" went to a web search for the sentence.
+_RELATIVE_DAY = re.compile(
+    r"^\s*(?:what(?:'s|s|\s+is)\s+(?:the\s+(?:date|day)\s+)?|what\s+(?:date|day)\s+(?:is\s+(?:it\s+)?|was\s+(?:it\s+)?)?)"
+    r"(?P<what>today|tomorrow|yesterday|the\s+day\s+after\s+tomorrow|the\s+day\s+before\s+yesterday)"
+    r"(?:'?s\s+date)?\s*[?.!]*$",
+    re.IGNORECASE,
+)
 
 
 def date_question(text: str) -> tuple[str, str, str] | None:
-    """("until"|"when"|"between", a, b) when the text asks one of these, else None."""
+    """("until"|"when"|"between", a, b) when the text asks one of these, else None. For
+    "until", b is "weeks" when the question counted in weeks."""
+    relative = _RELATIVE_DAY.match(text or "")
+    if relative:
+        return "when", relative.group("what").lower(), ""
     for kind, pattern in (("between", _BETWEEN), ("until", _UNTIL), ("when", _WHEN)):
         match = pattern.match(text or "")
         if match:
             groups = match.groupdict()
+            if kind == "until":
+                return kind, groups["what"], "weeks" if (groups.get("unit") or "").lower() == "weeks" else ""
             return kind, groups.get("what") or groups.get("a") or "", groups.get("b") or ""
     return None
 

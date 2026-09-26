@@ -112,12 +112,28 @@ class VoiceRoutingTests(unittest.TestCase):
             "snooze": "reminder snooze",
             "snooze for five minutes": "reminder snooze 5m",
             "snooze reminder 3": "reminder snooze 3",
+            # "can you please" is both halves of a polite prefix that used to allow one.
+            "can you please set a timer for five minutes": "timer can you please set a timer for 5 minutes",
+            "count down 10 minutes": "timer count down 10 minutes",
+            "set a timer": "timer",
+            "how much time is left on my timer": "timers",
+            "show my timers": "timers",
+            "never mind the timer": "reminder delete timer",
+            "never mind the pasta timer": "reminder delete pasta timer",     # found on the live server
+            "forget my dentist reminder": "reminder delete dentist",
+            "i don't need the alarm anymore": "reminder delete alarm",
+            "forget the timer": "reminder delete timer",
+            "stop reminding me about the oven": "reminder delete the oven",
+            "cancel all my reminders": "reminder delete all reminders",
+            "delete all timers": "reminder delete all timers",
         }
         for text, expected in cases.items():
             self.assertEqual(self.command(text), expected, text)
 
     def test_things_that_only_sound_like_it(self) -> None:
-        for text in ("what is a timer", "alarm clock recommendations", "stop the music", "cancel that"):
+        for text in ("what is a timer", "alarm clock recommendations", "stop the music", "cancel that",
+                     "never mind", "i don't need the car anymore", "stop reminding me", "delete everything",
+                     "remind me of my wife's birthday"):
             self.assertFalse(self.command(text).startswith(("timer", "alarm", "reminder")), text)
 
 
@@ -191,6 +207,65 @@ class ReminderConversationTests(unittest.TestCase):
         self.reminders.add((datetime.now(UTC) + timedelta(hours=3)).isoformat(), "call mom")
         self.assertIn("stretch", self.say("snooze for five minutes"))
         self.assertEqual(self.reminders.due(), [])
+
+    def test_a_timer_is_named_only_by_what_names_it(self) -> None:
+        # The leftover words used to be the name: "Could you please timer set for 15 minute".
+        self.assertIn("Timer set for 15 minutes.", self.say("could you set a 15 minute timer please"))
+        self.assertEqual(self.reminders.list()[-1]["message"], "Timer (15 minutes)")
+        self.assertIn("Timer set for 1 hour 30 minutes.", self.say("set a timer for an hour and a half"))
+        self.assertIn("Timer set for 1 minute 30 seconds.", self.say("count down 90 seconds"))
+        self.assertIn("Timer set for 1 hour 30 minutes.", self.say("set a timer for 1 hour and 30 minutes"))
+        self.assertIn("Pasta timer set for 10 minutes.", self.say("set a timer for 10 minutes for the pasta"))
+        self.assertIn("Timer to check the oven set for 5 minutes.",
+                      self.say("set a timer for 5 minutes to check the oven"))
+
+    def test_a_timer_needs_a_length_and_a_sane_one(self) -> None:
+        self.assertIn("How long should the timer run?", self.say("set a timer"))
+        self.assertIn("longer than a timer should run", self.say("timer 99999 hours"))
+        # A number inside another token is not a length: this set a 309-minute timer.
+        self.assertIn("How long should the timer run?", self.say("timer 1e309 minutes"))
+        self.assertEqual(self.reminders.list(), [])
+        # Days are a length too; without them the request went to a model free to claim it.
+        self.assertIn("Timer set for 2 days.", self.say("set a timer for 2 days"))
+
+    def test_how_long_is_left(self) -> None:
+        self.assertIn("No timer is running", self.say("how much time is left on my timer"))
+        self.say("set a pasta timer for 10 minutes")
+        self.say("remind me to call mom at 6pm")                # not a timer, not listed
+        left = self.say("how much time is left on my timer")
+        self.assertRegex(left, r"^Pasta timer: \*\*(?:10 minutes|9 minutes 5\d seconds)\*\* left \(at ")
+        self.assertNotIn("call mom", left)
+
+    def test_letting_go_of_one(self) -> None:
+        self.say("set a pasta timer for 10 minutes")
+        self.say("remind me to call mom at 6pm")
+        self.assertIn("Cancelled: Pasta timer (10 minutes).", self.say("never mind the pasta timer"))
+        self.assertIn("Cancelled: call mom.", self.say("stop reminding me to call mom"))
+        self.assertEqual(self.reminders.list(), [])
+        # "forget" is also a direct command for facts; this one names a reminder.
+        self.say("remind me about the dentist tomorrow at 9")
+        self.assertIn("Cancelled: the dentist.", self.say("forget my dentist reminder"))
+
+    def test_cancelling_all_of_them_asks_first(self) -> None:
+        self.say("remind me to call mom at 6pm")
+        self.say("remind me to buy milk tomorrow at 9")
+        result, ran = self.everyday.say("cancel all my reminders")
+        self.assertEqual(ran, "(denied)")
+        self.assertIn(("high", "Cancel all 2 reminders"), self.everyday.approvals)
+        self.assertEqual(len(self.reminders.list()), 2)              # refused: nothing removed
+        self.everyday.orchestrator.context.web.approval_gate._ask = lambda request: True
+        self.assertIn("Cancelled all 2 reminders.", self.say("cancel all my reminders"))
+        self.assertEqual(self.reminders.list(), [])
+        self.assertIn("no reminders to cancel", self.say("cancel all my reminders"))
+
+    def test_hurried_and_half_said_times(self) -> None:
+        self.assertIn("at 6:00 PM: call mom", self.say("remind me to call mom at 6ppm"))
+        self.assertIn("What should I remind you about", self.say("remind me in 5"))
+        message = self.say("remind me in 5 to stretch")
+        self.assertIn(": stretch", message)
+        (item,) = [item for item in self.reminders.list() if item["message"] == "stretch"]
+        due = datetime.fromisoformat(item["due_at"])
+        self.assertAlmostEqual((due - datetime.now(UTC)).total_seconds(), 300, delta=5)
 
     def test_the_list_is_readable_and_printed_once(self) -> None:
         self.say("remind me to call mom at 6pm")

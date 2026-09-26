@@ -83,7 +83,17 @@ class ZoneTests(unittest.TestCase):
     def test_an_iana_name_works_directly(self) -> None:
         self.assertIn("3:56 AM", clock().now("time in Asia/Kolkata").message)
 
+    def test_states_countries_and_any_city_the_zone_database_names(self) -> None:
+        # "what time is it in california" was refused as an unknown zone.
+        self.assertIn("America/Los_Angeles", clock().now("what time is it in california").message)
+        self.assertIn("Asia/Seoul", clock().now("time in south korea").message)
+        # In no table here: found by the zone database's own city names.
+        self.assertIn("Africa/Nairobi", clock().now("what time is it in nairobi").message)
+        self.assertIn("Asia/Kathmandu", clock().now("time in kathmandu right now").message)
+
     def test_an_unknown_zone_is_refused_rather_than_guessed(self) -> None:
+        # "Factory" is a zone-database placeholder, not a place; a city is always Area/City.
+        self.assertFalse(clock().now("time in factory").ok)
         result = clock().now("time in narnia")
         self.assertFalse(result.ok)
         self.assertIn("narnia", result.message)
@@ -127,7 +137,8 @@ class RoutingTests(unittest.TestCase):
                      "day trip ideas", "time flies"):
             self.assertFalse(asks_the_time(text), text)
         for text in ("what's the time?", "what day is it today", "time in london right now",
-                     "whats the time please"):
+                     "whats the time please", "could you please tell me what time it is",
+                     "do you know what time it is", "wat time is it"):
             self.assertTrue(asks_the_time(text), text)
 
 

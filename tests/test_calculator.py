@@ -156,6 +156,23 @@ class EverydayArithmeticTests(unittest.TestCase):
         self.assertEqual(self.value("split $120 between 4 people"), "30")
         self.assertEqual(self.value("12 x 13"), "156")
 
+    def test_fractions_of_and_multiples(self) -> None:
+        self.assertEqual(self.value("what's 1/4 of 200"), "50")
+        self.assertEqual(self.value("half of 30"), "15")
+        self.assertEqual(self.value("a third of 90"), "30")
+        self.assertEqual(self.value("two thirds of 90"), "60")
+        self.assertEqual(self.value("3 quarters of 100"), "75")
+        self.assertEqual(self.value("double 25"), "50")
+        self.assertEqual(self.value("triple 12"), "36")
+        for text in ("double check my work", "half of my team is remote", "a third of the class"):
+            self.assertFalse(looks_like_arithmetic(text), text)
+
+    def test_the_sum_is_shown_the_way_it_reads(self) -> None:
+        # "3 **2 = **9**" rendered "2 = " in bold and left a stray "9**" behind.
+        self.assertEqual(CalculatorTool().compute("whats 3 squared").message, "3^2 = **9**")
+        self.assertEqual(CalculatorTool().compute("7 times 8").message, "7 × 8 = **56**")
+        self.assertEqual(CalculatorTool().compute("7 times 8").data["expression"], "7 * 8")
+
     def test_dictated_numbers(self) -> None:
         self.assertEqual(self.value("What's five plus five?"), "10")
         self.assertEqual(self.value("twelve times twelve"), "144")

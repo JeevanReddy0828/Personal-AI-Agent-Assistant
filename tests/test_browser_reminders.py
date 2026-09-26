@@ -114,6 +114,28 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         self.assertEqual(self.page.locator(".remcard").count(), 0, "announced twice")
         self.assertEqual(len(self.store.due()), 1, "dismissing must not complete it")
 
+    def test_cancelling_them_all_asks_with_a_readable_card(self):
+        # The preview ran every reminder into one line and split words mid-way ("a t").
+        self.store.add((datetime.now(UTC) + timedelta(hours=2)).isoformat(), "stretch")
+        self.store.add((datetime.now(UTC) + timedelta(hours=3)).isoformat(), "x" * 300)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.goto(self.url)
+        self.page.wait_for_selector("#ta")
+        self.page.fill("#ta", "cancel all my reminders")
+        self.page.keyboard.press("Enter")
+        self.page.wait_for_selector(".apcard", timeout=15000)
+        lines = [line for line in self.page.locator(".apcard .appre").inner_text().split("\n") if line.strip()]
+        self.assertEqual(len(lines), 2, lines)
+        self.assertIn("stretch", lines[0])
+        box = self.page.locator(".apcard").bounding_box()
+        self.assertLessEqual(box["x"] + box["width"], 391)
+        self.assertTrue(self.page.evaluate(
+            "(() => { const p = document.querySelector('.apcard .appre'); return p.scrollWidth <= p.clientWidth + 1; })()"),
+            "a long reminder scrolls sideways inside the card")
+        self.page.get_by_role("button", name="Deny").click()
+        self.page.wait_for_function("() => !document.querySelector('.apcard')", timeout=6000)
+        self.assertEqual(len(self.store.list()), 2, "denied, so nothing is removed")
+
     def test_reminder_text_is_text_not_markup(self):
         self.store.add((datetime.now(UTC) - timedelta(minutes=1)).isoformat(), "<img src=x onerror=alert(1)>")
         self.page.goto(self.url)

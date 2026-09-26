@@ -280,7 +280,10 @@
     text-transform:uppercase;letter-spacing:.08em}
   .apact{font:500 14px/1.45 var(--sans);color:var(--text);word-break:break-word;margin-bottom:6px}
   .apwhy{font:400 12.5px/1.45 var(--sans);color:var(--muted);margin-bottom:4px}
-  .appre{font:400 11.5px/1.4 var(--mono);color:var(--faint);word-break:break-all;margin-bottom:10px}
+  /* pre-line: a preview of several items is one per line, not run together. Capped so a
+     long one scrolls inside the card instead of pushing its top off the screen. */
+  .appre{font:400 11.5px/1.4 var(--mono);color:var(--faint);overflow-wrap:anywhere;white-space:pre-line;
+    max-height:40vh;overflow:auto;margin-bottom:10px}
   .aprow{display:flex;gap:8px;justify-content:flex-end}
   .apbtn{font:600 12.5px/1 var(--sans);padding:8px 14px;border-radius:var(--r-sm);cursor:pointer;
     border:1px solid var(--hair-2);background:transparent;color:var(--text-2);transition:all var(--fast) var(--ease)}

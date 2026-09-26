@@ -59,6 +59,30 @@ class MemoryTests(unittest.TestCase):
         self.say("where did I park")
         self.assertIn("I parked on level 3", str(seen[-1]))
 
+    def test_a_fact_is_read_back_not_guessed(self) -> None:
+        # Each of these reached a chat model, which could only repeat what it was shown.
+        self.assertIn("You haven't told me your name yet", self.say("what's my name"))
+        self.assertIn("You haven't told me where you live", self.say("where do i live"))
+        self.say("my name is Jeevan")
+        self.say("i live in Austin")
+        self.say("remember my favourite restaurant is olive garden")
+        self.say("remember my wife's birthday is june 5")
+        self.assertEqual(self.say("do you remember my name"), "Your name is Jeevan.")
+        self.assertEqual(self.say("what is my name again?"), "Your name is Jeevan.")
+        self.assertEqual(self.say("where do i live"), "You live in Austin.")
+        self.assertEqual(self.say("what's my favorite restaurant"), "Your favorite restaurant is olive garden.")
+        self.assertEqual(self.say("what's my wife's birthday"), "Your wife's birthday is june 5.")
+        self.assertEqual(self.say("remind me of my wife's birthday"), "Your wife's birthday is june 5.")
+        result, ran = self.everyday.say("hey jarvis, what's my name")
+        self.assertEqual((result.message, ran), ("Your name is Jeevan.", "what's my name"))
+
+    def test_a_question_about_something_else_goes_on(self) -> None:
+        # "my ip" is not a fact anyone told it, and must not be answered "you haven't told me".
+        result, ran = self.everyday.say("what's my ip")
+        self.assertIsNone(ran)
+        self.assertIn("answered]", result.message)
+        self.assertEqual(self.everyday.say("what's my battery")[1], "system status")
+
     def test_a_note_can_be_forgotten_and_a_vague_word_forgets_nothing(self) -> None:
         self.say("remember that I parked on level 3")
         self.say("remember the door code is 4521")
@@ -94,6 +118,23 @@ class ListTests(unittest.TestCase):
         for text in ("list files in downloads", "list the planets in order"):
             _result, ran = self.everyday.say(text)
             self.assertFalse((ran or "").startswith("list "), f"{text} ran {ran}")
+
+    def test_a_list_asked_for_every_other_way(self) -> None:
+        self.say("would you mind adding eggs to my shopping list")
+        self.assertIn("- eggs", self.say("shopping list"))
+        self.assertIn("- eggs", self.say("what do i need to buy"))
+        self.assertIn("- eggs", self.say("what's on the list"))          # the only list there is
+        self.say("add call mom to my to do list")
+        self.assertIn("Your lists:", self.say("what's on the list"))    # which one? all of them
+        # A near spelling of a list that exists is that list, not a second one beside it.
+        self.assertIn("to your shopping list (2 items)", self.say("add milk to my shoping list"))
+        self.assertEqual(sorted(self.everyday.orchestrator.context.memory.lists()), ["shopping", "todo"])
+
+    def test_a_list_that_does_not_exist_is_not_invented(self) -> None:
+        result, ran = self.everyday.say("python list")
+        self.assertIsNone(ran)
+        self.assertIn("answered]", result.message)
+        self.assertIn("shopping list is empty", self.say("what do i need to buy"))
 
     def test_list_names(self) -> None:
         self.assertEqual(list_name("grocery"), "shopping")
@@ -164,6 +205,38 @@ class ScreenshotTests(unittest.TestCase):
             self.assertIn(str(Path(raw)), again.data["path"])
 
 
+class ChanceTests(unittest.TestCase):
+    """A chat model cannot draw at random: it gives the likeliest continuation, which is the
+    same "Heads!" every time it is asked the same way."""
+
+    def test_draws(self) -> None:
+        from laptop_agent.tools.chance import draw
+
+        self.assertEqual({draw("flip a coin").message for _ in range(200)}, {"**Heads**.", "**Tails**."})
+        rolls = {draw("roll a dice").data["rolls"][0] for _ in range(300)}
+        self.assertEqual(rolls, {1, 2, 3, 4, 5, 6})
+        self.assertIn("in total", draw("roll 2 dice").message)
+        self.assertLessEqual(max(draw("roll a d20").data["rolls"][0] for _ in range(50)), 20)
+        picks = {draw("pick a number between 1 and 3").data["value"] for _ in range(100)}
+        self.assertEqual(picks, {1, 2, 3})
+        self.assertEqual(draw("pick a number between 10 and 1").data["value"] in range(1, 11), True)
+        self.assertFalse(draw("roll 50 dice").ok)
+        # Refused by size rather than missed by the pattern and handed to a model to invent.
+        self.assertFalse(draw("roll 99999999999999999999 dice").ok)
+        self.assertFalse(draw("roll a d" + "9" * 5000).ok)
+        self.assertFalse(draw("pick a number between 1 and " + "9" * 40).ok)
+        self.assertIsNone(draw("roll with it"))
+        self.assertIsNone(draw("coin a phrase"))
+
+    def test_through_the_assistant(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            result, ran = everyday.say("can you flip a coin for me")
+            self.assertIn(result.message, {"**Heads**.", "**Tails**."})
+            result, _ran = everyday.say("roll a dice")
+            self.assertRegex(result.message, r"^You rolled an? \*\*[1-6]\*\*\.$")
+
+
 class EverydayPhrasingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.planner = HeuristicPlannerProvider()
@@ -194,6 +267,13 @@ class EverydayPhrasingTests(unittest.TestCase):
         }
         for text, expected in cases.items():
             self.assertEqual(self.command(text), expected, text)
+
+    def test_small_talk_is_recognised_whole(self) -> None:
+        from laptop_agent.planner.heuristic import SMALL_TALK
+
+        # strip_address takes the "hey" off "hey there", which left "there" to match nothing.
+        for text in ("hey there", "hi there", "good afternoon jarvis", "thanks jarvis"):
+            self.assertEqual(self.planner.plan(text, "", {}).explanation, SMALL_TALK, text)
 
     def test_near_misses_stay_conversation(self) -> None:
         for text in ("call me back later", "my car is broken", "open the door", "start a business",

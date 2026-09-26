@@ -168,6 +168,23 @@ CONTRACT: tuple[tuple[str, str], ...] = (
     ("my name is jeevan", "remember"),
     ("how much battery do i have", "system status"),
     ("tech news", "news"),
+    # Found by the second corpus: the same requests, asked the other ways people ask them.
+    ("can you please set a timer for five minutes", "timer"),
+    ("count down 10 minutes", "timer"),
+    ("start a countdown for 90 seconds", "timer"),
+    ("how much time is left on my timer", "timers"),
+    ("never mind the timer", "reminder delete"),
+    ("i don't need the alarm anymore", "reminder delete"),
+    ("stop reminding me about the oven", "reminder delete"),
+    ("would you mind adding eggs to my shopping list", "list"),
+    ("should i bring a jacket", "weather"),
+    ("what should i wear today", "weather"),
+    ("temperature today", "weather"),
+    ("could you please tell me what time it is", "time"),
+    ("what time is it in california", "time"),
+    ("what's 1/4 of 200", "calculate"),
+    ("hey jarvis, what's my name", "what's my name"),
+    ("hey jarvis, flip a coin", "flip a coin"),
 )
 
 # Sentences that must reach no tool at all. Every one of these ran a command once.
@@ -178,6 +195,9 @@ MUST_STAY_CHAT: tuple[str, ...] = (
     "tailor my resume for the google job", "i want sushi for dinner, any ideas?",
     "the value is in the middle and the key is on the left", "my keys are on the right",
     "should i put the legend on the right", "how do i prioritize tasks at work",
+    # Near misses of the second corpus's fixes.
+    "what's my ip", "python list", "what should i wear to the interview", "double check my work",
+    "half of my team is remote", "i don't need the car anymore", "stop reminding me",
 )
 
 

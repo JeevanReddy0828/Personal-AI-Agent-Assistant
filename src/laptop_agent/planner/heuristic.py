@@ -4,6 +4,7 @@ import re
 
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.timeparse import spoken_to_digits
+from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.weather import clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
@@ -140,18 +141,34 @@ _REMINDER_ASK = re.compile(
 )
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
                             re.IGNORECASE)
+# How a request is softened before it starts, said every way at once: "can you please set
+# a timer" missed a prefix that allowed "can you" or "please" but not both.
+_POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
+           r"|kindly\s+)?")
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
-_DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)\b"
+_DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
-    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
-    r"(?:(?:set|start|put\s+on|make|create|run|give\s+me)\s+)?(?:me\s+)?(?:an?\s+)?"
-    r"(?:" + _DURATION + r"\s+(?:[a-z]+\s+)?timer\b|timer\b|[a-z]+\s+timer\b)",
+    _POLITE + r"(?:(?:set|start|put\s+on|make|create|run|give\s+me)\s+)?(?:me\s+)?(?:an?\s+)?"
+    r"(?:" + _DURATION + r"\s+(?:[a-z]+\s+)?timer\b|timer\b|[a-z]+\s+timer\b|count\s*down\b|countdown\b)",
     re.IGNORECASE,
 )
 _ALARM_ASK = re.compile(
-    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
-    r"(?:set\s+(?:an?\s+|my\s+|the\s+)?alarm|wake\s+me(?:\s+up)?|alarm)\s+(?:for\s+|at\s+|to\s+)?"
+    _POLITE + r"(?:set\s+(?:an?\s+|my\s+|the\s+)?alarm|wake\s+me(?:\s+up)?|alarm)\s+(?:for\s+|at\s+|to\s+)?"
     r"(?P<when>.+?)\s*[.!?]*$",
+    re.IGNORECASE,
+)
+# "set a timer" with no length: ask for one rather than let a model claim it set one.
+_TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
+                         re.IGNORECASE)
+_TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|remaining)|time\s+left)\s+on\s+"
+                         r"(?:my|the)\s+(?P<which>\w+\s+)?timer\b", re.IGNORECASE)
+# Letting go of one: "never mind the timer", "i don't need the alarm anymore", "stop
+# reminding me about the oven".
+_LET_GO = re.compile(
+    r"^\s*(?:i\s+don'?t\s+need|never\s*mind|forget(?:\s+about)?|scrap|ditch|kill)\s+(?:the|my|that)\s+"
+    r"(?:(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2})\s+)?"
+    r"(?P<kind>timer|alarm|reminder)(?:\s+(?:about|to|for)\s+(?P<about>.+?))?(?:\s+any\s*more)?\s*[.!]*$"
+    r"|^\s*stop\s+reminding\s+me\s+(?:about|to)\s+(?P<topic>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
 _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
@@ -161,8 +178,7 @@ _SNOOZE = re.compile(
     re.IGNORECASE,
 )
 _CANCEL = re.compile(
-    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
-    r"(?:delete|cancel|remove|drop|stop|turn\s+off|dismiss)\s+(?:the\s+|my\s+|this\s+)?"
+    _POLITE + r"(?:delete|cancel|remove|drop|stop|turn\s+off|dismiss)\s+(?:the\s+|my\s+|this\s+)?"
     r"(?P<rest>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
@@ -171,7 +187,6 @@ _CANCEL = re.compile(
 # does pause mean" all toggled playback. Measured by driving a conversational corpus
 # through the real orchestrator; those four were the only media commands it produced.
 # "next"/"skip" need their noun: "next" alone is as likely to mean the next question.
-_POLITE = r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+)?"
 _MEDIA_NOUN = r"(?:the\s+|this\s+|my\s+|that\s+)?(?:music|song|track|video|playback|audio|player|tune)"
 _MEDIA_END = r"(?:\s+please)?\s*[.!]*\s*$"
 _MEDIA_KEYS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
@@ -235,7 +250,8 @@ _SMALL_TALK: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 # Every one of these reached a chat model that could not act on it, measured by driving a
 # conversational corpus through the real orchestrator.
 _LIST_NAME = r"(?:my|the|our)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list"
-_LIST_ADD = re.compile(_POLITE + r"(?:add|put|throw|stick|write)\s+(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+"
+_LIST_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)?|stick(?:ing)?|writ(?:e|ing))\s+"
+                       r"(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+"
                        + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
 _LIST_SHOW = re.compile(_POLITE + r"(?:what(?:'s|s|\s+is|\s+are)?\s+(?:on|in)|show(?:\s+me)?|read(?:\s+me)?"
                         r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on)\s+" + _LIST_NAME + r"\s*[?.!]*$",
@@ -248,13 +264,42 @@ _LISTS = re.compile(r"^\s*(?:what|which)\s+lists\s+do\s+i\s+have\b|^\s*show\s+(?
                     re.IGNORECASE)
 # A fact about the user, said without "remember": only keys that are plainly about them, so
 # "my car is broken" and "my code is failing" are left for conversation.
+_PERSONAL_KEY = (
+    r"name|birthday|city|hometown|home\s+town|address|email(?:\s+address)?|phone(?:\s+number)?"
+    r"|favou?rite\s+[a-z]+|anniversary|(?:wife|husband|partner|mom|mother|dad|father|son|daughter|brother"
+    r"|sister|boss|girlfriend|boyfriend)'?s\s+(?:name|birthday|phone(?:\s+number)?)"
+)
 _MY_FACT = re.compile(
     r"^\s*(?:by\s+the\s+way[,\s]+|fyi[,\s]+|just\s+so\s+you\s+know[,\s]+)?my\s+"
-    r"(?P<key>name|birthday|city|hometown|home\s+town|address|email(?:\s+address)?|phone(?:\s+number)?"
-    r"|favou?rite\s+[a-z]+|anniversary|(?:wife|husband|partner|mom|mother|dad|father|son|daughter|brother"
-    r"|sister|boss|girlfriend|boyfriend)'?s\s+(?:name|birthday|phone(?:\s+number)?))\s+is\s+(?P<value>.+?)\s*[.!]*$",
+    r"(?P<key>" + _PERSONAL_KEY + r")\s+is\s+(?P<value>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
+# Asking for one back: "what's my name", "do you remember my wife's birthday", "where do i
+# live". Each reached a chat model, which could only repeat what it happened to be shown.
+_FACT_ASK = re.compile(
+    r"^\s*(?:(?:what(?:'s|s|\s+is)|do\s+you\s+(?:remember|know)|tell\s+me|remind\s+me(?:\s+of)?)\s+my\s+"
+    r"(?P<key>[a-z][\w']*(?:\s+[a-z][\w']*){0,3}?)(?:\s+is)?(?:\s+again)?"
+    r"|(?P<live>where\s+do\s+i\s+live|what\s+city\s+do\s+i\s+live\s+in)"
+    r"|(?P<who>who\s+am\s+i|what\s+do\s+you\s+call\s+me))\s*[?.!]*$",
+    re.IGNORECASE,
+)
+
+
+def fact_question(text: str) -> tuple[str, bool] | None:
+    """(the fact asked for, whether it is plainly personal) for "what's my name", else None.
+
+    Only a personal fact is answered when nothing is stored ("you haven't told me");
+    "what's my ip" is not one, and goes on to whatever can answer it.
+    """
+    match = _FACT_ASK.match(text or "")
+    if not match:
+        return None
+    if match.group("live"):
+        return "where i live", True
+    if match.group("who"):
+        return "name", True
+    key = " ".join(match.group("key").lower().split())
+    return key, bool(re.fullmatch(_PERSONAL_KEY, key, re.IGNORECASE))
 _CALL_ME = re.compile(r"^\s*(?:please\s+|from\s+now\s+on[,\s]+)?call\s+me\s+(?P<name>[a-z][\w'-]{1,20})"
                       r"(?:\s+from\s+now\s+on)?\s*[.!]*$", re.IGNORECASE)
 _NOT_A_NAME = {"back", "later", "when", "if", "at", "tomorrow", "tonight", "today", "maybe", "now", "soon",
@@ -335,7 +380,12 @@ _WEATHER_ASK = re.compile(
     r"|(?:going|gonna)\s+to)\s+(?:be\s+)?(?:rain|snow|hail|storm|drizzl|pour|sunny|cloudy|windy|hot"
     r"|cold|warm|chilly|freezing|humid|clear)\w*\b"
     r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+is\s+it\b"
-    r"|^\s*do\s+i\s+need\s+(?:an?\s+)?(?:umbrella|jacket|coat|raincoat|sunscreen|sweater|hoodie)\b"
+    r"|^\s*(?:do|should|will)\s+i\s+(?:need|bring|take|wear|pack|grab)\s+(?:an?\s+|my\s+)?"
+    r"(?:umbrella|jacket|coat|raincoat|sunscreen|sweater|hoodie|layers?|shorts|boots|gloves|scarf)\b"
+    r"|^\s*what\s+should\s+i\s+wear(?:\s+(?:today|tonight|tomorrow|outside|this\s+(?:morning|afternoon|evening)))?"
+    r"\s*[?.!]*$"
+    r"|^\s*(?:the\s+)?temperature(?:\s+(?:today|tonight|tomorrow|now|right\s+now|outside))*\s*[?.!]*$"
+    r"|^\s*(?:what(?:'s|s|\s+is)\s+it\s+like|how(?:'s|s|\s+is)\s+it)\s+outside\b"
     r"|^\s*[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\s+(?:weather|forecast)(?:\s+(?:today|tonight"
     r"|tomorrow|now|this\s+week(?:end)?))?\s*[?.!]*\s*$",
     re.IGNORECASE,
@@ -651,7 +701,9 @@ class HeuristicPlannerProvider:
             return job
 
         for pattern, reply in _SMALL_TALK:
-            if pattern.match(raw):
+            # The unstripped text too: "hey there" loses its "hey" to strip_address and
+            # arrives as "there".
+            if pattern.match(raw) or pattern.match(text):
                 return PlanDecision(action="chat", confidence=0.6, explanation=SMALL_TALK, response=reply)
 
         # No text of its own: which reply is true - no model connected, models unreachable -
@@ -721,8 +773,21 @@ class HeuristicPlannerProvider:
         # Timers and alarms are reminders that are only a time. Every phrasing of them used
         # to reach a chat model, which cannot set one and was free to say it had.
         spoken = spoken_to_digits(text)
+        if _TIMER_LEFT.search(spoken) or re.fullmatch(
+                r"\s*(?:(?:show|list|check)\s+)?(?:(?:my|the|all)\s+)?(?:running\s+)?timers\s*[?.!]*", spoken, re.I):
+            return self._command("timers", "User asked about running timers.", 0.88)
+        if _TIMER_BARE.match(spoken):
+            return self._command("timer", "User wants a timer but gave no length.", 0.84)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
             return self._command(f"timer {spoken.strip()}", "User wants a countdown timer.", 0.9)
+        let_go = _LET_GO.match(spoken)
+        if let_go:
+            kind = (let_go.group("kind") or "").lower()
+            # "the pasta timer" is labelled "Pasta timer"; "my dentist reminder" is just "dentist".
+            named = (let_go.group("name") + ("" if kind == "reminder" else f" {kind}")) if let_go.group("name") else ""
+            target = (let_go.group("about") or let_go.group("topic") or named
+                      or ("" if kind == "reminder" else kind))
+            return self._command(f"reminder delete {target}".strip(), "User no longer wants a reminder.", 0.86)
         alarm = _ALARM_ASK.match(spoken)
         if alarm and _TIME_TOKEN.search(alarm.group("when")):
             return self._command(f"alarm {alarm.group('when').strip()}", "User wants an alarm.", 0.9)
@@ -747,7 +812,7 @@ class HeuristicPlannerProvider:
             r"\b(?:remind me|(?:set|create|add|make)\s+(?:a\s+|an\s+)?reminder)\b[,:]?\s*(.+)$",
             text, re.IGNORECASE,
         )
-        if add:
+        if add and not fact_question(text):    # "remind me of my wife's birthday" asks, it sets nothing
             rest = add.group(1).strip().strip("'\"")
             if rest:
                 return self._command(
@@ -756,6 +821,13 @@ class HeuristicPlannerProvider:
 
     def _personal(self, text: str) -> PlanDecision | None:
         """Lists, facts about the user, notes, the calendar stand-in, this machine, apps."""
+        # Handed on as said: the assistant answers these from what it holds, and "hey
+        # jarvis, what's my name" only reaches it through here.
+        asked = fact_question(text)
+        if asked and asked[1]:
+            return self._command(text.strip().rstrip("?.! "), "The user asked for something they told me.", 0.86)
+        if is_chance_request(text):
+            return self._command(text.strip().rstrip("?.! "), "A random draw.", 0.9)
         added = _LIST_ADD.match(text)
         if added:
             return self._command(f"list {added.group('name')} add {added.group('items')}", "Add to a list.", 0.88)
@@ -810,6 +882,9 @@ class HeuristicPlannerProvider:
     def _reminder_target(rest: str) -> str | None:
         """What "cancel <rest>" names, as `reminder delete` takes it, or None when <rest> is
         not a reminder at all ("stop the music")."""
+        bulk = re.fullmatch(r"all(?:\s+of)?(?:\s+(?:my|the))?\s+(?P<kind>reminders|timers|alarms)", rest, re.IGNORECASE)
+        if bulk:
+            return f"all {bulk.group('kind').lower()}"
         named = re.fullmatch(
             r"(?:(?P<which>last|latest|most\s+recent)\s+)?(?P<kind>reminder|timer|alarm)"
             r"(?:\s+(?:#|number\s+)?(?P<id>\d+))?(?:\s+(?:to|about|for)\s+(?P<about>.+))?",

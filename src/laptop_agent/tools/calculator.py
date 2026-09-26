@@ -48,6 +48,17 @@ _PHRASES = (
     (rf"\b(?:split|divide|share)\s+{_NUMBER}\s+(?:between|among|amongst|by|into|with)\s+{_NUMBER}"
      r"(?:\s+(?:people|persons|friends|ways|of us))?", r"(\1/\2)"),
     (rf"{_NUMBER}\s+split\s+{_NUMBER}\s+ways", r"(\1/\2)"),
+    # "1/4 of 200", "half of 30", "a third of 90", "3 quarters of 100" (number words are
+    # digits by now, so "two thirds" arrives as "2 thirds")
+    (rf"{_NUMBER}\s*/\s*{_NUMBER}\s+of\s+{_NUMBER}", r"(\1/\2*\3)"),
+    (rf"\b(?:a\s+|1\s+)?half\s+(?:of\s+)?{_NUMBER}", r"(\1/2)"),
+    (rf"\b(?:a\s+|1\s+)?third\s+of\s+{_NUMBER}", r"(\1/3)"),
+    (rf"\b(?:a\s+|1\s+)?(?:quarter|fourth)\s+of\s+{_NUMBER}", r"(\1/4)"),
+    (rf"{_NUMBER}\s+thirds\s+of\s+{_NUMBER}", r"(\1/3*\2)"),
+    (rf"{_NUMBER}\s+(?:quarters|fourths)\s+of\s+{_NUMBER}", r"(\1/4*\2)"),
+    # "double 25", "twice 40", "triple 12"
+    (rf"\b(?:double|twice)\s+{_NUMBER}", r"(2*\1)"),
+    (rf"\b(?:triple|thrice)\s+{_NUMBER}", r"(3*\1)"),
 )
 
 # Dictated numbers: "five plus five", "twelve times twelve", "one hundred and twenty".
@@ -334,6 +345,13 @@ def _present(value) -> str:
     return str(value)
 
 
+def _readable(expression: str) -> str:
+    """The expression as it reads, not as it parses. A raw "**" broke the Markdown around
+    the answer: "3 **2 = **9**" rendered "2 = " in bold and left a stray "9**"."""
+    shown = re.sub(r"\s*\*\*\s*", "^", expression)
+    return re.sub(r"\s*\*\s*", " × ", shown)
+
+
 def evaluate(expression: str):
     """The value of an expression, exactly. Raises CalculatorError on anything else."""
     cleaned = normalize(expression)
@@ -356,7 +374,7 @@ class CalculatorTool:
             return ToolResult.failure(f"That could not be computed: {exc}", expression=expression)
         shown = _present(value)
         return ToolResult.success(
-            f"{normalize(expression)} = **{shown}**",
+            f"{_readable(normalize(expression))} = **{shown}**",
             expression=normalize(expression),
             result=shown,
             value=_as_float(value) if isinstance(value, (int, float, Fraction)) else None,
