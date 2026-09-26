@@ -3,6 +3,8 @@ from __future__ import annotations
 from laptop_agent.cancellation import check_cancelled, OperationCancelled
 
 import asyncio
+import difflib
+import errno
 import html
 import hashlib
 import json
@@ -11,7 +13,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 NL = chr(10)
@@ -36,25 +38,34 @@ from laptop_agent.context import (
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
-from laptop_agent.memory import MemoryStore
-from laptop_agent.metrics import system_metrics
+from laptop_agent.memory import MemoryStore, list_name
+from laptop_agent.metrics import battery_status, system_metrics
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import is_diagram_subject, is_plain_question
+from laptop_agent.planner.heuristic import (
+    SMALL_TALK,
+    fact_question,
+    is_diagram_subject,
+    is_plain_question,
+    nameless_list_edit,
+)
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.timeparse import TimeParseError, describe, parse_when
-from laptop_agent.safety import ApprovalDenied
-from laptop_agent.scheduler import ScheduleError, SchedulerStore
+from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
+from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
-from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
+from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp
 from laptop_agent.tools.textcard import wants_text_rendered
+from laptop_agent.tools.units import UnitTool, looks_like_conversion
+from laptop_agent.tools.chance import draw
+from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -72,7 +83,7 @@ from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_tra
 from laptop_agent.tools.document import DocumentTool
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
-from laptop_agent.tools.weather import WeatherTool
+from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -140,6 +151,15 @@ def _has_own_subject(text: str) -> bool:
     return any(word not in _SUBJECT_FILLER for word in words)
 
 
+# What a turn with no model to answer it says, when none is configured at all.
+_NO_MODEL_REPLY = (
+    "I can't answer open questions yet — no language model is connected. I can still set "
+    "reminders, timers and alarms, keep your lists, check the weather and the news, do exact "
+    "maths, tell the time anywhere, and work with your files. Add an OPENAI_API_KEY to .env to "
+    "talk about anything (see the README)."
+)
+
+
 # The longest thing a person types in a chat box. An attached file is the right home for
 # anything bigger, and the file tools read it without pushing it through a model prompt.
 MAX_COMMAND_CHARS = 24_000
@@ -156,6 +176,127 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
     return joined.strip(" ,.;:-")
+
+
+# Disfluencies a dictated reminder arrives with: "uh remind me to uh call mom at six" was
+# filed as "uh call mom", with no time at all because "six" was a word.
+_FILLERS = re.compile(r"\b(?:u+h+|u+m+|uhm+|erm+|hmm+)\b[,.]?\s*", re.IGNORECASE)
+
+
+def _spoken_request(expression: str) -> str:
+    """A reminder as said out loud, made readable: fillers out, spoken numbers as digits,
+    and a doubled letter in a hurried "6ppm" or "7amm" read as the time it plainly is."""
+    cleaned = _FILLERS.sub("", (expression or "").strip().strip("'\"")).strip()
+    cleaned = re.sub(r"(?<=\d)(\s*)(?:p{2,}m+|pm{2,}|a{2,}m+|am{2,})(?![a-z])",
+                     lambda m: m.group(1) + ("pm" if m.group(0).strip()[:1].lower() == "p" else "am"),
+                     cleaned, flags=re.IGNORECASE)
+    return spoken_to_digits(cleaned)
+
+
+_CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|krw|brl|zar|dollars?|bucks|euros?"
+             r"|rupees?|yen|yuan|pesos?|dirhams?|francs?|pounds?|reais|ringgit|baht|rand|bitcoins?|btc|ethereum|eth)")
+
+_UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
+_FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
+               "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
+               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
+# Where one request ends and the next begins, in speech.
+_JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
+# A second request in a sentence starts with its own verb or question word; "hotels in
+# paris" after "search for flights and" does not, and is the first request's object.
+_REQUEST_START = re.compile(
+    r"\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|will\s+you\s+)?(?:set|remind|add|put|play|pause|"
+    r"stop|turn|open|launch|start|what(?:'s|s)?|how(?:'s|s)?|when(?:'s|s)?|where(?:'s|s)?|who(?:'s|s)?|is|are|do|does|"
+    r"tell|show|read|check|search|find|look|email|send|wake|cancel|delete|remove|clear|snooze|take|make|create|"
+    r"draw|write|convert|calculate|give|get|schedule|book|flip|roll|pick|mute|unmute|skip|resume|volume|lower|"
+    r"raise|increase|decrease|remember|forget|note|download|summari[sz]e|translate|define|change|update|"
+    r"weather|news|mark|list|go|navigate|close|save|run)\b",
+    re.IGNORECASE,
+)
+# A reply that is not an answer to the question just asked: a refusal, or a question of
+# its own. A lone "Will" is a name, so the modals only count with words after them.
+_NOT_AN_ANSWER = re.compile(
+    r"\s*(?:no|nope|nah|not|never|skip|cancel|stop|nevermind|idk|none|nothing|hm+|um+|uh+)\b"
+    r"|\s*(?:i\s+don'?t|don'?t|forget|why|what|how|who|when|where|which|can|could|would|will|is|are|do|does)\s+\w",
+    re.IGNORECASE,
+)
+_FILLER_REPLY = frozenset({"it's", "its", "it", "is", "the", "a", "an", "my", "to", "at", "in", "on", "of", "that",
+                           "this", "about", "for", "and", "so", "well", "ok", "okay", "yes", "yeah", "sure"})
+
+
+def _meaningful(value: str) -> bool:
+    """Whether a reply carries an answer: "it's" and "to" alone do not - they were filed as
+    a name and as a reminder."""
+    words = re.findall(r"[\w'-]+", value.lower())
+    return bool(words) and any(word not in _FILLER_REPLY for word in words)
+
+
+# Direct commands whose argument is free text: an "and" inside it belongs to it.
+_WHOLE_ARGUMENT = frozenset({
+    "email", "send", "remember", "note", "document", "image", "research", "solve", "ask", "agent", "autopilot",
+    "workflow", "multi", "schedule", "run", "terminal", "shell", "write", "draft", "summarize", "translate",
+})
+_HOW_LONG_LEFT = re.compile(r"(?:how\s+much\s+longer|how\s+much\s+time(?:\s+is)?\s+left|how\s+long\s+(?:is\s+)?left"
+                            r"|time\s+left|how\s+long\s+to\s+go)[\s?.!]*")
+
+# "shopping list", "the grocery list" - a list named on its own.
+_BARE_LIST = re.compile(r"(?:(?:show|read|open|check)\s+(?:me\s+)?)?(?:(?:my|the|our)\s+)?"
+                        r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list[\s?.!]*")
+# A list asked for without its name.
+_WHICH_LIST = re.compile(
+    r"(?:what(?:'s|s|\s+is)\s+on\s+(?:the|my|our)\s+list|(?:show|read)\s+(?:me\s+)?(?:the|my|our)\s+list"
+    r"|what\s+do\s+(?:i|we)\s+need\s+(?:to\s+(?:buy|get|pick\s+up)|from\s+the\s+(?:store|shop|supermarket"
+    r"|grocery\s+store)))(?:\s+today)?[\s?.!]*"
+)
+
+
+# A repeat said in a reminder: "every day at 8am", "daily", "every 30 minutes".
+_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_DAY_NAMES = "(?:" + "|".join(_WEEKDAY_NAMES) + ")"
+# A plural day ("on mondays") repeats; a singular one ("on monday") is a date.
+_REPEAT = re.compile(
+    r"\b(?:every\s+(?:\d+\s+(?:minutes?|hours?)|day|morning|evening|night|hour|weekdays?|weekends?|week|month"
+    rf"|{_DAY_NAMES}(?:\s*(?:,|and|&)\s*{_DAY_NAMES})*)"
+    rf"|(?:on\s+)?(?:weekdays|weekends|{_DAY_NAMES}s(?:\s*(?:,|and|&)\s*{_DAY_NAMES}s)*)"
+    r"|daily|hourly|each\s+day|everyday)\b",
+    re.IGNORECASE,
+)
+_UNIT_WORDS = r"seconds?|secs?|minutes?|mins?|hours?|hrs?|days?"
+# The number must stand on its own: "1e309 minutes" was read as 309 minutes.
+_TIMER_PART = re.compile(rf"(?P<n>(?<![\w.])\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?P<unit>{_UNIT_WORDS})\b",
+                         re.IGNORECASE)
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_MAX_TIMER_SECONDS = 7 * 86400
+# Words that sit where a timer's name goes without being one: "set a 5 minute timer".
+_NOT_A_TIMER_NAME = {"minute", "minutes", "second", "seconds", "hour", "hours", "quick", "new", "another", "short",
+                     "long", "countdown", "count", "please", "me", "you", "this", "that", "it"}
+
+
+def _span_seconds(match: re.Match[str]) -> int:
+    """"15 minute" -> 900, "half an hour" -> 1800, "1.5 hours" -> 5400."""
+    number = match.group("n").lower()
+    amount = 0.5 if number.startswith("half") else 1.0 if number in {"a", "an"} else float(number)
+    return round(amount * _UNIT_SECONDS[match.group("unit").lower()[0]])
+
+
+def _say_seconds(seconds: int) -> str:
+    """900 -> "15 minutes", 5400 -> "1 hour 30 minutes", 90 -> "1 minute 30 seconds"."""
+    parts = []
+    for size, unit in ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")):
+        count, seconds = divmod(seconds, size)
+        if count:
+            parts.append(f"{count} {unit}{'s' if count != 1 else ''}")
+    return " ".join(parts) or "0 seconds"
+
+
+def _reminder_line(item: dict, now: datetime) -> str:
+    """"- #3 today at 6:22 AM — check the oven", instead of a raw UTC timestamp."""
+    try:
+        due = datetime.fromisoformat(str(item.get("due_at", "")))
+        when = describe(due, now) + (" (overdue)" if due <= now else "")
+    except ValueError:
+        when = str(item.get("due_at", ""))
+    return f"- #{item.get('id')} {when} — {item.get('message')}"
 
 
 def _readable_size(size: int) -> str:
@@ -624,17 +765,29 @@ class AgentOrchestrator:
     ) -> ToolResult:
         """Route one turn, timing it. The inner leg of a planned command runs under the
         same trace, so a tool's own time is not counted as a second turn."""
-        if not _allow_planner or current_trace() is not None:
+        if current_trace() is not None:
             return await self._handle(text, _allow_planner, history, on_token)
+        if not _allow_planner:
+            # A top-level command with no routing: an agent step, an autopilot step, a
+            # scheduled job. Untraced, but held to the same promise as a user's turn.
+            try:
+                return await self._handle(text, _allow_planner, history, on_token)
+            except ApprovalDenied:
+                raise
+            except Exception as exc:
+                return self._unexpected_failure(exc, text.strip().split(" ", 1)[0].lower())
         trace = TurnTrace()
         token = begin_trace(trace)
         try:
             result = await self._handle(text, _allow_planner, history, self._traced_tokens(on_token, trace))
             trace.finish(result.ok)
             return result
-        except Exception:
+        except ApprovalDenied:
             trace.finish(False)
             raise
+        except Exception as exc:
+            trace.finish(False)
+            return self._unexpected_failure(exc, trace.verb or "")
         finally:
             end_trace(token)
             if not trace.verb and trace.route_source in ("", "direct"):
@@ -649,6 +802,29 @@ class AgentOrchestrator:
                 self.traces.add(trace)
             except OSError:
                 pass  # a trace is diagnostics; never fail a turn over one
+
+    def _unexpected_failure(self, exc: Exception, verb: str) -> ToolResult:
+        """The last line of defence: whatever a tool raised, the user gets an answer.
+
+        Fuzzing every command prefix with hostile arguments found 21 ways to raise out of
+        handle() - a NUL byte or a 3000-character name reaching pathlib, a sum too large to
+        print - and each one ended the CLI session outright and showed the web page a raw
+        "Error: ...". A tool bug still has to be fixed where it lives; this only guarantees
+        an answer, and that the reason is written down instead of lost. Only the command
+        word is recorded, never the user's text.
+        """
+        record_failure("orchestrator.handle", exc, verb=verb if verb in self._command_verbs() else "")
+        # The commonest cause by far: a path the operating system refuses outright.
+        unusable = (isinstance(exc, ValueError) and "null" in str(exc)) or (
+            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206))
+        if unusable:
+            return ToolResult.failure(_UNUSABLE_PATH, error=type(exc).__name__)
+        detail = " ".join(str(exc).split())[:200] or type(exc).__name__
+        return ToolResult.failure(
+            f"Sorry — that failed with an unexpected error ({type(exc).__name__}: {detail}). "
+            "I've logged it; ask me for `failures` to see the details.",
+            error=type(exc).__name__,
+        )
 
     async def _dispatch_meta(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for help, memory, audit, the daily briefing."""
@@ -667,7 +843,8 @@ class AgentOrchestrator:
             return self._forget(command[len("forget ") :])
 
         if lowered in {"memory", "show memory"}:
-            return ToolResult.success("Memory loaded.", memory=self.context.memory.dump())
+            memory = self.context.memory.dump()
+            return ToolResult.success(self._memory_text(memory), memory=memory)
 
         if lowered in {"audit", "show audit"}:
             return ToolResult.success("Recent audit events.", events=self.context.audit.tail())
@@ -722,14 +899,40 @@ class AgentOrchestrator:
         if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._reminders_due()
 
+        if lowered in {"reminders next", "reminders next alarm", "reminders next timer"}:
+            return self._next_reminder(lowered.split()[-1] if lowered.endswith(("alarm", "timer")) else "")
+
         if lowered.startswith("reminder add "):
             return self._reminder_add(command[len("reminder add ") :].strip())
 
         if lowered.startswith("remind me "):
+            # "remind me of my wife's birthday" asks for a fact; it names no time to set.
+            asked = fact_question(command)
+            recalled = self._recall_fact(*asked) if asked else None
+            if recalled is not None:
+                return recalled
             return self._reminder_add(command[len("remind me ") :].strip())
 
-        if lowered.startswith("reminder done "):
-            return self._reminder_done(command[len("reminder done ") :].strip())
+        if lowered == "reminder done" or lowered.startswith("reminder done "):
+            return self._reminder_done(command[len("reminder done") :].strip())
+
+        if re.match(r"reminder (?:delete|cancel|remove)(?: |$)", lowered):
+            return self._reminder_remove(command.split(" ", 2)[2] if len(command.split(" ", 2)) > 2 else "")
+
+        if lowered == "reminder stop" or lowered.startswith("reminder stop "):
+            return self._reminder_stop(command[len("reminder stop") :].strip())
+
+        if lowered == "reminder snooze" or lowered.startswith("reminder snooze "):
+            return self._reminder_snooze(command[len("reminder snooze") :].strip())
+
+        if lowered == "timers":
+            return self._timers()
+
+        if lowered == "timer" or lowered.startswith("timer "):
+            return self._timer(command[len("timer ") :])
+
+        if lowered.startswith("alarm "):
+            return self._alarm(command[len("alarm ") :])
 
         if lowered in {"schedule", "schedule list", "schedules", "show schedule"}:
             return self._schedule_list()
@@ -1034,7 +1237,13 @@ class AgentOrchestrator:
             return self._news_tool().headlines()
 
         if lowered.startswith("news "):
-            return self._news_tool().headlines(command[len("news ") :].strip())
+            # "news about nvidia" searched for "about nvidia" and titled the answer "Top
+            # stories about about nvidia".
+            topic = re.sub(r"^(?:about|on|regarding|for|from|in|re|of)\s+", "",
+                           command[len("news ") :].strip(), flags=re.IGNORECASE)
+            topic = re.sub(r"\b(?:today|tonight|now|right now|please|headlines?)\s*$", "", topic,
+                           flags=re.IGNORECASE).strip(" ?.!,")
+            return self._news_tool().headlines(topic) if topic else self._news_tool().headlines()
 
         if lowered.startswith("document "):
             return self._document_tool().create(command[len("document ") :].strip())
@@ -1042,9 +1251,36 @@ class AgentOrchestrator:
         if lowered.startswith("image "):
             return self._generate_image(command[len("image ") :].strip())
 
+        if lowered in {"weather", "forecast", "weather here", "local weather", "weather forecast"}:
+            return self._forecast("")
+
         if lowered.startswith("weather "):
-            return self._weather_tool().forecast(command[len("weather ") :].strip())
+            return self._forecast(command[len("weather ") :])
         return None
+
+    # Profile keys that say where the user is: "remember my city is Austin" stores `city`.
+    _HOME_KEYS = frozenset({
+        "city", "location", "home city", "hometown", "home town", "town", "home", "where i live",
+        "zip", "zip code", "postcode",
+    })
+
+    def _forecast(self, raw: str) -> ToolResult:
+        """`weather [place]`. With no place, the forecast is for where the user is."""
+        place = clean_place(raw) or self._home_place()
+        if not place:
+            return ToolResult.failure(
+                "Where should I check? Name a city — or tell me once, \"remember my city is "
+                "Austin\", and I'll use it from then on."
+            )
+        return self._weather_tool().forecast(place)
+
+    def _home_place(self) -> str:
+        """A remembered city, else the approximate location from the IP address."""
+        for key, value in self.context.memory.get_profile().items():
+            if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() in self._HOME_KEYS and str(value).strip():
+                return str(value).strip()
+        located = self._travel_tool().here()
+        return str(located.data.get("label") or "") if located.ok else ""
 
     async def _dispatch_travel(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for distance, trips, maps and places."""
@@ -1139,6 +1375,10 @@ class AgentOrchestrator:
         if lowered.startswith("open app "):
             return self.context.desktop.open_app_or_file(command[len("open app ") :].strip())
 
+        if lowered in {"screenshot", "take a screenshot", "take screenshot", "screen shot"}:
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
+
         if lowered.startswith("screenshot "):
             return self.context.desktop.screenshot(command[len("screenshot ") :].strip())
 
@@ -1153,6 +1393,10 @@ class AgentOrchestrator:
 
         if lowered.startswith("play music "):
             return self.context.music.play(command[len("play music ") :].strip())
+
+        level = re.fullmatch(r"media volume (\d{1,3})%?", lowered)
+        if level:
+            return self.context.music.set_volume(int(level.group(1)))
 
         if lowered.startswith("media "):
             return self.context.music.media_key(command[len("media ") :].strip())
@@ -1246,6 +1490,282 @@ class AgentOrchestrator:
             return await self._run_many(command[len("multi ") :])
         return None
 
+    async def _dispatch_personal(self, command: str, lowered: str, history_turns) -> ToolResult | None:
+        """Direct commands for lists, the calendar stand-in and this machine's own state.
+
+        Last in the table on purpose: `list jobs`, `list notes` and `list windows` are
+        exact commands of the groups above and must keep reaching them.
+        """
+        if lowered in {"lists", "my lists", "show lists", "show my lists"}:
+            return self._lists()
+
+        if lowered.startswith("list "):
+            listed = self._list_command(command[len("list ") :].strip())
+            if listed is not None:
+                return listed
+
+        # "shopping list", "the grocery list" - a list that exists, named on its own.
+        bare = _BARE_LIST.fullmatch(lowered)
+        if bare:
+            known = self._known_list(bare.group("name"))
+            if known in self.context.memory.lists():
+                return self._list_command(known)
+
+        # "what's on the list", "what do i need to buy"
+        if _WHICH_LIST.fullmatch(lowered):
+            lists = self.context.memory.lists()
+            if re.search(r"\b(?:buy|get|pick\s+up|store|shop|supermarket)\b", lowered):
+                return self._list_command("shopping show")
+            if len(lists) == 1:
+                return self._list_command(f"{next(iter(lists))} show")
+            return self._lists()
+
+        asked = fact_question(command)
+        if asked is not None:
+            recalled = self._recall_fact(*asked)
+            if recalled is not None:
+                return recalled
+
+        drawn = draw(command)
+        if drawn is not None:
+            return drawn
+
+        if lowered in {"calendar", "agenda", "my calendar", "my agenda"}:
+            return self._calendar()
+
+        if lowered.startswith("calendar add "):
+            return self._calendar_add(command[len("calendar add ") :].strip())
+
+        if lowered in {"system status", "status", "battery", "disk space", "computer status"}:
+            return self._system_status()
+
+        # Only when it reads as one: "convert this pdf to word" is not a unit conversion.
+        if lowered.startswith("convert ") and looks_like_conversion(command):
+            return UnitTool().convert(command)
+
+        # "how much longer" means the timer, when one is running.
+        if _HOW_LONG_LEFT.fullmatch(lowered) and any(due > datetime.now().astimezone() for due, _ in self._dated("timer")):
+            return self._timers()
+
+        edit = nameless_list_edit(command)
+        if edit is not None:
+            return self._nameless_list_edit(*edit)
+
+        asked = date_question(command)
+        if asked is not None:
+            return self._date_answer(*asked)
+        return None
+
+    def _nameless_list_edit(self, verb: str, items: str) -> ToolResult:
+        """"delete milk from my list" / "add eggs to the list", with no list named: the one
+        list it can only mean, or a question naming the choices."""
+        lists = self.context.memory.lists()
+        if verb == "remove":
+            wanted = items.strip().lower()
+            holding = [name for name, entries in lists.items()
+                       if any(wanted == entry.lower() or wanted in entry.lower() for entry in entries)]
+            if len(holding) == 1:
+                return self._list_command(f"{holding[0]} remove {items}")
+            if not holding:
+                return ToolResult.failure(f"{items} isn't on any of your lists.")
+            return ToolResult.failure(f"{items} is on your {' and '.join(holding)} lists — which one?")
+        if len(lists) == 1:
+            return self._list_command(f"{next(iter(lists))} add {items}")
+        if not lists:
+            return ToolResult.failure(f"Which list should {items} go on? For example \"add {items} to my shopping list\".")
+        return ToolResult.failure(f"Which list — {', '.join(sorted(lists))}? For example \"add {items} to my "
+                                  f"{sorted(lists)[0]} list\".")
+
+    def _date_answer(self, kind: str, what: str, other: str = "") -> ToolResult | None:
+        """How many days until something, what day it falls on, or the days between two.
+
+        None when the thing is not a date this can find ("when is the next train"), so the
+        question goes on to something that can answer it.
+        """
+        now = datetime.now().astimezone()
+        today = now.date()
+        profile = self.context.memory.get_profile()
+        if kind == "between":
+            first, second = resolve_date(what, now, profile), resolve_date(other, now, profile)
+            if first is None or second is None:
+                return None
+            days = abs((second[0] - first[0]).days)
+            return ToolResult.success(
+                f"**{days} days** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
+                f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
+        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?\s*", what, re.IGNORECASE)
+        if kind != "between" and upcoming:
+            # "when is my next reminder" is not a date anyone told us.
+            return self._next_reminder("" if upcoming.group(1).lower() == "reminder" else upcoming.group(1).lower())
+        found = resolve_date(what, now, profile)
+        if found is None:
+            # "when is my dentist appointment" - a reminder may say.
+            words = [w for w in re.findall(r"[a-z0-9']+", what.lower()) if w not in {"my", "our", "the", "a", "an"}]
+            reminder = next((item for item in self.context.reminders.list()
+                             if words and all(w in str(item.get("message", "")).lower() for w in words)), None)
+            if reminder is not None:
+                due = datetime.fromisoformat(str(reminder["due_at"]))
+                return ToolResult.success(f"You have a reminder for that: {reminder['message']} — "
+                                          f"{describe(due, now)}.", reminder=reminder)
+            if re.match(r"\s*(?:my|our)\s+", what, re.IGNORECASE):
+                yours = re.sub(r"^(?:my|our)\b", "your", what.strip(), flags=re.IGNORECASE)
+                return ToolResult.success(
+                    f"I don't know when {yours} is — you haven't told me, and no reminder mentions it. "
+                    f"Tell me with \"remember {what.strip()} is <date>\".")
+            return None
+        day, name = found
+        if kind == "until":
+            days = (day - today).days
+            count = f"{days} day{'s' if days != 1 else ''}"
+            if other == "weeks" and days >= 7:
+                weeks, spare = divmod(days, 7)
+                count = f"{weeks} week{'s' if weeks != 1 else ''}" + (
+                    f" and {spare} day{'s' if spare != 1 else ''}" if spare else "")
+            return ToolResult.success(f"**{count}** until {name} ({day:%A %d %B %Y}).".replace(" 0", " "),
+                                      days=days, date=day.isoformat())
+        if name.lower() in RELATIVE_DAYS:
+            # "Tomorrow is on Sunday, 27 September — tomorrow" said it twice.
+            stamp = day.strftime("%A, %d %B %Y").replace(" 0", " ")
+            verb = "was" if day < today else "is"
+            return ToolResult.success(f"{name[:1].upper() + name[1:]} {verb} **{stamp}**.", date=day.isoformat())
+        return ToolResult.success(f"{name[:1].upper() + name[1:]} is on {describe_day(day, today)}.",
+                                  date=day.isoformat())
+
+    def _lists(self) -> ToolResult:
+        lists = self.context.memory.lists()
+        if not lists:
+            return ToolResult.success("You have no lists yet. Try \"add milk to my shopping list\".", lists={})
+        lines = [f"- **{name}** ({len(items)}): " + ", ".join(items[:6]) + ("…" if len(items) > 6 else "")
+                 for name, items in sorted(lists.items())]
+        return ToolResult.success("Your lists:\n" + "\n".join(lines), lists=lists)
+
+    def _known_list(self, name: str) -> str:
+        """The list meant: an existing one spelled nearly the same, else the name as said.
+        "add milk to my shoping list" started a second list beside the shopping one."""
+        wanted = list_name(name)
+        existing = list(self.context.memory.lists())
+        if wanted in existing:
+            return wanted
+        close = difflib.get_close_matches(wanted, existing, n=1, cutoff=0.8)
+        return close[0] if close else wanted
+
+    def _recall_fact(self, key: str, personal: bool) -> ToolResult | None:
+        """A fact the user told me, read back - or, for a plainly personal one, the plain
+        truth that they never did. None otherwise, so the question goes on elsewhere."""
+        def shape(text: object) -> str:
+            return re.sub(r"[\s_]+", " ", str(text).lower().replace("favourite", "favorite")).strip()
+
+        wanted = ("city", "hometown", "home town", "location", "address") if key == "where i live" else (key,)
+        profile = self.context.memory.get_profile()
+        for want in wanted:
+            for stored, value in profile.items():
+                if shape(stored) == shape(want):
+                    if key == "where i live":
+                        return ToolResult.success(f"You live in {value}.", fact=stored)
+                    return ToolResult.success(f"Your {shape(stored)} is {value}.", fact=stored)
+        if not personal:
+            return None
+        if key == "where i live":
+            return ToolResult.success("You haven't told me where you live yet. Say \"I live in <city>\" and I'll "
+                                      "remember it.", fact=None)
+        return ToolResult.success(f"You haven't told me your {shape(key)} yet. Say \"my {shape(key)} is …\" and "
+                                  f"I'll remember it.", fact=None)
+
+    def _list_command(self, rest: str) -> ToolResult | None:
+        """`list <name> show|add <items>|remove <item>|clear`, or `list <existing name>`.
+
+        None when the words are not a list command: "list" is an ordinary English verb, and
+        "list files in downloads" or "list the planets" must keep reaching the router.
+        """
+        match = re.match(r"(?P<name>.+?)\s+(?P<verb>show|add|remove|clear)\b\s*(?P<items>.*)$", rest, re.IGNORECASE)
+        name = (match.group("name") if match else rest).strip()
+        if name:
+            name = self._known_list(name)
+        if not match and name not in self.context.memory.lists():
+            return None
+        if not name:
+            return ToolResult.failure("Which list? Try \"what's on my shopping list\".")
+        label = f"your {list_name(name)} list"
+        if not match or match.group("verb").lower() == "show":
+            items = self.context.memory.list_items(name)
+            if not items:
+                return ToolResult.success(f"{label.capitalize()} is empty.", items=[])
+            return ToolResult.success(f"{label.capitalize()} ({len(items)}):\n" + "\n".join(f"- {item}" for item in items),
+                                      items=items)
+        verb, raw_items = match.group("verb").lower(), match.group("items").strip()
+        if verb == "clear":
+            removed = self.context.memory.clear_list(name)
+            return ToolResult.success(f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed)
+        if not raw_items:
+            return ToolResult.failure(f"What should I {verb} {'to' if verb == 'add' else 'from'} {label}?")
+        if verb == "remove":
+            removed_item = self.context.memory.remove_from_list(name, raw_items)
+            if removed_item is None:
+                return ToolResult.failure(f"{raw_items} isn't on {label}.")
+            return ToolResult.success(f"Removed {removed_item} from {label}.", removed=removed_item)
+        items = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", raw_items) if item.strip(" .")]
+        added = self.context.memory.add_to_list(name, items)
+        total = len(self.context.memory.list_items(name))
+
+        def said(words: list[str]) -> str:
+            return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+        if not added:
+            return ToolResult.success(f"{said(items).capitalize()} {'is' if len(items) == 1 else 'are'} already on {label}.",
+                                      items=self.context.memory.list_items(name))
+        spoken = said(added)
+        return ToolResult.success(f"Added {spoken} to {label} ({total} item{'s' if total != 1 else ''}).",
+                                  added=added, items=self.context.memory.list_items(name))
+
+    def _calendar(self) -> ToolResult:
+        """No calendar is connected, and the answer says so instead of guessing.
+
+        "what's on my calendar today" was answered from a web search for the sentence.
+        The honest answer is that none is connected - followed by the nearest thing that
+        is real here, the reminders.
+        """
+        now = datetime.now().astimezone()
+        upcoming = self.context.reminders.list()[:8]
+        lines = [_reminder_line(item, now) for item in upcoming]
+        text = "I can't see your calendar — no calendar is connected here yet."
+        if lines:
+            text += " Here's what you've asked me to remind you about:\n" + "\n".join(lines)
+        else:
+            text += " You have no reminders set either; say \"remind me to … at …\" and I'll keep track."
+        return ToolResult.success(text, reminders=upcoming, calendar_connected=False)
+
+    def _calendar_add(self, text: str) -> ToolResult:
+        """"add the dentist to my calendar next tuesday at 9": a reminder, said as one."""
+        result = self._reminder_add(text)
+        prefix = "I can't write to your calendar yet (none is connected), so "
+        result.message = prefix + ("I set a reminder instead. " if result.ok
+                                   else "I tried to set a reminder instead, but: ") + result.message
+        return result
+
+    def _system_status(self) -> ToolResult:
+        """Battery, CPU, memory and disk, read from this machine rather than guessed."""
+        import shutil
+
+        metrics = system_metrics()
+        battery = battery_status()
+        lines = []
+        if battery is not None:
+            lines.append(f"- Battery: {battery['percent']}%{' (charging)' if battery['plugged'] else ''}")
+        if metrics.get("cpu_percent") is not None:
+            lines.append(f"- CPU: {metrics['cpu_percent']}%")
+        if metrics.get("ram_percent") is not None:
+            lines.append(f"- Memory: {metrics['ram_percent']}% used")
+        try:
+            disk = shutil.disk_usage(Path.home().anchor or "/")
+            lines.append(f"- Disk: {disk.free / 1e9:.0f} GB free of {disk.total / 1e9:.0f} GB")
+        except OSError as exc:
+            record_failure("orchestrator.system_status", exc)
+        for gpu in metrics.get("gpus") or []:
+            lines.append(f"- GPU {gpu.get('name')}: {gpu.get('util_percent')}%")
+        if battery is None:
+            lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
+        return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
+
     # Dispatch order, as data. A group returns a ToolResult or None; the first
     # non-None wins, exactly as the original if/elif chain did.
     _DISPATCH = (
@@ -1266,6 +1786,7 @@ class AgentOrchestrator:
         _dispatch_desktop,
         _dispatch_email,
         _dispatch_batch,
+        _dispatch_personal,
     )
 
     @staticmethod
@@ -1283,6 +1804,78 @@ class AgentOrchestrator:
             traced.reset = reset
         return traced
 
+    # The direct prefixes are a command language - `weather austin`, `schedule daily at 8 ::
+    # briefing` - and ordinary English starts sentences with the same words. Driving a
+    # conversational corpus through handle() found them colliding: "split $120 between 4
+    # people" arranged windows, "schedule a meeting with john tomorrow at 3pm" and "email
+    # bob@example.com about lunch tomorrow" were answered with command syntax, "time for a
+    # break" failed on a time zone called 'a break'. When the words after the prefix do not
+    # fit its grammar, the router decides instead. Only the user's own text is checked: a
+    # command a router built still reaches its tool and gets the tool's own usage message.
+    # Not the modals: `solve should i use postgres or mysql` is a command, and so is
+    # `solve is option b safer for this`.
+    _PROSE_OPENERS = frozenset({
+        "is", "was", "are", "were", "looks", "seems", "sucks", "shows", "says", "feels", "has",
+        "had", "isn't", "wasn't",
+    })
+    _PROSE_PRONE = frozenset({
+        "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date",
+        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
+        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
+        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm",
+    })
+
+    def _reads_as_prose(self, command: str, lowered: str) -> bool:
+        verb, _, rest = lowered.partition(" ")
+        rest = rest.strip()
+        if verb not in self._PROSE_PRONE or not rest:
+            return False
+        first = rest.split(None, 1)[0]
+        if first in self._PROSE_OPENERS:
+            return True
+        if verb in {"split", "windows", "arrange", "snap"}:
+            return not parse_placements(command)
+        # A typo in the command form ("schedule briefing", "email hello") still gets the
+        # tool's usage message; English is recognised by how it goes on.
+        if verb == "schedule":
+            return "::" not in rest and bool(re.match(
+                r"(?:a|an|the|my|our|some|time|lunch|dinner|coffee|drinks|meetings?|calls?"
+                r"|appointments?|interviews?)\b", rest))
+        if verb == "email":
+            if " subject " in rest or re.match(r"(?:digest|search|unread|api|oauth|tokens?)\b", rest):
+                return False
+            return bool(re.search(r"@|\b(?:about|saying|that|regarding|asking|telling|to say)\b", rest))
+        if verb in {"time", "date", "clock"}:
+            return not asks_the_time(command) and _requested_zone(rest)[0] is None
+        if verb == "distance":
+            return not re.search(r"\s(?:to|and)\s|->|→", f" {rest} ")
+        if verb == "trip":
+            return len([stop for stop in re.split(r"\s+(?:to|then)\s+|->|→|\|", rest) if stop.strip()]) < 2
+        if verb == "download":
+            return not re.search(r"https?://|www\.|\b[\w-]+\.[a-z]{2,}\b", rest)
+        if verb == "forget":
+            # "forget the timer" lets go of a timer; it is not a fact called "timer".
+            return rest.rstrip(" .!") in {"it", "about it", "that", "this", "it then", "about that", "all that"} or bool(
+                re.match(r"(?:about\s+)?(?:the|my|that)\s+(?:[a-z][\w'-]*\s+){0,3}(?:timers?|alarms?|reminders?)\b", rest))
+        if verb == "remember":
+            return bool(re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
+        if verb in {"calculate", "calc", "compute"}:
+            return not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+        if verb == "map":
+            return first == "out"
+        if verb == "workflow":
+            return ";;" not in rest and rest not in {"status", "dashboard", "retry failed"}
+        if verb == "media":
+            return rest not in {"playpause", "next", "previous", "stop", "volumeup", "volumedown", "mute"} and not (
+                re.fullmatch(r"volume \d{1,3}%?", rest))
+        if verb == "timer":
+            return not re.search(r"(?:\d|\ban?\b|\bhalf\b)\s*(?:" + _UNIT_WORDS + r")\b",
+                                 spoken_to_digits(rest))
+        if verb == "alarm":
+            return not re.search(r"\d|\b(?:noon|midnight|morning|tomorrow|one|two|three|four|five|six|seven"
+                                 r"|eight|nine|ten|eleven|twelve)\b", rest)
+        return False
+
     def _command_verbs(self) -> frozenset[str]:
         if self._command_verbs_cache is None:
             self._command_verbs_cache = frozenset(
@@ -1292,12 +1885,125 @@ class AgentOrchestrator:
             )
         return self._command_verbs_cache
 
+    def _follow_up(self, command: str, history_turns) -> str | None:
+        """A short reply to a question this assistant just asked, made into the request it
+        completes: "set a timer" -> "How long should the timer run?" -> "10 minutes" used to
+        arrive as a bare "10 minutes" that nothing could act on. None when the last turn
+        asked nothing, or the reply is a request, a question or a refusal of its own."""
+        # The page and the CLI send {"role", "text"}; normalize_history reads either shape.
+        # Reading "content" alone passed every unit test and did nothing in the real page.
+        turns = normalize_history(history_turns)
+        if len(turns) < 2 or turns[-1][0] != "assistant":
+            return None
+        asked = turns[-1][1]
+        before = next((text.rstrip(".!?") for role, text in reversed(turns[:-1]) if role == "user"), "")
+        reply = command.strip().rstrip(".!")
+        if not reply or len(reply.split()) > 8 or _NOT_AN_ANSWER.match(reply):
+            return None
+        routed = self.router.plan(reply, "", {})
+        if routed.is_command or routed.explanation == SMALL_TALK:
+            return None
+        now = datetime.now().astimezone()
+        if asked.startswith("How long should the timer run?"):
+            return f"timer {reply}" if _TIMER_PART.search(spoken_to_digits(reply)) else None
+        if asked.startswith("When should the alarm go off?"):
+            return f"alarm {reply}"
+        if asked.startswith("What should I remind you about") and before:
+            subject = re.sub(r"^(?:to|that|about)\b\s*", "", reply, flags=re.IGNORECASE)
+            return f"{before} to {subject}" if _meaningful(subject) else None
+        if asked.startswith("I could not find a time in that.") and before:
+            for candidate in (reply, f"at {reply}"):
+                try:
+                    if parse_when(spoken_to_digits(candidate), now) is not None:
+                        return f"{before} {candidate}"
+                except TimeParseError:
+                    return None
+            return None
+        untold = re.match(r"You haven't told me (?:your (?P<key>.+?)|(?P<live>where you live)) yet\.", asked)
+        if untold:
+            value = re.sub(r"^(?:it'?s|it\s+is|i'?m|i\s+am|i\s+live\s+in|in|call\s+me)\b\s*", "", reply, flags=re.IGNORECASE)
+            key = "city" if untold.group("live") else untold.group("key").replace(" ", "_")
+            return f"remember {key} = {value}" if _meaningful(value) else None
+        undated = re.match(r"I don't know when your (?P<what>.+?) is — ", asked)
+        if undated:
+            value = re.sub(r"^(?:it'?s|it\s+is)(?:\s+on)?\b\s*|^on\b\s*", "", reply, flags=re.IGNORECASE)
+            if not _meaningful(value) or resolve_date(value, now, {}) is None:
+                return None
+            return f"remember {undated.group('what').replace(' ', '_')} = {value}"
+        if asked.startswith("Which one? ") and before:
+            ids = re.findall(r"#(\d+)", asked)
+            action = self.router.plan(before, "", {}).command or ""
+            verb = re.match(r"reminder (?:delete|done|snooze)", action)
+            if not ids or not verb:
+                return None
+            ordinals = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2, "fourth": 3,
+                        "4th": 3, "fifth": 4, "5th": 4, "last": -1, "latest": -1}
+            spoken = re.sub(r"^(?:the\s+)?(.+?)(?:\s+one)?$", r"\1", reply.lower())
+            picked = (ids[ordinals[spoken]] if spoken in ordinals
+                      else spoken.lstrip("#") if spoken.lstrip("#") in ids else spoken)
+            return f"{verb.group(0)} {picked}"
+        return None
+
+    def _split_requests(self, command: str) -> list[str] | None:
+        """Two requests said in one breath, each its own command - or None.
+
+        "set a timer for 5 minutes and remind me to call mom at 6pm" set the timer and
+        silently dropped the reminder. A sentence is split only where every part both
+        starts like a request and routes to a command on its own, so "remind me to buy milk
+        and eggs at 6pm" and "add milk and eggs to my list" stay whole ("eggs at 6pm" is
+        not a request), and of the ways to split it the one with the most parts wins.
+        """
+        joins = list(_JOINER.finditer(command))
+        if not joins or len(joins) > 4 or "::" in command or ";;" in command:
+            return None
+        if command.split(None, 1)[0].lower() in _WHOLE_ARGUMENT:
+            return None
+        routes: dict[str, bool] = {}
+
+        def routed(part: str) -> bool:
+            if part not in routes:
+                routes[part] = self.router.plan(part, "", {}).is_command
+            return routes[part]
+
+        best: list[str] | None = None
+        for mask in range(1, 2 ** len(joins)):
+            cuts = [join for bit, join in enumerate(joins) if mask >> bit & 1]
+            edges = [0] + [edge for join in cuts for edge in (join.start(), join.end())] + [len(command)]
+            parts = [command[edges[i]: edges[i + 1]].strip(" ,") for i in range(0, len(edges), 2)]
+            if any(not part for part in parts):
+                continue
+            if any(not _REQUEST_START.match(part) for part in parts[1:]):
+                continue
+            if all(routed(part) for part in parts) and (best is None or len(parts) > len(best)):
+                best = parts
+        return best
+
+    async def _run_each(self, parts: list[str], history_turns) -> ToolResult:
+        """Each request of a split sentence, handled exactly as if said on its own."""
+        results: list[tuple[str, ToolResult]] = []
+        for part in parts:
+            try:
+                result = await self._handle(part, True, history_turns, None, _whole=False)
+            except ApprovalDenied as exc:
+                result = ToolResult.failure(f"Not approved — {exc}")
+            results.append((part, result))
+        data: dict[str, object] = {}
+        for _part, result in results:
+            data.update({key: value for key, value in (result.data or {}).items() if key != "planner"})
+        ran = [((result.data or {}).get("planner") or {}).get("planned_command") or part for part, result in results]
+        data["parts"] = [{"request": part, "command": command, "ok": result.ok, "message": result.message}
+                         for (part, result), command in zip(results, ran)]
+        data["planner"] = {"planned_command": " ;; ".join(ran), "source": "split"}
+        return ToolResult(ok=all(result.ok for _part, result in results),
+                          message="\n\n".join(result.message for _part, result in results), data=data)
+
     async def _handle(
         self,
         text: str,
         _allow_planner: bool = True,
         history: list[dict[str, str]] | None = None,
         on_token=None,
+        _whole: bool = True,
     ) -> ToolResult:
         check_cancelled()
         command = text.strip()
@@ -1317,13 +2023,28 @@ class AgentOrchestrator:
                 limit=MAX_COMMAND_CHARS,
             )
 
+        # A NUL byte, or a path segment longer than any filesystem allows. Linux refuses
+        # these with an error (explained by the last line of defence); Windows on 3.13 just
+        # reports them missing, and the reply echoed the whole name back.
+        if lowered.startswith(_FILE_VERBS) and ("\x00" in command or re.search(r"[^\s/\\]{256,}", command)):
+            return ToolResult.failure(_UNUSABLE_PATH)
+
+        if _allow_planner and _whole:
+            answered = self._follow_up(command, history_turns)
+            if answered is not None:
+                command, lowered = answered, answered.lower()
+            groups = self._split_requests(command)
+            if groups:
+                return await self._run_each(groups, history_turns)
+
         # The dispatch is a table, not a 500-line chain. Each group returns a result or
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
-        for dispatch in self._DISPATCH:
-            handled = await dispatch(self, command, lowered, history_turns)
-            if handled is not None:
-                return handled
+        if not (_allow_planner and self._reads_as_prose(command, lowered)):
+            for dispatch in self._DISPATCH:
+                handled = await dispatch(self, command, lowered, history_turns)
+                if handled is not None:
+                    return handled
 
         if _allow_planner:
             planned = self._route(command, self.context.memory.get_profile(), history_turns)
@@ -1362,13 +2083,13 @@ class AgentOrchestrator:
                 # not be answered from stale model knowledge — search the web first and
                 # answer grounded in the results. Falls back to normal chat if there is no
                 # LLM or the search returns nothing.
-                needs_fresh = self._needs_fresh_info(command)
+                needs_fresh = planned.explanation != SMALL_TALK and self._needs_fresh_info(command)
                 if needs_fresh:
                     grounded = self._grounded_news_answer(command, history_turns, on_token)
                     if grounded is not None:
                         return grounded
                 response = planned.response or ""
-                profile = self.context.memory.get_profile()
+                profile = self._facts()
                 level = self._complexity(command)
                 _, requested_label = self._pick_chat_model(level)
                 model_used = "fast"
@@ -1398,8 +2119,13 @@ class AgentOrchestrator:
                         attempted.add("fast")
                     # A router that chose chat but left the text to the answerer (a
                     # follow-up on the conversation) is asked for the reply too, rather
-                    # than being counted as a dead endpoint.
-                    deferred = real_fast and not planned.response and planned.confidence > 0
+                    # than being counted as a dead endpoint. So is the instant router's
+                    # canned small talk: it is the fallback for when no model answers, never
+                    # the model's answer. Taking it as one is how "translate hello to
+                    # spanish" was answered "I am here and ready..." on every client that
+                    # does not stream.
+                    canned = planned.explanation == SMALL_TALK
+                    deferred = real_fast and (not planned.response or canned) and planned.confidence > 0
                     if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         why = []
                         reply = self._tier_reply(fast_provider, command, profile, history_turns,
@@ -1408,7 +2134,7 @@ class AgentOrchestrator:
                             self._record_tier("fast", reply, why)
                         if reply:
                             response, model_used, answered = reply, "fast", True
-                    elif real_fast and fast_available and planned.response and planned.confidence > 0:
+                    elif real_fast and fast_available and planned.response and planned.confidence > 0 and not canned:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
                     elif real_fast and fast_available:
@@ -1434,7 +2160,10 @@ class AgentOrchestrator:
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
                 if not answered and not response:
-                    response = "I couldn't reach any configured language model just now. Please try again in a minute."
+                    response = (
+                        "I couldn't reach any configured language model just now. Please try again in a minute."
+                        if self._has_language_model() else _NO_MODEL_REPLY
+                    )
                     model_used = "unavailable"
                 degraded = model_used != requested_label
                 trace = current_trace()
@@ -1502,6 +2231,21 @@ class AgentOrchestrator:
         r"\bwhen (?:is|does|will|did)\b.*\b(?:release|come out|launch|start|happen)\b",
         r"\bwar\b.*\b(?:end|ended|over|still|update|status|now|going|latest)\b",
         r"\b(?:update|news|latest) on\b",
+        # Money in another currency: a rate moves daily and a model only has an old one.
+        # "5 pounds to kg" is a weight, and has no currency on its other side.
+        rf"\b{_CURRENCY}\b.{{0,30}}\b(?:to|in|into|=)\b.{{0,15}}\b{_CURRENCY}\b",
+    )
+
+    # Not questions about the world: how the user feels, the assistant itself, and the
+    # user's own day. "i'm feeling sad today", "who are you" and "what's on my calendar
+    # today" were each answered from a web search for the sentence, citing whatever came back.
+    _NOT_FRESH = re.compile(
+        r"^\s*(?:i'?m|i\s+am|i\s+feel|i\s+felt|i'?ve\s+been|i\s+was|i\s+had|i\s+have\s+been|feeling)\b"
+        r"|\bwho\s+(?:are|r)\s+(?:you|u)\b|\bwho\s+(?:made|created|built|designed)\s+you\b"
+        r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
+        r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
+        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
+        re.IGNORECASE,
     )
 
     def _needs_fresh_info(self, text: str) -> bool:
@@ -1510,7 +2254,7 @@ class AgentOrchestrator:
         # The time is on the clock, not on the web. Asked "what is the current date and
         # time in EST" this searched, scraped a stale page, and answered 1:00 PM while
         # the machine's own clock read 6:26 PM.
-        if asks_the_time(text):
+        if asks_the_time(text) or self._NOT_FRESH.search(text):
             return False
         lowered = " " + text.lower()
         if any(keyword in lowered for keyword in self._FRESH_KEYWORDS):
@@ -1683,6 +2427,12 @@ class AgentOrchestrator:
             "I run on your laptop and I can act on it, not just talk about it. "
             "Plain language works for all of this — the commands are just shortcuts.",
             "",
+            "**Day to day**",
+            "Reminders, timers and alarms that ring on screen and out loud · shopping and to-do "
+            "lists · unit conversions and date counting · I remember what you tell me.",
+            "_Try:_ `set a pasta timer for 10 minutes` · `add milk and eggs to my shopping list` · "
+            "`how many days until christmas` · `remember my wife's birthday is june 5`",
+            "",
             "**Files and documents**",
             "Read, search, convert and organise your files · summarise a PDF, DOCX or "
             "spreadsheet · answer questions about one file · pull tables out · per-column stats.",
@@ -1743,8 +2493,19 @@ class AgentOrchestrator:
                 "  schedule <when> :: <command>     (e.g. 'daily at 08:00 :: briefing')",
                 "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
                 "  schedule list | schedule remove <id> | schedule run due",
-                "  reminder add <YYYY-MM-DD HH:MM> <message>",
-                "  reminders | reminders due | reminder done <id>",
+                "  remind me <what> <when>  (\"to call mom at 6pm\", \"in 20 minutes\", \"every day at 8am\")",
+                "  reminders | reminders due | reminders next [alarm|timer] | reminder done <id>",
+                "  reminder delete <id|words|all>  ·  reminder stop <words>  (only what is going off now)",
+                "  reminder snooze [id] [<n>m]",
+                "  timer <duration> [label]  ·  alarm <time>  ·  timers  (running timers and the time left)",
+                "  lists | list <name> show | list <name> add <items> | list <name> remove <item> | list <name> clear",
+                "  calendar | calendar add <event and time>  (no calendar is connected: it sets a reminder)",
+                "  system status  (battery, CPU, memory, disk)",
+                "  convert <amount> <unit> to <unit>",
+                "  how many days until <date|holiday|my ...> | when is <holiday|my ...>",
+                "  flip a coin | roll a dice | pick a number between <a> and <b>",
+                "  what's my <fact>  (read back from what the user told me)",
+                "  screenshot",
                 "  agents | agent <id>",
                 "  scan files <path>",
                 "  read file <path>",
@@ -1805,7 +2566,7 @@ class AgentOrchestrator:
                 "  run command <command>",
                 "  run command in <cwd> :: <command>",
                 "  play music <file-folder-or-url>",
-                "  media playpause|next|previous|stop",
+                "  media playpause|next|previous|stop|volumeup|volumedown|mute",
                 "  email search <query>",
                 "  email unread",
                 "  email digest  (summarize your unread inbox)",
@@ -1838,20 +2599,37 @@ class AgentOrchestrator:
         worse than one that refuses. The resolved instant is always read back in local
         time, because that is what makes a misreading visible in the same breath.
         """
-        cleaned = expression.strip().strip("'\"")
+        cleaned = _spoken_request(expression)
         if not cleaned:
             return ToolResult.failure("What should I remind you about, and when?")
+        # "remind me in 5" is minutes, the way it is said; it was refused as having no time.
+        cleaned = re.sub(r"\bin\s+(\d{1,3})(?=\s*[.!]*$|\s+(?:to|about|that)\b)", r"in \1 minutes", cleaned,
+                         flags=re.IGNORECASE)
+        repeat = _REPEAT.search(cleaned)
+        if repeat:
+            return self._repeating_reminder(cleaned, repeat)
+        return self._set_reminder(cleaned)
+
+    def _set_reminder(self, cleaned: str, default_half: str = "", label: str = "",
+                      what: str = "reminder") -> ToolResult:
         now = datetime.now().astimezone()
         try:
-            when = parse_when(cleaned, now)
+            when = parse_when(cleaned, now, default_half=default_half)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
         if when is None:
+            if what == "alarm":
+                return ToolResult.failure("When should the alarm go off? Try \"wake me up at 7\".")
+            if re.search(r"\byesterday\b|\blast\s+(?:night|week|month)\b", cleaned, re.IGNORECASE):
+                return ToolResult.failure("That's already in the past. When should I remind you?")
+            if re.search(r"\bin\s+\d+\s+(?:months?|years?)\b", cleaned, re.IGNORECASE):
+                return ToolResult.failure("I set reminders minutes, hours, days or weeks ahead, or on a "
+                                          "date — for example \"on 2027-03-01 at 9\".")
             return ToolResult.failure(
                 "I could not find a time in that. Try \"remind me to call mom at 6pm\", "
                 "\"tomorrow at 9\", \"in 20 minutes\" or a date like 2026-12-25 07:30."
             )
-        message = _reminder_message(cleaned, when.start, when.end)
+        message = label or _reminder_message(cleaned, when.start, when.end)
         if not message:
             return ToolResult.failure(f"What should I remind you about {describe(when.at, now)}?")
         try:
@@ -1865,38 +2643,376 @@ class AgentOrchestrator:
         # A time already gone is kept, not refused - an explicit past date is a legitimate
         # backfill - but it is never left to look like it was scheduled ahead.
         note = "" if when.at > now else " (that time has already passed, so it is due now)"
+        if what == "timer":
+            # "Pasta timer (10 minutes)" -> "Pasta timer set for 10 minutes."
+            named = re.fullmatch(r"(?P<name>.+?) \((?P<amount>.+)\)", message)
+            text = (f"{named.group('name')} set for {named.group('amount')}. It goes off {spoken}."
+                    if named else f"Timer set. It goes off {spoken}.")
+        elif what == "alarm":
+            text = f"Alarm set for {spoken}."
+        else:
+            text = f"Reminder #{reminder['id']} set for {spoken}: {message}{note}"
+        return ToolResult.success(text, reminder=reminder, due_local=when.at.isoformat(), due_spoken=spoken)
+
+    def _timer(self, expression: str) -> ToolResult:
+        """`timer 5 minutes [for the pasta]` - a reminder that is only a countdown.
+
+        The label comes only from where a name is said - "a pasta timer", "for the pasta",
+        "to check the oven". Taking whatever words were left over named a timer "Could you
+        please" from "could you set a 15 minute timer please".
+        """
+        cleaned = _spoken_request(expression)
+        # "an hour and a half", "2 and a half minutes"
+        cleaned = re.sub(rf"\b(\d+|an?)\s+(?:and\s+a\s+half\s+({_UNIT_WORDS})|({_UNIT_WORDS})\s+and\s+a\s+half)\b",
+                         lambda m: f"{'1' if m.group(1).lower() in {'a', 'an'} else m.group(1)}.5 "
+                                   f"{m.group(2) or m.group(3)}", cleaned, flags=re.IGNORECASE)
+        parts = list(_TIMER_PART.finditer(cleaned))
+        if not parts:
+            return ToolResult.failure("How long should the timer run? Say something like \"set a timer for 10 minutes\".")
+        # "1 hour and 30 minutes": the spans that run on from the first one.
+        seconds, end = _span_seconds(parts[0]), parts[0].end()
+        for part in parts[1:]:
+            if not re.fullmatch(r"\s*(?:,|and)?\s*", cleaned[end: part.start()], re.IGNORECASE):
+                break
+            seconds, end = seconds + _span_seconds(part), part.end()
+        if seconds < 1:
+            return ToolResult.failure("A timer needs at least a second.")
+        if seconds > _MAX_TIMER_SECONDS:
+            return ToolResult.failure("That's longer than a timer should run. Set a reminder for the day instead, "
+                                      "for example \"remind me on 2027-03-01 to renew the lease\".")
+        before, after = cleaned[: parts[0].start()], cleaned[end:]
+        amount = _say_seconds(seconds)
+        named = (re.search(r"\b(?:a|an|my|the)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+timer\b", before, re.I)
+                 or re.match(r"\s*(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+timer\b", after, re.I)
+                 or re.match(r"\s*(?:timer\s+)?for\s+(?:the\s+|my\s+|a\s+)?(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2})"
+                             r"(?:\s+please)?\s*[.!]*$", after, re.I))
+        purpose = re.match(r"\s*(?:timer\s+)?to\s+(?P<what>[a-z][\w' -]{0,40}?)(?:\s+please)?\s*[.!]*$", after, re.I)
+        name = named.group("name").lower() if named else ""
+        if name in _NOT_A_TIMER_NAME:
+            name = ""
+        if name:
+            label = f"{name.capitalize()} timer ({amount})"
+        elif purpose:
+            label = f"Timer to {purpose.group('what').strip()} ({amount})"
+        else:
+            label = f"Timer ({amount})"
+        return self._set_reminder(f"in {seconds} seconds", label=label, what="timer")
+
+    def _dated(self, kind: str = "") -> list[tuple[datetime, dict]]:
+        """Active reminders with their due time, soonest first; only timers or alarms when
+        `kind` names one."""
+        dated = []
+        for item in self.context.reminders.list():
+            if kind and not re.search(rf"\b{kind}\b", str(item.get("message", "")), re.IGNORECASE):
+                continue
+            try:
+                dated.append((datetime.fromisoformat(str(item.get("due_at", ""))), item))
+            except ValueError:
+                continue
+        return sorted(dated, key=lambda pair: pair[0])
+
+    def _next_reminder(self, kind: str = "") -> ToolResult:
+        """"what's my next reminder", "when is my alarm". "when is my next reminder" was
+        read as a date the user had never told us and answered "I don't know"."""
+        now = datetime.now().astimezone()
+        noun = kind or "reminder"
+        upcoming = [(due, item) for due, item in self._dated(kind) if due > now]
+        repeating = [job for job in self._repeating_reminders()
+                     if not kind or re.search(rf"\b{kind}\b", job.spec, re.IGNORECASE)]
+        parts = []
+        if upcoming:
+            due, item = upcoming[0]
+            what = "" if str(item["message"]).lower() == kind else f": {item['message']}"
+            parts.append(f"Your next {noun} is {describe(due, now)}{what}.")
+        if repeating:
+            parts.append("Repeating: " + "; ".join(
+                f"{job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating) + ".")
+        if not parts:
+            return ToolResult.success(f"You have no {noun}s coming up.")
+        return ToolResult.success(" ".join(parts), reminder=upcoming[0][1] if upcoming else None)
+
+    def _timers(self) -> ToolResult:
+        """Running timers and what is left on each - "how much time is left on my timer"."""
+        now = datetime.now().astimezone()
+        running = self._dated("timer")
+        if not running:
+            return ToolResult.success("No timer is running. Say \"set a timer for 10 minutes\" to start one.",
+                                      timers=[])
+        lines = []
+        for due, item in sorted(running, key=lambda pair: pair[0]):
+            name = re.sub(r"\s*\(.*\)$", "", str(item["message"]))
+            left = (due - now).total_seconds()
+            status = "going off now" if left <= 0 else f"**{_say_seconds(round(left))}** left"
+            lines.append(f"{name}: {status} (at {due.astimezone(now.tzinfo).strftime('%I:%M:%S %p').lstrip('0')})")
+        return ToolResult.success("\n".join(lines) if len(lines) > 1 else lines[0],
+                                  timers=[item for _due, item in running])
+
+    def _alarm(self, expression: str) -> ToolResult:
+        """`alarm 7` / `alarm at 6:30am tomorrow`. A bare hour is in the morning."""
+        cleaned = re.sub(r"^(?:for|to|at)\s+", "at ", _spoken_request(expression), flags=re.IGNORECASE)
+        if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.|p\.m\.))?", cleaned, re.IGNORECASE):
+            cleaned = "at " + cleaned
+        # "every weekday at 7" was set once, for tomorrow, and the repeat was dropped unsaid.
+        repeat = _REPEAT.search(cleaned)
+        if repeat:
+            return self._repeating_reminder(cleaned, repeat, label="Alarm", default_half="am")
+        return self._set_reminder(cleaned, default_half="am", label="Alarm", what="alarm")
+
+    def _repeating_reminder(self, cleaned: str, repeat: re.Match[str], label: str = "",
+                            default_half: str = "") -> ToolResult:
+        """"remind me every day at 8am to take my vitamins", on the scheduler.
+
+        It used to become ONE reminder at 8am today reading "every day to take my vitamins".
+        Weekdays, weekends and named days repeat too ("every monday", "on weekdays"); only
+        "every week" and "every month" without a day are set once, and say so.
+        """
+        rule = repeat.group(0).lower()
+        # "every monday" keeps its "monday" in what is parsed: dropped with the rest of the
+        # rule, the one-off fallback below landed on today instead of the coming Monday.
+        weekday = re.search(r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", rule)
+        body = (cleaned[: repeat.start()] + " " + (weekday.group(1) if weekday else "") + " "
+                + cleaned[repeat.end():]).strip()
+        now = datetime.now().astimezone()
+        try:
+            when = parse_when(body, now, default_half=default_half)
+        except TimeParseError as exc:
+            return ToolResult.failure(str(exc))
+        message = label or (_reminder_message(body, when.start, when.end) if when else _reminder_message(body, 0, 0))
+        if not message:
+            return ToolResult.failure("What should I remind you about?")
+        days = parse_days(re.sub(r"^(?:every|on)\s+", "", rule)) if re.search(
+            r"week(?:day|end)|" + _DAY_NAMES, rule) else ()
+        interval = re.match(r"every\s+(\d+)\s+(minutes?|hours?)", rule)
+        if interval or rule in {"every hour", "hourly"}:
+            schedule = f"every {interval.group(1)} {interval.group(2)}" if interval else "every hour"
+        elif days or re.search(r"\b(?:day|daily|morning|evening|night|everyday)\b", rule):
+            if when is not None:
+                clock = when.at.astimezone(now.tzinfo)
+            else:
+                hour = 18 if "evening" in rule else 21 if "night" in rule else 9
+                clock = now.replace(hour=hour, minute=0)
+            on = ("weekdays" if days == (0, 1, 2, 3, 4) else "weekends" if days == (5, 6)
+                  else " and ".join(f"{_WEEKDAY_NAMES[day]}s" for day in days) if days else "daily")
+            schedule = f"{on} at {clock.hour:02d}:{clock.minute:02d}"
+        else:
+            if when:
+                once = self._set_reminder(body, default_half=default_half, label=label,
+                                          what="alarm" if label == "Alarm" else "reminder")
+            else:
+                once = ToolResult.failure("When should I remind you?")
+            if once.ok:
+                once.message = (once.message.rstrip(".") + ". I can repeat daily, on weekdays or on given "
+                                f"days, or every few hours, but not {rule} yet, so this one is set once.")
+            return once
+        spec = f"reminder add now {message}"
+        try:
+            wanted = parse_schedule(schedule).to_dict()
+        except ScheduleError as exc:
+            return ToolResult.failure(str(exc))
+        # Said twice, it rang twice: the same request makes the same job once.
+        for existing in self._repeating_reminders():
+            if existing.spec == spec and existing.schedule.to_dict() == wanted:
+                return ToolResult.success(f"That's already set — {existing.schedule.describe()}: {message}.",
+                                          job=existing.to_dict())
+        try:
+            job = self.context.scheduler.add("command", spec, schedule, now)
+        except ScheduleError as exc:
+            return ToolResult.failure(str(exc))
+        if label == "Alarm":
+            return ToolResult.success(f"Alarm set — {job.schedule.describe()}. Say \"cancel the alarm\" to stop it.",
+                                      job=job.to_dict())
         return ToolResult.success(
-            f"Reminder #{reminder['id']} set for {spoken}: {message}{note}",
-            reminder=reminder,
-            due_local=when.at.isoformat(),
-            due_spoken=spoken,
+            f"Repeating reminder set — {job.schedule.describe()}: {message}. "
+            f"Say \"cancel the {message.split()[-1]} reminder\" to stop it.",
+            job=job.to_dict(),
         )
 
+    def _repeating_reminders(self) -> list:
+        return [job for job in self.context.scheduler.list_jobs()
+                if job.kind == "command" and job.spec.lower().startswith("reminder add now ")]
+
     def _reminders_list(self) -> ToolResult:
+        now = datetime.now().astimezone()
         reminders = self.context.reminders.list()
+        repeating = self._repeating_reminders()
+        if not reminders and not repeating:
+            return ToolResult.success("You have no reminders set.", reminders=[])
+        lines = [_reminder_line(item, now) for item in reminders[:20]]
+        if len(reminders) > 20:
+            # "You have 35 reminders" above twenty lines read as if the rest did not exist.
+            lines.append(f"- … and {len(reminders) - 20} more after these")
+        lines += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
+        count = len(reminders) + len(repeating)
         return ToolResult.success(
-            f"{len(reminders)} active reminder(s).",
+            f"You have {count} reminder{'s' if count != 1 else ''}:\n" + "\n".join(lines),
             reminders=reminders,
+            repeating=[job.to_dict() for job in repeating],
         )
 
     def _reminders_due(self) -> ToolResult:
+        now = datetime.now().astimezone()
         reminders = self.context.reminders.due()
+        if not reminders:
+            return ToolResult.success("Nothing is due right now.", reminders=[])
         return ToolResult.success(
-            f"{len(reminders)} reminder(s) due.",
+            f"{len(reminders)} reminder{'s are' if len(reminders) != 1 else ' is'} due:\n"
+            + "\n".join(_reminder_line(item, now) for item in reminders[:20]),
             reminders=reminders,
         )
 
+    def _find_reminder(self, raw: str) -> tuple[dict | None, str]:
+        """A reminder named by id, "last", or its words. (reminder, why-not)."""
+        wanted = raw.strip().lstrip("#").lower()
+        active = self.context.reminders.list()
+        if wanted.isdigit():
+            found = next((item for item in active if int(item.get("id", 0)) == int(wanted)), None)
+            return found, "" if found else f"There is no active reminder #{wanted}."
+        if not active:
+            return None, "You have no active reminders."
+        if wanted in {"", "last", "latest", "the last", "the latest", "most recent"}:
+            if wanted == "" and len(active) > 1:
+                return None, "Which one? " + " ".join(f"#{item['id']} {item['message']};" for item in active[:8]).rstrip(";")
+            return max(active, key=lambda item: int(item.get("id", 0))), ""
+        words = [word for word in re.findall(r"[a-z0-9']+", wanted) if word not in {"the", "my", "a", "to", "about", "for"}]
+        matches = [item for item in active if all(word in str(item.get("message", "")).lower() for word in words)]
+        if len(matches) > 1 and words and words[0] in {"timer", "alarm"}:
+            # "stop the alarm" means the one ringing, not tomorrow's.
+            now = datetime.now().astimezone()
+            ringing = [item for due, item in self._dated() if due <= now and item in matches]
+            if ringing:
+                return ringing[0], ""
+        if len(matches) == 1 or (matches and words and words[0] in {"timer", "alarm"}):
+            return max(matches, key=lambda item: int(item.get("id", 0))), ""
+        if not matches:
+            return None, f"I have no reminder about '{raw.strip()}'."
+        return None, "Which one? " + " ".join(f"#{item['id']} {item['message']};" for item in matches[:8]).rstrip(";")
+
     def _reminder_done(self, raw: str) -> ToolResult:
-        try:
-            reminder_id = int(raw.strip())
-        except ValueError:
-            return ToolResult.failure("Use: reminder done <id>")
-        completed = self.context.reminders.complete(reminder_id)
-        return ToolResult.success(
-            f"Completed reminder #{reminder_id}." if completed else f"No active reminder #{reminder_id}.",
-            id=reminder_id,
-            completed=completed,
-        )
+        reminder, why = self._find_reminder(raw)
+        if reminder is None:
+            return ToolResult.failure(why)
+        self.context.reminders.complete(int(reminder["id"]))
+        return ToolResult.success(f"Done: {reminder['message']}.", id=reminder["id"], completed=True)
+
+    def _reminder_remove(self, raw: str) -> ToolResult:
+        """Cancel a reminder by id, "last", or its words - one-off or repeating. The one
+        going off now comes first: cancelling a ringing alarm deleted its weekday schedule
+        and left it ringing."""
+        words = raw.strip().lower()
+        bulk = re.fullmatch(r"all(?:\s+(?P<kind>reminders|timers|alarms))?", words)
+        if bulk:
+            return self._remove_all(bulk.group("kind") or "reminders")
+        ringing = None if words.lstrip("#").isdigit() else self._ringing(words)
+        if ringing is not None:
+            self.context.reminders.complete(int(ringing["id"]))
+            return ToolResult.success(f"Stopped: {ringing['message']}.", id=ringing["id"], completed=True)
+        for job in self._repeating_reminders():
+            spoken = job.spec[len("reminder add now "):].lower()
+            if words and not words.isdigit() and all(w in spoken for w in re.findall(r"[a-z0-9']+", words)
+                                                   if w not in {"the", "my", "a", "to", "about", "for", "reminder"}):
+                self.context.scheduler.remove(job.id)
+                return ToolResult.success(f"Stopped the repeating reminder: {job.spec[len('reminder add now '):]}.")
+        reminder, why = self._find_reminder(raw)
+        if reminder is None:
+            return ToolResult.failure(why)
+        self.context.reminders.remove(int(reminder["id"]))
+        return ToolResult.success(f"Cancelled: {reminder['message']}.", id=reminder["id"], removed=True)
+
+    def _ringing(self, words: str) -> dict | None:
+        """The reminder going off now (or overdue) that these words name, if any."""
+        now = datetime.now().astimezone()
+        wanted = [word for word in re.findall(r"[a-z0-9']+", words.lower())
+                  if word not in {"the", "my", "a", "to", "about", "for", "reminder", "this", "that", "it", "last"}]
+        for due, item in self._dated():
+            if due > now:
+                break
+            if all(word in str(item.get("message", "")).lower() for word in wanted):
+                return item
+        return None
+
+    def _reminder_stop(self, raw: str) -> ToolResult:
+        """"stop the alarm": the one ringing, or a running timer. Anything else is only
+        described - an ambiguous word must not delete an alarm set for the morning."""
+        ringing = self._ringing(raw)
+        if ringing is not None:
+            self.context.reminders.complete(int(ringing["id"]))
+            return ToolResult.success(f"Stopped: {ringing['message']}.", id=ringing["id"], completed=True)
+        reminder, why = self._find_reminder(raw) if raw.strip() else (None, "")
+        if reminder is not None and re.search(r"\btimer\b", str(reminder["message"]), re.IGNORECASE):
+            self.context.reminders.remove(int(reminder["id"]))
+            return ToolResult.success(f"Stopped: {reminder['message']}.", id=reminder["id"], removed=True)
+        now = datetime.now().astimezone()
+        wanted = [word for word in re.findall(r"[a-z0-9']+", raw.lower())
+                  if word not in {"the", "my", "a", "to", "about", "for", "reminder", "this", "that", "it"}]
+        jobs = [job for job in self._repeating_reminders()
+                if wanted and all(word in job.spec.lower() for word in wanted)]
+        set_up = []
+        if reminder is not None:
+            due = datetime.fromisoformat(str(reminder["due_at"]))
+            set_up.append(f"{reminder['message']} is set for {describe(due, now)}")
+        set_up += [f"{job.spec[len('reminder add now '):]} repeats {job.schedule.describe()}" for job in jobs]
+        if not set_up:
+            return ToolResult.failure(why or "Nothing is going off right now.")
+        name = raw.strip() or "reminder"
+        return ToolResult.success(f"Nothing is going off right now. {'; '.join(set_up)}. "
+                                  f"Say \"cancel the {name}\" if you want it removed.")
+
+    def _remove_all(self, kind: str) -> ToolResult:
+        """"cancel all my reminders" - asks first when it would remove more than one, since
+        nothing brings them back."""
+        now = datetime.now().astimezone()
+        active = self.context.reminders.list()
+        if kind == "reminders":
+            chosen, repeating = active, self._repeating_reminders()
+        else:
+            word = kind[:-1]
+            chosen = [item for item in active if re.search(rf"\b{word}\b", str(item.get("message", "")), re.IGNORECASE)]
+            repeating = []
+        count = len(chosen) + len(repeating)
+        if not count:
+            return ToolResult.success(f"You have no {kind} to cancel.")
+        if count > 1:
+            preview = [_reminder_line(item, now) for item in chosen[:20]]
+            preview += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
+            self.context.web.approval_gate.require(ApprovalRequest(
+                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH,
+                reason="Removes every one of them at once; they cannot be brought back.", preview="\n".join(preview)))
+        for item in chosen:
+            self.context.reminders.remove(int(item["id"]))
+        for job in repeating:
+            self.context.scheduler.remove(job.id)
+        if count == 1:
+            only = chosen[0]["message"] if chosen else repeating[0].spec[len("reminder add now "):]
+            return ToolResult.success(f"Cancelled: {only}.", removed=1)
+        return ToolResult.success(f"Cancelled all {count} {kind}.", removed=count)
+
+    def _reminder_snooze(self, raw: str) -> ToolResult:
+        """`reminder snooze [id|last] [<n>m]` - ten minutes unless told otherwise. A bare
+        number is an id; minutes carry their unit."""
+        target = raw.strip()
+        minutes = 10
+        minutes_match = re.search(r"(?:^|\s)(?:for\s+)?(\d+)\s*(?:m|min|mins|minutes?)\s*$", target)
+        if minutes_match:
+            minutes = int(minutes_match.group(1))
+            target = target[: minutes_match.start()].strip()
+        if not target:
+            # "snooze" means the one ringing now - never the newest reminder, which may be
+            # hours away.
+            due = self.context.reminders.due()
+            if not due:
+                return ToolResult.failure("Nothing is going off right now. Say which one, e.g. \"snooze reminder 3\".")
+            reminder: dict | None = max(due, key=lambda item: str(item.get("due_at", "")))
+            why = ""
+        else:
+            reminder, why = self._find_reminder(target)
+        if reminder is None:
+            return ToolResult.failure(why)
+        minutes = max(1, min(minutes, 24 * 60))
+        now = datetime.now().astimezone()
+        until = now + timedelta(minutes=minutes)
+        self.context.reminders.snooze(int(reminder["id"]), until)
+        return ToolResult.success(f"Snoozed until {describe(until, now)}: {reminder['message']}.",
+                                  id=reminder["id"], due_local=until.isoformat())
 
     def _jobs_list(self) -> ToolResult:
         jobs = self.context.jobs.list()
@@ -2165,6 +3281,14 @@ class AgentOrchestrator:
         "tasks",
         "reminders due",
         "reminder add <YYYY-MM-DD> <text>",
+        "timer <duration>",
+        "alarm <time>",
+        "timers",
+        "lists",
+        "list <name> show",
+        "list <name> add <items>",
+        "calendar",
+        "convert <amount> <unit> to <unit>",
         "run command <command>",
         "memory",
         "audit",
@@ -3141,55 +4265,84 @@ class AgentOrchestrator:
                     f"{autopilot.get('blocked_count', 0)} blocked."
                 )
         if isinstance(data.get("reminders"), list):
-            reminders = data["reminders"]
-            if not reminders:
-                return result.message
-            lines = [
-                f"- #{item.get('id')} {item.get('due_at')}: {item.get('message')}"
-                for item in reminders[:8]
-                if isinstance(item, dict)
-            ]
-            more = f"\n...and {len(reminders) - 8} more." if len(reminders) > 8 else ""
-            return result.message + "\n" + "\n".join(lines) + more
+            # The reminder commands write their own readable list; appending another one
+            # here printed every reminder twice, the second time as a raw UTC timestamp.
+            return result.message
         if "documents" in data and isinstance(data["documents"], list):
             docs = data["documents"]
             if not docs:
                 return "Your knowledge base is empty. Index a file to get started."
             return f"You have {len(docs)} document(s) indexed: " + ", ".join(str(d.get("source", "")) for d in docs[:6]) + "."
         if isinstance(data.get("memory"), dict):
-            profile = data["memory"].get("profile", {})
-            if not profile:
-                return "I don't have anything saved about you yet."
-            # One run-on "k = v, k = v, …" sentence stopped being readable the moment there
-            # were more than a few facts, and it is read aloud in voice mode too.
-            if len(profile) > 3:
-                lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
-                return f"Here's what I remember about you:\n" + "\n".join(lines)
-            return "Here's what I remember: " + ", ".join(
-                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())
-            ) + "."
+            return AgentOrchestrator._memory_text(data["memory"])
         return result.message
 
+    @staticmethod
+    def _memory_text(memory: dict) -> str:
+        """What is remembered about the user, facts and notes both.
+
+        Notes were saved ("Saved note.") and then never shown: "what do you know about me"
+        answered "I don't have anything saved about you yet" straight after "remember that
+        I parked on level 3".
+        """
+        profile = memory.get("profile") or {}
+        notes = [str(note) for note in (memory.get("notes") or []) if str(note).strip()]
+        if not profile and not notes:
+            return "I don't have anything saved about you yet."
+        parts = []
+        # One run-on "k = v, k = v, …" sentence stopped being readable the moment there
+        # were more than a few facts, and it is read aloud in voice mode too.
+        if len(profile) > 3 or (profile and notes):
+            lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
+            parts.append("Here's what I remember about you:\n" + "\n".join(lines))
+        elif profile:
+            parts.append("Here's what I remember: " + ", ".join(
+                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())) + ".")
+        if notes:
+            shown = notes[-12:]
+            parts.append("Things you asked me to remember:\n" + "\n".join(f"- {note}" for note in shown)
+                         + (f"\n…and {len(notes) - len(shown)} older." if len(notes) > len(shown) else ""))
+        return "\n\n".join(parts)
+
+    def _facts(self) -> dict[str, object]:
+        """The profile as the chat model sees it, with the user's notes folded in.
+
+        The model was given the profile alone, so "where did I park" after "remember that I
+        parked on level 3" was answered by a model that had never been told.
+        """
+        facts: dict[str, object] = dict(self.context.memory.get_profile())
+        notes = [str(note) for note in (self.context.memory.dump().get("notes") or []) if str(note).strip()]
+        if notes:
+            facts["things_the_user_asked_me_to_remember"] = " | ".join(notes[-15:])[-1500:]
+        return facts
+
     def _remember(self, expression: str) -> ToolResult:
-        if "=" not in expression:
-            natural = re.match(r"(?:that\s+)?(?:my\s+)?([\w -]{1,40})\s+is\s+(.+)$", expression.strip(), re.IGNORECASE)
-            if natural:
+        # "remember that I parked on level 3" is a note about parking, not "that I parked...".
+        text = re.sub(r"^\s*that\s+", "", expression.strip(), flags=re.IGNORECASE).strip().rstrip(".!")
+        if "=" not in text:
+            # The key may carry an apostrophe: "my wife's birthday is june 5" missed this and
+            # became an anonymous note, so "when is my wife's birthday" had no fact to find.
+            natural = re.match(r"(?:my\s+|the\s+)?([\w' -]{1,40}?)\s+(?:is|are)\s+(.+)$", text, re.IGNORECASE)
+            if natural and not re.match(r"(?:i|we|you|he|she|they|it|there|this|that)\b",
+                                        natural.group(1), re.IGNORECASE):
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
                 self.context.memory.set_profile_value(key, value)
                 self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
-                return ToolResult.success(f"Remembered profile value: {key}")
-            self.context.memory.add_note(expression.strip())
-            self._mirror_to_vault(expression.strip())
-            return ToolResult.success("Saved note.")
-        key, value = expression.split("=", 1)
+                return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
+            if not text:
+                return ToolResult.failure("What should I remember?")
+            self.context.memory.add_note(text)
+            self._mirror_to_vault(text)
+            return ToolResult.success(f"Got it, I'll remember that: {text}", note=text)
+        key, value = text.split("=", 1)
         key = key.strip()
         value = value.strip()
         if not key or not value:
             return ToolResult.failure("Use: remember <key> = <value>")
         self.context.memory.set_profile_value(key, value)
         self._mirror_to_vault(f"{key}: {value}")
-        return ToolResult.success(f"Remembered profile value: {key}")
+        return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
 
     def _forget(self, raw: str) -> ToolResult:
         key = raw.strip().strip("'\"?.")
@@ -3201,6 +4354,10 @@ class AgentOrchestrator:
         removed = self.context.memory.forget_profile_value(key)
         if removed is not None:
             return ToolResult.success(f"Forgotten: {removed}", forgot=removed)
+        # A note is forgotten by its words: "forget that I parked on level 3".
+        dropped = self.context.memory.forget_notes(key)
+        if dropped:
+            return ToolResult.success("Forgotten: " + "; ".join(dropped), forgot=dropped)
         profile = self.context.memory.get_profile()
         if not profile:
             return ToolResult.failure("There is nothing saved about you yet.")
@@ -3470,6 +4627,8 @@ class AgentOrchestrator:
         agent_id = raw.strip().lower()
         if not agent_id:
             return ToolResult.failure("Use: agent <id>")
+        if agent_id == "run":   # "agent run" with its goal missing, not an agent named "run"
+            return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
         detail = self.control_room.detail(agent_id)
         if detail is None:
             return ToolResult.failure(
@@ -3488,10 +4647,16 @@ class AgentOrchestrator:
             lines.append("\nNo activity yet.")
         return ToolResult.success("\n".join(lines), agent=detail)
 
+    def _has_language_model(self) -> bool:
+        return any(
+            planner is not None and type(getattr(planner, "provider", None)).__name__ != "HeuristicPlannerProvider"
+            for planner in (self.planner, self.smart_planner, self.ultra_planner, self.fallback_planner)
+        )
+
     @staticmethod
     def _conversation_fallback(text: str) -> ToolResult:
-        return ToolResult.success(
-            "I can chat at a basic level in this MVP, but I do not have an LLM provider connected yet. "
-            "Use 'help' for tool commands, or plug a model into AgentOrchestrator for open-ended conversation.",
-            heard=text,
-        )
+        # Reached by a command no tool recognised, from a router or an agent step. It used
+        # to claim no language model was connected, which was usually untrue.
+        shown = " ".join((text or "").split())[:80]
+        return ToolResult.failure(f"I don't know how to do that yet: “{shown}”. Say 'help' to see what I can do.",
+                                  heard=text)

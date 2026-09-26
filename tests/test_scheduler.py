@@ -37,9 +37,24 @@ class ParseScheduleTests(unittest.TestCase):
         self.assertEqual(parse_schedule("every 2 hours").describe(), "every 2 hours")
         self.assertEqual(parse_schedule("daily at 07:05").describe(), "daily at 07:05")
 
+    def test_weekdays_weekends_and_named_days(self) -> None:
+        # Weekly repeats were not expressible, so "every monday" was set once.
+        self.assertEqual(parse_schedule("weekdays at 07:00").days, (0, 1, 2, 3, 4))
+        self.assertEqual(parse_schedule("every weekend").days, (5, 6))
+        self.assertEqual(parse_schedule("every monday at 10:00").days, (0,))
+        s = parse_schedule("mondays and thursdays at 9am")
+        self.assertEqual((s.days, s.hour, s.minute), ((0, 3), 9, 0))
+        self.assertEqual(parse_schedule("on sundays at 8pm").describe(), "Sundays at 20:00")
+        self.assertEqual(parse_schedule("weekdays at 07:00").describe(), "weekdays at 07:00")
+        # Stored as data, and a job saved before days existed still reads as every day.
+        self.assertEqual(Schedule.from_dict(parse_schedule("weekdays at 7am").to_dict()).days, (0, 1, 2, 3, 4))
+        self.assertEqual(Schedule.from_dict({"kind": "daily", "hour": 8, "minute": 0}).days, ())
+
     def test_invalid(self) -> None:
         with self.assertRaises(ScheduleError):
             parse_schedule("whenever I feel like it")
+        with self.assertRaises(ScheduleError):
+            parse_schedule("weekdays at 25:00")
         with self.assertRaises(ScheduleError):
             parse_schedule("daily at 25:00")
         with self.assertRaises(ScheduleError):
@@ -65,6 +80,14 @@ class DueLogicTests(unittest.TestCase):
         self.assertFalse(s.is_due(_t(9, 0), _t(8, 1)))
         # Next day it is due again.
         self.assertTrue(s.is_due(_t(8, 1) + timedelta(days=1), _t(8, 1)))
+
+    def test_a_day_rule_fires_only_on_its_days(self) -> None:
+        weekdays = parse_schedule("weekdays at 07:00")
+        tuesday = datetime(2026, 6, 16, 7, 1, tzinfo=UTC)          # 16 June 2026 is a Tuesday
+        saturday = datetime(2026, 6, 20, 7, 1, tzinfo=UTC)
+        self.assertTrue(weekdays.is_due(tuesday, None))
+        self.assertFalse(weekdays.is_due(saturday, None))
+        self.assertFalse(weekdays.is_due(tuesday.replace(hour=6, minute=59), None))
 
     def test_daily_target_uses_now_timezone_not_utc(self) -> None:
         # The daily target is built in the tz of `now` (callers pass local time), so a

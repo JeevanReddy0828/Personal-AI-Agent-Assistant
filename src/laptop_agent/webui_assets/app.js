@@ -793,6 +793,66 @@
     yes.focus();
   }
 
+  /* ---- reminders: deliver what is due ----
+     Reminders used to be stored, confirmed and never delivered - nothing read the due list
+     on its own. This asks /api/reminders and raises, for each newly due one, a card, a
+     chime, a browser notification and, in voice mode, speech. The server's `next_in` sets
+     the next look, so a 30-second timer goes off on time without polling every second. A
+     setTimeout rather than pollWhenVisible: a reminder matters most in a background tab. */
+  const REM_KEY='jarvisAnnouncedReminders';
+  let remAnnounced=new Set(), remTimer=null;
+  try{remAnnounced=new Set(JSON.parse(localStorage.getItem(REM_KEY)||'[]'));}catch(e){}
+  function remSave(){try{localStorage.setItem(REM_KEY,JSON.stringify([...remAnnounced].slice(-200)));}catch(e){}}
+  function remPermission(){try{if('Notification' in window&&Notification.permission==='default')Notification.requestPermission();}catch(e){}}
+  function chime(){
+    try{
+      const C=window.AudioContext||window.webkitAudioContext;if(!C)return;
+      const ac=chime.ctx||(chime.ctx=new C());if(ac.state==='suspended')ac.resume();
+      [[0,784],[0.22,1046.5]].forEach(([at,hz])=>{
+        const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+at;
+        o.type='sine';o.frequency.value=hz;g.gain.setValueAtTime(0.0001,t);
+        g.gain.exponentialRampToValueAtTime(0.18,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
+        o.connect(g).connect(ac.destination);o.start(t);o.stop(t+0.4);
+      });
+    }catch(e){}
+  }
+  async function remAct(r,action,card){
+    card.querySelectorAll('button').forEach(b=>b.disabled=true);
+    try{await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:r.id,minutes:10})});}catch(e){}
+    card.remove();checkReminders();
+  }
+  function showReminder(r){
+    let host=document.getElementById('remtray');
+    if(!host){host=document.createElement('div');host.id='remtray';document.body.appendChild(host);}
+    if(host.querySelector('[data-rem="'+r.id+'"]'))return;
+    const card=document.createElement('div');card.className='remcard';card.setAttribute('data-rem',String(r.id));card.setAttribute('role','alert');
+    const head=document.createElement('h4');head.textContent='Reminder'+(r.due_spoken?' · '+r.due_spoken:'');
+    const msg=document.createElement('div');msg.className='remmsg';msg.textContent=r.message||'';
+    const row=document.createElement('div');row.className='aprow';
+    const dismiss=document.createElement('button');dismiss.className='apbtn';dismiss.textContent='Dismiss';
+    const snooze=document.createElement('button');snooze.className='apbtn';snooze.textContent='Snooze 10 min';
+    const done=document.createElement('button');done.className='apbtn remdone';done.textContent='Done';
+    dismiss.onclick=()=>card.remove(); snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
+    row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);
+    chime();
+    try{if('Notification' in window&&Notification.permission==='granted')new Notification('J.A.R.V.I.S reminder',{body:r.message||'',tag:'jarvis-rem-'+r.id});}catch(e){}
+    if(voiceActive)enqueueTTS('Reminder: '+(r.message||''));
+  }
+  async function checkReminders(){
+    clearTimeout(remTimer);
+    let d=null;
+    try{d=await (await fetch('/api/reminders')).json();}catch(e){}
+    if(d&&d.ok)(d.due||[]).forEach(r=>{
+      const key=r.id+'@'+r.due_at;
+      if(remAnnounced.has(key))return;
+      remAnnounced.add(key);remSave();showReminder(r);
+    });
+    const next=d&&d.next_in!=null?Math.min(30,Math.max(1,d.next_in+0.3)):30;
+    remTimer=setTimeout(checkReminders,next*1000);
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders();});
+  checkReminders();
+
   function typewriter(el,text){
     twCancel=false;
     const total=text.length;
@@ -894,6 +954,7 @@
       const d=done||{ok:false,message:(streamed?streamed+'\n\n':'')+'Connection ended before the reply completed.',data:{}};
       reply=d.message||streamed||'(no output)';
       if(!d.ok)node.classList.add('err');
+      if(d.ok&&d.data&&(d.data.due_local||d.data.job)){remPermission();checkReminders();}   // a reminder, timer or alarm was just set
       // Chat already revealed itself token-by-token; a local command result arrives
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
       if(streamed)setMd(md,reply); else typewriter(md,reply);

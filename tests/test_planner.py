@@ -748,3 +748,80 @@ class NewsTopicTests(unittest.TestCase):
 
     def test_a_real_topic_survives(self) -> None:
         self.assertEqual(self.command("latest news on ukraine"), "news ukraine")
+
+
+class EverydayRoutingTests(unittest.TestCase):
+    """Routes found wrong by driving a conversational corpus through the real orchestrator.
+    Every "must not" here was an action the assistant actually took."""
+
+    def setUp(self) -> None:
+        self.planner = HeuristicPlannerProvider()
+
+    def command(self, text: str) -> str:
+        return self.planner.plan(text, "", {}).command or ""
+
+    def test_the_word_resume_is_not_a_media_key(self) -> None:
+        # "pause" and "resume" were matched anywhere, so these toggled playback.
+        for text in ("update my resume", "how to write a good resume", "improve my resume summary",
+                     "what does pause mean", "i need to pause and think about this",
+                     "resume where we left off"):
+            self.assertFalse(self.command(text).startswith("media"), f"{text} -> {self.command(text)}")
+
+    def test_media_control_said_as_a_command(self) -> None:
+        cases = {
+            "pause": "media playpause", "pause the music": "media playpause",
+            "resume the music": "media playpause", "next song": "media next",
+            "skip this song": "media next", "previous track": "media previous",
+            "stop the music": "media stop", "volume up": "media volumeup",
+            "turn it down": "media volumedown", "mute": "media mute",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_play_is_music_only_as_a_request(self) -> None:
+        for text in ("how do i play chess", "how do i play guitar better", "play a game with me",
+                     "can kids play outside in this heat"):
+            self.assertFalse(self.command(text).startswith("play music"), f"{text} -> {self.command(text)}")
+        self.assertEqual(self.command("play lofi hip hop"), "play music lofi hip hop")
+        self.assertEqual(self.command("i want to listen to jazz"), "play music jazz")
+
+    def test_google_the_company_is_not_a_search(self) -> None:
+        self.assertNotEqual(self.command("tailor my resume for the google job"), "web search job")
+        self.assertEqual(self.command("google how to boil an egg"), "web search how to boil an egg")
+        self.assertEqual(self.command("search for best laptops 2026"), "web search best laptops 2026")
+        # Searching your own data is not a web search.
+        self.assertFalse(self.command("search my email for invoices").startswith("web search"))
+
+    def test_small_talk_is_the_whole_message_not_a_substring(self) -> None:
+        # "hi " is in "sushi ", "hey " in "they "/"whey ", "hello" in "othello".
+        for text in ("i want sushi for dinner, any ideas?", "they said it would rain tomorrow",
+                     "whey protein or casein?", "othello is a great play", "translate hello to spanish"):
+            decision = self.planner.plan(text, "", {})
+            self.assertNotEqual(decision.explanation, "small-talk", text)
+        for text in ("hi", "Hey Jarvis!", "good morning", "thanks", "bye", "how are you doing today?"):
+            self.assertEqual(self.planner.plan(text, "", {}).explanation, "small-talk", text)
+
+    def test_weather_without_a_place_is_weather_where_you_are(self) -> None:
+        for text in ("what's the weather", "weather", "is it going to rain today?",
+                     "will it rain tomorrow", "do i need an umbrella", "how hot is it outside",
+                     "Hey Jarvis, what's the weather?"):
+            self.assertEqual(self.command(text), "weather", text)
+
+    def test_weather_with_a_place_keeps_only_the_place(self) -> None:
+        cases = {
+            "Delhi weather tomorrow": "weather Delhi",
+            "will it snow tomorrow in denver": "weather denver",
+            "forecast for this weekend in seattle": "weather seattle",
+            "how hot is it in phoenix": "weather phoenix",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_ordinary_sentences_do_not_open_the_task_dashboard(self) -> None:
+        self.assertNotEqual(self.command("how do i prioritize tasks at work"), "tasks")
+        self.assertEqual(self.command("show my tasks"), "tasks")
+
+    def test_flying_somewhere_is_not_every_sentence_with_fly_in_it(self) -> None:
+        for text in ("how do birds fly to the south", "i'm afraid to fly to be honest"):
+            self.assertFalse(self.command(text).startswith("web search"), text)
+        self.assertEqual(self.command("flights to tokyo"), "web search flights to tokyo")

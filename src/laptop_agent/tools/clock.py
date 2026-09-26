@@ -56,7 +56,70 @@ _ZONE_WORDS: dict[str, str] = {
     "mexico city": "America/Mexico_City", "sast": "Africa/Johannesburg",
     "johannesburg": "Africa/Johannesburg", "lagos": "Africa/Lagos", "cairo": "Africa/Cairo",
     "moscow": "Europe/Moscow", "msk": "Europe/Moscow",
+    # US states and cities, by the zone most of the state keeps. "what time is it in
+    # california" was refused as an unknown zone.
+    "california": "America/Los_Angeles", "oregon": "America/Los_Angeles", "nevada": "America/Los_Angeles",
+    "washington state": "America/Los_Angeles", "las vegas": "America/Los_Angeles",
+    "san diego": "America/Los_Angeles", "silicon valley": "America/Los_Angeles",
+    "san jose": "America/Los_Angeles", "arizona": "America/Phoenix", "phoenix": "America/Phoenix",
+    "colorado": "America/Denver", "denver": "America/Denver", "utah": "America/Denver",
+    "salt lake city": "America/Denver", "new mexico": "America/Denver", "montana": "America/Denver",
+    "texas": "America/Chicago", "austin": "America/Chicago", "dallas": "America/Chicago",
+    "houston": "America/Chicago", "san antonio": "America/Chicago", "illinois": "America/Chicago",
+    "minnesota": "America/Chicago", "minneapolis": "America/Chicago", "wisconsin": "America/Chicago",
+    "missouri": "America/Chicago", "louisiana": "America/Chicago", "new orleans": "America/Chicago",
+    "oklahoma": "America/Chicago", "iowa": "America/Chicago", "arkansas": "America/Chicago",
+    "alabama": "America/Chicago", "mississippi": "America/Chicago", "nashville": "America/Chicago",
+    "new york state": "America/New_York", "florida": "America/New_York", "miami": "America/New_York",
+    "orlando": "America/New_York", "atlanta": "America/New_York", "boston": "America/New_York",
+    "massachusetts": "America/New_York", "philadelphia": "America/New_York",
+    "pennsylvania": "America/New_York", "washington dc": "America/New_York", "dc": "America/New_York",
+    "virginia": "America/New_York", "north carolina": "America/New_York", "charlotte": "America/New_York",
+    "south carolina": "America/New_York", "new jersey": "America/New_York", "ohio": "America/New_York",
+    "michigan": "America/New_York", "detroit": "America/Detroit", "maryland": "America/New_York",
+    "connecticut": "America/New_York", "alaska": "America/Anchorage", "hawaii": "Pacific/Honolulu",
+    "honolulu": "Pacific/Honolulu", "canada": "America/Toronto", "ottawa": "America/Toronto",
+    "montreal": "America/Toronto",
+    # Countries and the places people most often ask about.
+    "england": "Europe/London", "britain": "Europe/London", "scotland": "Europe/London",
+    "ireland": "Europe/Dublin", "france": "Europe/Paris", "spain": "Europe/Madrid", "italy": "Europe/Rome",
+    "netherlands": "Europe/Amsterdam", "portugal": "Europe/Lisbon", "switzerland": "Europe/Zurich",
+    "sweden": "Europe/Stockholm", "norway": "Europe/Oslo", "poland": "Europe/Warsaw",
+    "greece": "Europe/Athens", "turkey": "Europe/Istanbul", "russia": "Europe/Moscow",
+    "israel": "Asia/Jerusalem", "saudi arabia": "Asia/Riyadh", "egypt": "Africa/Cairo",
+    "kenya": "Africa/Nairobi", "nigeria": "Africa/Lagos", "south africa": "Africa/Johannesburg",
+    "pakistan": "Asia/Karachi", "bangladesh": "Asia/Dhaka", "nepal": "Asia/Kathmandu",
+    "sri lanka": "Asia/Colombo", "thailand": "Asia/Bangkok", "vietnam": "Asia/Ho_Chi_Minh",
+    "indonesia": "Asia/Jakarta", "philippines": "Asia/Manila", "malaysia": "Asia/Kuala_Lumpur",
+    "korea": "Asia/Seoul", "south korea": "Asia/Seoul", "taiwan": "Asia/Taipei",
+    "new zealand": "Pacific/Auckland", "argentina": "America/Argentina/Buenos_Aires",
+    "buenos aires": "America/Argentina/Buenos_Aires", "chile": "America/Santiago",
+    "colombia": "America/Bogota", "peru": "America/Lima", "mexico": "America/Mexico_City",
+    "pune": "Asia/Kolkata", "noida": "Asia/Kolkata", "gurgaon": "Asia/Kolkata", "gurugram": "Asia/Kolkata",
+    "ahmedabad": "Asia/Kolkata", "vizag": "Asia/Kolkata", "visakhapatnam": "Asia/Kolkata",
+    "vijayawada": "Asia/Kolkata", "warangal": "Asia/Kolkata", "tirupati": "Asia/Kolkata",
 }
+
+
+def _iana_city(name: str) -> str | None:
+    """"lisbon" -> Europe/Lisbon: any city the zone database itself is named after, so
+    the table above only has to hold what that cannot find (states, countries, nicknames)."""
+    wanted = name.strip().replace(" ", "_").lower()
+    if not wanted or "/" in wanted:
+        return None
+    try:
+        from zoneinfo import available_timezones
+
+        zones = available_timezones()
+    except Exception:  # no tz database on this machine: the table is all there is
+        return None
+    for zone in sorted(zones):
+        # A city is always Area/City; bare names are legacy aliases or "Factory".
+        if "/" not in zone or zone.startswith(("Etc/", "SystemV/", "posix/", "right/")):
+            continue
+        if zone.rsplit("/", 1)[-1].lower() == wanted:
+            return zone
+    return None
 
 # Abbreviations that name *standard* time, so asking for one in summer deserves a note
 # about which half of the year is actually in effect.
@@ -64,10 +127,17 @@ _STANDARD_ONLY = {"est", "cst", "mst", "pst", "jst", "ist", "gst", "sgt", "hkt",
 
 # A question about the clock, not about the world. Routed here it is answered from the
 # operating system; routed to a web search it produced a five-hour error.
+# What may follow the time word is part of the pattern. It used to stop at the word, so
+# anything that merely STARTED with it was a clock question: "time management tips" and
+# "date night ideas" read the clock, and "time for a break" failed with "I do not know the
+# time zone 'a break'".
 _ASKS_THE_TIME = re.compile(
-    r"^\s*(?:what(?:'s| is)?|whats|tell me|show me|give me)?\s*"
-    r"(?:the\s+)?(?:current\s+|today'?s\s+|now\s+)?"
-    r"(?:date\s*(?:and|&|/|,)?\s*time|time\s*(?:and|&|/|,)?\s*date|time|date|day)\b",
+    r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|do\s+you\s+know\s+)?"
+    r"(?:(?:tell|show|give)\s+me\s+)?(?:what(?:'s| is)?|whats|wat|wut)?\s*"
+    r"(?:the\s+)?(?:current\s+|today'?s\s+|now\s+|local\s+)?"
+    r"(?:date\s*(?:and|&|/|,)?\s*time|time\s*(?:and|&|/|,)?\s*date|time|date|day)\b"
+    r"(?:\s+(?:is\s+it|it\s+is|now|right\s+now|today|currently|please|here|there"
+    r"|(?:in|at)\s+[a-z][a-z /_.-]{0,40}))*\s*$",
     re.IGNORECASE,
 )
 _TIME_WORD = re.compile(r"\b(?:time|date|day|clock|o'?clock)\b", re.IGNORECASE)
@@ -114,6 +184,9 @@ def _requested_zone(text: str) -> tuple[str | None, str | None]:
     for word in candidate.split():
         if word in _ZONE_WORDS:
             return _ZONE_WORDS[word], word
+    city = _iana_city(re.sub(r"\s+(?:right\s+now|now|today|currently)$", "", candidate))
+    if city:
+        return city, candidate
     return None, candidate or None
 
 

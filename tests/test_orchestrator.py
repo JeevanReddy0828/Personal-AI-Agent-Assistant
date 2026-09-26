@@ -892,9 +892,14 @@ class OrchestratorTests(unittest.TestCase):
                 "who won the 2026 finals",
                 "is the bridge still closed",
                 "update on the ceasefire",
+                # A rate moves daily; a model has only an old one.
+                "convert 100 usd to inr",
+                "how much is 50 euros in dollars",
+                "20 pounds in rupees",
             ]:
                 self.assertTrue(o._needs_fresh_info(q), q)
-            for q in ["what is 2 + 2", "write a poem about the sea", "define entropy"]:
+            for q in ["what is 2 + 2", "write a poem about the sea", "define entropy",
+                      "convert 5 pounds to kg", "i saved 20 dollars"]:
                 self.assertFalse(o._needs_fresh_info(q), q)
 
     def test_fresh_question_answers_from_web(self) -> None:

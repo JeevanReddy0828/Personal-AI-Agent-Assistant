@@ -21,6 +21,9 @@ from datetime import date, datetime, timedelta
 
 # Shared with scheduler.parse_schedule. Weeks are here; months are not, because "in 2
 # months" has no single correct answer and a reminder may not guess.
+# Past this a datetime overflows long before anyone could want the reminder.
+_LONGEST_WAIT = 20 * 365 * 86400
+
 DURATION_UNITS: dict[str, int] = {
     "second": 1, "seconds": 1, "sec": 1, "secs": 1, "s": 1,
     "minute": 60, "minutes": 60, "min": 60, "mins": 60, "m": 60,
@@ -124,11 +127,13 @@ def _apply(day: date, clock: tuple[int, int], now: datetime) -> datetime:
     return datetime(day.year, day.month, day.day, clock[0], clock[1], tzinfo=now.tzinfo)
 
 
-def parse_when(text: str, now: datetime | None = None) -> When | None:
+def parse_when(text: str, now: datetime | None = None, default_half: str = "") -> When | None:
     """Resolve the first date/time expression in `text`, or None if there is none.
 
     `now` must be timezone-aware; the result carries the same zone. The span lets the
     caller strip the time words out of a message without guessing where they were.
+    `default_half` ('am'/'pm') settles a bare hour with nothing around it to say which:
+    an alarm passes 'am'.
     """
     if now is None:
         now = datetime.now().astimezone()
@@ -136,7 +141,8 @@ def parse_when(text: str, now: datetime | None = None) -> When | None:
         now = now.astimezone()
     lowered = text.lower()
 
-    for resolve in (_iso, _duration, _day_and_time):
+    resolvers = (_iso, _duration, lambda text, now: _day_and_time(text, now, default_half), _right_now)
+    for resolve in resolvers:
         found = resolve(lowered, now)
         if found is not None:
             lead = re.search(_LEAD_WORDS, lowered[: found.start])
@@ -148,6 +154,65 @@ def parse_when(text: str, now: datetime | None = None) -> When | None:
     if broken:
         raise TimeParseError(f"There is no time {broken.group(0)}.")
     return None
+
+
+def _right_now(text: str, now: datetime) -> When | None:
+    """"now" - tried last, so "at 5pm, now that the store is open" still means five."""
+    match = re.search(r"\b(?:right\s+)?now\b", text)
+    return When(now, match.start(), match.end()) if match else None
+
+
+# Numbers said out loud. Voice arrives as "at six" and "in five minutes", and a reminder
+# that could not read them answered "I could not find a time in that" to a clear request.
+_ONES = {
+    "zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19,
+}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+         "eighty": 80, "ninety": 90}
+_SPOKEN = (
+    r"(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    r"(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?"
+    r"|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen"
+    r"|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+)
+_HOUR = rf"(?:{_SPOKEN}|\d{{1,2}})"
+_SPOKEN_UNITS = r"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)"
+
+
+def _spoken_number(words: str) -> int:
+    if words.isdigit():
+        return int(words)
+    return sum(_TENS.get(word, 0) or _ONES.get(word, 0) for word in re.split(r"[\s-]+", words.lower()))
+
+
+def spoken_to_digits(text: str) -> str:
+    """"at six thirty" -> "at 6:30", "in five minutes" -> "in 5 minutes", "quarter to
+    eight" -> "7:45". Only numbers that belong to a time are touched, so "buy two
+    apples at six" keeps its two."""
+    flags = re.IGNORECASE
+    out = re.sub(rf"\bhalf\s+(?:past|after)\s+({_HOUR})\b",
+                 lambda m: f"{_spoken_number(m.group(1))}:30", text, flags=flags)
+    out = re.sub(rf"\bquarter\s+(?:past|after)\s+({_HOUR})\b",
+                 lambda m: f"{_spoken_number(m.group(1))}:15", out, flags=flags)
+    out = re.sub(rf"\bquarter\s+(?:to|til|till|before)\s+({_HOUR})\b",
+                 lambda m: f"{(_spoken_number(m.group(1)) - 2) % 12 + 1}:45", out, flags=flags)
+
+    def clock(match: re.Match[str]) -> str:
+        hour = _spoken_number(match.group(2))
+        minute_words = match.group(3)
+        minute = _spoken_number(re.sub(r"^oh\s+", "", minute_words, flags=flags)) if minute_words else None
+        if hour > 23 or (minute is not None and minute > 59):
+            return match.group(0)
+        return f"{match.group(1)} {hour}" + (f":{minute:02d}" if minute is not None else "")
+
+    out = re.sub(rf"\b(at|by|around|until|till|before|after)\s+({_SPOKEN})"
+                 rf"(?:\s+((?:oh\s+)?{_SPOKEN}))?(?:\s+o'?clock)?\b", clock, out, flags=flags)
+    out = re.sub(rf"\ba\s+couple\s+(?:of\s+)?(?={_SPOKEN_UNITS}\b)", "2 ", out, flags=flags)
+    return re.sub(rf"\b({_SPOKEN})(?=[\s-]+{_SPOKEN_UNITS}\b)",
+                  lambda m: str(_spoken_number(m.group(1))), out, flags=flags)
 
 
 def _iso(text: str, now: datetime) -> When | None:
@@ -166,9 +231,13 @@ def _iso(text: str, now: datetime) -> When | None:
 
 
 def _duration(text: str, now: datetime) -> When | None:
+    """"in 20 minutes", "in an hour and a half", "in 2 hours and 30 minutes". The whole
+    length is one span: "in an hour and a half to stretch" was set an hour out and filed
+    as "and a half to stretch"."""
     units = "|".join(sorted(DURATION_UNITS, key=len, reverse=True))
     match = re.search(
-        rf"\bin\s+(?:(?P<n>\d+)|(?P<article>an?)|(?P<half>half\s+an?))\s*(?P<unit>{units})\b",
+        rf"\bin\s+(?:(?P<n>\d+)(?P<and_half>\s+and\s+a\s+half)?|(?P<article>an?)|(?P<half>half\s+an?))"
+        rf"\s*(?P<unit>{units})\b(?P<half_after>\s+and\s+a\s+half)?",
         text)
     if not match:
         return None
@@ -179,31 +248,68 @@ def _duration(text: str, now: datetime) -> When | None:
         seconds = unit_seconds
     else:
         seconds = int(match.group("n")) * unit_seconds
+    if match.group("and_half") or match.group("half_after"):
+        seconds += unit_seconds / 2
+    end = match.end()
+    more = re.compile(rf"\s*,?\s*(?:and\s+)?(?P<n>\d+)\s*(?P<unit>{units})\b")
+    while extra := more.match(text, end):
+        seconds += int(extra.group("n")) * DURATION_UNITS[extra.group("unit")]
+        end = extra.end()
     if seconds <= 0:
         raise TimeParseError("A reminder cannot be set for no time at all.")
-    return When(now + timedelta(seconds=seconds), match.start(), match.end())
+    if seconds > _LONGEST_WAIT:
+        raise TimeParseError("That's too far ahead for me to keep track of. Pick a date within the next few years.")
+    return When(now + timedelta(seconds=seconds), match.start(), end)
 
 
-def _find_time(text: str) -> tuple[tuple[int, int], int, int] | None:
+# Words that say which half of the day a bare hour is in. "remind me to take out the trash
+# tonight at 8" was set for 8 AM - the 7-12 rule reads a bare 8 as written - and "tomorrow
+# morning at 6" for 6 PM, by the 1-6 rule. Only words next to the time count: "at 8 to
+# prepare for the evening party" says nothing about which 8.
+_PM_WORDS = re.compile(r"\b(?:tonight|evening|night|afternoon)\b")
+_AM_WORDS = re.compile(r"\b(?:morning)\b")
+
+
+def _half_of_day(text: str, start: int, end: int) -> str:
+    """'pm', 'am' or '' from the words within a few words of a time."""
+    window = text[max(0, start - 24): end + 24]
+    if _PM_WORDS.search(window):
+        return "pm"
+    if _AM_WORDS.search(window):
+        return "am"
+    return ""
+
+
+def _find_time(text: str, default_half: str = "") -> tuple[tuple[int, int], int, int] | None:
     """The rightmost time of day in `text`, with its span.
 
     Rightmost, because "call the 3 o'clock shift at 6pm" means six: a message often
     carries a number of its own, and the time is what the sentence ends on.
+
+    A bare hour takes its half of the day from the words around it ("tonight at 8"), else
+    from `default_half` - an alarm's "wake me up at 6" is six in the morning.
     """
+    # A clock time beats a named part of the day wherever it sits: "at 6 tomorrow morning"
+    # is six, not the 9:00 that "morning" means on its own.
     best: tuple[tuple[int, int], int, int] | None = None
-    for pattern in (_NAMED_TIME_PATTERN, *_TIME_PATTERNS):
-        for match in re.finditer(pattern, text):
-            groups = match.groupdict()
-            if groups.get("named"):
-                clock = NAMED_TIMES[groups["named"]]
-            else:
-                hour = next(groups[k] for k in ("h1", "h2", "h3") if groups.get(k))
-                minute = next((groups[k] for k in ("m1", "m2") if groups.get(k)), None)
-                meridiem = (groups.get("mer1") or "").replace(".", "")
-                clock = _normalise_clock(
-                    int(hour), int(minute or 0), meridiem, had_minutes=minute is not None)
-            if best is None or match.end() > best[2]:
-                best = (clock, match.start(), match.end())
+    for patterns in (_TIME_PATTERNS, (_NAMED_TIME_PATTERN,)):
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                groups = match.groupdict()
+                if groups.get("named"):
+                    clock = NAMED_TIMES[groups["named"]]
+                else:
+                    hour = next(groups[k] for k in ("h1", "h2", "h3") if groups.get(k))
+                    minute = next((groups[k] for k in ("m1", "m2") if groups.get(k)), None)
+                    meridiem = (groups.get("mer1") or "").replace(".", "")
+                    if not meridiem and 1 <= int(hour) <= 12:
+                        meridiem = _half_of_day(text, match.start(), match.end()) or default_half
+                    clock = _normalise_clock(
+                        int(hour), int(minute or 0), meridiem, had_minutes=minute is not None)
+                if best is None or match.end() > best[2]:
+                    best = (clock, match.start(), match.end())
+        if best is not None:
+            return best
     return best
 
 
@@ -254,14 +360,27 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
     return None
 
 
-def _day_and_time(text: str, now: datetime) -> When | None:
+def _with_period_words(text: str, start: int, end: int) -> tuple[int, int]:
+    """Widen a span over the part-of-day words beside it, so "at 6 tomorrow morning to run"
+    leaves "run" and not "morning to run"."""
+    after = re.match(r"\s*(?:in\s+the\s+|this\s+)?(?:morning|afternoon|evening|night)\b", text[end:])
+    if after:
+        end += after.end()
+    before = re.search(r"(?:\b(?:in\s+the|this)\s+)?\b(?:morning|afternoon|evening|night)\s*$", text[:start])
+    if before:
+        start = before.start()
+    return start, end
+
+
+def _day_and_time(text: str, now: datetime, default_half: str = "") -> When | None:
     day = _find_day(text, now)
-    time_found = _find_time(text)
+    time_found = _find_time(text, default_half)
     if day is None and time_found is None:
         return None
 
     if day is None:
         clock, start, end = time_found            # type: ignore[misc]
+        start, end = _with_period_words(text, start, end)
         at = _apply(now.date(), clock, now)
         if at <= now:                             # "6pm" said at 7pm means tomorrow
             at += timedelta(days=1)
@@ -274,6 +393,7 @@ def _day_and_time(text: str, now: datetime) -> When | None:
     else:
         clock = NAMED_TIMES["tonight"] if implied else (DEFAULT_HOUR, 0)
         start, end = day_start, day_end
+    start, end = _with_period_words(text, start, end)
     at = _apply(target, clock, now)
     # A weekday that resolves to today with a time already gone means the one coming.
     # "today"/"tonight" are exempt: the user named today, so a time that has passed is a

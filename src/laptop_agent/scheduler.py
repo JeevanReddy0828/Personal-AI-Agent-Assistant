@@ -21,29 +21,35 @@ class Schedule:
 
     Two kinds, covering the common cases without a cron dependency:
     - interval: fire every ``seconds`` seconds.
-    - daily: fire once per day at ``hour``:``minute`` (local-naive, compared in UTC).
+    - daily: fire once per day at ``hour``:``minute`` (local-naive, compared in UTC), only
+      on ``days`` (0=Monday) when those are given - "weekdays at 07:00", "mondays at 10:00".
     """
 
     kind: str  # "interval" | "daily"
     seconds: int = 0
     hour: int = 0
     minute: int = 0
+    days: tuple[int, ...] = ()
 
     def describe(self) -> str:
         if self.kind == "interval":
             return f"every {_humanize_seconds(self.seconds)}"
-        return f"daily at {self.hour:02d}:{self.minute:02d}"
+        return f"{_describe_days(self.days)} at {self.hour:02d}:{self.minute:02d}"
 
     def to_dict(self) -> dict[str, object]:
         if self.kind == "interval":
             return {"kind": "interval", "seconds": self.seconds}
-        return {"kind": "daily", "hour": self.hour, "minute": self.minute}
+        data: dict[str, object] = {"kind": "daily", "hour": self.hour, "minute": self.minute}
+        if self.days:
+            data["days"] = list(self.days)
+        return data
 
     @staticmethod
     def from_dict(data: dict) -> "Schedule":
         kind = str(data.get("kind", "interval"))
         if kind == "daily":
-            return Schedule(kind="daily", hour=int(data.get("hour", 0)), minute=int(data.get("minute", 0)))
+            days = tuple(sorted({int(day) for day in data.get("days") or () if 0 <= int(day) <= 6}))
+            return Schedule(kind="daily", hour=int(data.get("hour", 0)), minute=int(data.get("minute", 0)), days=days)
         return Schedule(kind="interval", seconds=int(data.get("seconds", 3600)))
 
     def is_due(self, now: datetime, last_run: datetime | None) -> bool:
@@ -54,6 +60,8 @@ class Schedule:
             if last_run is None:
                 return True
             return (now - last_run).total_seconds() >= self.seconds
+        if self.days and now.weekday() not in self.days:
+            return False
         target = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
         if now < target:
             return False
@@ -63,6 +71,31 @@ class Schedule:
 
 # The same table timeparse uses, so "every 2 weeks" and "in 2 weeks" cannot drift apart.
 _UNIT_SECONDS = DURATION_UNITS
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_DAY_NAME = r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?"
+_DAY_SET = rf"(?:weekdays?|weekends?|{_DAY_NAME}(?:\s*(?:,|and|&)\s*{_DAY_NAME})*)"
+
+
+def parse_days(text: str) -> tuple[int, ...]:
+    """"weekdays" -> (0..4), "mondays and thursdays" -> (0, 3). Empty when it names none."""
+    lowered = text.strip().lower()
+    if re.fullmatch(r"weekdays?", lowered):
+        return (0, 1, 2, 3, 4)
+    if re.fullmatch(r"weekends?", lowered):
+        return (5, 6)
+    return tuple(sorted({_WEEKDAYS.index(name) for name in re.findall(
+        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday", lowered)}))
+
+
+def _describe_days(days: tuple[int, ...]) -> str:
+    if not days or len(days) == 7:
+        return "daily"
+    if days == (0, 1, 2, 3, 4):
+        return "weekdays"
+    if days == (5, 6):
+        return "weekends"
+    names = [_WEEKDAYS[day].capitalize() + "s" for day in days]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def parse_schedule(text: str) -> Schedule:
@@ -90,6 +123,19 @@ def parse_schedule(text: str) -> Schedule:
             raise ScheduleError(f"Invalid time of day: {daily.group(1)}")
         return Schedule(kind="daily", hour=clock[0], minute=clock[1])
 
+    # "weekdays at 07:00", "every monday at 10:00", "mondays and thursdays at 9am"
+    weekly = re.match(rf"(?:every\s+|on\s+)?(?P<days>{_DAY_SET})(?:\s+at\s+(?P<time>.+))?$", lowered)
+    if weekly:
+        clock: tuple[int, int] | None = (9, 0)
+        if weekly.group("time"):
+            try:
+                clock = parse_clock(weekly.group("time"))
+            except TimeParseError as exc:
+                raise ScheduleError(str(exc)) from exc
+            if clock is None:
+                raise ScheduleError(f"Invalid time of day: {weekly.group('time')}")
+        return Schedule(kind="daily", hour=clock[0], minute=clock[1], days=parse_days(weekly.group("days")))
+
     interval = re.match(r"every\s+(\d+)\s+([a-z]+)$", lowered)
     if interval:
         amount, unit = int(interval.group(1)), interval.group(2)
@@ -100,7 +146,8 @@ def parse_schedule(text: str) -> Schedule:
         return Schedule(kind="interval", seconds=amount * _UNIT_SECONDS[unit])
 
     raise ScheduleError(
-        "Could not parse schedule. Try 'every 30 minutes', 'every 2 hours', 'hourly', or 'daily at 08:30'."
+        "Could not parse schedule. Try 'every 30 minutes', 'every 2 hours', 'hourly', 'daily at 08:30' "
+        "or 'weekdays at 07:00'."
     )
 
 

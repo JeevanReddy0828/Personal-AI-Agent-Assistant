@@ -34,6 +34,36 @@ def _urllib_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+# The words around a place that are not the place. `weather in london`, typed as a
+# command, reached the geocoder as "in london" - and then, trimmed by the fallback below,
+# as "in"; `weather today` asked it for a town called Today. Every caller gets this, the
+# direct command, the instant router and the LLM router alike.
+_PLACE_HEAD = re.compile(
+    r"^(?:(?:the\s+)?(?:weather|forecast|temperature)|like|in|for|at|near|around|of|today|tonight"
+    r"|tomorrow|now|right\s+now|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week)\s+",
+    re.IGNORECASE,
+)
+_PLACE_TAIL = re.compile(
+    r"(?:^|\s+)(?:today|tonight|tomorrow|now|right\s+now|currently|outside|like|please|at\s+the\s+moment"
+    r"|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week|for\s+the\s+week"
+    r"|(?:for|over)\s+the\s+next\s+(?:few|couple(?:\s+of)?|\d+)\s+days)\s*$",
+    re.IGNORECASE,
+)
+_NOT_A_PLACE = {"in", "for", "at", "near", "around", "of", "the", "like", "here", "there", "outside",
+                "my area", "my location", "where i am", "me", "home", "my place", "my city"}
+
+
+def clean_place(text: str) -> str:
+    """The place a weather request names, or '' when it names none."""
+    place = (text or "").strip().strip("?.!,'\"")
+    previous = None
+    while previous != place:
+        previous = place
+        place = _PLACE_HEAD.sub("", place)
+        place = _PLACE_TAIL.sub("", place).strip(" ?.!,'\"")
+    return "" if place.lower() in _NOT_A_PLACE else place
+
+
 def _r(value: object) -> object:
     try:
         return round(float(value))  # type: ignore[arg-type]
@@ -52,7 +82,7 @@ class WeatherTool:
         self._gate = approval_gate
 
     def forecast(self, location: str, days: int = 3) -> ToolResult:
-        place = (location or "").strip().strip("?.!,'\"")
+        place = clean_place(location)
         if not place:
             return ToolResult.failure("Where? Try 'weather in Austin'.")
         if self._gate is not None:  # network read -> MEDIUM, like web search / research
