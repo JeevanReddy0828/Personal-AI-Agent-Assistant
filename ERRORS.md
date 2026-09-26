@@ -3,6 +3,53 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-26 — everyday-requests hardening
+
+- **Tests that build their own input shape passed against code that did nothing in the
+  real client.** Follow-up answers ("set a timer" → "How long?" → "10 minutes") read
+  `history[i]["content"]`. Every unit test passed - I had written the fixture with
+  "content" too. In the real page every follow-up fell through to chat, because
+  `app.js sessionHistory` and the CLI send `{"role", "text"}`. Found only by typing the
+  conversation into the page in Chromium. **Rule: a fixture for client input is copied
+  from the client's own code, never written from memory of a common API shape; and a
+  conversational feature is not done until it has been used through the page.**
+  `normalize_history` already read both keys - use the shared reader, not a new one.
+
+- **An ambiguous verb was wired to the destructive action.** "stop the alarm" routed to
+  `reminder delete alarm`, which matched the repeating job first: with nothing ringing it
+  deleted a weekday alarm schedule (an overslept morning), and while one was ringing it
+  deleted the schedule and left the ring. No test covered it; reading the replies of a
+  corpus did. **Rule: where a phrase has a safe and a destructive reading, the safe one
+  wins and the reply says how to ask for the other.** Now `reminder stop` touches only
+  what is going off (or a running timer); `reminder delete` prefers the ringing one.
+
+- **A digit inside a token was read as a number.** "timer 1e309 minutes" set a 309-minute
+  timer: `\d+` had no left boundary. **Numbers in natural-language parsing need
+  `(?<![\w.])`**, and a fuzz corpus should include `1e309`, `0x10`, `9` * 50.
+
+- **Filler was stored as an answer.** Replying "it's" to "You haven't told me your name"
+  saved the name "it's"; "to" became a reminder reading "to". A slot-filling reply must
+  carry something beyond filler words (`_meaningful`).
+
+- **A screenshot taken mid-animation looked like a layering bug.** The approval card
+  appeared translucent over the composer on a phone. It was its 250ms fade-in: computed
+  opacity 1 and `elementFromPoint` at its centre said "card on top" once settled. Check
+  those two before touching z-index or backgrounds. (The same look did expose a real
+  defect: the preview ran items together - fixed with `white-space: pre-line`.)
+
+- **The harness's own check was wrong.** It reported "0 of 24" reminders listed; it looked
+  for `"number N "` with a trailing space, and every line ends in a newline. Printing the
+  raw listing settled it - and exposed the real gap, "You have 35 reminders" over twenty
+  lines with no word about the rest. **When a harness number looks wrong, read the raw
+  output before believing either the number or the code.**
+
+- **Python 3.11 rejects a backslash inside an f-string expression** (3.12 allows it).
+  `f"{re.sub(r'^to\s+', ...)}"` failed at import. 3.11 is the floor and CI runs it:
+  compute outside the f-string.
+
+- **`pkill -f "python3 -m laptop_agent.webui"` killed its own shell** (exit 144): the
+  pattern matched the `bash -c` line running it. Use `pkill -f "m laptop_agent[.]webui"`.
+
 ## Session 2026-09-22
 
 - **A ghost that was probably truncation, not flakiness.** The backlog carried "one

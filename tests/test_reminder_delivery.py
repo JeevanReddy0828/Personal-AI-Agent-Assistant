@@ -341,6 +341,13 @@ class ReminderConversationTests(unittest.TestCase):
         due = datetime.fromisoformat(item["due_at"])
         self.assertAlmostEqual((due - datetime.now(UTC)).total_seconds(), 300, delta=5)
 
+    def test_a_long_list_says_what_it_left_out(self) -> None:
+        for n in range(23):
+            self.reminders.add((datetime.now(UTC) + timedelta(hours=1, minutes=n)).isoformat(), f"task {n}")
+        listing = self.say("what are my reminders")
+        self.assertTrue(listing.startswith("You have 23 reminders:"), listing[:40])
+        self.assertIn("… and 3 more after these", listing)
+
     def test_the_list_is_readable_and_printed_once(self) -> None:
         self.say("remind me to call mom at 6pm")
         listing = self.say("what are my reminders")

@@ -27,6 +27,34 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   scoring, keyword/grounding) onto our LLM provider — not bolting on its FastAPI/Next/openai
   stack — to preserve the locked stack. (`copilot.py`)
 
+## Everyday requests (2026-09-26) — branch `claude/compassionate-cerf-etqyta`
+
+- **A value with one right answer is computed, never asked of a model**: arithmetic
+  (`calculator`), unit conversion (`tools/units.py`), date counting and holidays
+  (`tools/dates.py`), time zones (`clock`), coin/dice/numbers (`tools/chance.py`, `secrets`),
+  reminder times (`timeparse`). A model only gets what it can actually answer.
+- **Honest about what is not connected.** There is no calendar: "what's on my calendar"
+  says so and shows reminders; "add X to my calendar" sets a reminder and says that.
+  Currency goes to the live-search answer, **not** a dedicated FX API - none was reachable
+  to verify from the dev sandbox. The upgrade path is a tool with an injectable backend,
+  once someone has seen an API's real response.
+- **Reminders are delivered, not just stored**: the page polls `/api/reminders` (it says
+  when to look again via `next_in`) and raises a card, a chime, a notification and, in
+  voice mode, speech; the CLI runs a watcher thread. Timers and alarms are reminders.
+- **`reminder stop` ≠ `reminder delete`.** Stop touches only what is going off or a running
+  timer, never a schedule; delete removes, prefers the ringing one, and removing more than
+  one asks first (HIGH). Keep that split for any new "turn off"-like verb.
+- **The scheduler has `days`** (0=Monday) on the daily kind: weekdays, weekends, named days.
+  Persisted only when non-empty, so older jobs read as every day. Repeating reminders and
+  alarms use it; the same request twice is one job.
+- **Two requests in one sentence split only where every part starts like a request
+  (`_REQUEST_START`) and routes through the heuristic alone.** Free-text commands
+  (`_WHOLE_ARGUMENT`) never split. Parts run through `_handle(..., _whole=False)`.
+- **Follow-up answers are keyed to our own question strings** ("How long should the timer
+  run?", "What should I remind you about", "You haven't told me your …", "Which one? …").
+  Rewording one of those questions means updating `_follow_up`. History arrives as
+  `{"role", "text"}` from the page and the CLI; read it with `normalize_history`.
+
 ## CI and packaging (2026-09-17)
 
 - **CI must be green, and `cancelled` is not passing.** The matrix (ubuntu/windows x

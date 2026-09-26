@@ -2797,6 +2797,9 @@ class AgentOrchestrator:
         if not reminders and not repeating:
             return ToolResult.success("You have no reminders set.", reminders=[])
         lines = [_reminder_line(item, now) for item in reminders[:20]]
+        if len(reminders) > 20:
+            # "You have 35 reminders" above twenty lines read as if the rest did not exist.
+            lines.append(f"- … and {len(reminders) - 20} more after these")
         lines += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
         count = len(reminders) + len(repeating)
         return ToolResult.success(

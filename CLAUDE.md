@@ -462,7 +462,41 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             which every 3+ character caller drops and which carries no ranking weight),
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
+Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
+        tools/dates.py (days until / holidays / "what's today"), tools/chance.py (coin, dice,
+        numbers via `secrets`), timers/alarms/repeats in the orchestrator over reminders.py +
+        scheduler.py (`days` for weekdays / named days), lists and facts in memory.py
 ```
+
+- **Everyday requests.** Driving three corpora of how people actually talk (timers, lists,
+  facts, dates, zones, "X and Y", follow-up answers) through `handle()`, then the live
+  server and the page, is what shaped this layer; `tests/test_everyday_requests.py` holds
+  the result as a routing **CONTRACT** (phrase → command that must run), **MUST_STAY_CHAT**
+  near misses, a never-crash sweep with and without a model, and a fuzz of every direct
+  prefix. Rules it established, each broken once:
+  - **One right answer is computed**: arithmetic, conversions, dates, zones, reminder
+    times, random draws. Anything not connected (calendar, smart home, phone) is said
+    plainly; currency goes to the live-search answer because no FX API could be verified.
+  - **Polite prefixes are one pattern** (`heuristic._POLITE`, "can you please",
+    "would you mind"), shared by every rule that needs it; a private copy drifted.
+  - **Prose guard**: a direct prefix whose words read as English ("schedule a meeting…",
+    "time for a break", "forget the timer") goes to the router instead (`_reads_as_prose`).
+  - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
+    timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
+    more than one asks first (HIGH).
+  - **Two requests in one sentence** split only where every part starts like a request and
+    routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
+    "search for flights and hotels in paris" stay whole.
+  - **A reply to our own question completes it** (`_follow_up`): "set a timer" → "How long
+    should the timer run?" → "10 minutes". Keyed to the exact question strings; history
+    arrives as `{"role", "text"}` - a test written with "content" passed while the page got
+    nothing. Refusals, questions, new requests and filler ("it's", "to") are not answers.
+  - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
+    gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
+    prefix fuzz before it existed.
+  Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
+  chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
+  here with the corpus harness pattern - through `handle()` *and* through the page.
 
 - `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
   entry. It checks direct command prefixes, then routes via heuristic → LLM.
