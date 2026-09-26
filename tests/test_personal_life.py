@@ -218,7 +218,10 @@ class ScreenshotTests(unittest.TestCase):
             self.assertTrue(result.data["path"].endswith(".png"))
             again, _ran = everyday.say("take a screenshot")
             self.assertTrue(again.ok, again.message)
-            self.assertIn(str(Path(raw)), again.data["path"])
+            # Resolved on both sides: Windows hands out the temp dir in its 8.3 short form
+            # (RUNNER~1) while the saved path carries the long one.
+            self.assertTrue(Path(again.data["path"]).resolve().is_relative_to(Path(raw).resolve()),
+                            again.data["path"])
 
 
 class ChanceTests(unittest.TestCase):

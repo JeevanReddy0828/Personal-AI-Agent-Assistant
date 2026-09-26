@@ -196,6 +196,10 @@ def _spoken_request(expression: str) -> str:
 _CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|krw|brl|zar|dollars?|bucks|euros?"
              r"|rupees?|yen|yuan|pesos?|dirhams?|francs?|pounds?|reais|ringgit|baht|rand|bitcoins?|btc|ethereum|eth)")
 
+_UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
+_FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
+               "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
+               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
 # Where one request ends and the next begins, in speech.
 _JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
 # A second request in a sentence starts with its own verb or question word; "hotels in
@@ -814,8 +818,7 @@ class AgentOrchestrator:
         unusable = (isinstance(exc, ValueError) and "null" in str(exc)) or (
             isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206))
         if unusable:
-            return ToolResult.failure("That isn't a file name I can use — it is too long or contains "
-                                      "characters no file can have.", error=type(exc).__name__)
+            return ToolResult.failure(_UNUSABLE_PATH, error=type(exc).__name__)
         detail = " ".join(str(exc).split())[:200] or type(exc).__name__
         return ToolResult.failure(
             f"Sorry — that failed with an unexpected error ({type(exc).__name__}: {detail}). "
@@ -2019,6 +2022,11 @@ class AgentOrchestrator:
                 length=len(command),
                 limit=MAX_COMMAND_CHARS,
             )
+
+        # A path segment longer than any filesystem allows. Linux refuses it with an error
+        # (caught below); Windows just reports it missing, and the reply echoed all of it.
+        if lowered.startswith(_FILE_VERBS) and re.search(r"[^\s/\\]{256,}", command):
+            return ToolResult.failure(_UNUSABLE_PATH)
 
         if _allow_planner and _whole:
             answered = self._follow_up(command, history_turns)
