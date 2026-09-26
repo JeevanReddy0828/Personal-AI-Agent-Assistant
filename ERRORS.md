@@ -5,6 +5,18 @@ near-miss. Newest first.
 
 ## Session 2026-09-26 — everyday-requests hardening
 
+- **Pausing on a loud moment made the trigger provisional, and the counter behind it kept
+  treating it as final.** Barge-in's three-in-25s switch counted every loud moment, so once
+  the reply paused instead of stopping, three coughs in one reply switched voice
+  interruption off for the session - silently, since the notice lands in the hidden voice
+  panel. Moving the count to where an interruption commits was not enough on its own: it
+  had also been the only limit on false pauses, and every sentence re-arms barge-in. The
+  same change said server-STT listening waits for "a quarter second of sound", but its
+  counter never reset, so clicks seconds apart added up to speech - the reset barge-in
+  already had, missing from its twin. **Rule: when an action becomes provisional, move
+  whatever counted it to where it becomes final - after asking what else that count was
+  quietly limiting.**
+
 - **Eight commits were red on Windows and nobody looked.** CI ran on every push to the
   branch; I ran the suite only locally, on Linux, and first read a CI result once the PR
   existed - two Windows-only failures (an 8.3 short temp path, and a path Windows reports

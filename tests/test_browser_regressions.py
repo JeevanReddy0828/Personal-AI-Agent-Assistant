@@ -647,6 +647,182 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["resumedOnNoise"], "a garbled two-word transcript was answered: " + repr(outcome["sent"]))
         self.assertTrue(outcome["stopped"], "talking over the reply did not stop it: " + repr(outcome["sent"]))
 
+    # A fake microphone for the server-STT voice paths, left on window.__rig. `feed` pushes
+    # 4096-sample frames into whichever capture is listening and says whether one took
+    # them - checked per frame, since a capture can stop part way through. /api/transcribe
+    # answers with `rig.heard`, and send() is recorded rather than run.
+    _VOICE_RIG = """() => {
+        const FRAME = 4096, RATE = 48000;
+        const rig = { proc: null, heard: '', sent: [] };
+        navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop() {} }] });
+        window.AudioContext = function () {
+            this.sampleRate = RATE;
+            this.createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+            this.createGain = () => ({ gain: { value: 0 }, connect() {}, disconnect() {} });
+            this.createScriptProcessor = () => { rig.proc = { onaudioprocess: null, connect() {}, disconnect() {} }; return rig.proc; };
+            this.close = () => {};
+        };
+        window.webkitAudioContext = window.AudioContext;
+        rig.feed = (peak, frames) => {
+            let took = false;
+            for (let i = 0; i < frames; i++) {
+                if (!rig.proc || !rig.proc.onaudioprocess) break;
+                const ch = new Float32Array(FRAME);
+                for (let j = 0; j < FRAME; j++) ch[j] = (j % 2) ? peak : -peak;
+                rig.proc.onaudioprocess({ inputBuffer: { getChannelData: () => ch } });
+                took = true;
+            }
+            return took;
+        };
+        rig.wait = ms => new Promise(r => setTimeout(r, ms));
+        // Sound, then the second of quiet that ends an utterance and sends it to be heard.
+        rig.say = async (peak, frames) => {
+            rig.feed(peak, frames);
+            await rig.wait(1100); rig.feed(0.001, 1); await rig.wait(200);
+        };
+        const realFetch = window.fetch;
+        window.fetch = async (url, init) => (String(url).includes('/api/transcribe')
+            ? { ok: true, json: async () => ({ ok: true, text: rig.heard }) }
+            : realFetch(url, init));
+        send = async (q) => { rig.sent.push(q); };
+        sttServer = true; sttChosen = true; sttEngine = 'test-engine';
+        window.__rig = rig;
+    }"""
+
+    def test_a_cough_is_not_an_interruption(self):
+        """A loud moment only pauses the reply until its words are heard, but it counted
+        toward the three-in-25s switch as if it had interrupted: three coughs during one
+        reply switched voice interruption off for the session - silently, since the
+        notice goes to the hidden voice panel. Only an interruption that goes through
+        counts now. False pauses get their own limit instead: every sentence re-arms
+        barge-in, so an echo that kept clearing the bar would pause the reply to its end."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const rig = window.__rig;
+                const playing = () => ({ paused: false, currentTime: 0.5, src: '',
+                    pause() { this.paused = true; }, play() { this.paused = false; return Promise.resolve(); } });
+                voiceActive = true; speaking = true; bargeReset();
+                let audio = activeAudio = playing();
+                const coughs = [];
+                for (let i = 0; i < 3; i++) {
+                    bargeStart(); await rig.wait(60);   // each sentence arms barge-in again
+                    rig.feed(0.06, 6);                  // our own voice, learned as the floor
+                    const heard = rig.feed(0.35, 4);    // a cough, which transcribes as nothing
+                    const paused = audio.paused;
+                    await rig.say(0.001, 1);
+                    coughs.push({ heard: heard, paused: paused, resumed: !audio.paused });
+                }
+                const offAfterCoughs = bargeOff;
+                // The next reply, and this time the user really does cut in.
+                voiceTurnReset(); speaking = true;      // what send() does as a voice turn starts
+                audio = activeAudio = playing();
+                bargeStart(); await rig.wait(60);
+                rig.heard = 'stop and tell me the weather';
+                rig.feed(0.06, 6);
+                await rig.say(0.35, 4);
+                const out = { coughs: coughs, offAfterCoughs: offAfterCoughs, sent: rig.sent.slice(),
+                              stoppedForTheUser: speaking === false };
+                try { bargeStop(); } catch (e) {}
+                activeAudio = null; voiceActive = false; speaking = false;
+                return out;
+            }"""
+        )
+        coughs = outcome["coughs"]
+        self.assertFalse(outcome["offAfterCoughs"], "coughs switched voice interruption off: " + repr(coughs))
+        for cough in coughs[:2]:
+            self.assertTrue(cough["paused"] and cough["resumed"], "a cough should pause the reply, then resume it: " + repr(coughs))
+        self.assertFalse(
+            coughs[2]["heard"] or coughs[2]["paused"],
+            "a third false pause in one reply: the rest of the reply should play through: " + repr(coughs),
+        )
+        self.assertEqual(outcome["sent"], ["stop and tell me the weather"], "the next reply could not be interrupted")
+        self.assertTrue(outcome["stoppedForTheUser"], "the interruption was sent but the reply kept speaking")
+
+    def test_clicks_seconds_apart_are_not_speech(self):
+        """Server-STT listening waits for a quarter second of sound before it treats the
+        room as speech, but it added loud frames up across any gap, so three clicks
+        seconds apart - typing, a mouse - reached 256ms, were transcribed ("Properly.")
+        and answered. A quiet gap over 250ms now starts the count again, the rule
+        barge-in already used."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const rig = window.__rig;
+                speechEndedAt = performance.now() - 5000;   // nothing of ours is still in the air
+                voiceActive = true; speaking = false; recognizing = false;
+                rig.heard = 'Properly.';
+                listen(); await rig.wait(60);
+                const listening = rig.feed(0.001, 1);
+                for (let i = 0; i < 3; i++) { rig.feed(0.3, 1); await rig.wait(400); rig.feed(0.001, 1); }
+                await rig.say(0.001, 1);
+                const afterClicks = rig.sent.slice();
+                rig.heard = 'what is the weather tomorrow';
+                await rig.say(0.3, 4);                      // the same loudness, held a third of a second
+                const out = { listening: listening, afterClicks: afterClicks, afterSpeech: rig.sent.slice() };
+                try { if (captureStop) captureStop(); } catch (e) {}
+                voiceActive = false; recognizing = false;
+                return out;
+            }"""
+        )
+        self.assertTrue(outcome["listening"], "server-STT listening never opened the microphone")
+        self.assertEqual(outcome["afterClicks"], [], "clicks seconds apart were answered as speech")
+        self.assertEqual(outcome["afterSpeech"], ["what is the weather tomorrow"], "a real sentence was not heard")
+
+    def test_server_listening_does_not_answer_our_own_words(self):
+        """The browser recognizer always dropped a transcript that was really our own
+        voice. The server-STT listening turn had no such check, so anything it caught of
+        us - a reminder read aloud, the tail of a reply - was answered as the user."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const rig = window.__rig;
+                speechEndedAt = performance.now() - 5000;
+                voiceActive = true; speaking = false; recognizing = false;
+                rememberSpoken('Your reminder: call the dentist about Thursday.');
+                listen(); await rig.wait(60);
+                rig.heard = 'your reminder call the dentist about thursday';
+                await rig.say(0.3, 4);                      // us, heard back
+                rig.heard = 'what time is it in london';
+                await rig.say(0.3, 4);                      // the user, heard only if it listened again
+                const out = { sent: rig.sent.slice() };
+                try { if (captureStop) captureStop(); } catch (e) {}
+                voiceActive = false; recognizing = false;
+                return out;
+            }"""
+        )
+        self.assertNotIn(
+            "your reminder call the dentist about thursday", outcome["sent"],
+            "our own reminder, heard back, was answered as the user",
+        )
+        self.assertEqual(outcome["sent"], ["what time is it in london"], "the user's own question was not heard")
+
+    def test_server_listening_skips_the_tail_of_our_reply(self):
+        """Speakers - Bluetooth ones especially - are still playing our last words for a
+        few hundred ms after the browser reports playback ended. The browser path always
+        ignored that window; the server-STT path heard it, and a tail garbled past the
+        echo check ("Properly.") was answered."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const rig = window.__rig;
+                voiceActive = true; speaking = false; recognizing = false;
+                listen(); await rig.wait(60);
+                speechEndedAt = performance.now();          // our reply has only just ended
+                rig.heard = 'Properly.';
+                await rig.say(0.3, 4);                      // ...and is still in the air
+                const afterTail = rig.sent.slice();
+                rig.heard = 'and what about tomorrow';
+                await rig.say(0.3, 4);                      // the user, once it has passed
+                const out = { afterTail: afterTail, afterUser: rig.sent.slice() };
+                try { if (captureStop) captureStop(); } catch (e) {}
+                voiceActive = false; recognizing = false;
+                return out;
+            }"""
+        )
+        self.assertEqual(outcome["afterTail"], [], "the tail of our own reply was answered as the user")
+        self.assertEqual(outcome["afterUser"], ["and what about tomorrow"], "the user was not heard after the tail")
+
     def test_voice_panel_shows_the_microphone_level_against_the_threshold(self):
         """Barge-in was fixed twice and still reported as not working, because the level it
         needs was a constant inside a closure — nobody could see what the microphone heard.

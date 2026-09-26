@@ -1589,7 +1589,7 @@
   // Space silenced the current sentence and then the reply carried straight on with the
   // next. An event from a turn that was interrupted is dropped rather than spoken.
   let ttsQueue=[], streamComplete=false, spokeAny=false, ttsEpoch=0;
-  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;speaking=false;}   // no cancel(): Chrome drops the next speak() if cancel() ran just before it
+  function voiceTurnReset(){ttsQueue=[];streamComplete=false;spokeAny=false;speaking=false;falsePauses=0;}   // no cancel(): Chrome drops the next speak() if cancel() ran just before it
   function voiceTurnDone(reply,epoch){
     if(epoch!==undefined&&epoch!==ttsEpoch)return;        // this turn was interrupted; do not speak its reply
     streamComplete=true;
@@ -1715,7 +1715,13 @@
     try{s.ac.close();}catch(e){}
     try{s.stream.getTracks().forEach(t=>t.stop());}catch(e){}
   }
-  let bargePaused=false;
+  // A loud moment only pauses the reply until its words are heard, so it is not an
+  // interruption and does not count toward bargeAllowed(): it did, and three coughs in
+  // one reply switched voice interruption off for the session. Pauses get their own
+  // limit instead, because every sentence re-arms barge-in - an echo that keeps clearing
+  // the bar would pause and resume the reply to its end. After two, the rest of that
+  // reply plays through; voiceTurnReset() starts the next one fresh.
+  let bargePaused=false, falsePauses=0;
   function commitBarge(){
     bargePaused=false; barged=true; ttsEpoch++;
     try{speechSynthesis.cancel();}catch(_){}
@@ -1725,7 +1731,7 @@
   }
   function resumeAfterFalseBarge(){
     if(!bargePaused){listen();return;}
-    bargePaused=false;
+    bargePaused=false; falsePauses++;
     try{if(activeAudio)activeAudio.play();else speechSynthesis.resume();}catch(_){}
     setCore('speaking'); vSet('speaking','Speaking');
     if(speaking)serverBargeStart();                     // keep listening for a real interruption
@@ -1735,7 +1741,7 @@
     try{return !!(window.speechSynthesis&&speechSynthesis.speaking);}catch(e){return false;}
   }
   async function serverBargeStart(){
-    if(sBarge||!voiceActive||bargeOff||!navigator.mediaDevices)return;
+    if(sBarge||!voiceActive||bargeOff||falsePauses>=2||!navigator.mediaDevices)return;
     const generation=voiceGeneration;
     let stream;
     try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
@@ -1767,6 +1773,7 @@
       // Three words and not our own, the rule the browser barge-in always had. Anything
       // less - "G men.", "Properly." - is our voice or the room, and the reply resumes.
       if(q.split(/\s+/).filter(Boolean).length<3||isEcho(q)){resumeAfterFalseBarge();return;}
+      if(!bargeAllowed()){resumeAfterFalseBarge();return;}   // a third real interruption inside 25s: we are hearing ourselves
       commitBarge();
       vtrans.textContent=q; vSet('thinking','Thinking');
       send(q);
@@ -1788,7 +1795,6 @@
         if(peak>level()){loudMs+=ch.length/rate*1000;lastLoud=now;}
         else if(now-lastLoud>250)loudMs=0;               // a cough or a door is not a sentence
         if(loudMs<220)return;
-        if(!bargeAllowed()){serverBargeStop();return;}
         // Stop talking immediately. Not stopSpeaking(), which would tear down this very
         // capture — the rest of what the user is saying still has to be recorded.
         fired=true; firedAt=now; lastLoud=now;
@@ -1933,6 +1939,7 @@
       // was transcribed into "Properly." and answered.
       if(peak>0.035){loudFor+=ch.length/(ac.sampleRate||48000)*1000;lastLoud=now;if(!spoke&&loudFor>=250){spoke=true;vmark('speech');}}
       else if(spoke&&now-lastLoud>1000){vmark('settle');finish();return;}   // ~1s silence after speech
+      else if(!spoke&&now-lastLoud>250)loudFor=0;                            // clicks seconds apart do not add up to speech
       if(now-t0>12000)finish();                                              // hard cap
     };
     try{srcN.connect(proc);proc.connect(sink);sink.connect(ac.destination);vmark('mic-on');}catch(e){recognizing=false;cleanup();}
