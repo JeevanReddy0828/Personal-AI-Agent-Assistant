@@ -55,6 +55,8 @@ from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp
 from laptop_agent.tools.textcard import wants_text_rendered
+from laptop_agent.tools.units import UnitTool, looks_like_conversion
+from laptop_agent.tools.dates import date_question, describe_day, resolve as resolve_date
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -1389,7 +1391,56 @@ class AgentOrchestrator:
 
         if lowered in {"system status", "status", "battery", "disk space", "computer status"}:
             return self._system_status()
+
+        # Only when it reads as one: "convert this pdf to word" is not a unit conversion.
+        if lowered.startswith("convert ") and looks_like_conversion(command):
+            return UnitTool().convert(command)
+
+        asked = date_question(command)
+        if asked is not None:
+            return self._date_answer(*asked)
         return None
+
+    def _date_answer(self, kind: str, what: str, other: str = "") -> ToolResult | None:
+        """How many days until something, what day it falls on, or the days between two.
+
+        None when the thing is not a date this can find ("when is the next train"), so the
+        question goes on to something that can answer it.
+        """
+        now = datetime.now().astimezone()
+        today = now.date()
+        profile = self.context.memory.get_profile()
+        if kind == "between":
+            first, second = resolve_date(what, now, profile), resolve_date(other, now, profile)
+            if first is None or second is None:
+                return None
+            days = abs((second[0] - first[0]).days)
+            return ToolResult.success(
+                f"**{days} days** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
+                f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
+        found = resolve_date(what, now, profile)
+        if found is None:
+            # "when is my dentist appointment" - a reminder may say.
+            words = [w for w in re.findall(r"[a-z0-9']+", what.lower()) if w not in {"my", "our", "the", "a", "an"}]
+            reminder = next((item for item in self.context.reminders.list()
+                             if words and all(w in str(item.get("message", "")).lower() for w in words)), None)
+            if reminder is not None:
+                due = datetime.fromisoformat(str(reminder["due_at"]))
+                return ToolResult.success(f"You have a reminder for that: {reminder['message']} — "
+                                          f"{describe(due, now)}.", reminder=reminder)
+            if re.match(r"\s*(?:my|our)\s+", what, re.IGNORECASE):
+                return ToolResult.success(
+                    f"I don't know when {what.strip()} is — you haven't told me, and no reminder mentions it. "
+                    f"Tell me with \"remember {what.strip()} is <date>\".")
+            return None
+        day, name = found
+        if kind == "until":
+            days = (day - today).days
+            unit = "day" if days == 1 else "days"
+            return ToolResult.success(f"**{days} {unit}** until {name} ({day:%A %d %B %Y}).".replace(" 0", " "),
+                                      days=days, date=day.isoformat())
+        return ToolResult.success(f"{name[:1].upper() + name[1:]} is on {describe_day(day, today)}.",
+                                  date=day.isoformat())
 
     def _lists(self) -> ToolResult:
         lists = self.context.memory.lists()

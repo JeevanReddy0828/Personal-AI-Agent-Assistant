@@ -521,9 +521,26 @@ class HeuristicPlannerProvider:
         if clock:
             return clock
 
+        # "how many days until christmas", "when is thanksgiving", "when is my birthday":
+        # counted, never guessed. Passed through whole; the orchestrator reads the question.
+        from datetime import datetime as _datetime
+
+        from laptop_agent.tools.dates import answerable
+
+        if answerable(raw, _datetime.now().astimezone()):
+            return self._command(raw.strip().rstrip("?.!"), "A date question, counted exactly.", 0.9)
+
         sum_ = self._arithmetic(raw)
         if sum_:
             return sum_
+
+        # "convert 5 miles to km", "how many ounces in a pound": one right answer, computed.
+        from laptop_agent.tools.units import looks_like_conversion
+
+        if looks_like_conversion(raw):
+            spoken = raw.strip()
+            command = spoken if spoken.lower().startswith("convert ") else f"convert {spoken}"
+            return self._command(command, "A unit conversion, computed exactly.", 0.95)
 
         headlines = self._news(raw)
         if headlines:
