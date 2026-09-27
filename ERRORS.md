@@ -5,6 +5,47 @@ near-miss. Newest first.
 
 ## Session 2026-09-26 — everyday-requests hardening
 
+- **Four new browser tests passed here and failed on CI, because the page re-derived what
+  they had set.** They forced the server speech path, but the page re-reads its engine from
+  `/api/health` on load and every 12s: CI has no engine, so an answer landing mid-test
+  switched voice to the browser recognizer, while this laptop's own engine kept it in
+  place. **Rule: a test that sets page state must hold it against the page's own polls -
+  and when a browser test passes locally, ask what this machine has that CI does not.**
+
+- **A test that names a time of day without a date passes or fails by the hour it runs.**
+  `test_which_one_then_the_pick` set "call mom at 6pm" beside "buy milk tomorrow at 9" and
+  cancelled "the second one". After 6pm, "6pm" means tomorrow evening, so milk sorted first
+  and the wrong reminder went - on CI's UTC runners, every run from 14:00 to 20:00 EDT. It
+  passed the morning it was written. **Rule: in a reminder or timer test, give every time
+  a day, or the suite depends on the clock.**
+
+- **Pausing on a loud moment made the trigger provisional, and the counter behind it kept
+  treating it as final.** Barge-in's three-in-25s switch counted every loud moment, so once
+  the reply paused instead of stopping, three coughs in one reply switched voice
+  interruption off for the session - silently, since the notice lands in the hidden voice
+  panel. Moving the count to where an interruption commits was not enough on its own: it
+  had also been the only limit on false pauses, and every sentence re-arms barge-in. The
+  same change said server-STT listening waits for "a quarter second of sound", but its
+  counter never reset, so clicks seconds apart added up to speech - the reset barge-in
+  already had, missing from its twin. **Rule: when an action becomes provisional, move
+  whatever counted it to where it becomes final - after asking what else that count was
+  quietly limiting.**
+
+- **Eight commits were red on Windows and nobody looked.** CI ran on every push to the
+  branch; I ran the suite only locally, on Linux, and first read a CI result once the PR
+  existed - two Windows-only failures (an 8.3 short temp path, and a path Windows reports
+  missing where Linux raises) had been red since the third commit. **Rule: after the
+  first push to a branch, read its CI run - every job, not the summary - before building
+  further on it. A local pass on one OS says nothing about the others the matrix runs.**
+
+- **The voice loop answered itself, again, through three separate holes.** The echo guard
+  compared a transcript with one spoken sentence at a time, so a transcript straddling two
+  of our sentences matched neither; server barge-in learned our echo level before playback
+  had started (so it learned silence) and then transcribed 12s of its own reply; and the
+  server-STT listening turn had neither the echo check nor the 400ms tail guard the
+  browser path had. **Rule: two implementations of one guard drift - when a check exists
+  on one path of the voice loop, grep for the other path before calling the loop fixed.**
+
 - **Tests that build their own input shape passed against code that did nothing in the
   real client.** Follow-up answers ("set a timer" → "How long?" → "10 minutes") read
   `history[i]["content"]`. Every unit test passed - I had written the fixture with
