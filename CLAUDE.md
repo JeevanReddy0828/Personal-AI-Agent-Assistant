@@ -756,11 +756,16 @@ punctuation strip breaks those constructs apart. Reading an image URL aloud prod
 "slash api slash image question mark name equals…", which the echo guard could not match,
 so the microphone heard it, counted it as a spoken interruption, and drew the picture
 again — one request became four. The echo guard compares against the **last six utterances
-individually** (not one accumulating blob, which matched almost any real sentence and ate
-the user's own interruptions), a barge-in needs three words, an utterance's tail is ignored
-for 400ms, and a third spoken interruption inside 25s turns spoken barge-in off for the
-session. With open speakers full duplex is never fully reliable; Space and Interrupt are the
-manual fallback.
+individually, and each pair said back to back** (the microphone hears no sentence
+boundaries; never one accumulating blob, which matched almost any real sentence and ate the
+user's own interruptions), a barge-in needs three words, listening reopens only 800ms after
+a reply ends (Bluetooth speakers are still playing it), what is heard in an utterance's tail
+is ignored (400ms in the browser path, 800ms on the server-STT path), and a third spoken
+interruption inside 25s turns spoken barge-in off for the session. The server-STT listening turn also
+needs a quarter second of sound, with no quiet gap over 250ms, before it counts as the
+user: one loud frame, and later clicks seconds apart, were transcribed and answered. With
+open speakers full duplex is never fully reliable; Space and Interrupt are the manual
+fallback.
 
 **Stopping has to stop the turn, not just the sentence.** `stopSpeaking()` cleared the queue
 but the request was still streaming, and every later `tts` event was enqueued and spoken —
@@ -775,15 +780,24 @@ immediately when `useServerStt()` was true, and since `setSttEngine` turns serve
 default as soon as the server has an engine, *talking could not interrupt at all* — the gear
 note even promised "it cannot hear itself. Press Space to cut in." `serverBargeStart` now
 holds the microphone open (echoCancellation + noiseSuppression + autoGainControl) while
-J.A.R.V.I.S speaks, spends the first ~6 frames learning how loud our own output still leaks
-through, and treats **220ms of sustained sound above `max(bargeFloor, floor*2.2)`** as the
-user.
-On trigger it cancels speech, clears the queue, bumps `ttsEpoch` and calls `stopGen()` —
-deliberately *not* `stopSpeaking()`, which would tear down the very capture still recording
-the rest of the sentence. The capture keeps running and is transcribed as the next turn, so
-the words said before the trigger are not lost (re-opening the mic swallowed them). It
-reuses the same three-strikes protection, and it works in the pywebview window too, which
-has no Web Speech API at all.
+J.A.R.V.I.S speaks, spends the first ~6 frames **of playback** learning how loud our own
+output still leaks through (learning before the audio arrived learned silence, and our own
+voice then cleared the bar), and treats **220ms of sustained sound above
+`max(bargeFloor, floor*2.2)`** as the user.
+On trigger it only **pauses** playback: until the words are heard, a loud moment may be a
+cough, the room or our own voice, and stopping outright cut a recipe off at "cilant". The
+capture keeps running — deliberately *not* `stopSpeaking()`, which would tear it down — and
+after ~1s of quiet is transcribed from ~0.6s before the trigger, not the 12s of our own
+reply the buffer held (that was once sent as a question). Only three words or more that are
+not our own speech commit: cancel speech, clear the queue, bump `ttsEpoch`, `stopGen()`,
+answer. Anything else resumes where it paused. The three-in-25s switch counts only
+interruptions that commit — counting every loud moment let three coughs switch spoken
+barge-in off for the session, silently — and false pauses get their own limit, since every
+sentence re-arms barge-in: after two in one reply the rest of it plays through, and
+`voiceTurnReset()` starts the next reply fresh. It works in the pywebview window too, which
+has no Web Speech API at all. Known gap: in a browser tab the pause is
+`speechSynthesis.pause()`, which some platforms ignore; only the app window's audio path has
+been tried on the laptop.
 
 `bargeFloor` (default 0.045) is the one number worth re-tuning from real rooms: too low and
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
