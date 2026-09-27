@@ -5,6 +5,13 @@ near-miss. Newest first.
 
 ## Session 2026-09-26 — everyday-requests hardening
 
+- **Four new browser tests passed here and failed on CI, because the page re-derived what
+  they had set.** They forced the server speech path, but the page re-reads its engine from
+  `/api/health` on load and every 12s: CI has no engine, so an answer landing mid-test
+  switched voice to the browser recognizer, while this laptop's own engine kept it in
+  place. **Rule: a test that sets page state must hold it against the page's own polls -
+  and when a browser test passes locally, ask what this machine has that CI does not.**
+
 - **A test that names a time of day without a date passes or fails by the hour it runs.**
   `test_which_one_then_the_pick` set "call mom at 6pm" beside "buy milk tomorrow at 9" and
   cancelled "the second one". After 6pm, "6pm" means tomorrow evening, so milk sorted first

@@ -686,6 +686,11 @@ class BrowserRegressions(unittest.TestCase):
             : realFetch(url, init));
         send = async (q) => { rig.sent.push(q); };
         sttServer = true; sttChosen = true; sttEngine = 'test-engine';
+        // The page re-reads its engine from /api/health on load and every 12s. CI has no
+        // engine, so an answer landing mid-test sent listen() and bargeStart() to the
+        // browser recognizer and nothing reached this microphone; a laptop with an engine
+        // never shows it. Keep the server path for the whole test.
+        setSttEngine = () => {};
         window.__rig = rig;
     }"""
 
