@@ -3,6 +3,22 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-27 — the suite played Despacito
+
+- **Every run of the unit suite opened a real YouTube video on this laptop.** The
+  everyday-requests routing contract (added in `7842ed2`) fakes the music tool's YouTube
+  lookup, which always answers `kJQP7kiw5Fk`, but left the real `WebTool` behind it, and
+  its approver lets MEDIUM through, so "play …" reached `os.startfile` and Windows opened
+  the video in Chrome. The runner's socket guard never saw it: the test process makes no
+  connection, the browser does. It was reported as "an automation that keeps opening
+  YouTube", because another session's sweep was rerunning that module 48 times.
+  The same tests pressed the real volume keys through `keybd_event` (`MusicTool.set_volume`),
+  which is what kept setting the laptop to 50%. `run_tests.main()` now replaces
+  `os.startfile`, `webbrowser.open` and `keybd_event` with a stub that succeeds and does
+  nothing. **Rule: a guard on the network is not a guard on side effects.
+  Anything handed to another process (the shell, a browser, an app) escapes a socket check,
+  so fake the handoff, not the connection.**
+
 ## Session 2026-09-26 — everyday-requests hardening
 
 - **Four new browser tests passed here and failed on CI, because the page re-derived what

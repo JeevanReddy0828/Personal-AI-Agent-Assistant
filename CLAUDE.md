@@ -1103,6 +1103,14 @@ on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/r
 
 Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
 
+**The runner makes `os.startfile`, `webbrowser.open` and `keybd_event` inert** — they
+succeed and do nothing (the music tool also pressed the real volume keys). A URL handed to the OS is fetched by the browser, not by the test process, so the
+socket guard never saw it: the routing contract opened a real YouTube video on this laptop
+on every run, and a sweep rerunning it 48 times was reported as an automation. A test that
+needs to see what was opened still injects its own fake (`test_music.py`,
+`test_web_targets.py`). Known limit: on macOS and Linux, `desktop.py` (and `web.py` on
+macOS) launch `open`/`xdg-open` through `subprocess`, which this does not touch.
+
 **A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
 deleted on the next clean run so a stale report cannot mislead) holding each test id and
 traceback plus the interpreter, platform and argv. `TextTestRunner` already prints all of
