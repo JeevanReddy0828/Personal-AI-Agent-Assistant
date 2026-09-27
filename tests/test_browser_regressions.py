@@ -682,7 +682,7 @@ class BrowserRegressions(unittest.TestCase):
         };
         const realFetch = window.fetch;
         window.fetch = async (url, init) => (String(url).includes('/api/transcribe')
-            ? { ok: true, json: async () => ({ ok: true, text: rig.heard }) }
+            ? { ok: true, json: async () => (rig.reply || { ok: true, text: rig.heard }) }
             : realFetch(url, init));
         send = async (q) => { rig.sent.push(q); };
         sttServer = true; sttChosen = true; sttEngine = 'test-engine';
@@ -827,6 +827,127 @@ class BrowserRegressions(unittest.TestCase):
         )
         self.assertEqual(outcome["afterTail"], [], "the tail of our own reply was answered as the user")
         self.assertEqual(outcome["afterUser"], ["and what about tomorrow"], "the user was not heard after the tail")
+
+    # The voice notice, if one is showing: its text, and whether it is really on screen -
+    # a box, inside the window, and not painted over by anything else.
+    _VOICE_NOTICE = """() => {
+        const card = document.querySelector('#remtray [data-voice-notice]');
+        if (!card) return null;
+        const r = card.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { text: card.textContent, height: r.height,
+                 inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight,
+                 uncovered: !!hit && card.contains(hit),
+                 count: document.querySelectorAll('#remtray [data-voice-notice]').length };
+    }"""
+
+    def test_a_voice_notice_is_on_screen_in_every_layout(self):
+        """Voice notices were written into #vtrans, inside a panel that has been display:none
+        since June, so voice interruption switching itself off told nobody. They go to the
+        reminder tray now, which is fixed to the window. Asserted as a real, uncovered box in
+        every layout - not `hidden === false`, which is how the meter shipped invisible."""
+        self.page.evaluate("() => { voiceActive = true; bargeReset(); bargeAllowed(); bargeAllowed(); bargeAllowed(); voiceActive = false; }")
+        layouts = (
+            ("1440", {"width": 1440, "height": 950}, ""),
+            ("1440 compact", {"width": 1440, "height": 950}, "setCompact(true)"),
+            ("1440 orb focus", {"width": 1440, "height": 950}, "setCompact(false); setOrbFocus(true, false, true)"),
+            ("1000", {"width": 1000, "height": 800}, "setOrbFocus(false, false, true)"),
+            ("700", {"width": 700, "height": 900}, ""),
+            ("390", {"width": 390, "height": 844}, ""),
+        )
+        for name, size, setup in layouts:
+            with self.subTest(layout=name):
+                self.page.set_viewport_size(size)
+                if setup:
+                    self.page.evaluate("() => { " + setup + "; }")
+                seen = self.page.evaluate(self._VOICE_NOTICE)
+                self.assertIsNotNone(seen, name + ": voice interruption switched off with no notice at all")
+                self.assertIn("voice interruption is off", seen["text"])
+                self.assertGreater(seen["height"], 0, name + ": the notice has no box on screen")
+                self.assertTrue(seen["inside"], name + ": the notice runs off the window")
+                self.assertTrue(seen["uncovered"], name + ": something is drawn over the notice")
+
+        self.page.set_viewport_size({"width": 1440, "height": 950})
+        self.page.evaluate("() => { voiceNotice('first'); voiceNotice('second'); }")
+        self.assertEqual(self.page.evaluate(self._VOICE_NOTICE)["count"], 1, "notices stacked instead of replacing")
+        self.page.click("#remtray [data-voice-notice] .apbtn")
+        self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE), "Dismiss left the notice up")
+        self.page.evaluate("() => { voiceNotice('stale'); bargeReset(); }")
+        self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE),
+                          "restarting voice, or Space, left a notice that no longer holds")
+
+    def test_a_blocked_microphone_says_so(self):
+        """The server-STT listening turn wrote "Microphone permission is needed" into the
+        hidden panel, and voice just went quiet."""
+        self.page.evaluate(self._VOICE_RIG)
+        self.page.evaluate("""async () => {
+            navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('denied', 'NotAllowedError'); };
+            voiceActive = true; speaking = false; recognizing = false;
+            listen(); await window.__rig.wait(60);
+            voiceActive = false; recognizing = false;
+        }""")
+        seen = self.page.evaluate(self._VOICE_NOTICE)
+        self.assertIsNotNone(seen, "a blocked microphone left no notice on screen")
+        self.assertIn("Microphone permission is needed for voice.", seen["text"])
+        self.assertGreater(seen["height"], 0)
+
+    def test_a_broken_speech_engine_says_so_and_silence_does_not(self):
+        """/api/transcribe answers `ok: false` both when it heard nothing and when there is
+        no engine at all. Only the second deserves a notice - surfacing every `ok: false`
+        would put a card up after every quiet moment."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate("""async () => {
+            const rig = window.__rig;
+            speechEndedAt = performance.now() - 5000;
+            voiceActive = true; speaking = false; recognizing = false;
+            rig.reply = { ok: false, text: '', message: 'Transcribed voice.wav: no speech found.', failed: false };
+            listen(); await rig.wait(60);
+            await rig.say(0.3, 4);                          // heard nothing
+            const afterSilence = !!document.querySelector('#remtray [data-voice-notice]');
+            rig.reply = { ok: false, text: '', message: 'Speech-to-text needs an engine: pip install laptop-agent[stt]', failed: true };
+            await rig.say(0.3, 4);                          // there is no engine
+            const out = { afterSilence: afterSilence, sent: rig.sent.slice() };
+            try { if (captureStop) captureStop(); } catch (e) {}
+            voiceActive = false; recognizing = false;
+            return out;
+        }""")
+        self.assertFalse(outcome["afterSilence"], "hearing nothing put up a notice")
+        seen = self.page.evaluate(self._VOICE_NOTICE)
+        self.assertIsNotNone(seen, "a missing speech engine left no notice on screen")
+        self.assertIn("pip install", seen["text"])
+        self.assertEqual(outcome["sent"], [], "a failed transcription was answered")
+
+    def test_the_browser_recognizer_says_why_voice_stopped(self):
+        """A blocked microphone ends voice mode, and the only sign was the Voice pill
+        turning off - the reason went to the hidden panel."""
+        # SR is captured when the page loads, so the fake has to exist before the script runs.
+        self.page.add_init_script("""
+            window.SpeechRecognition = window.webkitSpeechRecognition = class {
+                start() { if (window.__recThrows) throw new Error('the device is busy'); }
+                stop() {} abort() {}
+            };""")
+        self.page.reload()
+        outcome = self.page.evaluate("""() => {
+            sttServer = false; sttChosen = true;            // the browser recognizer, whatever /api/health says
+            voiceActive = true; speaking = false; recognizing = false;
+            listen();
+            rec.onerror({ error: 'not-allowed' });
+            const blocked = document.querySelector('#remtray [data-voice-notice]');
+            const out = { blocked: blocked ? blocked.textContent : null, endedVoice: voiceActive === false };
+            voiceNotice('');                                // so the next notice has to be the new one
+            window.__recThrows = true;
+            voiceActive = true; recognizing = false;
+            listen();
+            const busy = document.querySelector('#remtray [data-voice-notice]');
+            out.busy = busy ? busy.textContent : null;
+            voiceActive = false; recognizing = false;
+            return out;
+        }""")
+        self.assertIsNotNone(outcome["blocked"], "a blocked microphone ended voice with no notice")
+        self.assertIn("Microphone blocked", outcome["blocked"])
+        self.assertTrue(outcome["endedVoice"])
+        self.assertIsNotNone(outcome["busy"], "a microphone that would not start left no notice")
+        self.assertIn("Could not start the microphone: the device is busy", outcome["busy"])
 
     def test_voice_panel_shows_the_microphone_level_against_the_threshold(self):
         """Barge-in was fixed twice and still reported as not working, because the level it

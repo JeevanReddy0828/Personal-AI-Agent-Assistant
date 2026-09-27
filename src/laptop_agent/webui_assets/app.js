@@ -821,9 +821,31 @@
     try{await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:r.id,minutes:10})});}catch(e){}
     card.remove();checkReminders();
   }
-  function showReminder(r){
+  function remTray(){
     let host=document.getElementById('remtray');
     if(!host){host=document.createElement('div');host.id='remtray';document.body.appendChild(host);}
+    return host;
+  }
+  // Voice notices used to be written to #vtrans, inside the #voice panel that has been
+  // display:none since f6a145d - so "voice interruption is off", a blocked microphone and a
+  // broken speech engine all told nobody. The tray is fixed to the window, so it shows in
+  // every layout and on a phone. One at a time, and never chimed or spoken: the microphone
+  // may be listening. voiceNotice('') clears it.
+  function voiceNotice(text){
+    const old=document.querySelector('#remtray [data-voice-notice]');
+    if(old&&old.dataset.voiceNotice===text)return;          // the same notice again: leave it be
+    if(old)old.remove();
+    if(!text)return;
+    const card=document.createElement('div');card.className='remcard';card.dataset.voiceNotice=text;card.setAttribute('role','alert');
+    const head=document.createElement('h4');head.textContent='Voice';
+    const msg=document.createElement('div');msg.className='remmsg';msg.textContent=text;
+    const row=document.createElement('div');row.className='aprow';
+    const dismiss=document.createElement('button');dismiss.className='apbtn';dismiss.textContent='Dismiss';
+    dismiss.onclick=()=>card.remove();
+    row.append(dismiss);card.append(head,msg,row);remTray().appendChild(card);
+  }
+  function showReminder(r){
+    const host=remTray();
     if(host.querySelector('[data-rem="'+r.id+'"]'))return;
     const card=document.createElement('div');card.className='remcard';card.setAttribute('data-rem',String(r.id));card.setAttribute('role','alert');
     const head=document.createElement('h4');head.textContent='Reminder'+(r.due_spoken?' · '+r.due_spoken:'');
@@ -1660,12 +1682,12 @@
     if(now-bargeWindow>25000){bargeWindow=now;bargeCount=0;}
     if(++bargeCount>2){
       bargeOff=true; bargeStop();
-      vtrans.textContent='I kept hearing my own voice, so voice interruption is off. Press Space or Interrupt to cut in.';
+      voiceNotice('I kept hearing my own voice, so voice interruption is off. Press Space to cut in.');
       return false;
     }
     return true;
   }
-  function bargeReset(){bargeOff=false;bargeCount=0;bargeWindow=performance.now();}
+  function bargeReset(){bargeOff=false;bargeCount=0;bargeWindow=performance.now();voiceNotice('');}   // voice restarted or Space pressed: the notice no longer holds
   function bargeStop(){if(barge){try{barge.onresult=barge.onerror=barge.onend=null;barge.abort();}catch(e){}barge=null;}serverBargeStop();}
 
   // --- barge-in when speech is transcribed on the server -----------------------------
@@ -1870,10 +1892,10 @@
     rec.onerror=(e)=>{const err=(e&&e.error)||'?';vmark('err:'+err);
       if(err==='no-speech'||err==='aborted')return;         // benign — silence timer / restart handles it
       const M={'not-allowed':'Microphone blocked. Allow mic access for this site (click the camera/lock icon by the address bar), then start Voice again.','service-not-allowed':'Microphone is blocked by the browser or OS. Allow mic access, then retry.','audio-capture':'No microphone found. Connect or enable a mic, then retry.','network':'Speech recognition needs an internet connection in this browser, and it appears offline or blocked.'};
-      vtrans.textContent=M[err]||('Voice error: '+err);vSet('idle','Voice error');
+      voiceNotice(M[err]||('Voice error: '+err));vSet('idle','Voice error');
       if(err==='not-allowed'||err==='service-not-allowed'||err==='audio-capture'){recognizing=false;endVoice();}};
     rec.onend=()=>{vmark('rec-end');if(!handled)handle(fin||(heard?vtrans.textContent:''));};  // fallback only
-    try{rec.start();}catch(e){recognizing=false;vtrans.textContent='Could not start the microphone: '+((e&&e.message)||e);vSet('idle','Voice error');}
+    try{rec.start();}catch(e){recognizing=false;voiceNotice('Could not start the microphone: '+((e&&e.message)||e));vSet('idle','Voice error');}
   }
   // --- native (app-window) voice: record -> /api/transcribe, play /api/tts ---
   // Capture raw PCM and encode a 16kHz mono 16-bit WAV in the browser, so the server
@@ -1900,9 +1922,9 @@
       // Over http on a LAN address there is no microphone to permit: the browser removes
       // navigator.mediaDevices outside a secure context, so blaming permissions sends
       // people to a settings screen that cannot fix it.
-      vtrans.textContent = window.isSecureContext
+      voiceNotice(window.isSecureContext
         ? 'Microphone permission is needed for voice.'
-        : 'Voice needs a secure connection. Over http on a network address the browser blocks the microphone entirely — open J.A.R.V.I.S on the computer itself for voice.';
+        : 'Voice needs a secure connection. Over http on a network address the browser blocks the microphone entirely — open J.A.R.V.I.S on the computer itself for voice.');
       return;}
     if(!voiceActive||generation!==voiceGeneration){stream.getTracks().forEach(t=>t.stop());recognizing=false;return;}
     const ac=new (window.AudioContext||window.webkitAudioContext)();
@@ -1920,7 +1942,7 @@
       try{const b64=encodeWavB64(flattenF32(samples),ac.sampleRate||48000);
         const r=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:b64,ext:'wav'})});
         const d=await r.json();vmark('stt');q=(d.text||'').trim();
-        if(!d.ok&&d.message)vtrans.textContent=d.message;
+        if(d.failed&&d.message)voiceNotice(d.message);       // a broken engine, not silence: that is ok:false too
       }catch(e){}
       if(!voiceActive||generation!==voiceGeneration)return;
       // The browser path always had these two guards; this one had neither, so anything
