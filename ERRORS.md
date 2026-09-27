@@ -3,6 +3,21 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-27 — a reminder test that failed one minute a day
+
+- **A time given relative to now still has a day, and it is not always today.**
+  `test_due_and_upcoming_with_the_time_to_the_next` set a reminder "a minute ago" and
+  asserted the card said "today at". For the first minute after midnight a minute ago is
+  yesterday and the card gives the full date: CI run 36280996201 failed exactly so, on a
+  UTC runner at 00:00. Moving the reminder cannot fix it, because the day word is counted
+  from the clock `_reminders_snapshot` reads, so the test now stops that clock
+  (`StoppedClock`) and asserts the exact string. To reproduce a clock-dependent test, set
+  `TZ` to a fixed offset that puts local midnight inside the run (`TZ=XXX-04:39:10` works to
+  the second, on Windows too): the old test failed on the first try, and running every test
+  file from 00:00:05 found no other that fails in that minute. **Rule: a test that asserts a
+  day word stops the clock that decides it. "Give every time a day" is not enough when the
+  day is counted from now.**
+
 ## Session 2026-09-26 — everyday-requests hardening
 
 - **Four new browser tests passed here and failed on CI, because the page re-derived what
