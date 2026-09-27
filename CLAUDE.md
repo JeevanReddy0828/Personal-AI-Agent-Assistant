@@ -803,8 +803,8 @@ been tried on the laptop.
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
 closure, and that is why the feature could be "fixed" twice and still reported as not
 working — nobody could see what the microphone was hearing or what it had to beat. Both are
-now on screen: a meter in `.stagedock` at the foot of the presence panel shows
-**peak / learned leak / threshold** live while
+now on screen: a meter in `.stagedock` (at the foot of the presence panel, or above the
+composer wherever that panel is hidden) shows **peak / learned leak / threshold** live while
 barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
 it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
 per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
