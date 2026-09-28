@@ -83,7 +83,8 @@ class RecordingTests(unittest.TestCase):
         status, _, body = self.request('/api/recordings/transcribe', {'name': recording['name']})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)['text'], 'Remember to buy milk')
-        self.assertEqual(self.calls, [target])
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.calls[0].samefile(target))
         self.assertTrue(target.exists())
 
     def test_mutations_require_token(self):

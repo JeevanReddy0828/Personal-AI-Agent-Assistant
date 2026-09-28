@@ -603,3 +603,9 @@ The first browser persistence assertion expected a reload to reopen a chat autom
 the existing app starts a new chat. Correct verification reopens the saved original chat
 and asserts its actual audio box and transcript. Cancelling while permission is pending
 also checks that a late MediaStream is stopped and no file is created.
+
+REC-01's first Windows CI run exposed a test-only path alias: the temporary directory
+used `RUNNER~1`, while safe artifact resolution returned `runneradmin`. Comparing Path
+spellings failed although they named the same saved WAV. Assert one backend call and
+`samefile` identity, which checks the intended file boundary across Windows short names.
+The Linux units and Chromium job passed on that revision; the corrected test is rerun.
