@@ -19,8 +19,22 @@ button[disabled]{opacity:.6;cursor:default}
 <input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
 <label for="p">Password</label>
 <input id="p" name="password" type="password" autocomplete="current-password" required>
-<button id="b" type="submit">Sign in</button><div class="err" id="e" role="alert"></div></form>
+<button id="b" type="submit">Sign in</button><div class="err" id="e" role="alert"></div>
+<button id="google" type="button" style="margin-top:.8rem" disabled>Sign in with Google</button>
+<button id="googleCancel" type="button" style="margin-top:.5rem" hidden>Cancel Google sign-in</button>
+<p id="googleNote" style="font-size:.8rem" role="status">Checking Google sign-in…</p></form>
 <script nonce="{{NONCE}}">
+{{GOOGLE_SCRIPT}}
+const googleButton=document.getElementById('google'),googleNote=document.getElementById('googleNote');
+fetch('/auth/google/status').then(async r=>{
+  const d=await r.json();googleButton.disabled=!r.ok||!d.configured||!d.accounts;
+  googleNote.textContent=!r.ok?d.message:(!d.configured?'Google sign-in is not configured. Use your password or ask the owner to set up a Google Desktop client.':'Link your Google identity from your account settings first.');
+}).catch(()=>{googleNote.textContent='Could not check Google sign-in. Use your password or try again.';});
+googleButton.onclick=async()=>{
+  googleButton.disabled=true;
+  await window.jarvisGoogle({message:googleNote,cancelButton:document.getElementById('googleCancel')});
+  googleButton.disabled=false;
+};
 document.getElementById('f').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const err = document.getElementById('e'), button = document.getElementById('b');

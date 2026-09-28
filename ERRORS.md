@@ -589,3 +589,21 @@ near-miss. Newest first.
   wins" was meant to prefer a real Chrome window over a page mentioning Chrome — instead
   it picked **Live Caption**, a Chrome-hosted widget also running as `chrome.exe` with a
   shorter title. Rank title+process matches above either alone.
+
+
+## 2026-09-28 — OAuth popup isolation and redirect tests
+
+A popup's `closed` property can become true when a provider isolates its opener, even
+though its sign-in flow continues. Cancelling the server flow on that signal stranded
+Google sign-in. The original window now waits on its proof-bound completion, with an
+explicit Cancel button and ten-minute expiry. The Chromium fake provider deliberately
+sets Cross-Origin-Opener-Policy: same-origin to preserve this regression check.
+
+Playwright route handlers only intercept the first request in a redirect chain. The
+fake-Google browser fixture reads the local launch 303 without following it, preserves
+its Set-Cookie, and performs a new navigation so the provider can be intercepted fully.
+HTTP tests independently assert the production 303; browser tests exercise real cross-site
+cookie handling. Plain HTTP tests alone did not expose this lifecycle issue.
+
+An old flow's cancellation must not clear a newer flow's proof cookie in another tab.
+Cancel now clears that cookie only after a matching flow/proof was actually cancelled.

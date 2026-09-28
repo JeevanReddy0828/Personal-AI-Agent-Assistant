@@ -388,3 +388,33 @@ python -B tests/run_tests.py test_browser_regressions.py
 
 On Linux/macOS, prefix the last command with `JARVIS_BROWSER_TESTS=1`.
 The CI workflow runs offline tests on Windows/Linux and a separate Chromium job.
+
+
+### Google sign-in (AUTH-01 phase 2a)
+
+Google sign-in links an existing local account; it never creates an account or changes
+its role. First create/sign in with a local password. Configure a Google OAuth **Desktop
+app** client using `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then restart the app.
+In Settings, open **Google sign-in**, enter your current password, and choose **Link
+Google**. Complete the identity selection in the system browser. Later, **Sign in with
+Google** returns to that same local account. Linking is also available to personal accounts. Each Google identity links to one local
+account; for everyday use, link the personal account and keep the developer password.
+
+This uses `openid email profile` only and does **not** connect Gmail. The callback is
+`http://127.0.0.1:<app-port>/auth/google/callback`, derived from the listening app port.
+`GOOGLE_REDIRECT_URI` still belongs to the older email OAuth command and does not change
+this callback. Use the app on its own computer; phone access continues to use a password.
+Allow a popup when using a browser tab. A native app window opens the system browser and
+finishes in the original window, whose cookie is separate. Attempts expire after ten
+minutes; Cancel lets you start over.
+
+**Unlink Google** asks for your password and signs out the account's other sessions.
+Linking also signs out other sessions. To change a Google identity, unlink it first. An
+account without a local password must have the owner set one on the computer with
+`python -m laptop_agent.accounts password <username>` before changing its Google link.
+Google-only accounts can still sign in with their existing linked identity. Unlinked or
+disabled Google identities cannot sign in. Real Google consent and the packaged native
+window still need an integration check with the owner's Desktop client.
+
+References: [Google's installed-app flow](https://developers.google.com/identity/protocols/oauth2/native-app)
+and [OpenID Connect validation](https://developers.google.com/identity/openid-connect/openid-connect).

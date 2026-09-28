@@ -43,7 +43,9 @@ from typing import Callable
 
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
-from laptop_agent.storage import StorageDamaged
+from laptop_agent.storage import StorageDamaged, file_lock
+from laptop_agent.google_oidc import GoogleError, GoogleFlows, PROOF_COOKIE, FLOW_COOKIE, cookie as google_cookie
+from urllib.parse import parse_qs, urlsplit
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
@@ -72,6 +74,7 @@ _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 ACCOUNTS = AccountStore(_CONFIG.data_dir / "accounts.json")
 SESSIONS = SessionStore(_CONFIG.data_dir / "sessions.json")
 _SESSION_COOKIE = "jarvis_session"
+_GOOGLE = GoogleFlows(_CONFIG.google_client_id or "", _CONFIG.google_client_secret or "")
 LAN_PASSCODE = os.environ.get("LAPTOP_AGENT_LAN_PASSCODE", "").strip()
 LAN_MODE = HOST not in _LOOPBACK
 if LAN_MODE and len(LAN_PASSCODE) < 8 and not ACCOUNTS.exists():
@@ -139,6 +142,7 @@ _SIGNIN_LIMIT = _SignInLimit()
 _PERSONAL_ROUTES = frozenset({
     "/", "/index.html", "/api/me", "/api/health", "/api/metrics", "/api/reminders", "/api/approvals",
     "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
+    "/auth/google/status", "/auth/google/launch", "/auth/google/callback",
     "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
 })
 
@@ -762,6 +766,152 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True, "user": {"username": account.username, "role": account.role}},
                    headers=(("Set-Cookie", _session_cookie(token)),))
 
+    def _google_local(self, canonical: bool = False) -> bool:
+        hosts = {f"127.0.0.1:{self.server.server_port}"}
+        if not canonical:
+            hosts.add(f"localhost:{self.server.server_port}")
+        if not self._client_is_local() or self.headers.get("Host") not in hosts:
+            self._json(403, {"ok": False, "message": "Use Google sign-in on this computer at http://127.0.0.1:"
+                            f"{self.server.server_port}. On a phone, sign in with your password."},
+                       headers=(("X-Jarvis-Denied", "local"),))
+            return False
+        return True
+
+    def _google_account(self):
+        session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
+        account = ACCOUNTS.get(session.account_id) if session else None
+        return account if account is not None and not account.disabled else None
+
+    def _google_get(self, path: str) -> None:
+        if not self._google_local(canonical=path != "/auth/google/status"):
+            return
+        try:
+            if path == "/auth/google/status":
+                account = self._google_account()
+                self._json(200, {"ok": True, "configured": _GOOGLE.configured,
+                                "accounts": ACCOUNTS.exists(), "linked": bool(account and account.google_sub),
+                                "email": account.google_email if account else None,
+                                "has_password": bool(account and account.password_hash)})
+                return
+            # Only these two fixed loopback GETs accept the return from another site.
+            # The launch ticket is single-use; callback also needs state + its Lax cookie.
+            ACCOUNTS.exists()  # damaged storage remains fail-closed on these routes too
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=12)
+            if any(len(values) != 1 for values in query.values()):
+                raise GoogleError("Invalid Google sign-in response. Start again.")
+            if path == "/auth/google/launch":
+                url, binding = _GOOGLE.launch(query.get("ticket", [""])[0])
+                self._send(303, b"", "text/plain", headers=(("Location", url),
+                           ("Set-Cookie", google_cookie(FLOW_COOKIE, binding, lax=True))))
+            else:
+                _GOOGLE.callback(query.get("state", [""])[0], self._cookie(FLOW_COOKIE),
+                                 query.get("code", [""])[0], "error" in query)
+                body = ('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<title>Google sign-in</title><p>Return to the window where you started sign-in. '
+                        'You can close this tab.</p><script nonce="' + _SCRIPT_NONCE + '">'
+                        'history.replaceState(null,"","/auth/google/finished");</script>')
+                self._send(200, body.encode(), "text/html; charset=utf-8",
+                           headers=(("Set-Cookie", google_cookie(FLOW_COOKIE, "", lax=True)),))
+        except (GoogleError, ValueError) as exc:
+            message = str(exc) if isinstance(exc, GoogleError) else "Invalid Google sign-in response. Start again."
+            self._json(400, {"ok": False, "message": message})
+
+    def _google_step_up(self, account, payload) -> bool:
+        if account is None:
+            self._json(401, {"ok": False, "message": "Sign in before linking Google."})
+            return False
+        if not account.password_hash:
+            self._json(409, {"ok": False, "message": "Set a local password before changing your Google link. "
+                       "Ask the owner to run: python -m laptop_agent.accounts password " + account.username})
+            return False
+        keys = self._limit_keys(account.username)
+        wait = _SIGNIN_LIMIT.wait(*keys)
+        if wait:
+            self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
+            return False
+        known = ACCOUNTS.authenticate(account.username, str(payload.get("current") or "")[:MAX_PASSWORD])
+        if known is None or known != account:
+            _SIGNIN_LIMIT.fail(*keys)
+            self._json(403, {"ok": False, "message": "Your password is not right."},
+                       headers=(("X-Jarvis-Denied", "password"),))
+            return False
+        _SIGNIN_LIMIT.clear(*keys)
+        return True
+
+    def _google_post(self, path: str) -> None:
+        if not self._google_local():
+            return
+        try:
+            payload = self._read_small_json()
+            if not ACCOUNTS.exists():
+                raise GoogleError("Set up a local account before using Google sign-in.")
+            session = self._cookie(_SESSION_COOKIE)
+            proof = self._cookie(PROOF_COOKIE)
+            flow_id = str(payload.get("flow") or "")
+            account = self._google_account()
+            if path in {"/auth/google/start", "/auth/google/unlink"}:
+                purpose = payload.get("purpose", "signin")
+                if purpose not in {"signin", "link"}:
+                    raise GoogleError("Unknown Google sign-in action.")
+                if path.endswith("unlink") or purpose == "link":
+                    if not self._google_step_up(account, payload):
+                        return
+                elif account is not None:
+                    raise GoogleError("Sign out before signing in as another account.")
+                with file_lock(ACCOUNTS.path):
+                    if self._google_account() != account:
+                        raise GoogleError("Your signed-in account changed. Start again.")
+                    if path.endswith("unlink"):
+                        account = ACCOUNTS.unlink_google(account.id)
+                        SESSIONS.revoke_account(account.id)
+                        self._audit("google_unlinked", username=account.username)
+                        self._start_session(account, "password")
+                        return
+                    if purpose == "link" and account.google_sub:
+                        raise GoogleError("Unlink the existing Google identity before linking another.")
+                    redirect = f"http://127.0.0.1:{self.server.server_port}/auth/google/callback"
+                    flow, new_proof = _GOOGLE.start(redirect, session, account, purpose)
+                launch_url = f"http://127.0.0.1:{self.server.server_port}/auth/google/launch?ticket={flow.launch}"
+                native = payload.get("native") is True and _DESKTOP_MODE
+                if native:
+                    try:
+                        opened = webbrowser.open(launch_url)
+                    except Exception:
+                        opened = False
+                    if not opened:
+                        _GOOGLE.cancel(flow.id, new_proof)
+                        raise GoogleError("Could not open your system browser. Try signing in from a browser tab.")
+                self._json(200, {"ok": True, "flow": flow.id, "launch": None if native else launch_url},
+                           headers=(("Set-Cookie", google_cookie(PROOF_COOKIE, new_proof)),))
+                return
+            if path == "/auth/google/cancel":
+                cancelled = _GOOGLE.cancel(flow_id, proof)
+                headers = (("Set-Cookie", google_cookie(PROOF_COOKIE, "")),) if cancelled else ()
+                self._json(200, {"ok": True}, headers=headers)
+                return
+            with file_lock(ACCOUNTS.path):
+                account = self._google_account()
+                flow = _GOOGLE.complete(flow_id, proof, session, account)
+                if flow is None:
+                    self._json(202, {"ok": True, "pending": True})
+                    return
+                if flow.purpose == "link":
+                    # Account and initiating session are rechecked under the account lock.
+                    account = ACCOUNTS.link_google(account.id, flow.result.sub, flow.result.email)
+                    SESSIONS.revoke_account(account.id)
+                    self._audit("google_linked", username=account.username)
+                else:
+                    account = ACCOUNTS.find_by_google_sub(flow.result.sub)
+                    if account is None or account.disabled:
+                        raise GoogleError("This Google identity is not linked to an enabled account. Sign in with your local password and choose Link Google first.")
+                self._start_session(account, "google")
+        except HashingBusy as exc:
+            self._busy(exc)
+        except (GoogleError, AccountError) as exc:
+            self._json(400, {"ok": False, "message": str(exc)}, headers=(("X-Jarvis-Denied", "google"),))
+        except (ValueError, TypeError, UnicodeError):
+            self._json(400, {"ok": False, "message": "Invalid Google sign-in request."})
+
     def _login(self) -> None:
         payload = self._read_small_json()
         username = str(payload.get("username") or "")[:64]
@@ -1087,9 +1237,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {"ok": False, "message": message})
 
     def _do_get(self) -> None:
+        google_path = self.path.split("?", 1)[0]
+        if google_path in {"/auth/google/launch", "/auth/google/callback"}:
+            self._google_get(google_path)
+            return
         if not self._trusted_request():
             return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
+        if path == "/auth/google/status":
+            self._google_get(path)
+            return
         if not self._authorized():
             if not ACCOUNTS.exists():
                 self._unlock_page()
@@ -1195,6 +1352,10 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def _do_post(self) -> None:
+        if self.path in {"/auth/google/start", "/auth/google/complete", "/auth/google/cancel", "/auth/google/unlink"}:
+            if self._trusted_request():
+                self._google_post(self.path)
+            return
         if self.path.split("?", 1)[0] == "/api/pair":
             if self._trusted_request():          # origin checks, but no API token yet
                 self._pair()

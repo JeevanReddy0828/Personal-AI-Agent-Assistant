@@ -201,3 +201,22 @@ Desktop, 1440px, with reduced motion:
 Mobile, 390px:
 
 ![Verified mobile layout](docs/review/mobile.png)
+
+
+## AUTH-01 phase 2a review — 2026-09-28
+
+Implemented on codex/google-signin from 1327dea: Google Desktop identity linking and
+sign-in, account password step-up, bounded PKCE/nonce/state flows, external-browser
+handoff and initiating-window completion. Existing docs were retained and extended.
+
+Validation: 24 new Google unit/live-HTTP tests pass; 73 opt-in Chromium checks pass,
+including five new Google UI/cookie tests. Existing auth 32, accounts/admin 29, access 30,
+page 27 and caching 7 tests pass. Tests cover callback races/replay, wrong/missing cookies,
+claim failures, provider errors/body limits/deadlines, cancelled/expired attempts,
+logout/password/role/link changes during consent, disabled/deleted/duplicate identities,
+no auto-registration, native cookie separation, and phone/missing-config fallback.
+
+No live Google account or Gmail grant was used. Packaged native-window/system-browser
+behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
+credentials and permissions are deliberately pending; health/setup remains Claude's area.
+The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.

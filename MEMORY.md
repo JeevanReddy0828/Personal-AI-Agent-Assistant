@@ -162,3 +162,20 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   `--voice` via `getComputedStyle` for the orb, and inline styles use the token names directly.
 - `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
   a hash-only navigation (`#/chat`) does not refetch the page.
+
+
+## 2026-09-28 — Google identity, phase 2a
+
+- AUTH-01 2a is based on Claude's repaired auth-admin 1327dea. Identity uses Google `sub`,
+  not email; there is no self-registration or role upgrade. Link/unlink require the
+  account's current password in that request, rate limited; Google-only identity changes
+  first need the local owner CLI to set a password.
+- Browser and native sign-in both complete in the initiating window. An external callback
+  gets no app session, even when its browser has different cookies. Account/session
+  changes while consent is pending invalidate linking. Unlink before replacement; both
+  link and unlink revoke other sessions and rotate the current session.
+- Google Desktop clients use a canonical 127.0.0.1 loopback callback derived from app port;
+  legacy GOOGLE_REDIRECT_URI is not reused. Mail consent/tokens/permissions remain phase 2b.
+- Google errors displayed by the app are fixed safe messages. Codes and token replies must
+  never enter failure logs, chats, account JSON or browser storage. Account email is an
+  optional verified display label, never the lookup key.

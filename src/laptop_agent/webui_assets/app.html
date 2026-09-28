@@ -35,6 +35,15 @@
         <div class="acct" id="acct" hidden>
           <div class="lbl"><span><span id="acctWho">Account</span><small id="acctRole"></small></span><button type="button" class="acctbtn" id="acctOut" hidden>Sign out</button></div>
           <button type="button" class="acctlink" id="acctPw" hidden>Change password</button>
+          <button type="button" class="acctlink" id="acctGoogle" hidden>Google sign-in</button>
+          <form id="acctGoogleForm" hidden novalidate>
+            <small id="acctGoogleInfo"></small>
+            <input id="acctGoogleCur" type="password" autocomplete="current-password" placeholder="Your current password" aria-label="Password to change Google link">
+            <button type="submit" class="acctbtn" id="acctGoogleLink">Link Google</button>
+            <button type="button" class="acctbtn" id="acctGoogleUnlink" hidden>Unlink Google</button>
+            <button type="button" class="acctbtn" id="acctGoogleCancel" hidden>Cancel Google sign-in</button>
+            <small class="acctmsg" id="acctGoogleMsg" role="status"></small>
+          </form>
           <button type="button" class="acctlink" id="acctManage" hidden>Manage accounts</button>
           <form id="acctForm" hidden novalidate>
             <small id="acctIntro"></small>

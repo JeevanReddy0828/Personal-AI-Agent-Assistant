@@ -1315,11 +1315,42 @@
         // Accounts are managed on this computer only, and only by a developer: the server says so too.
         const admin=d.user.role==='dev'&&d.local;manage.hidden=panel.hidden=!admin;
         const hi=document.querySelector('#empty h1');if(hi)hi.textContent='How can I help, '+d.user.username.charAt(0).toUpperCase()+d.user.username.slice(1)+'?';
-        role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
+        role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;document.getElementById('acctGoogle').hidden=false;show('');}
       else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
       else box.hidden=true;
     }
     pw.onclick=()=>show(mode==='password'?'':'password');
+    const google=document.getElementById('acctGoogle'),gf=document.getElementById('acctGoogleForm'),
+          gi=document.getElementById('acctGoogleInfo'),gp=document.getElementById('acctGoogleCur'),
+          gl=document.getElementById('acctGoogleLink'),gu=document.getElementById('acctGoogleUnlink'),
+          gm=document.getElementById('acctGoogleMsg'),gc=document.getElementById('acctGoogleCancel');
+    google.onclick=async()=>{
+      gf.hidden=!gf.hidden;if(gf.hidden)return;
+      try{
+        const r=await fetch('/auth/google/status'),d=await r.json();
+        gi.textContent=!r.ok?d.message:(d.linked?'Linked to '+(d.email||'your Google identity')+'.':'Each Google identity links to one local account. For everyday use, link your personal account and keep the developer password. This does not connect Gmail.');
+        gl.hidden=!!d.linked;gu.hidden=!d.linked;
+        gl.disabled=!r.ok||!d.configured||!d.has_password;gu.disabled=!r.ok||!d.has_password;
+        gp.hidden=!r.ok||!d.has_password;
+        gm.textContent=!r.ok?'':(!d.has_password?'Ask the owner to set a local password using python -m laptop_agent.accounts password <username> before changing this link.':(!d.configured?'Ask the owner to configure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for a Desktop client.':''));
+      }catch(e){gm.textContent='Could not check Google sign-in.';gl.disabled=gu.disabled=true;}
+    };
+    gf.onsubmit=async ev=>{
+      ev.preventDefault();if(gl.disabled||gl.hidden)return;
+      if(!gp.value){gm.textContent='Type your current password first.';gp.focus();return;}
+      gl.disabled=gu.disabled=true;const current=gp.value;gp.value='';
+      await window.jarvisGoogle({purpose:'link',current,message:gm,cancelButton:gc});
+      gl.disabled=gu.disabled=false;
+    };
+    gu.onclick=async()=>{
+      if(!gp.value){gm.textContent='Type your current password first.';gp.focus();return;}
+      gu.disabled=true;const current=gp.value;gp.value='';
+      try{
+        const r=await fetch('/auth/google/unlink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current})});
+        const d=await r.json();if(r.ok){location.reload();return;}gm.textContent=d.message;
+      }catch(e){gm.textContent='Could not reach the app.';}
+      gu.disabled=false;
+    };
     function button(label,run){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=run;return b;}
     function say(text,bad){admMsg.textContent=text||'';admMsg.classList.toggle('err',!!bad);}
     function renderAccounts(d){

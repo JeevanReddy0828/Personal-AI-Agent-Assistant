@@ -64,3 +64,18 @@ window opens. Closing the window quits the app.
 - Voice still uses the browser's Web Speech API inside the app window; in
   environments where that engine is slow, prefer a server-side transcription
   backend (the `transcribe` extra) as a follow-up.
+
+
+### Google identity in a packaged app
+
+AUTH-01 phase 2a adds `webui_assets/google_auth.js`; keep packaging the whole asset directory
+(the existing wildcard already includes it). The helper is inlined into the sign-in and
+main documents with the existing CSP nonce. No extra Python runtime dependency is added.
+
+Configure the owner's Google OAuth Desktop client with GOOGLE_CLIENT_ID and
+GOOGLE_CLIENT_SECRET. Sign-in derives its 127.0.0.1 callback from the app's listening port;
+GOOGLE_REDIRECT_URI is still only the older email command's setting. The native window
+opens the system browser and polls with its own HttpOnly proof cookie. Only that original
+window receives the app session. Test real consent and a return to the packaged window
+before distribution; automated checks use two independent Chromium cookie jars and a fake
+provider. Google sign-in grants no Gmail access in this slice.

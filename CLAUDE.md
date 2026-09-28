@@ -1286,3 +1286,30 @@ Both Claude and Codex edit this repo. To avoid collisions:
   vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
   broken when the tool only sees one folder. That mistake invented four broken links
   that were never broken.
+
+
+### AUTH-01 phase 2a — Google identity handoff (Codex, 2026-09-28)
+
+Branch `codex/google-signin` starts at auth-admin `1327dea`; it is intentionally stacked
+on #142, not main. `google_oidc.py` owns at most 32 in-memory, ten-minute flows and four
+concurrent code exchanges. Each has PKCE S256, nonce, single-use launch/state, a separate
+external-browser Lax cookie, and an initiating-window HttpOnly Strict proof cookie.
+Callback only verifies identity and marks a result ready. Completion in the original
+window checks its proof, session and entire account snapshot before issuing a session.
+Only our fixed HTTPS token exchange supplies an ID token; never accept a browser JWT.
+Tokens are discarded after claim checks; no Google refresh/access token is persisted.
+
+`/auth/google/start|complete|cancel|unlink` use small JSON bodies and existing origin
+checks before sign-in. Only launch/callback GETs accept cross-site navigation, on the
+canonical loopback host, with one-time tickets or state plus browser binding. Existing
+API token checks stay in place. Link/unlink require a password step-up under
+`_SIGNIN_LIMIT`; account-only Google recovery uses the documented local CLI password reset.
+No Gmail policy is widened. Phase 2b must add account-scoped encrypted credentials,
+fail-closed revocation and narrow mailbox approvals before exposing personal mail.
+
+UI integration is in Settings and the sign-in document, leaving Claude's health/status
+drawer regions untouched. `google_auth.js` is inlined into both documents under the
+existing CSP nonce. Provider opener isolation can sever a popup reference; `popup.closed`
+is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
+The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
+new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
