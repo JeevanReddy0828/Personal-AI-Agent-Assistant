@@ -71,6 +71,8 @@
   .hudpop .toggle.on .sw{background:var(--accent)}
   .hudpop .toggle.on .sw::after{left:17px;background:var(--accent-ink)}
   .hudpop .row{display:flex;flex-direction:column;gap:8px;padding:9px 10px 6px}
+  /* What a personal account cannot use: the server refuses it anyway, so do not offer it. */
+  body[data-role="personal"] .devonly{display:none!important}
   /* Account: the first block of the settings popover. `[hidden]` is restated because the
      block's own `display:flex` would otherwise override the attribute. */
   .hudpop .acct{display:flex;flex-direction:column;gap:8px;padding:9px 10px 10px;border-bottom:1px solid var(--hair);margin-bottom:4px}

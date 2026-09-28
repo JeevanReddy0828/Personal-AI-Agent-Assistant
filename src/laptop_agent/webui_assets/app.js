@@ -635,9 +635,9 @@
   }
 
   /* suggestions */
-  const SUG=[["Get oriented","What can you do?"],["Summarize","Summarize the README"],["Research","Research local-first AI agents"],["Memory","What do you remember about me?"]];
+  const SUG=[["Get oriented","What can you do?"],["Summarize","Summarize the README",1],["Research","Research local-first AI agents"],["Memory","What do you remember about me?"]];
   const suggest=document.getElementById('suggest');
-  SUG.forEach(([t,q])=>{const c=document.createElement('button');c.type='button';c.className='scard';c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
+  SUG.forEach(([t,q,dev])=>{const c=document.createElement('button');c.type='button';c.className='scard'+(dev?' devonly':'');c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
   /* sessions (localStorage) */
   let sessions=[], current=null;
@@ -1050,7 +1050,7 @@
   const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],ultra:[ULTRA!=='—'?'ok':'off',ULTRA],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
   function renderConn(){
     const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
-    const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
+    const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]].filter(([,v])=>v);
     document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v" title="'+esc(String(v))+'">'+esc(String(v))+'</span></div>').join('');
   }
   renderConn();
@@ -1070,7 +1070,7 @@
     names.forEach(name=>{const e=document.createElement('button');e.className='note clk';e.textContent=name;e.title=name;e.onclick=()=>openNote(name);notes.appendChild(e);});
   }
   let allNotes=[];
-  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
+  async function loadVault(){try{const r=await fetch('/api/vault');if(r.headers.get('X-Jarvis-Denied')){conn.vault=null;renderConn();return;}const v=await r.json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
   async function openNote(name){
     const nv=document.getElementById('noteViewer');document.body.appendChild(nv);
     document.getElementById('nvTitle').textContent=name;
@@ -1287,7 +1287,8 @@
     async function refresh(){
       let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
       if(!d||!d.ok)return;
-      if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;
+      if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;document.body.dataset.role=d.user.role;
+        const hi=document.querySelector('#empty h1');if(hi)hi.textContent='How can I help, '+d.user.username.charAt(0).toUpperCase()+d.user.username.slice(1)+'?';
         role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
       else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
       else box.hidden=true;
@@ -1550,13 +1551,15 @@
   async function loadOverview(){
     document.getElementById('ovSub').textContent='Loading overview…';
     try{
-      const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),fetch('/api/jobs').then(r=>r.json())]);
+      const personal=document.body.dataset.role==='personal';   // the job search is the owner's
+      const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),
+        personal?Promise.resolve({}):fetch('/api/jobs').then(r=>r.json())]);
       const tiers=(h.llm&&h.llm.tiers)||{};
       const busy=Object.values(tiers).filter(v=>v==='degraded').length;
       document.getElementById('ovSub').textContent=new Date().toLocaleString();
       document.getElementById('ovCards').innerHTML=
         statCard('AI status',HEALTH_LABEL[h.overall]||'Unknown',busy?busy+' tier busy':'')+
-        statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers')+
+        (personal?'':statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers'))+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
       let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar('GPU',g.util_percent,'%','g');});

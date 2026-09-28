@@ -125,8 +125,8 @@
     <div class="composer">
       <div class="chips" id="chips"></div>
       <div class="box">
-        <button class="iconbtn" id="attachBtn" title="Attach a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.65 5.65l-9.2 9.2a2 2 0 0 1-2.83-2.83l8.5-8.5"/></svg></button>
-        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
+        <button class="iconbtn devonly" id="attachBtn" title="Attach a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.65 5.65l-9.2 9.2a2 2 0 0 1-2.83-2.83l8.5-8.5"/></svg></button>
+        <button class="iconbtn devonly" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
         <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
         <button class="iconbtn" id="micBtn" title="Dictate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="voicetoggle" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S hands-free (tap again to stop)">
@@ -147,7 +147,7 @@
     <div class="statcards" id="ovCards"></div>
     <div class="charts">
       <div class="chartcard"><div class="t">System usage</div><div id="ovMetrics"></div></div>
-      <div class="chartcard"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
+      <div class="chartcard devonly"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
     </div>
   </section>
 
@@ -229,19 +229,19 @@
       <div id="connlist"></div>
       <h3>Usage</h3>
       <div id="metrics"></div>
-      <h3>Memory vault</h3>
-      <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
-      <input id="vaultSearch" class="vaultsearch" type="text" placeholder="Search notes…" autocomplete="off">
-      <div id="notes"></div>
+      <h3 class="devonly">Memory vault</h3>
+      <div class="vstat devonly" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
+      <input id="vaultSearch" class="vaultsearch devonly" type="text" placeholder="Search notes…" autocomplete="off">
+      <div id="notes" class="devonly"></div>
     </div>
     <div class="dsec">
       <h3>Tools</h3>
-      <details class="conn" open>
+      <details class="conn devonly" open>
         <summary>Tool activity</summary>
         <div id="agentSummary"></div>
         <div id="agentList"></div>
       </details>
-      <details class="conn" id="schedPanel">
+      <details class="conn devonly" id="schedPanel">
         <summary>Scheduled jobs</summary>
         <div class="schedform">
           <select id="schedKind"><option value="command">command</option><option value="agent">agent</option></select>
@@ -252,7 +252,7 @@
         </div>
         <div id="schedList"></div>
       </details>
-      <details class="conn" id="runsPanel">
+      <details class="conn devonly" id="runsPanel">
         <summary>Agent runs</summary>
         <div id="runsList"></div>
       </details>
