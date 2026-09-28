@@ -29,8 +29,14 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   dispatched), the approval broker (its own cards only) and the web server (an allow-list of
   routes). After Codex's review, commands are default-deny where they are claimed: only forms
   marked everyday are dispatched for it, so an unclassified command is refused at runtime.
-  Both command lists mirror the dispatchers exactly, held there by an AST test. Data stays
-  shared (reminders, lists, facts) until per-account storage.
+  Both command lists mirror the dispatchers exactly, held there by an AST test.
+- 2026-09-28: **Both accounts are the owner's** (Jeevan's answer). A `personal` account is
+  the owner in a safer everyday mode, not another person, so per-account data isolation is
+  dropped: reminders, lists, facts, pictures and documents stay one store and the chat
+  prompt carries the owner's facts. What it is refused limits scope, not privacy. Mail
+  stays per account all the same (phase 2b): each account's own Gmail consent, never the
+  owner's IMAP/SMTP app password as a fallback, since that reaches the whole mailbox and
+  the OAuth grant only reads and sends.
 - 2026-06: Adopted **Agent Operating Principles** (CLAUDE.md preamble) as the governing
   doc. Codebase already conformed, so adopted going forward — no refactor.
 - 2026-06: **Job-search dashboard** initiative. Web UI became multi-page (header nav +

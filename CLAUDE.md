@@ -1044,8 +1044,10 @@ listed form must be one the dispatchers match (a phantom `knowledge` prefix woul
 its eight patterns was removed in turn and caught, the routing contract alone missed two.
 Every rule here was broken on purpose and every break was caught. `read file` is LOW, which
 is why files are on the list at all: without it a personal account could `read file .env`.
-Data stays shared until it is kept per account — reminders, timers, lists, remembered facts,
-generated pictures and documents — and the chat prompt still carries the owner's facts. The
+Data is shared on purpose: the personal account is the owner in a safer everyday mode, not
+another person (Jeevan's answer, 2026-09-28). So reminders, timers, lists, remembered facts,
+generated pictures and documents stay one store, the chat prompt carries the owner's facts,
+and per-account data is not planned; what it is refused limits scope, not privacy. The
 page hides `.devonly` controls under `body[data-role="personal"]` and greets the account by
 its own name; the server is the enforcement. Known limits: the gate's prompt lock serialises
 approvals across accounts, and attachments are developer-only, because every use of one is a
