@@ -494,6 +494,12 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
+    carries only today's, so every caller that reads the laptop's clock passes `local=True`
+    to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
+    does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
+    `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
+    fixed-offset `now` without `local` parses exactly as before.
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
