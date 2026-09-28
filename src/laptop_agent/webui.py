@@ -47,7 +47,7 @@ from laptop_agent.storage import StorageDamaged
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
-from laptop_agent.health import system_health
+from laptop_agent.health import setup_report, system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
@@ -1126,6 +1126,11 @@ class Handler(BaseHTTPRequestHandler):
             report["stt"] = {"engine": _stt_engine()}
             report["ocr"] = {"engine": _ocr_engine()}
             self._json(200, report)
+        elif path == "/api/setup":
+            # Developer-only by the route allow-list: it describes this installation.
+            self._json(200, {"ok": True, "items": setup_report(
+                _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
+                ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":

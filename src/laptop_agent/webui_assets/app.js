@@ -1079,6 +1079,27 @@
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
+
+  /* setup: each capability, whether it is ready, and the next step if not (developers only) */
+  const setupPanel=document.getElementById('setupPanel'),setupList=document.getElementById('setupList');
+  const SETUP_STATE={ready:'ready',off:'not set up',missing:'missing',busy:'busy',broken:'needs fixing'};
+  async function loadSetup(){
+    let d=null;try{const r=await fetch('/api/setup');d=await r.json();if(!r.ok||!d.ok)return;}catch(e){return;}
+    setupList.textContent='';
+    d.items.forEach(item=>{
+      // Built as nodes: the text is the server's, but it is never treated as markup.
+      const row=document.createElement('div');row.className='crow setrow';row.dataset.state=item.state;
+      const dot=document.createElement('span');dot.className='d'+(item.state==='ready'?'':item.state==='off'?' off':' warn');
+      const name=document.createElement('span');name.className='k';name.textContent=item.name;
+      const state=document.createElement('span');state.className='v';state.textContent=SETUP_STATE[item.state]||item.state;
+      const more=document.createElement('span');more.className='setmore';more.textContent=item.detail||'';
+      if(item.next){const next=document.createElement('span');next.className='setnext';next.textContent=item.next;more.append(next);}
+      row.append(dot,name,state,more);setupList.append(row);
+    });
+    const todo=d.items.filter(item=>item.state!=='ready').length;
+    setupPanel.querySelector('summary').textContent='Setup'+(todo?' · '+todo+' to look at':' · all set');
+  }
+  setupPanel.addEventListener('toggle',()=>{if(setupPanel.open)loadSetup();});
   const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
   pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 

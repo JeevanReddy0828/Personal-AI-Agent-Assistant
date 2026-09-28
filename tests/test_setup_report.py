@@ -1,0 +1,183 @@
+"""The setup view: each capability, whether it is ready, and what to do if not.
+
+It is shown in the page, so it may name an environment variable or an install command and
+nothing else from the configuration: no key, password, path or model id.
+"""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from laptop_agent.health import setup_report
+
+SECRETS = ("nvapi-SECRET-chat", "nvapi-SECRET-image", "SECRET-search", "SECRET-imap-password",
+           "SECRET-smtp-password", "SECRET-openrouter", "C:\\Users\\me\\Private Vault", "vendor/secret-model-7b",
+           "imap.secret-host.example", "me@secret.example")
+
+
+class OpenAICompatibleProvider:
+    """Named like the real provider: the report tells a model from built-in rules by the type."""
+
+
+class _Status:
+    def __init__(self, tiers=None, broken=(), reasons=None):
+        self._snapshot = {"tiers": tiers or {}, "broken": list(broken), "reasons": reasons or {}}
+
+    def snapshot(self):
+        return self._snapshot
+
+
+def orchestrator(*, model=True, smart=True, ultra=True, vision=True, vault=True, status=None):
+    return SimpleNamespace(
+        planner=SimpleNamespace(provider=OpenAICompatibleProvider() if model else object()),
+        smart_planner=object() if smart else None, ultra_planner=object() if ultra else None,
+        vision_planner=object() if vision else None, model_status=status or _Status({"fast": "ok"}),
+        context=SimpleNamespace(obsidian=SimpleNamespace(available=lambda: vault)))
+
+
+def config(**overrides):
+    values = dict(llm_api_key=SECRETS[0], llm_image_api_key=SECRETS[1], search_provider="brave",
+                  search_api_key=SECRETS[2], imap_host=SECRETS[8], imap_username=SECRETS[9],
+                  imap_password=SECRETS[3], smtp_host=SECRETS[8], smtp_username=SECRETS[9],
+                  smtp_password=SECRETS[4], openrouter_api_key=SECRETS[5], obsidian_vault=SECRETS[6],
+                  llm_model=SECRETS[7])
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def everything(module):
+    return object()
+
+
+def nothing(module):
+    return None
+
+
+class SetupReportTests(unittest.TestCase):
+    def report(self, orch=None, cfg=None, **kwargs):
+        options = dict(llm_reachable=True, stt_engine="vosk", ocr_engine="tesseract", sign_in=True, lan_mode=True,
+                       find_spec=everything, which=lambda name: "/usr/bin/" + name)
+        options.update(kwargs)
+        rows = setup_report(orch or orchestrator(), cfg or config(), **options)
+        return {row["key"]: row for row in rows}
+
+    def test_everything_set_up_is_ready_and_says_nothing_to_do(self):
+        rows = self.report()
+        self.assertEqual(len(rows), 18)
+        self.assertEqual({key: row["state"] for key, row in rows.items() if row["state"] != "ready"}, {})
+        self.assertEqual({key: row["next"] for key, row in rows.items() if row["next"]}, {})
+
+    def test_a_fresh_install_says_what_to_do_for_each_missing_piece(self):
+        rows = self.report(orchestrator(model=False, smart=False, ultra=False, vision=False, vault=False),
+                           SimpleNamespace(), llm_reachable=None, stt_engine=None, ocr_engine=None,
+                           sign_in=False, lan_mode=False, find_spec=nothing)
+        states = {key: row["state"] for key, row in rows.items()}
+        self.assertEqual(states["chat"], "off")
+        self.assertEqual({states[key] for key in ("stt", "ocr", "docs", "browser", "metrics")}, {"missing"})
+        for key, row in rows.items():
+            with self.subTest(key):
+                if row["state"] != "ready":
+                    self.assertTrue(row["next"], f"{key} is {row['state']} and says nothing about what to do")
+        self.assertIn("OPENAI_API_KEY", rows["chat"]["next"])
+        self.assertIn("laptop-agent[browser]", rows["browser"]["next"])
+
+    def test_a_busy_tier_and_a_broken_one_are_told_apart(self):
+        status = _Status({"fast": "degraded", "smart": "degraded"}, broken=["smart"],
+                         reasons={"smart": "the key was rejected (HTTP 401): check OPENAI_API_KEY"})
+        rows = self.report(orchestrator(status=status))
+        self.assertEqual((rows["chat"]["state"], rows["deeper"]["state"]), ("busy", "broken"))
+        self.assertIn("HTTP 401", rows["deeper"]["next"], "a broken tier must say what to change")
+        unreachable = self.report(llm_reachable=False)["chat"]
+        self.assertEqual(unreachable["state"], "busy")
+
+    def test_no_secret_path_or_model_id_reaches_the_report(self):
+        for rows in (self.report(), self.report(find_spec=nothing, stt_engine=None, ocr_engine=None),
+                     self.report(cfg=config(search_api_key=None))):
+            text = json.dumps(list(rows.values()))
+            for secret in SECRETS:
+                with self.subTest(secret):
+                    self.assertNotIn(secret, text)
+
+    def test_a_package_probe_that_raises_counts_as_missing(self):
+        def broken(module):
+            raise ValueError(f"{module}.__spec__ is None")
+
+        rows = self.report(find_spec=broken)
+        self.assertEqual(rows["browser"]["state"], "missing")
+
+    def test_tesseract_needs_its_program_not_just_the_package(self):
+        self.assertEqual(self.report(which=lambda name: None)["ocr"]["state"], "missing")
+        self.assertEqual(self.report(which=lambda name: None, ocr_engine="nemotron-parse")["ocr"]["state"], "ready")
+
+    def test_a_chosen_search_provider_without_its_key_says_so(self):
+        row = self.report(cfg=config(search_api_key=None))["search"]
+        self.assertEqual(row["state"], "ready")
+        self.assertIn("SEARCH_API_KEY", row["next"])
+
+
+class OverTheWebTests(unittest.TestCase):
+    """Developer-only: it describes this installation. The route allow-list refuses it to a
+    personal account, with the header that stops the page reloading."""
+
+    @classmethod
+    def setUpClass(cls):
+        from http.server import ThreadingHTTPServer
+
+        import laptop_agent.webui as webui
+
+        cls.webui = webui
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        from laptop_agent.accounts import AccountStore
+        from laptop_agent.sessions import SessionStore
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        sessions = SessionStore(Path(tmp.name) / "sessions.json")
+        for name, value in (("ACCOUNTS", accounts), ("SESSIONS", sessions)):
+            patcher = patch.object(self.webui, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.cookies = {}
+        for username, role in (("jeevan", "dev"), ("family", "personal")):
+            account = accounts.create(username, role, "correct horse battery")
+            self.cookies[role] = f"jarvis_session={sessions.create(account.id, 'password')}"
+
+    def get(self, role):
+        request = urllib.request.Request(self.base + "/api/setup", headers={"Cookie": self.cookies[role]})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read()), dict(response.headers)
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read() or b"{}"), dict(error.headers)
+
+    def test_a_developer_gets_every_row(self):
+        status, body, _ = self.get("dev")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["items"]), 18)
+        self.assertEqual({row["key"]: row["state"] for row in body["items"]}["sign_in"], "ready")
+
+    def test_a_personal_account_is_refused(self):
+        status, _, headers = self.get("personal")
+        self.assertEqual((status, headers.get("X-Jarvis-Denied")), (403, "role"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1064,6 +1064,17 @@ or deleting ends that account's sessions: a disabled account is refused on its n
 anyway, but without the revoke a cookie taken before the disable came back to life when the
 account was enabled again, which is the one test that could tell.
 
+**Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
+Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,
+not set up), `missing` (a package or engine it needs is absent), `busy` (a tier loaded or
+unreachable) or `broken` (a tier misconfigured, with its reason), and for anything not
+ready the next step as an environment variable *name* or an install command, never a value,
+a path or a model id (a test puts secrets in every config field and asserts none reach the
+report). Offline and cheap: packages are checked with `find_spec` and programs with `which`,
+both injected, so nothing heavy is imported and nothing goes over the network; Tesseract's
+package without its program counts as `missing`, since the engine probe only checks the
+package. Developer-only by the route allow-list and `.devonly`.
+
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
 outright. `send()` called `crypto.randomUUID()` on its first line, threw
