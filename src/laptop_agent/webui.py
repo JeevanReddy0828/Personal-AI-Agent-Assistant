@@ -301,7 +301,7 @@ def _reminders_snapshot() -> dict:
         except ValueError:
             continue
         entry = {"id": item.get("id"), "message": item.get("message"), "due_at": at.isoformat(),
-                 "due_spoken": describe(at, now)}
+                 "due_spoken": describe(at, now, local=True)}
         (due if at <= now else upcoming).append(entry)
     next_in = None
     if upcoming:
