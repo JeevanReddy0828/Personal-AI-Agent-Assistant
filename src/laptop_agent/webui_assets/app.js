@@ -1246,7 +1246,20 @@
   function applyBargeFloor(thou){bargeFloor=thou/1000;bargeVal.textContent=bargeFloor.toFixed(3);}
   bargeRange.addEventListener('input',()=>applyBargeFloor(+bargeRange.value));
   bargeRange.addEventListener('change',()=>{try{localStorage.setItem('jarvis_bargefloor',bargeRange.value);}catch(e){}});
-  function setCompact(on){if(on&&orbFocus)setOrbFocus(false,true);document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);compactBtn.setAttribute('aria-checked',String(on));localStorage.setItem('hudCompact',on?'1':'0');if(!on)requestAnimationFrame(fitCanvas);}
+  // Where the voice dock — the microphone meter, and the orb-focus voice toggle — can sit.
+  // It is fixed to the viewport, and .stage is display:none in compact layout and under
+  // 1100px, so ask the stage whether it is on screen rather than restating its breakpoints
+  // here: a breakpoint changed in one place only would otherwise strand the meter again.
+  // --composer-h is the composer's real height, because that is what the meter has to
+  // clear when it docks above it, and the textarea grows as you type.
+  const stageEl=document.querySelector('.stage'),composerEl=document.querySelector('.composer');
+  function syncDock(){
+    document.querySelector('.app').classList.toggle('stageless',getComputedStyle(stageEl).display==='none');
+    document.documentElement.style.setProperty('--composer-h',composerEl.offsetHeight+'px');
+  }
+  addEventListener('resize',syncDock);
+  if(window.ResizeObserver)new ResizeObserver(syncDock).observe(composerEl);
+  function setCompact(on){if(on&&orbFocus)setOrbFocus(false,true);document.body.classList.toggle('compact',on);compactBtn.classList.toggle('on',on);compactBtn.setAttribute('aria-checked',String(on));localStorage.setItem('hudCompact',on?'1':'0');syncDock();if(!on)requestAnimationFrame(fitCanvas);}
   compactBtn.onclick=()=>setCompact(!document.body.classList.contains('compact'));
   document.getElementById('orbBtn').onclick=()=>setOrbFocus(!orbFocus,true);
   document.getElementById('orbFocusSw').onclick=()=>setOrbFocus(!orbFocus,true);
@@ -1262,6 +1275,7 @@
     if(localStorage.getItem('hudCompact')==='1')setCompact(true);
     if(localStorage.getItem('hudOrbFocus')==='1')setOrbFocus(true,false,true);   // restoring a layout should not animate
     if(localStorage.getItem('hudOnTop')==='1')setOnTop(true,true);
+    syncDock();
   })();
 
   /* system status drawer: models, usage, vault and the tool panels live here so the
@@ -1294,6 +1308,7 @@
     if(VIEWS.indexOf(v)<0)v='chat';
     if(v!=='chat'&&orbFocus)setOrbFocus(false,false,true);   // the orb only exists on the chat view
     document.body.dataset.view=v;
+    syncDock();                                            // the other views hide the stage
     document.getElementById('orbBtn').style.display=v==='chat'?'':'none';
     if(v==='chat')requestAnimationFrame(fitCanvas);
     document.querySelectorAll('#nav .navbtn').forEach(b=>b.classList.toggle('on',b.dataset.view===v));

@@ -803,8 +803,8 @@ been tried on the laptop.
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
 closure, and that is why the feature could be "fixed" twice and still reported as not
 working — nobody could see what the microphone was hearing or what it had to beat. Both are
-now on screen: a meter in `.stagedock` at the foot of the presence panel shows
-**peak / learned leak / threshold** live while
+now on screen: a meter in `.stagedock` (at the foot of the presence panel, or above the
+composer wherever that panel is hidden) shows **peak / learned leak / threshold** live while
 barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
 it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
 per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
@@ -822,11 +822,31 @@ test passed throughout, because it asserted `#vmeter.hidden` is false, and `hidd
 false on an element inside a `display:none` parent. **An element's own visibility
 attribute says nothing about whether it is on screen** — assert a box:
 `getBoundingClientRect().height > 0`. The meter now lives in `.stagedock`, a flex column
-at the foot of the stage holding it above the orb-focus voice toggle, so neither has to
-know whether the other is there. The panel stays hidden: the violet shift is the design
-f6a145d chose, and this restores the one piece of it that has to be readable, not the
-overlay. Known gap: `.stagedock` is inside `.stage`, which is `display:none` in compact
-layout and below the tablet breakpoint, so the meter cannot be seen in those layouts.
+holding it above the orb-focus voice toggle, so neither has to know whether the other is
+there. The panel stays hidden: the violet shift is the design f6a145d chose, and this
+restores the one piece of it that has to be readable, not the overlay.
+
+**The dock is fixed to the viewport, not parked in `.stage`.** Put at the foot of the
+presence panel it was still unreadable wherever that panel is `display:none` — under
+`body.compact`, below 1100px and below 700px — which is to say on a small laptop, on a
+phone, and for anyone using the compact-layout toggle: the same "fixed but still not
+visible" shape as the three months above, one level up. `.stagedock` is a sibling of
+`.stage` now and `--dock-x/-r/-w/-y` say where it lands: over the presence panel's own
+grid cell by default, spanning the window in orb focus, and 12px above the composer
+whenever the panel is off screen. `app.js` asks the **stage itself** whether it is
+displayed (`syncDock`, toggling `.app.stageless`) rather than restating the breakpoints in
+JS, so a breakpoint moved in the CSS alone cannot strand the meter again — and it
+publishes the composer's measured height as `--composer-h`, because the textarea grows as
+you type and a constant offset would put the meter over the box it is meant to sit above.
+Three things learned by breaking them: the class goes on `.app`, not `body`, because three
+orb-focus tests read `document.body.className` **whole**; the dock needs `z-index:40`,
+since orb focus makes `.stage` a `z-index:30` overlay and at the old 6 a sibling dock was
+painted over — a click on the voice toggle landed on the canvas; and the dock must be
+hidden off the chat view (`body:not([data-view="chat"])`), which hides the composer too,
+or it floats over the Overview page anchored to a composer of height 0. Docked above the
+composer the meter draws its own hairline-and-blur panel so it is readable against chat
+text; over the orb it stays bare. Verified at 1440 compact, 1000, 700 and 390 in headless
+Chromium, asserting a real box and that it clears the composer.
 
 **Voice notices go to the reminder tray.** The same hidden panel swallowed every voice
 notice written to `#vtrans`: voice interruption switching itself off, a blocked or missing
