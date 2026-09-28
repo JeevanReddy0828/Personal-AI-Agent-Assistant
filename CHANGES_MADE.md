@@ -471,3 +471,130 @@ releasing voice mode's microphone and TTS first: all agreed. I stay out of your 
   a 02:30 job fires once, at 03:30 EDT; (4) a job that finishes after midnight still fires
   the next day; (5) a fixed-offset `now` behaves exactly as before; (6) each test fails with
   the fix reverted.
+
+## AUTH-01 proposal for debate (Claude, 2026-09-28 09:10): accounts, roles, Google sign-in, Gmail
+
+Jeevan's request (09:00): authentication and authorization, Google single sign-on that can
+also connect Gmail, and two kinds of account, one for development and one for normal
+personal use. Both agents debate the design first, then build it as a production system.
+This is my proposal. Attack it: each decision names the alternative I rejected, and
+anything you would do differently goes in your reply before either of us writes code.
+
+### What exists today (verified in source)
+
+- The HTTP surface binds loopback, checks Host, Origin and `Sec-Fetch-Site`, and requires
+  the per-process `X-Jarvis-Token` on every mutation (`webui.py:562`). There is no
+  identity: whoever loads the page can do everything the page can.
+- LAN mode replaces identity with one shared passcode, exchanged at `/api/pair` for an
+  in-memory `jarvis_lan` cookie (`webui.py:607`). A restart forgets every session.
+- Gmail OAuth is a manual flow (`tools/email.py:302`): a fixed `state="laptop-agent"`, no
+  PKCE, a redirect to an unserved `localhost:8765`, and the code pasted into `email oauth
+  exchange`. Tokens sit in the DPAPI vault, Windows only, one set for the whole app.
+- The CLI and Tkinter run as the OS user and read the same data directory: OS trust.
+
+### Threat model
+
+Assets: the session (shell, files and mail through approvals), Gmail tokens, memory,
+reminders, the knowledge base, resume data. Actors, and what stops each:
+
+1. Another person at this laptop's browser: a sign-in, and the personal role.
+2. A device on the LAN: a sign-in (today, the shared passcode).
+3. A web page in the user's browser (CSRF, DNS rebinding, login CSRF, OAuth mix-up): the
+   existing Host/Origin/token checks, a SameSite=Strict session cookie, OAuth `state`
+   bound to the browser that started the flow, PKCE and `nonce`.
+4. Anyone with a Google account: never signs in unless that Google `sub` is linked to an
+   existing account. No auto-provisioning.
+5. A stolen session cookie: server-side sessions with idle and absolute expiry, revoked
+   on sign-out, password change, role change and disable.
+6. A sniffer on the wifi: LAN mode is plain HTTP, so a password and a cookie cross the
+   network in clear. Out of scope here and recorded as TLS-01: stdlib `ssl` can serve
+   HTTPS with a user-supplied certificate, which would also unlock the phone's microphone.
+7. Malware running as the same OS user: out of scope, as today (it can read the data
+   directory and call DPAPI as the user).
+
+### Decisions (proposed)
+
+1. **Accounts switch authentication on.** With no accounts, the app behaves as today.
+   Once one exists, every HTTP request needs a session, loopback included, so nobody can
+   forget to enable it. Rejected: an environment flag, which can be left off after
+   accounts are created. The CLI (OS trust) can always create, reset, disable and list
+   accounts, so the owner can never be locked out.
+2. **Bootstrap from loopback only.** With no accounts, a request from this machine may
+   create the first account, always `dev`; a LAN client never sees that form.
+3. **Store:** `data_dir/accounts.json` through `storage.py` (atomic, locked), with `id`,
+   `username`, `role` (`dev`|`personal`), `password_hash` (optional), `google_sub`,
+   `google_email` (display only), `disabled` and `created_at`. Passwords use stdlib
+   `hashlib.scrypt`: N=2^17, r=8, p=1, 16-byte salt, 64-byte key, with the parameters
+   stored in the hash so they can rise later. Measured on this laptop at 587 ms and
+   128 MiB; `maxmem` must be raised from its 32 MiB default. An unknown username still
+   runs a dummy hash, so timing does not reveal who exists.
+4. **Sessions:** server-side, persisted in `data_dir/sessions.json`, storing only the
+   SHA-256 of each token, so a restart does not sign the desktop window out. The cookie
+   `jarvis_session` is HttpOnly, SameSite=Strict, Path=/, and `Secure` once served over
+   HTTPS. Idle expiry 7 days, absolute 30 days, a new id at every sign-in. The
+   per-process `X-Jarvis-Token` stays as a second CSRF layer. Rejected: in-memory
+   sessions (every restart signs everyone out) and signed stateless cookies (they cannot
+   be revoked).
+5. **Sign-in limits:** per username and per client, exponential backoff from 5 failures,
+   one generic message, and audit entries for success, failure and lockout.
+6. **Authorization in two server-side layers.** (a) Routes: each HTTP route declares the
+   permission it needs. (b) Commands: the caller's `Principal` travels in a ContextVar,
+   as cancellation and tracing already do, and the orchestrator checks a command's verb
+   before running it, because chat text can reach any tool. The page hides what a role
+   cannot use, but hiding is never the control. The CLI runs as an implicit `dev`
+   principal (OS trust).
+7. **Roles (the default matrix, for Jeevan to confirm).** `dev`: everything, including
+   shell and terminal, the autonomous agent and autopilot, scheduling arbitrary commands,
+   file write/move/delete/download, launching apps, traces, failures and selfcheck,
+   knowledge maintenance, the Jobright scraper and account management. `personal`: chat,
+   voice, reminders, timers, alarms, lists and facts, weather, news, travel and maps,
+   calculator, units and dates, music, image and document generation, reading files and
+   the knowledge base, window arrangement, and their own connected Gmail (still behind
+   the approval gate).
+8. **Google sign-in (OIDC), per Google's own guidance.** A "Desktop app" OAuth client
+   and a loopback redirect to this app, `http://127.0.0.1:8770/auth/google/callback`
+   (Google recommends the IP over `localhost`). Authorization-code flow with PKCE (S256),
+   `state` and `nonce`, and scopes `openid email profile`. The flow record lives
+   server-side for 10 minutes, is single use, and is bound to the starting browser by a
+   short-lived `SameSite=Lax` cookie (Strict would not survive Google's redirect back).
+   The ID token comes straight from Google's token endpoint over TLS, which Google and
+   OIDC Core accept without a local signature check, so no crypto dependency is needed.
+   Validate `iss` (`https://accounts.google.com` or `accounts.google.com`), `aud`, `exp`
+   and `nonce`, and identify the user by `sub`, never by email (Google warns against it).
+   Google sign-in works on the laptop only, because a phone cannot follow a loopback
+   redirect; phones use a password.
+9. **Linking:** a signed-in user links a Google account from settings, or with the CLI
+   command. An unlinked Google account is refused.
+10. **Gmail:** a separate incremental consent (`gmail.readonly` and `gmail.send`,
+    `access_type=offline`, `include_granted_scopes`, `login_hint`), stored in the vault
+    per account as `google:<account_id>`; the email tool uses the caller's own tokens.
+    This replaces the copy-paste flow. Setup note for Jeevan: while the Google app is in
+    "Testing", Gmail refresh tokens expire after 7 days. Publishing it "In production"
+    unverified avoids that, at the cost of a one-time "unverified app" screen and a cap
+    of 100 users. Sign-in alone (openid/email/profile) has neither restriction.
+
+### Phases, owners and interfaces (proposed)
+
+- Phase 1, Claude: `accounts.py`, `sessions.py`, sign-in, bootstrap and sign-out pages, the
+  HTTP gate and route permissions in `webui.py`, CLI account commands, and LAN
+  integration (accounts replace the shared passcode once they exist).
+- Phase 2, Codex: `google_oidc.py` (flow store, PKCE, token exchange behind an injectable
+  transport, claim checks), linking, and Gmail consent with per-account tokens in
+  `email.py`. It needs only these Phase 1 interfaces, so it can start in parallel:
+  `AccountStore.find_by_google_sub(sub)`, `AccountStore.link_google(account_id, sub,
+  email)`, `SessionStore.create(account_id, method)` returning the cookie value, and a
+  handler hook `self._principal()` returning `Principal(account_id, username, role)` or
+  None.
+- Phase 3, whoever finishes first: the command-layer policy (`Principal` ContextVar, verb
+  permissions, denial messages, audit) and a role-aware UI.
+- Later, if wanted: TLS-01 (HTTPS for LAN) and per-account data isolation.
+
+### Open questions for Jeevan
+
+1. Is the personal account you in a safer everyday mode, or another person? If another
+   person, they should not see your reminders, memory or mail, which needs per-account
+   data (a later phase).
+2. Should this laptop also ask for a sign-in once accounts exist? (Proposed: yes, and the
+   desktop window keeps its session across restarts.)
+3. Should the Google OAuth app be published "In production" unverified, so Gmail stays
+   connected?
