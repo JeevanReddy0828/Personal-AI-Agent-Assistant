@@ -13,8 +13,11 @@
     // The API token is per server process. If the server was restarted this tab's token
     // goes stale and same-origin calls 403 — reload once to pick up a fresh token rather
     // than dead-ending. A 5s guard prevents a reload loop if the 403 is something else.
+    // A 401 means the sign-in is gone (signed out elsewhere, or accounts just switched on):
+    // reloading lets the server answer with its sign-in page. A 403 marked X-Jarvis-Denied
+    // is a final answer (a role, a wrong password), and reloading would only repeat it.
     return p.then(r=>{
-      if(r.status===403){
+      if(r.status===401||(r.status===403&&!r.headers.get('X-Jarvis-Denied'))){
         let last=0; try{last=+sessionStorage.getItem('jarvisTokReload')||0;}catch(e){}
         if(Date.now()-last>5000){try{sessionStorage.setItem('jarvisTokReload',String(Date.now()));}catch(e){}location.reload();}
       }
@@ -1267,6 +1270,51 @@
   onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
   hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
   document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
+
+  /* account: set sign-in up on this machine, or say who is signed in, sign out, change the password */
+  (function(){
+    const box=document.getElementById('acct'),who=document.getElementById('acctWho'),out=document.getElementById('acctOut'),
+          pw=document.getElementById('acctPw'),form=document.getElementById('acctForm'),intro=document.getElementById('acctIntro'),
+          user=document.getElementById('acctUser'),cur=document.getElementById('acctCur'),nw=document.getElementById('acctNew'),
+          nw2=document.getElementById('acctNew2'),go=document.getElementById('acctGo'),msg=document.getElementById('acctMsg'),
+          role=document.getElementById('acctRole');
+    let mode='';   // '' | 'setup' | 'password'
+    function show(next){
+      mode=next;form.hidden=!mode;user.hidden=mode!=='setup';cur.hidden=mode!=='password';
+      intro.textContent=mode==='setup'?'Anyone who opens this app can use it. Set up an owner account and it will ask everyone to sign in.':'';
+      go.textContent=mode==='setup'?'Set up sign-in':'Change password';msg.textContent='';
+    }
+    async function refresh(){
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(!d||!d.ok)return;
+      if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;
+        role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
+      else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
+      else box.hidden=true;
+    }
+    pw.onclick=()=>show(mode==='password'?'':'password');
+    out.onclick=async()=>{
+      try{await fetch('/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
+      location.reload();
+    };
+    form.addEventListener('submit',async ev=>{
+      ev.preventDefault();msg.textContent='';
+      if(nw.value!==nw2.value){msg.textContent='The two passwords differ.';return;}
+      const setup=mode==='setup';
+      go.disabled=true;
+      try{
+        const r=await fetch(setup?'/auth/bootstrap':'/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(setup?{username:user.value,password:nw.value}:{current:cur.value,new:nw.value})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok&&setup){location.reload();return;}
+        // Say what the server said; never guess a cause for a refusal.
+        msg.textContent=d.message||(r.ok?'Saved.':'Could not save (HTTP '+r.status+').');
+        if(r.ok){cur.value=nw.value=nw2.value='';}
+      }catch(e){msg.textContent='Could not reach the app.';}
+      go.disabled=false;
+    });
+    refresh();
+  })();
   (function restoreHud(){
     const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}
     let bf=null; try{bf=localStorage.getItem('jarvis_bargefloor');}catch(e){}

@@ -32,6 +32,19 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
+        <div class="acct" id="acct" hidden>
+          <div class="lbl"><span><span id="acctWho">Account</span><small id="acctRole"></small></span><button type="button" class="acctbtn" id="acctOut" hidden>Sign out</button></div>
+          <button type="button" class="acctlink" id="acctPw" hidden>Change password</button>
+          <form id="acctForm" hidden novalidate>
+            <small id="acctIntro"></small>
+            <input id="acctUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" aria-label="Username">
+            <input id="acctCur" type="password" autocomplete="current-password" placeholder="Current password" aria-label="Current password">
+            <input id="acctNew" type="password" autocomplete="new-password" placeholder="New password (8+ characters)" aria-label="New password">
+            <input id="acctNew2" type="password" autocomplete="new-password" placeholder="Repeat the new password" aria-label="Repeat the new password">
+            <button type="submit" class="acctbtn" id="acctGo">Save</button>
+            <small class="acctmsg" id="acctMsg" role="status"></small>
+          </form>
+        </div>
         <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="orbFocusSw" role="switch" aria-checked="false"><span>Focus the orb<small>Orb only — hides the chat and the rail</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>

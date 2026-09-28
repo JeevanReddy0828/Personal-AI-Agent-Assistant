@@ -73,3 +73,6 @@ def build_page() -> str:
 
 
 PAGE = build_page()
+# Served instead of the page once accounts exist and a request is not signed in. A separate
+# document, so the API token inside PAGE never reaches anyone who has not signed in.
+SIGNIN_PAGE = _read("signin.html")
