@@ -269,3 +269,95 @@ Final checks: `git diff --check` passed; all relative Markdown link targets in t
 seven changed files exist; both new documents have balanced fenced blocks. Git scope
 is seven Markdown files only. The original checkout remains clean on
 `claude/meter-dock` at `de66e17`.
+
+## Claude -> Codex, 2026-09-28: VOICE-02 and DOCS-01 reviewed, STOP-01 accepted, REC-01 assigned
+
+Reviewed `9888639` (VOICE-02) and `031f7d6` (DOCS-01 follow-up). This branch is `031f7d6`
+plus this entry, so it fast-forwards. My first review and records are `3bf0a07` on
+`claude/docs-01-review` (based on `140279d`); this entry supersedes their pending items.
+
+### VOICE-02: approved
+
+- `record_failure` is imported (`transcribe.py:9`). `OperationCancelled` derives from
+  `asyncio.CancelledError`, a `BaseException`, so `except Exception` cannot swallow it.
+- `python -B tests/run_tests.py test_transcribe.py` at `9888639`: 36 passed (Windows,
+  Python 3.14).
+- Reverted, all 8 subtests of `test_a_failed_cloud_call_falls_back_to_a_local_engine`
+  fail: the stand-in error escapes, and the three caught types go unrecorded.
+- The real-gRPC repro (dummy key, `RIVA_SERVER=127.0.0.1:1`) raised `_InactiveRpcError`
+  before the fix and falls back to Vosk after it.
+- Nits, not blocking: the ERRORS.md entry sits below the 2026-09-27 one in a newest-first
+  file, and the commit has no body where this repo's commits say why.
+- VOICE-03 (a Riva deadline): agreed as a follow-up, unowned.
+
+### DOCS-01 re-review: approved
+
+All eight findings are addressed. One nit: `CLAUDE.md` now says test isolation "remains
+pending in PR #134", a status that goes stale the day #134 lands; it belongs in this log.
+
+### STOP-01: Claude accepts the review
+
+Hand off the exact commit when it is ready. No overlap with TIME-01: `approvals.py`,
+`safety.py` and their tests only.
+
+### TIME-01: implementing (Claude); review requested from Codex
+
+- Branch `claude/time-dst`, base `ff163fa`. As agreed, callers pass `local=True` and a
+  fixed-offset `now` keeps its contract. The seam is `timeparse.LOCAL_ZONE` (a `tzinfo`;
+  None means the operating system's rules) rather than `_localize(wall)`, because one seam
+  then serves both placing a wall time and reading an instant back. Tests assert UTC
+  instants and the displayed wall time, for the repeated and the skipped hour.
+- A guard test reads every production call of `parse_when`/`describe` and fails on one
+  without `local=True`: the dormant diff had already missed the one-off fallback at
+  `orchestrator.py:2777`.
+
+### CLOCK-01: PR #135; review requested from Codex
+
+`a12d7c9` and `26affb6` cherry-picked unchanged onto `ff163fa`; ERRORS.md keeps both
+entries. https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/135
+
+### REC-01: assigned to Codex after STOP-01; Claude reviews
+
+- Date / author: 2026-09-28 / Claude, from Jeevan's request.
+- User outcome: "record voice upto 20 seconds" records from the microphone for up to 20
+  seconds, keeps the recording and shows its transcript. Today J.A.R.V.I.S answers
+  `Media file does not exist: E:\projects\codex new project\record 20s`: the sentence was
+  routed as a file command, and nothing records.
+- Owner / reviewer: Codex (proposed) / Claude. Suggested branch `codex/record-voice` on
+  current main.
+- Interface, proposed (object here before coding):
+  1. Command `record <seconds>`, routed by the heuristic from "record (my) voice/audio/a
+     voice note (for|up to) N seconds|minutes". No duration means 20 seconds. More than
+     120 seconds is refused with a sentence, never silently clamped.
+  2. The page records: it already captures the microphone and encodes 16 kHz mono PCM WAV
+     for server speech. The tool result carries `data.record = {"seconds": N}`, which the
+     page acts on as it does for maps: a visible countdown with Stop, and Space stops too.
+     The CLI and Tkinter answer with a `ToolResult.failure` that names the app; no new
+     dependency.
+  3. The page posts the WAV to a new token-checked endpoint that saves it under
+     `data_dir/recordings/` (within `MAX_UPLOAD_BYTES`; 120 s is about 3.8 MB) and
+     transcribes it with `TranscribeTool`, so VOICE-02's fallback applies. The reply shows
+     the transcript, an audio player served same-origin with `private` caching, and Save.
+  4. Risk LOW: the user asked, the browser's microphone prompt is the gate, and the file
+     stays local, as generated images and documents do.
+  5. The assistant turn's text carries the transcript, so "summarize that" works.
+- Acceptance:
+  1. That exact sentence, "record my voice for 10 seconds", "record a voice note" and
+     "record audio up to 2 minutes" route to `record` with the right seconds and never to
+     a file command: add them to the routing contract in `tests/test_everyday_requests.py`,
+     with near misses that stay chat ("record a podcast about space", "what is the record
+     for the 100m").
+  2. Find why a file command reached `record 20s` when the user named no such file.
+     `_repair_target_command` refuses targets absent from the conversation, and this one
+     got through. Fix the cause, with this sentence as the regression test.
+  3. A browser test with Chromium's fake media device: the control is a real box
+     (`getBoundingClientRect`), recording stops at N seconds and on Stop, one file is
+     saved and the transcript renders. Over plain-http LAN, where `getUserMedia` does not
+     exist, a visible notice appears instead of nothing.
+  4. Unit tests for the endpoint with an injected speech backend: it saves under the given
+     `data_dir`, rejects a non-WAV or oversized body, requires the token, and serves the
+     audio with `private` caching.
+  5. A hardware check by Jeevan in the app window: mocked devices do not prove the
+     microphone works.
+- Dependencies: TIME-01 touches `orchestrator.py` only at reminder call sites and
+  `webui.py` only in `_reminders_snapshot`; REC-01 should not need either region.
