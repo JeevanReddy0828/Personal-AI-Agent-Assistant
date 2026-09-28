@@ -639,19 +639,38 @@
   const suggest=document.getElementById('suggest');
   SUG.forEach(([t,q,dev])=>{const c=document.createElement('button');c.type='button';c.className='scard'+(dev?' devonly':'');c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
-  /* sessions (localStorage) */
-  let sessions=[], current=null;
-  try{const saved=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]');
-    if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
-  }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
+  /* sessions (localStorage), one set per account. Nothing is read or written until /api/me
+     says who is signed in (loadChats): one origin-wide key let a personal account reopen the
+     owner's chats in the same browser. */
+  let sessions=[], current=null, chatKey=null;
+  function readChats(key){
+    try{const saved=JSON.parse(localStorage.getItem(key)||'[]');
+      return Array.isArray(saved)?saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40):[];}
+    catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';return [];}
+  }
+  // Keyed by account id, not name: a deleted account's name can be given to someone new. With
+  // sign-in off there is one set, under the original key. Chats from before sign-in was set up
+  // were the owner's, so the first developer to open the app adopts them and a personal account
+  // never sees them. Separation, not secrecy: anyone using the same browser profile can read
+  // its storage, so separate people need separate profiles or devices.
+  function loadChats(accountId,developer){
+    const key=accountId?'jarvis_sessions:'+accountId:'jarvis_sessions';
+    let saved=readChats(key),adopted=false;
+    if(accountId&&developer&&!saved.length){saved=readChats('jarvis_sessions');adopted=saved.length>0;}
+    // A chat begun before we knew who is signed in is theirs: keep it on top.
+    sessions=sessions.filter(s=>!saved.some(o=>o.id===s.id)).concat(saved).slice(0,40);
+    chatKey=key;saveSessions();renderSessions();
+    if(adopted){try{if(localStorage.getItem(key))localStorage.removeItem('jarvis_sessions');}catch(e){}}
+  }
   function saveSessions(){sessions=sessions.slice(0,40);
+    if(!chatKey)return;   // not known yet whose they are: memory only until it is
     // Incognito sessions stay in memory: they are filtered out of everything written to disk.
     const keep=sessions.filter(s=>!s.ghost);
-    try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+    try{localStorage.setItem(chatKey,JSON.stringify(keep));}
     catch(e){
       // Over quota: the tool-data digests are the expendable part — drop them and retry once.
       sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
-      try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+      try{localStorage.setItem(chatKey,JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
   function renderSessions(){
@@ -1286,9 +1305,12 @@
       intro.textContent=mode==='setup'?'Anyone who opens this app can use it. Set up an owner account and it will ask everyone to sign in.':'';
       go.textContent=mode==='setup'?'Set up sign-in':'Change password';msg.textContent='';
     }
+    let seenId;   // whose page this is; a different answer later means someone else signed in
     async function refresh(){
       let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
       if(!d||!d.ok)return;
+      seenId=d.user?d.user.id:(d.accounts?null:'');
+      if(seenId!==null)loadChats(seenId,!!(d.user&&d.user.role==='dev'));
       if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;document.body.dataset.role=d.user.role;
         // Accounts are managed on this computer only, and only by a developer: the server says so too.
         const admin=d.user.role==='dev'&&d.local;manage.hidden=panel.hidden=!admin;
@@ -1375,6 +1397,15 @@
       go.disabled=false;
     });
     refresh();
+    // Signing in as someone else in another tab changes this tab's cookie too, while its screen
+    // and memory still hold the previous account's chats: reload rather than carry them over.
+    async function checkIdentity(){
+      if(seenId===undefined)return;
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(d&&d.ok&&(d.user?d.user.id:(d.accounts?null:''))!==seenId)location.reload();
+    }
+    window.addEventListener('focus',checkIdentity);
+    setInterval(()=>{if(!document.hidden)checkIdentity();},30000);
   })();
   (function restoreHud(){
     const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}

@@ -970,6 +970,19 @@ owner. Decisions that each exist for a reason:
   has finished. A request that gets no turn within `HASH_WAIT` is answered 503 with
   `Retry-After`, and is **not** counted as a failure: nothing was checked, so treating it
   as a wrong password would lock the owner out because someone else was flooding.
+- **Damaged sign-in storage fails closed** (Codex's review). `accounts.json` is read
+  strictly (`storage.read_json_strict`): only a *missing* file means "no accounts". Read the
+  generic way, a damaged file came back empty, which switched sign-in off and served the
+  app and its API token to anyone; a damaged or invalid one now answers every request 503
+  with how to recover. Neither store keeps a `.bak` or is ever read from one: a backup can
+  bring back a deleted account, an old password or role, or a session revoked since it was
+  written. A damaged `sessions.json` signs everyone out.
+- **Saved chats are kept per account** (`jarvis_sessions:<account id>` in the browser),
+  loaded only once `/api/me` says who is signed in: one origin-wide key let a personal
+  account reopen the owner's chats on the same browser. Keyed by id, not name, since a
+  name can be reused. Chats from before sign-in go to the first developer only, and a tab
+  reloads when another tab signs in as someone else. Separation, not secrecy: whoever uses
+  the browser profile can read its storage.
 - On `http://localhost` a cookie is sent to **every port** of the host, so any other web
   server you run locally receives the session cookie. That is HTTP, not this code: the fix
   is HTTPS with a `__Host-` cookie (TLS-01), which the browser scopes to one origin.
