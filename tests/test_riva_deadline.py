@@ -24,8 +24,8 @@ class Pending:
         self.cancelled = False
 
     def result(self, timeout=None):
-        if timeout is None:
-            raise AssertionError('Riva wait must always have a timeout')
+        if timeout is None or not 0 < timeout <= .1:
+            raise AssertionError('Riva wait must be positive and at most 0.1 seconds')
         self.waits.append(timeout)
         if self.on_wait:
             self.on_wait()

@@ -216,3 +216,8 @@ SDK stalled-localhost probe verifies the timeout and socket closure with no exte
 network call or real key. This is a hosted-wait bound, not an end-to-end ASR deadline.
 Broader gRPC-error fallback stays in VOICE-02; auth, health, reminders and approvals
 remain outside this feature. Jeevan controls merges and live-provider verification.
+
+
+VOICE-03 review follow-up: the fake future now rejects nonpositive or over-100ms waits.
+Removing the production deadline check fails the silent-RPC test in 0.007 seconds rather
+than hanging. The unchanged implementation passes all eight deadline tests.
