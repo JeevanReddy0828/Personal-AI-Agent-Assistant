@@ -131,6 +131,15 @@ def _names_a_form(test: ast.AST) -> bool:
     return False
 
 
+def _only_forms(test: ast.AST) -> bool:
+    """Whether a branch is chosen by literal forms alone. An `or` that also admits a pattern
+    (`lowered == "record" or re.fullmatch(r"record \\d+", lowered)`) is a branch chosen by a
+    pattern too, and was counted as neither."""
+    return _names_a_form(test) and all(
+        _names_a_form(value) for node in ast.walk(test)
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) for value in node.values)
+
+
 def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
     """Every literal the dispatchers match whole, every prefix they match, and per group how
     many top-level branches are chosen some other way (a pattern, a parser)."""
@@ -154,16 +163,19 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
                        for call in ast.walk(node)):
                     prefixes |= _strings(node.iter)
         count = sum(1 for statement in function.body
-                    if isinstance(statement, ast.If) and not _names_a_form(statement.test))
+                    if isinstance(statement, ast.If) and not _only_forms(statement.test))
         if count:
             other[group.__name__] = count
     return exact, prefixes, other
 
 
-# Top-level branches chosen by a pattern or a parser, which the scan above cannot read. All
-# everyday today: deleting a reminder, `media volume N`, a bare or asked-after list, a
-# remembered fact, a coin or dice, how long a timer has left, a list edit, a date question.
-OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_personal": 7}
+# Top-level branches chosen by a pattern or a parser, which the scan above cannot read.
+# Everyday: deleting a reminder, a bare or asked-after list, a remembered fact, a coin or
+# dice, how long a timer has left, a list edit, a date question. Refused: `media volume N`
+# by the `media` prefix, and `record N` (REC-01) by default-deny, which refuses any
+# dispatched command that is not marked everyday.
+OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 1,
+                  "_dispatch_personal": 7}
 
 
 class DispatchMirrorTests(unittest.TestCase):
