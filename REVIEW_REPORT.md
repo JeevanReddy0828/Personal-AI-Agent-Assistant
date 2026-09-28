@@ -201,3 +201,18 @@ Desktop, 1440px, with reduced motion:
 Mobile, 390px:
 
 ![Verified mobile layout](docs/review/mobile.png)
+
+## VOICE-03 review addendum — 2026-09-28
+
+`codex/riva-deadline` is independent of the REC-01 and DOCS/VOICE/STOP branches and starts
+from main `ff163fa`. Changed runtime: only tools/transcribe.py; configuration example:
+RIVA_ASR_TIMEOUT_SECONDS; regression suite: test_riva_deadline.py. Existing docs are
+extended without removing earlier reports. The Riva future is polled with a finite,
+duration-aware budget, cancelled on exit, and its channel closed. Auto mode can fall
+back on timeout; explicit Riva reports it; Stop bypasses fallback even in an error race.
+
+Validation: eight new tests, 33 transcription tests and eight web voice tests; a real
+SDK stalled-localhost probe verifies the timeout and socket closure with no external
+network call or real key. This is a hosted-wait bound, not an end-to-end ASR deadline.
+Broader gRPC-error fallback stays in VOICE-02; auth, health, reminders and approvals
+remain outside this feature. Jeevan controls merges and live-provider verification.

@@ -149,3 +149,14 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   `--voice` via `getComputedStyle` for the orb, and inline styles use the token names directly.
 - `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
   a hash-only navigation (`#/chat`) does not refetch the page.
+
+## 2026-09-28 — VOICE-03 bounded hosted speech
+
+Branch `codex/riva-deadline` starts directly from main `ff163fa`. Default Riva budget:
+`min(120, max(10, 5 + WAV_seconds/2))`; optional finite override up to 600 seconds. The
+SDK exposes an asynchronous future but its blocking helper has no timeout argument.
+Use bounded future waits and cancel the actual RPC, close the channel, and propagate
+Stop without local fallback. Explicit Riva reports a timeout; auto chooses its existing
+local engine. This bounds only hosted waiting, not local ASR or complete file processing.
+No live credentials or provider calls were used in verification. VOICE-02 remains a
+separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this branch.
