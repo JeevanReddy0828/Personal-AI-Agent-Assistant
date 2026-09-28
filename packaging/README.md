@@ -28,14 +28,21 @@ it records the mic, transcribes via `/api/transcribe`, and plays replies from
 `/api/tts`.
 
 - **TTS** works out of the box (offline `pyttsx3`, bundled).
-- **STT** has two engines, picked by `LAPTOP_AGENT_STT` (`auto` default):
+- **STT** is selected by `LAPTOP_AGENT_STT` (`auto` default), with optional hosted
+  Parakeet through Riva and two local engines:
+  - **Riva / Parakeet (hosted, optional)** — requires the `riva` extra, credentials
+    and a configured function id. Sends audio to the hosted service; pin `vosk` or
+    `whisper` for local transcription. See the main README for configuration.
   - **Vosk (lightweight, recommended for distribution)** — ~50MB model, **no PyTorch,
     no ffmpeg**. `pip install vosk`, download a small model from
     https://alphacephei.com/vosk/models and unzip it into a `models\` folder (or set
     `VOSK_MODEL`). Build with **`build_app_small.ps1`** — a fraction of the Whisper size.
   - **Whisper (accurate, heavy)** — `pip install openai-whisper`, needs ffmpeg on PATH;
     pulls in PyTorch (multi-GB). Build with `build_app.ps1`.
-  - `auto` prefers Vosk when a model is present, else falls back to Whisper.
+  - For WAV input, `auto` first tries Riva when configured and available. If that call
+    fails, or for other media, it selects Vosk when a model is present, else Whisper.
+    The small bundle does not include Whisper; a usable Vosk model is required for
+    offline speech input. Hosted speech requires its separately installed/bundled extra.
   - Without any engine, voice output still speaks but voice *input* returns an install hint.
 
 ## What the user needs
@@ -61,6 +68,7 @@ window opens. Closing the window quits the app.
   app, etc. PyInstaller is not a cross-compiler.
 - `dist/` and `build/` are gitignored — the executable is a build artifact, not
   committed to the repo.
-- Voice still uses the browser's Web Speech API inside the app window; in
-  environments where that engine is slow, prefer a server-side transcription
-  backend (the `transcribe` extra) as a follow-up.
+- The native pywebview window uses server-side speech (`/api/transcribe` and
+  `/api/tts`), selected by `?app=1`; it does not depend on Web Speech recognition.
+  A regular browser can use its own recognizer when available. Validate microphone
+  permission, the selected engine and speech playback in the actual packaged build.

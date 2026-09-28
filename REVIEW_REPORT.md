@@ -2,6 +2,12 @@
 
 Reviewed: 2026-09-08. Baseline: version 0.39.0. Requested target: at least 8.5/10 for a dependable local, single-user assistant.
 
+> Historical review: findings, scores and test counts below describe that review's
+> snapshot. Later work added web approval cards, reminder delivery, optional LAN
+> pairing and separate web source assets. See [CHANGES_MADE.md](CHANGES_MADE.md) and
+> the current README for the 2026-09-28 handoff; do not reuse these historical counts
+> as evidence for a current branch.
+
 ## Baseline assessment
 
 Overall: **6/10**. Feature breadth 8, architecture 6, desktop presentation 7, everyday usability 5, reliability 5, security 3, automated testing 7, distribution readiness 4 (all out of 10).

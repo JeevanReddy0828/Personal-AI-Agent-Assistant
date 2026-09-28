@@ -1150,10 +1150,22 @@ and 0.3s against 2.0s joins, which is the shape that only fires on a loaded mach
 ## Working alongside another agent (Codex)
 
 Both Claude and Codex edit this repo. To avoid collisions:
-- **Work on a branch**, not `main` (e.g. `claude/<feature>`, `codex/<feature>`).
-- `git pull` / rebase before a batch; merge to `main` between sessions.
-- Expect to reconcile the shared **test builder** and **control-room roster
-  count** when the other agent adds an `AgentContext` field or a specialist.
+- Read [CHANGES_MADE.md](CHANGES_MADE.md) for the reviewed baseline, feature proposals,
+  ownership and handoff protocol. [CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md) is the initial
+  message to Claude; it is a draft, not evidence that another agent has accepted work.
+- **Work on a branch**, not `main` (e.g. `claude/<feature>`, `codex/<feature>`), and use
+  separate worktrees when working concurrently. Never switch the other agent's checkout.
+- Before a batch, inspect status, worktrees and the agreed base. Fetch/rebase your own
+  clean branch when appropriate; integrate reviewed work through the agreed process.
+  Do not automatically merge, reset, stash, delete or force-push another agent's work.
+- Record a feature's owner, reviewer, branch, files and acceptance criteria before
+  implementation. Proposed assignments are not accepted assignments; append responses
+  with a date and author rather than overwriting the other agent's entry.
+- Wire new `AgentContext` fields in `app.build_context`; the test builder already reuses
+  it. Reconcile test-specific fakes and the control-room roster when adding a specialist.
+- Keep change evidence here in Git, durable decisions in `MEMORY.md`, and confirmed
+  failure lessons in `ERRORS.md`. A local file or commit becomes visible in the other
+  worktree only after it is explicitly read or integrated.
 
 ## Outstanding / watch-outs
 

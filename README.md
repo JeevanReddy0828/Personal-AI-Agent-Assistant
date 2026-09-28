@@ -310,6 +310,13 @@ tests/                     Dependency-free unit tests (offline)
 
 ---
 
+## Development handoff
+
+[CHANGES_MADE.md](CHANGES_MADE.md) records the reviewed baseline, this branch's changes,
+feature proposals, ownership protocol and verification evidence for Claude and Codex.
+[CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md) is the ready-to-send collaboration message.
+Read [CLAUDE.md](CLAUDE.md), [MEMORY.md](MEMORY.md) and [ERRORS.md](ERRORS.md) before editing.
+
 ## License
 
 Released under the [MIT License](LICENSE).
@@ -320,9 +327,11 @@ Released under the [MIT License](LICENSE).
 See [REVIEW_REPORT.md](REVIEW_REPORT.md) for the feature inventory, baseline findings,
 remediation evidence, and remaining limits.
 
-- The web/native app is a single-user loopback service. Browser mutation requests
-  require its per-process token and matching origin. High-risk actions require an
-  interactive CLI/Tkinter approval; they are blocked in web/native guarded mode.
+- The web/native app is a single-user service bound to loopback by default; optional
+  LAN access requires pairing (see Security above). Browser mutation requests require
+  its per-process token and matching origin. High-risk actions raise an approval card
+  in the web/native app; denial, timeout, or no connected approval listener blocks them.
+  CLI/Tkinter use their own interactive approval prompts.
 - Native chat history uses a persistent webview profile and the configured port
   (default 8770). Keep that port stable. If it is occupied, close the other local
   instance before restarting. Old histories from random-port releases are not migrated.
@@ -344,9 +353,11 @@ remediation evidence, and remaining limits.
 - The Pipeline page exposes contact/certification overrides. Changing the base resume,
   profile, or tailoring invalidates old exports. PDF export requires Playwright and
   publishes only verified single-page Letter output; shorten content if it overflows.
-- Reminders list local due times; they do not create OS notifications. Jobright, email,
-  model providers, microphone/camera hardware and packaged installers need their own
-  configured integration checks.
+- While the app is running, reminders surface in the page as cards and chimes, with
+  browser notifications when supported and permitted, and speech in voice mode. The
+  CLI prints due reminders through a watcher. Delivery is not an OS background service
+  and does not continue after the app closes. Jobright, email, model providers,
+  microphone/camera hardware and packaged installers need configured integration checks.
 
 The standard runner ignores personal `.env` configuration, uses temporary data and
 blocks external Python socket connections. Optional browser checks need Playwright,

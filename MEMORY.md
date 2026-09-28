@@ -14,8 +14,9 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   **never** the `openai` SDK. Chat escalates fast→smart→ultra→OpenRouter with graceful fallback.
 - Persistence is JSON files under `data_dir` (no DB). Web app is one stdlib-served page,
   binds loopback, with per-process browser mutation tokens and origin checks.
-- `AgentContext` is a frozen dataclass; adding a field means updating `app.build_orchestrator`
-  AND the test builder in `tests/test_orchestrator.py`.
+- `AgentContext` is a frozen dataclass; wire new fields in `app.build_context`.
+  `build_orchestrator` and the test builder in `tests/test_orchestrator.py` reuse that
+  function; tests replace only their fake dependencies. Do not duplicate the full wiring.
 
 ## Decisions
 - 2026-06: Adopted **Agent Operating Principles** (CLAUDE.md preamble) as the governing
