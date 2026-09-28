@@ -5,6 +5,7 @@ import time
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.failures import FailureLog
 from laptop_agent.tools import imagegen
@@ -46,6 +47,24 @@ class ImageBudgetTests(unittest.TestCase):
                              "the fallback was handed a fresh budget instead of the remainder")
         self.assertLessEqual(sum(1 for h in handed if h > 30.0), 0,
                              "an attempt was allowed more than the whole budget")
+
+    def test_an_attempt_never_gets_more_than_the_budget_when_the_clock_stands_still(self) -> None:
+        """The test above failed on a Windows runner and passed on the rerun: handed
+        30.00000000000003. A clock that has not moved between two reads turns
+        `(t + 30) - t` into a hair over 30 for some t; 6.98 is one of them."""
+        handed: list[float] = []
+
+        def backend(model: str, body: dict, budget: float = 0.0) -> dict:
+            handed.append(budget)
+            raise TimeoutError("timed out")
+
+        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary",
+                         fallback_model="secondary", timeout=30)
+        tool._http_backend = backend
+        with patch.object(imagegen.time, "monotonic", return_value=6.98):
+            tool.generate("a fox")
+        self.assertEqual(len(handed), 2)
+        self.assertTrue(all(budget <= 30.0 for budget in handed), handed)
 
     def test_a_slow_primary_leaves_no_time_and_the_fallback_is_skipped_out_loud(self) -> None:
         """The alternative is honest-but-silent: the user waits past the budget for a
