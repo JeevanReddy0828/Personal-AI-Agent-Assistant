@@ -181,6 +181,45 @@ class SignInTests(unittest.TestCase):
         self.clock.now += 31
         self.sign_in()
 
+    def hashing_taken(self):
+        """Every hashing slot held, and a short wait for one: the state a burst leaves."""
+        import contextlib
+
+        import laptop_agent.accounts as accounts
+
+        @contextlib.contextmanager
+        def held():
+            for _ in range(accounts.HASH_SLOTS):
+                accounts._hashing.acquire()
+            try:
+                with patch.object(accounts, "HASH_WAIT", 0.05):
+                    yield
+            finally:
+                for _ in range(accounts.HASH_SLOTS):
+                    accounts._hashing.release()
+        return held()
+
+    def test_a_sign_in_that_cannot_get_a_turn_is_told_to_retry_not_refused(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        with self.hashing_taken():
+            for _ in range(6):
+                status, body, headers = self.call("POST", "/auth/login", {"username": "jeevan", "password": GOOD},
+                                                  token=False)
+                self.assertEqual((status, headers.get("Retry-After")), (503, "5"), body)
+        self.sign_in()   # six busy answers were not six failures, so there is nothing to wait out
+
+    def test_setting_up_or_changing_a_password_while_busy_changes_nothing(self) -> None:
+        with self.hashing_taken():
+            self.assertEqual(self.call("POST", "/auth/bootstrap", {"username": "jeevan", "password": GOOD})[0], 503)
+        self.assertFalse(self.accounts.exists())
+        self.accounts.create("jeevan", "dev", GOOD)
+        cookie = self.sign_in()
+        with self.hashing_taken():
+            status, _, _ = self.call("POST", "/auth/password", {"current": GOOD, "new": "a brand new password"},
+                                     cookie=cookie)
+        self.assertEqual(status, 503)
+        self.sign_in(password=GOOD)
+
     def test_sign_out_ends_the_session_everywhere_it_is_used(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
         cookie = self.sign_in()

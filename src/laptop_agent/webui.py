@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
-from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, Principal
+from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
@@ -739,6 +739,10 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("expected a JSON object")
         return payload
 
+    def _busy(self, exc: HashingBusy) -> None:
+        # Nothing was checked, so this is not a failed attempt and must not count toward a wait.
+        self._json(503, {"ok": False, "message": str(exc)}, headers=(("Retry-After", "5"),))
+
     def _start_session(self, account, method: str) -> None:
         # A new token every time, and whatever this browser held before is ended: a session
         # id is never carried across a sign-in.
@@ -760,7 +764,11 @@ class Handler(BaseHTTPRequestHandler):
         if wait:
             self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
             return
-        account = ACCOUNTS.authenticate(username, password)
+        try:
+            account = ACCOUNTS.authenticate(username, password)
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
         if account is None:
             _SIGNIN_LIMIT.fail(*keys)
             self._audit("signin_failed", username=username.strip().lower()[:64])
@@ -782,6 +790,9 @@ class Handler(BaseHTTPRequestHandler):
         except AccountError as exc:
             self._json(400, {"ok": False, "message": str(exc)})
             return
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
         self._start_session(account, "bootstrap")
 
     def _logout(self) -> None:
@@ -802,7 +813,12 @@ class Handler(BaseHTTPRequestHandler):
         if wait:
             self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
             return
-        if ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD]) is None:
+        try:
+            known = ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD])
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        if known is None:
             _SIGNIN_LIMIT.fail(*keys)
             self._json(403, {"ok": False, "message": "Your current password is not right."},
                        headers=(("X-Jarvis-Denied", "password"),))
@@ -811,6 +827,9 @@ class Handler(BaseHTTPRequestHandler):
             ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
         except AccountError as exc:
             self._json(400, {"ok": False, "message": str(exc)})
+            return
+        except HashingBusy as exc:
+            self._busy(exc)
             return
         _SIGNIN_LIMIT.clear(*keys)
         ended = SESSIONS.revoke_account(principal.account_id, keep=self._cookie(_SESSION_COOKIE))

@@ -963,6 +963,16 @@ owner. Decisions that each exist for a reason:
   file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled
   them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing
   does not say who exists.
+- **At most two hash at once** (`HASH_SLOTS`). A hash holds 128 MiB outside the GIL and
+  the server runs a thread per request: measured, four at once took the peak working set
+  from 21 MiB to 534 MiB, so fifty sign-in attempts from a phone on the same wifi would ask
+  for 6.4 GB. The backoff cannot stop that, because it counts a failure only once its hash
+  has finished. A request that gets no turn within `HASH_WAIT` is answered 503 with
+  `Retry-After`, and is **not** counted as a failure: nothing was checked, so treating it
+  as a wrong password would lock the owner out because someone else was flooding.
+- On `http://localhost` a cookie is sent to **every port** of the host, so any other web
+  server you run locally receives the session cookie. That is HTTP, not this code: the fix
+  is HTTPS with a `__Host-` cookie (TLS-01), which the browser scopes to one origin.
 - Sessions are server-side and persisted, keyed by the SHA-256 of the token, so a restart
   does not sign the desktop window out and the file holds nothing usable as a cookie. The
   store reloads when the file's stamp changes, because the CLI revokes from its own
