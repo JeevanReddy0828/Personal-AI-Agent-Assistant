@@ -99,10 +99,14 @@ def _replace_text(path: Path, text: str) -> None:
             os.unlink(temporary)
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+def atomic_write_text(path: Path, text: str, backup: bool = True) -> None:
+    """Replace `path` atomically. With `backup` the previous copy is kept beside it; without,
+    any old backup is removed, for stores where rolling back would undo a decision."""
     path = Path(path)
     with file_lock(path):
-        if path.exists():
+        if not backup:
+            Path(str(path) + ".bak").unlink(missing_ok=True)
+        elif path.exists():
             previous = path.read_text(encoding="utf-8")
             if path.suffix == ".json":
                 try:
@@ -144,6 +148,28 @@ def read_json(path: Path, default):
             except (OSError, ValueError):
                 pass
             return deepcopy(default)
+
+
+class StorageDamaged(RuntimeError):
+    """A store that exists but cannot be read as what it should hold."""
+
+
+def read_json_strict(path: Path, default):
+    """`read_json` for stores where an older copy is worse than none: accounts, where a backup
+    can restore a deleted account, an old password or an old role, and sessions, where it can
+    restore a revoked one. A missing file is `default`; anything else that cannot be read
+    raises, and the backup is never read."""
+    path = Path(path)
+    with file_lock(path):
+        if not path.exists():
+            return deepcopy(default)
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise StorageDamaged(f"{path} cannot be read ({type(exc).__name__}).") from exc
+    if not isinstance(result, type(default)):
+        raise StorageDamaged(f"{path} does not hold what it should.")
+    return result
 
 
 def positive_int(value, default=1):

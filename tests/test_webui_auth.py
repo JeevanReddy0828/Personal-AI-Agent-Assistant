@@ -102,7 +102,7 @@ class SignInTests(unittest.TestCase):
         for attribute in ("jarvis_session=", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age="):
             self.assertIn(attribute, cookie)
         self.assertEqual(self.call("GET", "/api/me", cookie=cookie.split(";", 1)[0])[1]["user"],
-                         {"username": "jeevan", "role": "dev"})
+                         {"id": self.accounts.find("jeevan").id, "username": "jeevan", "role": "dev"})
         again = self.call("POST", "/auth/bootstrap", {"username": "someone", "password": GOOD},
                           cookie=cookie.split(";", 1)[0])
         self.assertEqual(again[0], 400)
@@ -219,6 +219,50 @@ class SignInTests(unittest.TestCase):
                                      cookie=cookie)
         self.assertEqual(status, 503)
         self.sign_in(password=GOOD)
+
+    # --- damaged storage fails closed (Codex's review of #138)
+    def test_damaged_account_storage_refuses_everyone(self) -> None:
+        # Read as "no accounts", a damaged file switched sign-in off and served the app, and its
+        # API token, to anyone. A valid backup beside it must not be used either: it can hold a
+        # deleted account, an old password or an old role.
+        self.accounts.create("jeevan", "dev", GOOD)
+        cookie = self.sign_in()
+        good = self.accounts.path.read_text(encoding="utf-8")
+        Path(str(self.accounts.path) + ".bak").write_text(good, encoding="utf-8")
+        for damage in ("{broken", '{"accounts": "x"}', '{"accounts": [{"id": 1}]}',
+                       '{"accounts": [{"id": "a", "username": "x", "role": "admin"}]}',
+                       '{"accounts": [{"id": "a", "username": "x", "role": "dev", "disabled": "no"}]}', "[]"):
+            with self.subTest(damage):
+                self.accounts.path.write_text(damage, encoding="utf-8")
+                status, page, _ = self.call("GET", "/", token=False)
+                self.assertEqual(status, 503)
+                self.assertNotIn(self.webui._API_TOKEN, str(page))
+                self.assertEqual(self.call("GET", "/api/me", cookie=cookie)[0], 503)
+                self.assertEqual(self.call("POST", "/auth/login", {"username": "jeevan", "password": GOOD},
+                                           token=False)[0], 503)
+        self.accounts.path.write_text(good, encoding="utf-8")
+        self.assertEqual(self.call("GET", "/api/me", cookie=cookie)[0], 200, "repairing the file did not recover")
+
+    def test_a_damaged_session_store_signs_everyone_out_and_never_revives_a_revoked_one(self) -> None:
+        owner = self.accounts.create("jeevan", "dev", GOOD)
+        kept, revoked = self.sessions.create(owner.id, "password"), self.sessions.create(owner.id, "password")
+        before_revoke = self.sessions.path.read_text(encoding="utf-8")
+        self.sessions.revoke(revoked)
+        # The backup a generic reader would fall back to still lists the revoked session.
+        Path(str(self.sessions.path) + ".bak").write_text(before_revoke, encoding="utf-8")
+        self.sessions.path.write_text("{broken", encoding="utf-8")
+        for token in (revoked, kept):
+            self.assertEqual(self.call("GET", "/api/me", cookie=f"jarvis_session={token}")[0], 401)
+        self.sign_in()
+
+    def test_neither_store_keeps_a_backup(self) -> None:
+        for store in (self.accounts, self.sessions):
+            Path(str(store.path) + ".bak").write_text("{}", encoding="utf-8")
+        owner = self.accounts.create("jeevan", "dev", GOOD)
+        self.sessions.create(owner.id, "password")
+        self.accounts.set_role(owner.id, "dev")
+        for store in (self.accounts, self.sessions):
+            self.assertFalse(Path(str(store.path) + ".bak").exists(), f"{store.path.name} kept a backup")
 
     def test_sign_out_ends_the_session_everywhere_it_is_used(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)

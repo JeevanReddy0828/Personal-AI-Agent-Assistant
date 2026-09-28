@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Callable
 
 from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
+from laptop_agent.storage import StorageDamaged
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
@@ -710,7 +711,8 @@ class Handler(BaseHTTPRequestHandler):
     def _me(self) -> dict[str, object]:
         principal = self._principal()
         return {"ok": True, "accounts": ACCOUNTS.exists(), "local": self._client_is_local(),
-                "user": None if principal is None else {"username": principal.username, "role": principal.role}}
+                "user": None if principal is None else {"id": principal.account_id, "username": principal.username,
+                                                         "role": principal.role}}
 
     def _audit(self, event: str, **payload: object) -> None:
         try:
@@ -955,6 +957,31 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json", headers=headers)
 
     def do_GET(self) -> None:
+        try:
+            self._do_get()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
+
+    def do_POST(self) -> None:
+        try:
+            self._do_post()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
+
+    def _storage_damaged(self, exc: StorageDamaged) -> None:
+        """Sign-in storage exists but cannot be read. Refuse everything: read as "no accounts"
+        it would switch sign-in off and hand the app, and its API token, to anyone."""
+        record_failure("auth.storage", exc)
+        message = ("Sign-in cannot be checked because its storage is damaged, so nobody can use "
+                   "J.A.R.V.I.S until it is repaired on the computer running it. See "
+                   "python -m laptop_agent.accounts list.")
+        if self.path.split("?", 1)[0] in {"/", "/index.html"}:
+            self._send(503, f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
+                       "text/html; charset=utf-8")
+        else:
+            self._json(503, {"ok": False, "message": message})
+
+    def _do_get(self) -> None:
         if not self._trusted_request():
             return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
@@ -1060,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid chat history")
         return payload
 
-    def do_POST(self) -> None:
+    def _do_post(self) -> None:
         if self.path.split("?", 1)[0] == "/api/pair":
             if self._trusted_request():          # origin checks, but no API token yet
                 self._pair()

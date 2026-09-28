@@ -118,7 +118,9 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("localStorage.jarvis_sessions='{broken'")
         self.page.reload()
         self.page.evaluate("void send('help')")
-        self.wait_js("JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2")
+        # Chats are saved once the page knows whose they are, so the damaged value may still be
+        # there for a moment after the send: unparsed yet is not a failure.
+        self.wait_js("(()=>{try{return JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2}catch(e){return false}})()")
 
     def test_stop_reaches_backend_and_prevents_followup(self):
         from laptop_agent.cancellation import check_cancelled, OperationCancelled

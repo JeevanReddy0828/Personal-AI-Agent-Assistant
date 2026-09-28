@@ -18,7 +18,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-from laptop_agent.storage import atomic_write_text, file_lock, read_json
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import StorageDamaged, atomic_write_text, file_lock, read_json_strict
 
 IDLE_SECONDS = 7 * 86400
 ABSOLUTE_SECONDS = 30 * 86400
@@ -58,7 +59,16 @@ class SessionStore:
         if stamp is not None and stamp == self._stamp:
             return
         loaded: dict[str, Session] = {}
-        for digest, raw in (read_json(self.path, {"sessions": {}}).get("sessions") or {}).items():
+        try:
+            raw_sessions = read_json_strict(self.path, {"sessions": {}}).get("sessions")
+        except StorageDamaged as exc:
+            # Never the backup, which would bring back a session revoked since it was written:
+            # a damaged file ends every session, and everyone signs in again.
+            record_failure("sessions.load", exc)
+            raw_sessions = {}
+        if not isinstance(raw_sessions, dict):
+            raw_sessions = {}
+        for digest, raw in raw_sessions.items():
             try:
                 loaded[str(digest)] = Session(str(raw["account_id"]), float(raw["created"]),
                                               float(raw["seen"]), str(raw.get("method", "")))
@@ -75,7 +85,8 @@ class SessionStore:
         self._sessions = {digest: session for digest, session in self._sessions.items()
                           if self._alive(session, now)}
         atomic_write_text(self.path, json.dumps(
-            {"sessions": {digest: asdict(session) for digest, session in self._sessions.items()}}, indent=2))
+            {"sessions": {digest: asdict(session) for digest, session in self._sessions.items()}}, indent=2),
+            backup=False)
         stat = self.path.stat()
         self._stamp = (stat.st_mtime_ns, stat.st_size)
 
