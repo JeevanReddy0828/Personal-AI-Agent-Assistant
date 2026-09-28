@@ -844,6 +844,99 @@ class Handler(BaseHTTPRequestHandler):
         self._audit("password_changed", username=principal.username, sessions_ended=ended)
         self._json(200, {"ok": True, "message": "Password changed. Any other signed-in device was signed out."})
 
+    # --- managing accounts, from this computer only
+    _ACCOUNT_ACTIONS = frozenset({"create", "password", "role", "disable", "enable", "delete"})
+
+    def _account_admin(self) -> Principal | None:
+        """The developer at this computer, or None once the refusal is sent. Accounts are managed
+        here and nowhere else, like setting sign-in up: a session carried to a phone, or taken
+        from one, cannot add a developer."""
+        principal = self._principal()
+        if principal is None or principal.role != "dev":
+            self._json(403, {"ok": False, "message": "That needs a developer account."},
+                       headers=(("X-Jarvis-Denied", "role"),))
+            return None
+        if not self._client_is_local():
+            self._json(403, {"ok": False, "message": "Manage accounts on the computer running J.A.R.V.I.S."},
+                       headers=(("X-Jarvis-Denied", "local"),))
+            return None
+        return principal
+
+    def _account_listing(self, principal: Principal) -> dict[str, object]:
+        return {"ok": True, "me": principal.account_id, "accounts": [account.public() for account in ACCOUNTS.list()]}
+
+    def _list_accounts(self) -> None:
+        principal = self._account_admin()
+        if principal is not None:
+            self._json(200, self._account_listing(principal))
+
+    def _manage_account(self) -> None:
+        """Add, reset, re-role, disable, enable or delete an account. Each change asks for the
+        developer's own password again, so a session left signed in cannot mint another one."""
+        principal = self._account_admin()
+        if principal is None:
+            return
+        payload = self._read_json()
+        action = str(payload.get("action") or "")
+        if action not in self._ACCOUNT_ACTIONS:
+            self._json(400, {"ok": False, "message": "Unknown account action."})
+            return
+        keys = self._limit_keys(principal.username)
+        wait = _SIGNIN_LIMIT.wait(*keys)
+        if wait:
+            self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
+            return
+        try:
+            if ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD]) is None:
+                _SIGNIN_LIMIT.fail(*keys)
+                self._json(403, {"ok": False, "message": "Your password is not right."},
+                           headers=(("X-Jarvis-Denied", "password"),))
+                return
+            _SIGNIN_LIMIT.clear(*keys)
+            message = self._apply_account_action(principal, action, payload)
+        except AccountError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        self._json(200, {**self._account_listing(principal), "message": message})
+
+    def _apply_account_action(self, principal: Principal, action: str, payload: dict) -> str:
+        username = str(payload.get("username") or "").strip().lower()[:64]
+        if action == "create":
+            account = ACCOUNTS.create(username, str(payload.get("role") or ""), str(payload.get("password") or ""))
+            self._audit("account_created", username=account.username, role=account.role, by=principal.username)
+            return f"Added {account.username} as a {'developer' if account.role == 'dev' else 'personal'} account."
+        target = ACCOUNTS.find(username)
+        if target is None:
+            raise AccountError(f"No account called {username or 'that'}.")
+        if target.id == principal.account_id:
+            # Your own password has Change password; your own role and existence have the
+            # command line, so nobody demotes or deletes themselves out of the app by a click.
+            raise AccountError("Change your own account with Change password, or from the command line.")
+        if action == "password":
+            ACCOUNTS.set_password(target.id, str(payload.get("password") or ""))
+            SESSIONS.revoke_account(target.id)
+            message = f"New password set for {target.username}; they were signed out everywhere."
+        elif action == "role":
+            role = str(payload.get("role") or "")
+            ACCOUNTS.set_role(target.id, role, keep_developer=True)
+            message = f"{target.username} is now a {'developer' if role == 'dev' else 'personal'} account."
+        elif action == "disable":
+            ACCOUNTS.set_disabled(target.id, True, keep_developer=True)
+            SESSIONS.revoke_account(target.id)
+            message = f"{target.username} is disabled and was signed out."
+        elif action == "enable":
+            ACCOUNTS.set_disabled(target.id, False)
+            message = f"{target.username} can sign in again."
+        else:
+            ACCOUNTS.delete(target.id, keep_developer=True)
+            SESSIONS.revoke_account(target.id)
+            message = f"Deleted {target.username}."
+        self._audit(f"account_{action}", username=target.username, by=principal.username)
+        return message
+
     def _pair(self) -> None:
         """Exchange the passcode for a session cookie. The one endpoint that runs before
         the API-token check, because a new device cannot have the token until it has the
@@ -1003,6 +1096,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, body, "text/html; charset=utf-8", etag=etag)
         elif path == "/api/me":
             self._json(200, self._me())
+        elif path == "/api/accounts":
+            self._list_accounts()
         elif path == "/api/health":
             report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
             # The page decides between its own recognizer and posting audio here.
@@ -1126,6 +1221,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/auth/bootstrap":
             self._bootstrap()
+            return
+        if self.path == "/api/accounts":
+            self._manage_account()
             return
         if self.path == "/api/approve":
             self._handle_approve()

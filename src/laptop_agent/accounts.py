@@ -73,6 +73,13 @@ class Account:
                 "has_password": bool(self.password_hash), "created_at": self.created_at}
 
 
+def _keep_a_developer(accounts: list[Account]) -> None:
+    # Checked under the file lock, on the list about to be written: two developers demoting
+    # each other at the same moment must not both succeed and leave the app with none.
+    if not any(account.role == "dev" and not account.disabled for account in accounts):
+        raise AccountError("That would leave no developer account. Use the command line if you mean it.")
+
+
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
@@ -215,11 +222,13 @@ class AccountStore:
             return None
         return account if verify_password(password or "", stored) else None
 
-    def _update(self, account_id: str, change: Callable[[Account], None]) -> Account:
+    def _update(self, account_id: str, change: Callable[[Account], None], keep_developer: bool = False) -> Account:
         accounts = self._read()
         for account in accounts:
             if account.id == account_id:
                 change(account)
+                if keep_developer:
+                    _keep_a_developer(accounts)
                 self._write(accounts)
                 return account
         raise AccountError("No such account.")
@@ -234,14 +243,16 @@ class AccountStore:
         return self._update(account_id, change)
 
     @synchronized
-    def set_role(self, account_id: str, role: str) -> Account:
+    def set_role(self, account_id: str, role: str, keep_developer: bool = False) -> Account:
+        """`keep_developer` refuses a change that would leave no enabled developer: the web
+        app asks for it, the command line (the way back in) does not."""
         if role not in ROLES:
             raise AccountError(f"A role is one of: {', '.join(ROLES)}.")
-        return self._update(account_id, lambda account: setattr(account, "role", role))
+        return self._update(account_id, lambda account: setattr(account, "role", role), keep_developer)
 
     @synchronized
-    def set_disabled(self, account_id: str, disabled: bool) -> Account:
-        return self._update(account_id, lambda account: setattr(account, "disabled", disabled))
+    def set_disabled(self, account_id: str, disabled: bool, keep_developer: bool = False) -> Account:
+        return self._update(account_id, lambda account: setattr(account, "disabled", disabled), keep_developer)
 
     @synchronized
     def link_google(self, account_id: str, sub: str, email: str | None) -> Account:
@@ -266,11 +277,13 @@ class AccountStore:
         return self._update(account_id, unlink)
 
     @synchronized
-    def delete(self, account_id: str) -> None:
+    def delete(self, account_id: str, keep_developer: bool = False) -> None:
         accounts = self._read()
         remaining = [account for account in accounts if account.id != account_id]
         if len(remaining) == len(accounts):
             raise AccountError("No such account.")
+        if keep_developer:
+            _keep_a_developer(remaining)
         self._write(remaining)
 
 

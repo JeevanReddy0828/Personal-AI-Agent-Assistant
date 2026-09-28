@@ -108,6 +108,25 @@ class AccountStoreTests(unittest.TestCase):
                     self.store.create(username, role, password)
         self.assertFalse(self.store.exists())
 
+    def test_the_web_can_never_leave_the_app_without_a_developer(self) -> None:
+        owner = self.store.create("jeevan", "dev", GOOD)
+        for change in (lambda: self.store.set_role(owner.id, "personal", keep_developer=True),
+                       lambda: self.store.set_disabled(owner.id, True, keep_developer=True),
+                       lambda: self.store.delete(owner.id, keep_developer=True)):
+            with self.assertRaises(AccountError):
+                change()
+        self.assertEqual((self.store.get(owner.id).role, self.store.get(owner.id).disabled), ("dev", False))
+        second = self.store.create("sam", "dev", GOOD)
+        self.store.set_role(second.id, "personal", keep_developer=True)   # one developer is still left
+        with self.assertRaises(AccountError):
+            self.store.set_role(owner.id, "personal", keep_developer=True)
+
+    def test_the_command_line_can_still_do_anything(self) -> None:
+        # It is the way back in, so it is never told no by this rule.
+        owner = self.store.create("jeevan", "dev", GOOD)
+        self.store.set_role(owner.id, "personal")
+        self.assertEqual(self.store.get(owner.id).role, "personal")
+
     def test_authenticate(self) -> None:
         account = self.store.create("jeevan", "dev", GOOD)
         self.assertEqual(self.store.authenticate("Jeevan", GOOD).id, account.id)

@@ -1277,7 +1277,9 @@
           pw=document.getElementById('acctPw'),form=document.getElementById('acctForm'),intro=document.getElementById('acctIntro'),
           user=document.getElementById('acctUser'),cur=document.getElementById('acctCur'),nw=document.getElementById('acctNew'),
           nw2=document.getElementById('acctNew2'),go=document.getElementById('acctGo'),msg=document.getElementById('acctMsg'),
-          role=document.getElementById('acctRole');
+          role=document.getElementById('acctRole'),manage=document.getElementById('acctManage'),
+          panel=document.getElementById('acctPanel'),admList=document.getElementById('admList'),
+          admCur=document.getElementById('admCur'),admMsg=document.getElementById('admMsg'),admAdd=document.getElementById('admAdd');
     let mode='';   // '' | 'setup' | 'password'
     function show(next){
       mode=next;form.hidden=!mode;user.hidden=mode!=='setup';cur.hidden=mode!=='password';
@@ -1288,12 +1290,70 @@
       let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
       if(!d||!d.ok)return;
       if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;document.body.dataset.role=d.user.role;
+        // Accounts are managed on this computer only, and only by a developer: the server says so too.
+        const admin=d.user.role==='dev'&&d.local;manage.hidden=panel.hidden=!admin;
         const hi=document.querySelector('#empty h1');if(hi)hi.textContent='How can I help, '+d.user.username.charAt(0).toUpperCase()+d.user.username.slice(1)+'?';
         role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
       else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
       else box.hidden=true;
     }
     pw.onclick=()=>show(mode==='password'?'':'password');
+    function button(label,run){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=run;return b;}
+    function say(text,bad){admMsg.textContent=text||'';admMsg.classList.toggle('err',!!bad);}
+    function renderAccounts(d){
+      admList.textContent='';
+      (d.accounts||[]).forEach(a=>{
+        // Built as nodes, never markup: a username is data.
+        const card=document.createElement('div');card.className='schedcard'+(a.disabled?' off':'');
+        const top=document.createElement('div');top.className='top';
+        const kind=document.createElement('span');kind.className='kind';kind.textContent=a.role==='dev'?'Developer':'Personal';
+        const when=document.createElement('span');when.className='when';when.textContent=a.id===d.me?'you':(a.disabled?'disabled':'');
+        top.append(kind,when);
+        const name=document.createElement('div');name.className='spec';name.textContent=a.username;
+        card.append(top,name);
+        if(a.id!==d.me){
+          const meta=document.createElement('div');meta.className='meta';
+          let armed=null;
+          const del=button('delete',()=>{
+            if(!armed){del.textContent='confirm delete';armed=setTimeout(()=>{del.textContent='delete';armed=null;},4000);return;}
+            clearTimeout(armed);act({action:'delete',username:a.username});});
+          meta.append(
+            button(a.role==='dev'?'make personal':'make developer',()=>act({action:'role',username:a.username,role:a.role==='dev'?'personal':'dev'})),
+            button(a.disabled?'enable':'disable',()=>act({action:a.disabled?'enable':'disable',username:a.username})),
+            button('new password',()=>{
+              if(meta.querySelector('input'))return;
+              const input=document.createElement('input');input.type='password';input.autocomplete='new-password';
+              input.placeholder='Their new password';input.setAttribute('aria-label','New password for '+a.username);
+              meta.replaceChildren(input,button('save',()=>act({action:'password',username:a.username,password:input.value})));
+              input.focus();}),
+            del);
+          card.append(meta);
+        }
+        admList.append(card);
+      });
+    }
+    async function loadAccounts(){
+      try{const r=await fetch('/api/accounts');const d=await r.json();if(r.ok)renderAccounts(d);else say(d.message,true);}
+      catch(e){say('Could not reach the app.',true);}
+    }
+    async function act(body){
+      if(!admCur.value){say('Type your password first: every change asks for it.',true);admCur.focus();return false;}
+      say('Working…');
+      try{
+        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current:admCur.value})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok){renderAccounts(d);say(d.message);return true;}
+        say(d.message||('Could not change that (HTTP '+r.status+').'),true);
+      }catch(e){say('Could not reach the app.',true);}
+      return false;
+    }
+    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();});
+    manage.onclick=()=>{hudPop.classList.remove('open');hudBtn.classList.remove('on');setDrawer(true,hudBtn);panel.open=true;panel.scrollIntoView({block:'nearest'});};
+    admAdd.addEventListener('submit',async ev=>{
+      ev.preventDefault();
+      const user=document.getElementById('admUser'),pass=document.getElementById('admPw');
+      if(await act({action:'create',username:user.value,role:document.getElementById('admRole').value,password:pass.value})){user.value=pass.value='';}
+    });
     out.onclick=async()=>{
       try{await fetch('/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
       location.reload();

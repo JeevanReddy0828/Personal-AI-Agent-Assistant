@@ -35,6 +35,7 @@
         <div class="acct" id="acct" hidden>
           <div class="lbl"><span><span id="acctWho">Account</span><small id="acctRole"></small></span><button type="button" class="acctbtn" id="acctOut" hidden>Sign out</button></div>
           <button type="button" class="acctlink" id="acctPw" hidden>Change password</button>
+          <button type="button" class="acctlink" id="acctManage" hidden>Manage accounts</button>
           <form id="acctForm" hidden novalidate>
             <small id="acctIntro"></small>
             <input id="acctUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" aria-label="Username">
@@ -240,6 +241,20 @@
         <summary>Tool activity</summary>
         <div id="agentSummary"></div>
         <div id="agentList"></div>
+      </details>
+      <details class="conn devonly" id="acctPanel" hidden>
+        <summary>Accounts</summary>
+        <div class="schedform">
+          <input id="admCur" type="password" autocomplete="current-password" placeholder="Your password, to change anything" aria-label="Your password">
+        </div>
+        <div id="admList"></div>
+        <form class="schedform" id="admAdd" novalidate>
+          <input id="admUser" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="New username" aria-label="New username">
+          <select id="admRole" aria-label="Role"><option value="personal">Personal: the assistant, not this laptop</option><option value="dev">Developer: everything</option></select>
+          <input id="admPw" type="password" autocomplete="new-password" placeholder="Their password (8+ characters)" aria-label="Their password">
+          <button type="submit">Add account</button>
+        </form>
+        <div class="schedmsg" id="admMsg" role="status"></div>
       </details>
       <details class="conn devonly" id="schedPanel">
         <summary>Scheduled jobs</summary>

@@ -482,6 +482,9 @@
   button:disabled{opacity:.5;cursor:default}
   .schedmsg,.mapmsg{font:12px var(--sans);color:var(--muted);min-height:14px;margin:2px 8px}
   .schedmsg.err,.mapmsg.err{color:var(--warn)}
+  /* Accounts: shown to a developer on this computer only; rows reuse the schedule cards. */
+  #acctPanel[hidden]{display:none}
+  .schedcard .meta input{flex:1;min-width:0;background:rgba(0,0,0,.25);border:1px solid var(--hair-2);border-radius:8px;color:var(--text);font:12px var(--sans);padding:4px 7px}
   .schedcard,.runcard{margin:4px 6px;background:rgba(255,255,255,.03);border-radius:10px;padding:9px 11px}
   .schedcard.off{opacity:.5}
   .schedcard .top,.runcard .top{display:flex;align-items:center;gap:8px}

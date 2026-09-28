@@ -252,6 +252,9 @@ It is refused those outright rather than shown an approval card, and it sees onl
 approval cards. Until data is kept per account it shares your reminders, timers, lists and
 remembered facts, so give it to someone you would share those with.
 
+On this computer, a developer can also add and manage accounts in the app: **Manage
+accounts** in the settings popover. Every change asks for your own password again.
+
 The same command resets a password, disables, deletes or lists accounts, so a forgotten
 password never locks the owner out. Passwords are scrypt-hashed. A session lasts up to 30
 days (7 without use) and ends on sign-out, a password change or a disabled account. An
