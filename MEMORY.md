@@ -23,6 +23,12 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   loopback-only and `dev`; stdlib scrypt N=2^17; server-side sessions persisted as token
   hashes (7-day idle, 30-day absolute); roles `dev`/`personal`, re-read every request.
   Proposed and debated in CHANGES_MADE.md; Google sign-in and Gmail are phase 2.
+- 2026-09-28: **AUTH-01 phase 3 (what a `personal` account may do; Claude).** It is the
+  assistant, not the machine: refused at four points, each for a path the others miss — the
+  gate (HIGH/CRITICAL, before anyone is asked), the orchestrator (on the command about to be
+  dispatched), the approval broker (its own cards only) and the web server (an allow-list of
+  routes). The command list mirrors the dispatchers exactly, held there by an AST test. Data
+  stays shared (reminders, lists, facts) until per-account storage.
 - 2026-06: Adopted **Agent Operating Principles** (CLAUDE.md preamble) as the governing
   doc. Codebase already conformed, so adopted going forward — no refactor.
 - 2026-06: **Job-search dashboard** initiative. Web UI became multi-page (header nav +

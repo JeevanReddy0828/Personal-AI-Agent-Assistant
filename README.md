@@ -243,13 +243,20 @@ python -m laptop_agent.accounts create jeevan --role dev
 python -m laptop_agent.accounts create family --role personal
 ```
 
-A `dev` account can use everything; a `personal` account cannot open the diagnostics
-(traces, failures) or agent mode. The same command resets a password, disables, deletes or
-lists accounts, so a forgotten password never locks the owner out. Passwords are
-scrypt-hashed. A session lasts up to 30 days (7 without use) and ends on sign-out, a
-password change or a disabled account. An account also stands in for
-`LAPTOP_AGENT_LAN_PASSCODE` when you reach the app from another device, but LAN mode is
-plain HTTP, so use it only on a network you trust.
+A `dev` account can use everything. A `personal` account is the assistant, not the
+machine: chat, reminders, timers, lists, weather, news, maps, web search, research, and
+generated pictures and documents — but not files, the screen, the camera, apps, the shell,
+the browser or music on this laptop, not your mail, notes, indexed documents or job search,
+not the diagnostics, and nothing that acts on its own (agent mode, schedules, workflows).
+It is refused those outright rather than shown an approval card, and it sees only its own
+approval cards. Until data is kept per account it shares your reminders, timers, lists and
+remembered facts, so give it to someone you would share those with.
+
+The same command resets a password, disables, deletes or lists accounts, so a forgotten
+password never locks the owner out. Passwords are scrypt-hashed. A session lasts up to 30
+days (7 without use) and ends on sign-out, a password change or a disabled account. An
+account also stands in for `LAPTOP_AGENT_LAN_PASSCODE` when you reach the app from another
+device, but LAN mode is plain HTTP, so use it only on a network you trust.
 
 **Reaching it from a phone on your own network.** The page carries the mutation token, and
 that token is shell, files and mail on this laptop — so a non-loopback bind is refused
