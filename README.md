@@ -310,13 +310,6 @@ tests/                     Dependency-free unit tests (offline)
 
 ---
 
-## Development handoff
-
-[CHANGES_MADE.md](CHANGES_MADE.md) records the reviewed baseline, this branch's changes,
-feature proposals, ownership protocol and verification evidence for Claude and Codex.
-[CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md) is the ready-to-send collaboration message.
-Read [CLAUDE.md](CLAUDE.md), [MEMORY.md](MEMORY.md) and [ERRORS.md](ERRORS.md) before editing.
-
 ## License
 
 Released under the [MIT License](LICENSE).

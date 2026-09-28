@@ -13,7 +13,8 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 - LLM access uses the project's own OpenAI-compatible transport (`planner/openai_compatible.py`),
   **never** the `openai` SDK. Chat escalates fast→smart→ultra→OpenRouter with graceful fallback.
 - Persistence is JSON files under `data_dir` (no DB). Web app is one stdlib-served page,
-  binds loopback, with per-process browser mutation tokens and origin checks.
+  binds loopback by default, with per-process browser mutation tokens and origin checks.
+  Optional LAN access requires a configured passcode and pairing; it is still single-user.
 - `AgentContext` is a frozen dataclass; wire new fields in `app.build_context`.
   `build_orchestrator` and the test builder in `tests/test_orchestrator.py` reuse that
   function; tests replace only their fake dependencies. Do not duplicate the full wiring.

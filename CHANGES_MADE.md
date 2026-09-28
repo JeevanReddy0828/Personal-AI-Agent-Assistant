@@ -1,6 +1,95 @@
 # Changes made and Claude / Codex collaboration
 
-## Snapshot and scope
+## Current update — 2026-09-28, Codex responding to Claude
+
+Claude reviewed `140279d`; the user relayed the review in an attachment. The initial
+snapshot below is preserved for history. This section supersedes its pending-review,
+branch-status and proposed-priority statements. The full Codex response is in
+[CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md#codex---claude-2026-09-28--voice-02-ready-for-review).
+
+- Current branch: `codex/voice-riva-fallback`, base `ff163fa` (main, fetched this session).
+- Reused Codex worktree: `C:/Users/barla/.codex/worktrees/collaboration-handoff/codex new project`.
+- Original docs carried forward as `013477c`, equivalent to `140279d`'s changes.
+- Runtime fix: `9888639` (`tools/transcribe.py`, `tests/test_transcribe.py`, `ERRORS.md`).
+- DOCS-01 follow-up: this log, `CLAUDE_HANDOFF.md`, `CLAUDE.md`, `MEMORY.md`, `README.md`
+  and `packaging/README.md`. Corrected speech defaults/packaging claims, historical-review
+  reference, loopback default and message status; removed agent-message links from README.
+- Shared checkout remains clean on main at `ff163fa`. Other worktrees and uncommitted
+  reminder edits were not changed. No push, PR creation, merge to main or message send.
+
+### Claude -> Codex (user-relayed review summary)
+
+Claude verified approval behavior, shared context wiring and reminder delivery, and found
+that Riva's real gRPC errors bypassed the documented fallback. Additional corrections:
+Riva has a built-in function id and reuses chat credentials, browser tabs can default to
+server speech, packaged Riva is unverified, and several documentation/status statements
+were stale. Claude proposed owning TIME-01, offered to review VOICE-02 and asked Codex
+to check TEST-01. This is an attributed summary of the relayed review, not a new message
+sent or authored on Claude's behalf. The source attachment also asked the user to resolve
+ownership/integration of dormant branches; those requests remain with the user.
+
+### Current ownership and branch snapshot
+
+Verified locally/GitHub during this session (2026-09-28, around 11:50Z); ownership from
+Claude's message is attributed, not independently confirmed as live session state.
+
+| Feature / branch | State and next action |
+| --- | --- |
+| DOCS-01 | Reviewed by Claude; findings addressed here, awaiting re-review/integration. |
+| VOICE-02 / `codex/voice-riva-fallback` | Codex accepted implementation; Claude offered review. `9888639` implemented and verified locally. Next: Claude reviews the exact commit. |
+| TEST-01 / `claude/tests-open-nothing` | PR #134 open/conflicting, remote `9954686` has five successful latest CI jobs; local `6ec0de9` adds a stronger probe. Codex found remaining cross-platform launcher gaps; owner must address them and publish current commits before re-review. |
+| TIME-01 / proposed `claude/time-dst` | Claude proposed implementation; Codex accepts review. Dormant DST edits remain untouched pending the user's ownership decision. |
+| `claude/reminder-midnight-flake` / `claude/date-tests-stopped-clock` | User-relayed review identifies `26affb6` and `a12d7c9`; no integration performed here. Land reviewed clock fixes before TIME-01. |
+| VOICE-01 / meter-dock, voice-notices | PRs #133/#132 confirmed merged at 05:23Z/05:22Z. Proposed replacement work is VOICE-02 plus an actual microphone check. Compact-meter was reported superseded; no cleanup performed. |
+| `codex/youtube-music-routing` | Historical `d256900` search-page behavior, not active work here. Main later gained direct video selection (`5c2e6b5`); preserve but do not merge wholesale. |
+| VOICE-03 | Proposed follow-up: explicit Riva timeout policy for short clips versus long media. Unassigned and not implemented. |
+
+Revised order: finish TEST-01 review/isolation and land the clock-test fixes, then TIME-01.
+VOICE-02 is independent and ready for peer review. Setup/jobs/memory/chat/release proposals
+below remain backlog ideas, not accepted implementation assignments.
+
+### VOICE-02 behavior and evidence
+
+Automatic Riva exceptions now record `transcribe/riva` and reach existing local selection:
+Vosk when available, otherwise Whisper. A pinned `riva` still fails; cancellation and
+process-exit signals are not caught. No local-engine retry policy or new dependency was
+added. Runtime scope is only `_default_asr_backend`.
+
+- Regression proof before fix: 36 transcription tests ran with two errors and seven
+  failures (including subtests). The new transport exception and end-to-end tool result
+  exposed the bug; existing caught error classes exposed absent failure logging.
+- `python -B tests/run_tests.py test_transcribe.py`: 36 passed.
+- `python -B tests/run_tests.py test_failures.py`: 12 passed.
+- `python -B tests/run_tests.py test_webui_voice_io.py`: 6 passed.
+- Total: 54 passed, zero failures/skips; Windows / Python 3.14.0. Both changed Python
+  files parse with Python 3.11 syntax rules. This is not execution on Python 3.11/3.13.
+- Real gRPC probe: dummy key, synthetic WAV, loopback-only TLS peer, bounded parent
+  process. Still pending at three seconds; closing the peer produced `_InactiveRpcError`,
+  a diagnostic record and successful fake local transcription at 3.213 seconds.
+- SDK source passes no RPC deadline. VOICE-02 fixes raised errors, not an indefinitely
+  stalled call. Define timeout behavior separately rather than guessing a media limit.
+- No full-suite/browser-suite run, paid provider call, hardware check or installer build;
+  TEST-01 remains incomplete. No remote CI was run for this local branch.
+- Final `git diff --check` passed; UTF-8/newlines, handoff fences and 12 relative
+  Markdown file links passed validation.
+
+### TEST-01 review and TIME-01 interface reply
+
+Mocked launcher probes (no actual process launches) confirmed macOS `WebTool` and
+macOS/Linux `DesktopTool` still call platform openers. Linux `WebTool` is covered by
+inert `webbrowser.open` returning true. Guard platform launchers and make test fixtures
+safe when invoked outside `run_tests.py`; do not globally disable all subprocesses,
+since legitimate tests and browser/PDF checks need them. No TEST-01 source was edited.
+
+For TIME-01, Codex agrees to the `_localize(naive_wall)` seam, with omitted `now` using
+local wall-time semantics and explicit aware/fixed-offset `now` retaining its contract.
+Confirm fold/gap behavior and verify UTC instants as well as displayed offsets. CI has
+tzdata and should execute the zone-specific cases, even if missing local zone data makes
+those cases skip locally. No reminder file, existing clock-fix branch, `.gitattributes`
+or merge driver was changed. ERRORS.md conflicts should preserve both reviewed entries.
+
+
+## Initial DOCS-01 snapshot and scope (historical)
 
 - Author: Codex. Review date: 2026-09-28.
 - App: J.A.R.V.I.S (`laptop-agent` 0.43.0), local-first Python 3.11+ assistant.
@@ -17,7 +106,7 @@ Read first: [CLAUDE.md](CLAUDE.md), [MEMORY.md](MEMORY.md), [ERRORS.md](ERRORS.m
 [README.md](README.md). The dated [REVIEW_REPORT.md](REVIEW_REPORT.md) preserves past
 acceptance evidence. The [draft message](CLAUDE_HANDOFF.md) starts the collaboration.
 
-## What changed in this branch
+## Initial DOCS-01 changes
 
 | File | Change and reason |
 | --- | --- |
@@ -77,7 +166,7 @@ The local branch is the reviewable deliverable; inspect its commit with
    apply to their dated snapshot. Hardware, authenticated providers and installer behavior
    remain separate acceptance steps. This pass does not confirm their present operation.
 
-## Proposed feature order
+## Initial proposed feature order (superseded by the update above)
 
 These are proposals for discussion, not assigned work or promises of implementation.
 Confirm the current branch and owner before claiming any item. Codex and Claude alternate
@@ -129,7 +218,7 @@ exact branch/commit or patch, integrate it deliberately, and relay the message t
 the user or an authorized agent channel. No direct Claude connection or automatic
 cross-agent messaging was established by this task.
 
-### Current feature record
+### Initial DOCS-01 feature record (historical)
 
 - ID: DOCS-01.
 - Owner: Codex. Reviewer: Claude (requested in draft; not yet accepted).

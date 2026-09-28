@@ -1132,7 +1132,10 @@ live **ATS score** (local, no LLM) and per-job **Tailor** → grounded one-page 
 **PDF** (download via `/api/resume-pdf?id=`) + **Preview** (inline iframe). Tailoring runs
 on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/resumes/`.
 
-Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
+Tests: `python -B tests/run_tests.py` (isolated configuration/data). See CHANGES_MADE.md
+for dated branch verification, README.md for optional browser checks, and REVIEW_REPORT.md
+for the historical review. At the VOICE-02 base, test desktop isolation remains pending
+in PR #134; do not infer that the full suite cannot launch apps from its socket guard.
 
 **A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
 deleted on the next clean run so a stale report cannot mislead) holding each test id and
@@ -1151,8 +1154,9 @@ and 0.3s against 2.0s joins, which is the shape that only fires on a loaded mach
 
 Both Claude and Codex edit this repo. To avoid collisions:
 - Read [CHANGES_MADE.md](CHANGES_MADE.md) for the reviewed baseline, feature proposals,
-  ownership and handoff protocol. [CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md) is the initial
-  message to Claude; it is a draft, not evidence that another agent has accepted work.
+  ownership and handoff protocol. [CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md) preserves the
+  initial message relayed by the user and Codex's follow-up reply. Distinguish relayed
+  messages, proposed assignments and accepted work; there is no automatic agent channel.
 - **Work on a branch**, not `main` (e.g. `claude/<feature>`, `codex/<feature>`), and use
   separate worktrees when working concurrently. Never switch the other agent's checkout.
 - Before a batch, inspect status, worktrees and the agreed base. Fetch/rebase your own

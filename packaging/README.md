@@ -30,9 +30,12 @@ it records the mic, transcribes via `/api/transcribe`, and plays replies from
 - **TTS** works out of the box (offline `pyttsx3`, bundled).
 - **STT** is selected by `LAPTOP_AGENT_STT` (`auto` default), with optional hosted
   Parakeet through Riva and two local engines:
-  - **Riva / Parakeet (hosted, optional)** — requires the `riva` extra, credentials
-    and a configured function id. Sends audio to the hosted service; pin `vosk` or
-    `whisper` for local transcription. See the main README for configuration.
+  - **Riva / Parakeet (hosted, optional)** — requires the `riva` extra and a key.
+    A function id is built in; `RIVA_ASR_FUNCTION_ID` overrides it. The key is selected
+    from `RIVA_API_KEY`, then `NVIDIA_API_KEY`, then `OPENAI_API_KEY`, then the app's
+    configured model key. With the client installed and a normal chat key, `auto`
+    attempts to send WAV audio to NVIDIA without any Riva-specific setting.
+    Pin `LAPTOP_AGENT_STT=vosk` or `whisper` for local transcription.
   - **Vosk (lightweight, recommended for distribution)** — ~50MB model, **no PyTorch,
     no ffmpeg**. `pip install vosk`, download a small model from
     https://alphacephei.com/vosk/models and unzip it into a `models\` folder (or set
@@ -42,7 +45,8 @@ it records the mic, transcribes via `/api/transcribe`, and plays replies from
   - For WAV input, `auto` first tries Riva when configured and available. If that call
     fails, or for other media, it selects Vosk when a model is present, else Whisper.
     The small bundle does not include Whisper; a usable Vosk model is required for
-    offline speech input. Hosted speech requires its separately installed/bundled extra.
+    offline speech input. Neither build script explicitly bundles `riva` or `grpc`;
+    hosted speech in the packaged executable is unverified.
   - Without any engine, voice output still speaks but voice *input* returns an install hint.
 
 ## What the user needs
@@ -70,5 +74,11 @@ window opens. Closing the window quits the app.
   committed to the repo.
 - The native pywebview window uses server-side speech (`/api/transcribe` and
   `/api/tts`), selected by `?app=1`; it does not depend on Web Speech recognition.
-  A regular browser can use its own recognizer when available. Validate microphone
-  permission, the selected engine and speech playback in the actual packaged build.
+  A regular browser also defaults to server speech when the server reports an engine
+  and no preference has been saved; an explicit browser/server choice is retained.
+  Validate microphone permission, the selected engine and speech playback in the
+  actual packaged build.
+- Automatic Riva failures are recorded and fall back to Vosk when available, otherwise
+  Whisper. Pinning `LAPTOP_AGENT_STT=riva` reports a cloud failure instead of switching
+  engines. The current Riva call has no application deadline: a stalled connection can
+  delay fallback until the call raises. Timeout policy is separate follow-up work.
