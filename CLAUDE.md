@@ -950,6 +950,38 @@ In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_l
 DNS rebinding needs a domain the attacker controls, so refusing names is what makes
 widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
 
+**Accounts switch sign-in on (`accounts.py`, `sessions.py`).** With no accounts nothing
+changes. Once any account exists, a disabled one included, every request needs a session,
+loopback too: disabling the last account must not reopen the app. The first account is
+made from this machine only (the settings popover or `python -m laptop_agent.accounts`), is
+always `dev`, and `create(first=True)` decides "none yet" under the file lock, so two
+set-up requests cannot both win. The CLI is OS trust and the way back in for a locked-out
+owner. Decisions that each exist for a reason:
+- Passwords are stdlib scrypt at OWASP's N=2^17, r=8, p=1 (0.6s here). hashlib's default
+  `maxmem` of 32 MiB **refuses** those parameters, which a cheap-cost test never notices;
+  `test_the_real_cost_hashes_and_verifies` runs the real one. Hashing happens outside the
+  file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled
+  them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing
+  does not say who exists.
+- Sessions are server-side and persisted, keyed by the SHA-256 of the token, so a restart
+  does not sign the desktop window out and the file holds nothing usable as a cookie. The
+  store reloads when the file's stamp changes, because the CLI revokes from its own
+  process. Every request re-reads the account, so a disabled account or a new role applies
+  to the next request, not when the session ends.
+- `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
+  token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
+  per client and per username. The username key is scoped `local`/`lan`, so failures from
+  the wifi cannot lock the owner out of the laptop.
+- A signed-out `/` gets `signin.html`, a separate document, so the API token inside
+  `PAGE` never reaches anyone who has not signed in.
+- The page's fetch wrapper reloads on a **bare** 403 (a stale token after a restart), so a
+  final refusal must say so: role and wrong-password 403s carry `X-Jarvis-Denied`, or a
+  `personal` account would reload-loop on every developer route. A 401 now reloads too,
+  and the server answers with the sign-in page.
+- Tests swap `webui.ACCOUNTS`, `SESSIONS` and `_SIGNIN_LIMIT` for their own. One account
+  written into the data directory the runner shares would put every other web test
+  behind a sign-in page.
+
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
 outright. `send()` called `crypto.randomUUID()` on its first line, threw
