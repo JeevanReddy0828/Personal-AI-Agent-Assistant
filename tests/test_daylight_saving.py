@@ -50,7 +50,13 @@ def stopped(at: datetime) -> type[datetime]:
     class Stopped(datetime):
         @classmethod
         def now(cls, tz=None):
-            return at.astimezone(tz) if tz is not None else at.astimezone().replace(tzinfo=None)
+            if tz is not None:
+                return at.astimezone(tz)
+            naive = at.astimezone().replace(tzinfo=None)
+            # A naive reading of the hour the clocks repeat means its first occurrence
+            # unless `fold` says otherwise; without this, a clock stopped at the second
+            # 01:30 read as the first, and a test of that hour tested nothing.
+            return naive if naive.astimezone() == at else naive.replace(fold=1)
 
     return Stopped
 
