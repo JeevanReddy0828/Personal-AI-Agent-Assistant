@@ -43,6 +43,7 @@ from typing import Callable
 
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
+from laptop_agent.storage import StorageDamaged
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
@@ -718,7 +719,8 @@ class Handler(BaseHTTPRequestHandler):
     def _me(self) -> dict[str, object]:
         principal = self._principal()
         return {"ok": True, "accounts": ACCOUNTS.exists(), "local": self._client_is_local(),
-                "user": None if principal is None else {"username": principal.username, "role": principal.role}}
+                "user": None if principal is None else {"id": principal.account_id, "username": principal.username,
+                                                         "role": principal.role}}
 
     def _audit(self, event: str, **payload: object) -> None:
         try:
@@ -964,12 +966,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         # Everything this request does, down to the approval gate, acts for whoever signed in.
-        with acting_as(self._principal()):
-            self._do_get()
+        # Outside `acting_as`: finding out who that is reads the account store, which may be damaged.
+        try:
+            with acting_as(self._principal()):
+                self._do_get()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
 
     def do_POST(self) -> None:
-        with acting_as(self._principal()):
-            self._do_post()
+        try:
+            with acting_as(self._principal()):
+                self._do_post()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
+
+    def _storage_damaged(self, exc: StorageDamaged) -> None:
+        """Sign-in storage exists but cannot be read. Refuse everything: read as "no accounts"
+        it would switch sign-in off and hand the app, and its API token, to anyone."""
+        record_failure("auth.storage", exc)
+        message = ("Sign-in cannot be checked because its storage is damaged, so nobody can use "
+                   "J.A.R.V.I.S until it is repaired on the computer running it. See "
+                   "python -m laptop_agent.accounts list.")
+        if self.path.split("?", 1)[0] in {"/", "/index.html"}:
+            self._send(503, f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
+                       "text/html; charset=utf-8")
+        else:
+            self._json(503, {"ok": False, "message": message})
 
     def _do_get(self) -> None:
         if not self._trusted_request():

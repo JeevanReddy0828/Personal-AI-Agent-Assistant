@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
+from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 
 ROLES = ("dev", "personal")
 _USERNAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,31}")
@@ -71,6 +71,13 @@ class Account:
         return {"id": self.id, "username": self.username, "role": self.role,
                 "google_email": self.google_email, "disabled": self.disabled,
                 "has_password": bool(self.password_hash), "created_at": self.created_at}
+
+
+def _valid(account: Account) -> bool:
+    text_or_none = (account.password_hash, account.google_sub, account.google_email)
+    return (isinstance(account.id, str) and bool(account.id) and account.role in ROLES
+            and isinstance(account.username, str) and bool(_USERNAME.fullmatch(account.username))
+            and isinstance(account.disabled, bool) and all(v is None or isinstance(v, str) for v in text_or_none))
 
 
 def _b64(raw: bytes) -> str:
@@ -146,13 +153,27 @@ class AccountStore:
         self._dummy: str | None = None
 
     def _read(self) -> list[Account]:
+        """Every account, or `StorageDamaged`. Only a missing file means "no accounts": read as
+        empty, a damaged file would switch sign-in off and hand the app to anyone, and read from
+        its backup it could bring back a deleted account, an old password or an old role."""
+        raw_accounts = read_json_strict(self.path, {"accounts": []}).get("accounts")
+        if not isinstance(raw_accounts, list):
+            raise StorageDamaged(f"{self.path} does not hold a list of accounts.")
         names = {field.name for field in fields(Account)}
-        data = read_json(self.path, {"accounts": []})
-        return [Account(**{key: value for key, value in raw.items() if key in names})
-                for raw in data.get("accounts", []) if isinstance(raw, dict)]
+        accounts = []
+        for raw in raw_accounts:
+            try:
+                account = Account(**{key: value for key, value in raw.items() if key in names})
+            except (AttributeError, TypeError) as exc:
+                raise StorageDamaged(f"{self.path} holds an account that cannot be read.") from exc
+            if not _valid(account):
+                raise StorageDamaged(f"{self.path} holds an account that is not valid.")
+            accounts.append(account)
+        return accounts
 
     def _write(self, accounts: list[Account]) -> None:
-        atomic_write_text(self.path, _json({"accounts": [asdict(account) for account in accounts]}))
+        # No backup: an older copy of this file is a way to roll a decision back.
+        atomic_write_text(self.path, _json({"accounts": [asdict(account) for account in accounts]}), backup=False)
 
     @synchronized
     def list(self) -> list[Account]:
@@ -311,6 +332,16 @@ def main(argv: list[str] | None = None, store: AccountStore | None = None,
             raise AccountError("The two passwords differ.")
         return first
 
+    try:
+        return _run(args, store, sessions, new_password, out)
+    except StorageDamaged as exc:
+        print(f"{exc} Nobody can sign in to the web app until it is repaired. Fix the file, or move "
+              "it aside and create the first account again: python -m laptop_agent.accounts create "
+              "<name> --role dev", file=out)
+        return 1
+
+
+def _run(args, store: AccountStore, sessions, new_password: Callable[[], str], out) -> int:
     try:
         if args.command == "list":
             accounts = store.list()

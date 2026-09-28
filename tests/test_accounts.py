@@ -20,6 +20,7 @@ import laptop_agent.accounts as accounts_module
 from laptop_agent.accounts import (
     SCRYPT_COST, AccountError, AccountStore, HashingBusy, hash_password, main, verify_password,
 )
+from laptop_agent.storage import StorageDamaged
 from laptop_agent.sessions import ABSOLUTE_SECONDS, IDLE_SECONDS, SessionStore
 
 CHEAP = (2 ** 10, 8, 1)
@@ -107,6 +108,22 @@ class AccountStoreTests(unittest.TestCase):
                 with self.assertRaises(AccountError):
                     self.store.create(username, role, password)
         self.assertFalse(self.store.exists())
+
+    def test_only_a_missing_file_means_no_accounts(self) -> None:
+        self.assertFalse(self.store.exists())
+        self.store.create("jeevan", "dev", GOOD)
+        self.store.path.write_text("{broken", encoding="utf-8")
+        with self.assertRaises(StorageDamaged):
+            self.store.exists()
+        self.store.path.unlink()
+        self.assertFalse(self.store.exists())
+
+    def test_the_command_line_says_how_to_recover_damaged_storage(self) -> None:
+        self.store.path.write_text("{broken", encoding="utf-8")
+        out = io.StringIO()
+        sessions = SessionStore(Path(self.tmp.name) / "sessions.json")
+        self.assertEqual(main(["list"], self.store, sessions, ask=lambda _: GOOD, out=out), 1)
+        self.assertIn("create the first account again", out.getvalue())
 
     def test_authenticate(self) -> None:
         account = self.store.create("jeevan", "dev", GOOD)
