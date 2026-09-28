@@ -41,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
+from laptop_agent.access import acting_as
 from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, Principal
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
@@ -128,10 +129,17 @@ class _SignInLimit:
 
 
 _SIGNIN_LIMIT = _SignInLimit()
-# Routes only a `dev` account may use once accounts exist: diagnostics, and the autonomous
-# agent, which can reach any tool. Their 403 carries `X-Jarvis-Denied`, because the page
-# reloads on a bare 403 (a stale token after a restart) and would loop on a final refusal.
-_DEV_ONLY = {"/api/traces", "/api/failures", "/api/agent", "/api/agent-runs"}
+# The only routes a `personal` account may use; everything else is a developer's, so a route
+# added later is closed to it until someone decides otherwise. Left out on purpose: the
+# owner's notes, job search and resume loader (which reads any path), uploads (every use of
+# one is a file command), scheduled jobs, the agent and the app's internals. A refusal carries
+# `X-Jarvis-Denied`, because the page reloads on a bare 403 (a stale token after a restart)
+# and would loop on a final one.
+_PERSONAL_ROUTES = frozenset({
+    "/", "/index.html", "/api/me", "/api/health", "/api/metrics", "/api/reminders", "/api/approvals",
+    "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
+    "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
+})
 
 
 def _session_cookie(token: str) -> str:
@@ -684,10 +692,10 @@ class Handler(BaseHTTPRequestHandler):
         return self._lan_session() in _LAN_SESSIONS
 
     def _may_use(self, route: str) -> bool:
-        if route not in _DEV_ONLY or not ACCOUNTS.exists():
+        if not ACCOUNTS.exists():
             return True
         principal = self._principal()
-        return principal is not None and principal.role == "dev"
+        return principal is not None and (principal.role == "dev" or route in _PERSONAL_ROUTES)
 
     def _signin_page(self) -> None:
         # The default `no-store`, like the unlock page: it carries this process's nonce.
@@ -936,6 +944,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json", headers=headers)
 
     def do_GET(self) -> None:
+        # Everything this request does, down to the approval gate, acts for whoever signed in.
+        with acting_as(self._principal()):
+            self._do_get()
+
+    def do_POST(self) -> None:
+        with acting_as(self._principal()):
+            self._do_post()
+
+    def _do_get(self) -> None:
         if not self._trusted_request():
             return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
@@ -1041,7 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid chat history")
         return payload
 
-    def do_POST(self) -> None:
+    def _do_post(self) -> None:
         if self.path.split("?", 1)[0] == "/api/pair":
             if self._trusted_request():          # origin checks, but no API token yet
                 self._pair()

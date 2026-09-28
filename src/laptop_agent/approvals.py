@@ -14,6 +14,8 @@ user's answer. Deliberately strict:
   action, and an id is single-use
 - waiting has a timeout, and a timeout denies
 - the registry is in-memory and per-process; restarting the app forgets everything
+- with accounts, an account sees and answers only the approvals it asked for: a card goes
+  to that account's streams alone, and nobody else can answer it (`access.sees_approval`)
 """
 
 from __future__ import annotations
@@ -22,6 +24,9 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+
+from laptop_agent.access import current, sees_approval
+from laptop_agent.accounts import Principal
 
 # Long enough for a person to read the action and decide, short enough that an abandoned
 # tab does not pin a worker thread for the life of the process.
@@ -36,6 +41,8 @@ class PendingApproval:
     reason: str
     preview: str | None
     created_at: float
+    # Who asked, read from the request that is waiting. Never sent to the page.
+    owner: Principal | None = field(default=None, repr=False)
     _event: threading.Event = field(default_factory=threading.Event, repr=False)
     _approved: bool = field(default=False, repr=False)
 
@@ -57,11 +64,13 @@ class ApprovalBroker:
         self.timeout = timeout
         self._lock = threading.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        self._listeners: list[object] = []
+        # Each stream's callback, with the account whose stream it is.
+        self._listeners: list[tuple[object, Principal | None]] = []
 
     def pending(self) -> list[dict[str, object]]:
+        viewer = current()
         with self._lock:
-            return [item.as_dict() for item in self._pending.values()]
+            return [item.as_dict() for item in self._pending.values() if sees_approval(viewer, item.owner)]
 
     def request(self, action: str, risk: str, reason: str, preview: str | None = None) -> bool:
         """Block until the user answers, or until the timeout denies it."""
@@ -72,9 +81,12 @@ class ApprovalBroker:
             reason=reason,
             preview=preview,
             created_at=time.monotonic(),
+            owner=current(),
         )
         with self._lock:
-            listeners = list(self._listeners)
+            # Another account's stream never hears of it: the card carries the command, the
+            # recipient or the path, and whoever sees it could answer it.
+            listeners = [notify for notify, viewer in self._listeners if sees_approval(viewer, entry.owner)]
             if not listeners:
                 # Nobody is connected to answer, so waiting the full timeout would only
                 # pin this thread for two minutes before denying anyway. Deny now. This
@@ -101,7 +113,7 @@ class ApprovalBroker:
         """Answer one pending request. True if it existed and is now answered."""
         with self._lock:
             entry = self._pending.get(request_id)
-            if entry is None or entry._event.is_set():
+            if entry is None or entry._event.is_set() or not sees_approval(current(), entry.owner):
                 return False
             entry._approved = bool(approved)
             entry._event.set()
@@ -109,9 +121,8 @@ class ApprovalBroker:
 
     def add_listener(self, notify) -> None:
         with self._lock:
-            self._listeners.append(notify)
+            self._listeners.append((notify, current()))
 
     def remove_listener(self, notify) -> None:
         with self._lock:
-            if notify in self._listeners:
-                self._listeners.remove(notify)
+            self._listeners = [entry for entry in self._listeners if entry[0] != notify]

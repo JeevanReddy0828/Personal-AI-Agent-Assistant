@@ -52,6 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.access import refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -2041,6 +2042,12 @@ class AgentOrchestrator:
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
         if not (_allow_planner and self._reads_as_prose(command, lowered)):
+            # On the command about to run: after `_follow_up` has rebuilt it from history the
+            # client sent, and never on prose, which goes to the router. What the router or a
+            # split sentence produces comes back through here as a command of its own.
+            refused = refused_command(command)
+            if refused:
+                return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused)
             for dispatch in self._DISPATCH:
                 handled = await dispatch(self, command, lowered, history_turns)
                 if handled is not None:
@@ -2975,7 +2982,7 @@ class AgentOrchestrator:
             preview = [_reminder_line(item, now) for item in chosen[:20]]
             preview += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
             self.context.web.approval_gate.require(ApprovalRequest(
-                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH,
+                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH, everyday=True,
                 reason="Removes every one of them at once; they cannot be brought back.", preview="\n".join(preview)))
         for item in chosen:
             self.context.reminders.remove(int(item["id"]))
