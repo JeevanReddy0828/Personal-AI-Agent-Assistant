@@ -72,7 +72,7 @@ def main() -> int:
     # browser, not by this process, so the guard above never sees it: the routing contract
     # played a real YouTube video on every run, and pressed the real volume keys, which left
     # the laptop at 50%. Each of these now succeeds and does nothing, as a fake would.
-    def inert(*args, **kwargs):
+    def inert(*args: object, **kwargs: object) -> bool:
         return True
 
     webbrowser.open = inert

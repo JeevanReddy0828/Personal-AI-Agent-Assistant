@@ -145,7 +145,9 @@ class IsolationTests(unittest.TestCase):
         Chrome on every run, and pressed the real volume keys. The probe looks at each of
         them without calling it, so this test cannot open or press anything even with the
         guard gone."""
-        planted = Path(__file__).resolve().parent / "test_probe_opener.py"
+        # Per process: runs sharing a checkout (a sweep runs eight) would otherwise unlink
+        # each other's probe, and a run that discovers nothing still exits 0.
+        planted = Path(__file__).resolve().parent / f"test_probe_opener_{os.getpid()}.py"
         planted.write_text(
             "import ctypes\nimport os\nimport unittest\nimport webbrowser\n\n\n"
             "class Opener(unittest.TestCase):\n"
@@ -164,10 +166,12 @@ class IsolationTests(unittest.TestCase):
         self.addCleanup(planted.unlink, True)
         done = subprocess.run(
             [sys.executable, "-B", "tests/run_tests.py", planted.name],
-            cwd=run_tests.ROOT, capture_output=True, text=True,
+            cwd=run_tests.ROOT, capture_output=True, text=True, timeout=120,
             env={**os.environ, "PYTHONPATH": "src"},
         )
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        out = done.stdout + done.stderr
+        self.assertIn("Ran 1 test in", out, "the probe never ran, so nothing was checked")
+        self.assertEqual(done.returncode, 0, out)
 
 
 if __name__ == "__main__":
