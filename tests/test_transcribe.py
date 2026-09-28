@@ -3,16 +3,23 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import importlib.util
 import os
 
 import laptop_agent.tools.transcribe as transcribe_module
+from laptop_agent.cancellation import OperationCancelled
+from laptop_agent.failures import FailureLog
 from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool, warm_stt, warm_whisper
 
 
 def raise_missing(_path: Path):
     raise MissingDependencyError("engine not installed: pip install something")
+
+
+class CloudTransportError(Exception):
+    """Like grpc.RpcError, outside the built-in IO/runtime exception hierarchy."""
 
 
 class SttEngineSelectionTests(unittest.TestCase):
@@ -93,21 +100,67 @@ class SttEngineSelectionTests(unittest.TestCase):
         self.assertEqual(self.calls, ["vosk"])
 
     def test_a_failed_cloud_call_falls_back_to_a_local_engine(self) -> None:
-        # The point of a local-first app is that losing the network costs quality, not the
-        # transcription itself.
         os.environ["LAPTOP_AGENT_STT"] = "auto"
         transcribe_module._riva_available = lambda: True
-        def dead(target):
-            self.calls.append("riva")
-            raise RuntimeError("no route to host")
-        transcribe_module._riva_asr_backend = dead
-        saved = transcribe_module._vosk_available
-        transcribe_module._vosk_available = lambda: True
-        try:
-            transcribe_module._default_asr_backend(Path("clip.wav"))
-        finally:
-            transcribe_module._vosk_available = saved
-        self.assertEqual(self.calls, ["riva", "vosk"])
+        for error_type in (CloudTransportError, RuntimeError, OSError, MissingDependencyError):
+            for has_vosk in (True, False):
+                with self.subTest(error=error_type.__name__, vosk=has_vosk):
+                    self.calls.clear()
+                    error = error_type("no route to host")
+                    def dead(target: Path) -> dict[str, object]:
+                        self.calls.append("riva")
+                        raise error
+                    transcribe_module._riva_asr_backend = dead
+                    with patch.object(transcribe_module, "_vosk_available", return_value=has_vosk), \
+                            patch("laptop_agent.failures.FAILURES", FailureLog()) as failures:
+                        result = transcribe_module._default_asr_backend(Path("clip.wav"))
+                    self.assertEqual(self.calls, ["riva", "vosk" if has_vosk else "whisper"])
+                    self.assertEqual(result["text"], "v" if has_vosk else "w")
+                    entries = failures.recent()
+                    self.assertEqual(len(entries), 1)
+                    self.assertEqual(entries[0]["where"], "transcribe/riva")
+                    self.assertEqual(entries[0]["kind"], error_type.__name__)
+                    self.assertEqual(entries[0]["message"], "no route to host")
+
+    def test_pinned_riva_does_not_fall_back_on_a_transport_error(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "riva"
+        error = CloudTransportError("cloud is unavailable")
+        with patch.object(transcribe_module, "_riva_asr_backend", side_effect=error), \
+                patch("laptop_agent.failures.FAILURES", FailureLog()) as failures:
+            with self.assertRaises(CloudTransportError) as raised:
+                transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertIs(raised.exception, error)
+        self.assertEqual(self.calls, [], "a pinned engine must not invoke a local backend")
+        self.assertEqual(failures.recent(), [], "an uncaught error is not a swallowed fallback")
+
+    def test_auto_does_not_swallow_cancellation_or_process_exit(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+        for error_type in (OperationCancelled, KeyboardInterrupt, SystemExit):
+            with self.subTest(error=error_type.__name__):
+                error = error_type()
+                with patch.object(transcribe_module, "_riva_asr_backend", side_effect=error), \
+                        patch("laptop_agent.failures.FAILURES", FailureLog()) as failures:
+                    with self.assertRaises(error_type) as raised:
+                        transcribe_module._default_asr_backend(Path("clip.wav"))
+                self.assertIs(raised.exception, error)
+                self.assertEqual(self.calls, [])
+                self.assertEqual(failures.recent(), [])
+
+    def test_cloud_failure_delivers_the_local_transcript_through_the_tool(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+        with tempfile.TemporaryDirectory() as scratch:
+            clip = Path(scratch) / "clip.wav"
+            clip.write_bytes(b"fake audio for injected engines")
+            with patch.object(transcribe_module, "_riva_asr_backend",
+                              side_effect=CloudTransportError("unavailable")), \
+                    patch.object(transcribe_module, "_vosk_available", return_value=True), \
+                    patch("laptop_agent.failures.FAILURES", FailureLog()):
+                result = TranscribeTool().transcribe_media(str(clip))
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(result.data["text"], "v")
+        self.assertEqual(self.calls, ["vosk"])
 
     def test_riva_without_a_key_or_client_explains_itself(self) -> None:
         saved_key = {name: os.environ.pop(name, None) for name in ("RIVA_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY")}

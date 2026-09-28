@@ -13,6 +13,21 @@ near-miss. Newest first.
   before surfacing messages that were never seen, check each one was ever right - nobody
   has read them, so nobody has checked them.**
 
+## Session 2026-09-28 — VOICE-02 (Codex; reported by Claude)
+
+- **A cloud speech failure skipped the promised local fallback.** `_default_asr_backend`
+  caught `RuntimeError` and `OSError`, but Riva raises `grpc.RpcError` subclasses outside
+  that hierarchy. The existing test raised only `RuntimeError`, so it verified the catch
+  clause instead of the provider failure. Automatic mode now catches `Exception` at the
+  Riva boundary and records it through `record_failure("transcribe/riva", exc)` before
+  selecting Vosk when available, otherwise Whisper. Explicit `riva` still fails;
+  cancellation and process-exit exceptions still propagate. A dependency-free transport
+  exception reproduces the old failure, and a synthetic loopback call verified the real
+  `_InactiveRpcError` fallback. **Test the provider's exception hierarchy, and record every
+  swallowed fallback failure.** This does not add an RPC deadline: a silent local peer
+  kept the call pending for three seconds until closed; longer-media timeout policy is
+  separate follow-up work.
+
 ## Session 2026-09-26 — everyday-requests hardening
 
 - **Four new browser tests passed here and failed on CI, because the page re-derived what

@@ -492,8 +492,9 @@ def _default_asr_backend(target: Path) -> dict[str, object]:
     if target.suffix.lower() == ".wav" and _riva_available():
         try:
             return _riva_asr_backend(target)
-        except (MissingDependencyError, RuntimeError, OSError):
-            pass
+        except Exception as exc:
+            # gRPC transport failures are not OSError/RuntimeError subclasses.
+            record_failure("transcribe/riva", exc)
     if _vosk_available():
         return _vosk_asr_backend(target)
     return _builtin_asr_backend(target)
