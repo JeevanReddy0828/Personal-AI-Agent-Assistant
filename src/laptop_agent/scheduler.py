@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, parse_clock
+from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, on_laptop_clock, parse_clock
 
 import json
 import re
@@ -52,17 +52,26 @@ class Schedule:
             return Schedule(kind="daily", hour=int(data.get("hour", 0)), minute=int(data.get("minute", 0)), days=days)
         return Schedule(kind="interval", seconds=int(data.get("seconds", 3600)))
 
-    def is_due(self, now: datetime, last_run: datetime | None) -> bool:
+    def is_due(self, now: datetime, last_run: datetime | None, local: bool = False) -> bool:
         """Whether the job should fire at ``now``. The daily target is built in the same
         timezone as ``now`` (callers pass local-aware time), so 'daily at 08:00' fires at
-        the user's 08:00, not 08:00 UTC."""
+        the user's 08:00, not 08:00 UTC.
+
+        With ``local``, ``now`` is a reading of the laptop's clock and the target takes the
+        zone's rules for today. Built in each tick's own offset, a 01:30 job was due at
+        01:30 EDT and again an hour later at 01:30 EST, on the night the clocks go back."""
         if self.kind == "interval":
             if last_run is None:
                 return True
             return (now - last_run).total_seconds() >= self.seconds
+        if local:
+            now = on_laptop_clock(now, now.tzinfo)
         if self.days and now.weekday() not in self.days:
             return False
-        target = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
+        if local:
+            target = on_laptop_clock(datetime(now.year, now.month, now.day, self.hour, self.minute), now.tzinfo)
+        else:
+            target = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
         if now < target:
             return False
         # Past today's target: due unless we already ran at/after it today.
@@ -262,21 +271,21 @@ class SchedulerStore:
             return list(self._jobs)
 
     @synchronized
-    def due_jobs(self, now: datetime) -> list[ScheduledJob]:
+    def due_jobs(self, now: datetime, local: bool = False) -> list[ScheduledJob]:
         with self._lock:
             due = []
             for job in self._jobs:
                 if not job.enabled or job.last_status == "running":
                     continue
                 last = _parse_iso(job.last_run_at)
-                if job.schedule.is_due(now, last):
+                if job.schedule.is_due(now, last, local=local):
                     due.append(job)
             return due
 
     @synchronized
-    def claim_due_jobs(self, now: datetime) -> list[ScheduledJob]:
+    def claim_due_jobs(self, now: datetime, local: bool = False) -> list[ScheduledJob]:
         with self._lock:
-            due = [job for job in self.due_jobs(now) if job.id not in self._running]
+            due = [job for job in self.due_jobs(now, local=local) if job.id not in self._running]
             self._running.update(job.id for job in due)
             for job in due:
                 job.last_status = "running"

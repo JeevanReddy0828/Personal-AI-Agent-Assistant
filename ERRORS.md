@@ -3,6 +3,21 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-28 — a scheduled job that fired twice in the repeated hour
+
+- **A target rebuilt from each tick's own offset moves with the clock.** `Schedule.is_due`
+  built today's target as `now.replace(hour, minute)`, so on the night the clocks go back
+  a 01:30 job fired at 01:30 EDT, and at 01:30 EST the target was an hour later than that
+  run and it fired again. The ticker now asks for today's target by the zone's rules, the
+  first occurrence of a repeated time. "Fire once per local date" looked simpler and was
+  wrong: `mark_ran` records the finish time, so a job running past midnight would have
+  skipped the next day.
+- **A stopped clock must keep which of two identical readings it is.** The test helper
+  returned a naive local time, and a naive 01:30 in the repeated hour means the first
+  occurrence, so a clock stopped at the second 01:30 read as the first and the test of
+  that hour passed against the bug. Breaking the fix on purpose is what showed it.
+  **Rule: a naive local time cannot carry the repeated hour; keep `fold`, or stay aware.**
+
 ## Session 2026-09-28 — reminders an hour off across a daylight-saving change
 
 - **`datetime.now().astimezone()` is a fixed offset, not a zone.** `timeparse` stamped it

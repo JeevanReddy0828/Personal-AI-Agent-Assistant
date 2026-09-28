@@ -132,7 +132,7 @@ def _normalise_clock(hour: int, minute: int, meridiem: str, had_minutes: bool) -
     return hour, minute
 
 
-def _on_laptop_clock(moment: datetime, fallback: tzinfo | None) -> datetime:
+def on_laptop_clock(moment: datetime, fallback: tzinfo | None) -> datetime:
     """`moment` on the laptop's clock, with the offset in force at that moment rather than
     today's: across a daylight-saving change they are an hour apart, and an alarm read back
     as 7:00 rang at 6:00. A naive `moment` is a wall time. One the clock skips (spring)
@@ -151,7 +151,7 @@ def _on_laptop_clock(moment: datetime, fallback: tzinfo | None) -> datetime:
 
 def _apply(day: date, clock: tuple[int, int], now: datetime, local: bool = False) -> datetime:
     wall = datetime(day.year, day.month, day.day, clock[0], clock[1])
-    return _on_laptop_clock(wall, now.tzinfo) if local else wall.replace(tzinfo=now.tzinfo)
+    return on_laptop_clock(wall, now.tzinfo) if local else wall.replace(tzinfo=now.tzinfo)
 
 
 def parse_when(text: str, now: datetime | None = None, default_half: str = "",
@@ -169,7 +169,7 @@ def parse_when(text: str, now: datetime | None = None, default_half: str = "",
         now = datetime.now()
     local = local or now.tzinfo is None
     if local:
-        now = _on_laptop_clock(now, now.tzinfo)
+        now = on_laptop_clock(now, now.tzinfo)
     lowered = text.lower()
 
     resolvers = (lambda text, now: _iso(text, now, local), _duration,
@@ -447,8 +447,8 @@ def describe(moment: datetime, now: datetime | None = None, local: bool = False)
     if now is None:
         now = datetime.now()
     if local or now.tzinfo is None:
-        now = _on_laptop_clock(now, now.tzinfo)
-        shown = _on_laptop_clock(moment, now.tzinfo)
+        now = on_laptop_clock(now, now.tzinfo)
+        shown = on_laptop_clock(moment, now.tzinfo)
     else:
         shown = moment.astimezone(now.tzinfo)
     clock = shown.strftime("%I:%M %p").lstrip("0")   # %-I is glibc only; see ERRORS.md
