@@ -22,6 +22,7 @@ import json
 import re
 import secrets
 import sys
+import threading
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,9 +81,29 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
+# One hash holds 128 MiB for about half a second, outside the GIL, and the web server runs a
+# thread per request: measured, four hashes at once took the peak working set from 21 MiB to
+# 534 MiB, so fifty sign-in attempts from one device on the network would ask for 6.4 GB.
+# The sign-in limiter cannot prevent that, because it counts a failure only once its hash
+# has finished. So two hash at a time, and a request that cannot get a turn within
+# HASH_WAIT seconds is told to try again instead of queueing without end.
+HASH_SLOTS = 2
+HASH_WAIT = 5.0
+_hashing = threading.BoundedSemaphore(HASH_SLOTS)
+
+
+class HashingBusy(RuntimeError):
+    """No hashing slot came free in time. Nothing was decided: not a wrong password."""
+
+
 def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
-    return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
-                          maxmem=256 * n * r * p, dklen=_KEY_BYTES)
+    if not _hashing.acquire(timeout=HASH_WAIT):
+        raise HashingBusy("Too many sign-ins at once. Try again in a moment.")
+    try:
+        return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
+                              maxmem=256 * n * r * p, dklen=_KEY_BYTES)
+    finally:
+        _hashing.release()
 
 
 def hash_password(password: str, cost: tuple[int, int, int] = SCRYPT_COST) -> str:

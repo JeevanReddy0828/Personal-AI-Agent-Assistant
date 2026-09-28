@@ -10,13 +10,15 @@ from __future__ import annotations
 import io
 import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.accounts as accounts_module
 from laptop_agent.accounts import (
-    SCRYPT_COST, AccountError, AccountStore, hash_password, main, verify_password,
+    SCRYPT_COST, AccountError, AccountStore, HashingBusy, hash_password, main, verify_password,
 )
 from laptop_agent.sessions import ABSOLUTE_SECONDS, IDLE_SECONDS, SessionStore
 
@@ -39,6 +41,44 @@ class PasswordHashTests(unittest.TestCase):
 
     def test_the_same_password_hashes_differently(self) -> None:
         self.assertNotEqual(hash_password(GOOD, CHEAP), hash_password(GOOD, CHEAP))
+
+    def test_no_more_than_two_hash_at_once(self) -> None:
+        # A real hash holds 128 MiB, and the web server runs a thread per request.
+        running, peak, lock = 0, 0, threading.Lock()
+        real = accounts_module.hashlib.scrypt
+
+        def counted(*args, **kwargs):
+            nonlocal running, peak
+            with lock:
+                running += 1
+                peak = max(peak, running)
+            try:
+                time.sleep(0.05)
+                return real(*args, **kwargs)
+            finally:
+                with lock:
+                    running -= 1
+
+        with patch.object(accounts_module.hashlib, "scrypt", counted):
+            threads = [threading.Thread(target=hash_password, args=(GOOD, CHEAP)) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+        self.assertEqual(peak, accounts_module.HASH_SLOTS)
+
+    def test_a_hash_that_cannot_get_a_turn_says_busy_and_decides_nothing(self) -> None:
+        stored = hash_password(GOOD, CHEAP)
+        for _ in range(accounts_module.HASH_SLOTS):
+            accounts_module._hashing.acquire()
+        try:
+            with patch.object(accounts_module, "HASH_WAIT", 0.05):
+                with self.assertRaises(HashingBusy):   # never False: nothing was checked
+                    verify_password(GOOD, stored)
+        finally:
+            for _ in range(accounts_module.HASH_SLOTS):
+                accounts_module._hashing.release()
+        self.assertTrue(verify_password(GOOD, stored))
 
 
 class AccountStoreTests(unittest.TestCase):
