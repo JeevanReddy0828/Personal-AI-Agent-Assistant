@@ -1768,6 +1768,27 @@ class AgentOrchestrator:
             lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
         return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
 
+    def _account_limits(self, command: str, lowered: str, planner: bool) -> tuple[ToolResult | None, bool]:
+        """(a refusal, whether to dispatch) for the command about to run.
+
+        Checked there, not at the top of `_handle`: after `_follow_up` has rebuilt the command
+        from history the client sent, and never on prose, which goes to the router. What the
+        router or a split sentence produces comes back through here as a command of its own.
+        A developer form is refused with a reason. Past that it is default-deny where a command
+        is claimed: for a personal account only what is marked everyday is dispatched. Free
+        text that is not goes to the router; a command the router made that is not is refused,
+        including one nobody has classified yet.
+        """
+        refused = refused_command(command)
+        if refused:
+            return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused), False
+        if not is_personal() or self._everyday(command, lowered):
+            return None, True
+        if planner:
+            return None, False
+        return ToolResult.failure("That isn't available to a personal account.",
+                                  refused=lowered.split(" ", 1)[0]), False
+
     def _everyday(self, command: str, lowered: str) -> bool:
         """Whether a personal account may have `command` dispatched: a form marked everyday,
         or one of the everyday branches chosen by a pattern, which `test_access` counts."""
@@ -2053,19 +2074,9 @@ class AgentOrchestrator:
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
         if not (_allow_planner and self._reads_as_prose(command, lowered)):
-            # On the command about to run: after `_follow_up` has rebuilt it from history the
-            # client sent, and never on prose, which goes to the router. What the router or a
-            # split sentence produces comes back through here as a command of its own.
-            refused = refused_command(command)
-            if refused:
-                return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused)
-            # Default-deny where a command is claimed: for a personal account only what is marked
-            # everyday is dispatched. Free text that is not goes to the router; a command the
-            # router made that is not is refused, including one nobody has classified yet.
-            allowed = not is_personal() or self._everyday(command, lowered)
-            if not allowed and not _allow_planner:
-                return ToolResult.failure("That isn't available to a personal account.",
-                                          refused=lowered.split(" ", 1)[0])
+            refusal, allowed = self._account_limits(command, lowered, _allow_planner)
+            if refusal is not None:
+                return refusal
             for dispatch in self._DISPATCH if allowed else ():
                 handled = await dispatch(self, command, lowered, history_turns)
                 if handled is not None:
