@@ -1076,7 +1076,10 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             clip.unlink(missing_ok=True)
         text = str(result.data.get("text", "")).strip() if result.ok else ""
-        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+        # `ok` is false both when the engine failed and when it heard nothing, and the page
+        # must tell those apart: a broken engine is worth a notice, silence is not.
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message,
+                         "failed": not result.ok})
 
     def _handle_tts(self) -> None:
         """Text-to-speech for the native app's voice loop: render a sentence to WAV

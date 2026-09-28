@@ -3,6 +3,16 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-27 — voice notices on screen
+
+- **A hidden surface hides the bugs in what is written to it, not only the text.** Voice
+  notices went to `#vtrans`, `display:none` since June, and one of them was wrong as well
+  as invisible: the listening turn showed `/api/transcribe`'s message whenever `ok` was
+  false, and `ok` is false for silence too, so moving the notices somewhere visible as
+  they were would have put a "nothing found" card up after every quiet moment. **Rule:
+  before surfacing messages that were never seen, check each one was ever right - nobody
+  has read them, so nobody has checked them.**
+
 ## Session 2026-09-26 — everyday-requests hardening
 
 - **Four new browser tests passed here and failed on CI, because the page re-derived what

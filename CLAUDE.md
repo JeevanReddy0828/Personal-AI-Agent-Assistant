@@ -764,8 +764,8 @@ is ignored (400ms in the browser path, 800ms on the server-STT path), and a thir
 interruption inside 25s turns spoken barge-in off for the session. The server-STT listening turn also
 needs a quarter second of sound, with no quiet gap over 250ms, before it counts as the
 user: one loud frame, and later clicks seconds apart, were transcribed and answered. With
-open speakers full duplex is never fully reliable; Space and Interrupt are the manual
-fallback.
+open speakers full duplex is never fully reliable; Space is the manual fallback (the
+Interrupt button is in the hidden `#voice` panel, see below).
 
 **Stopping has to stop the turn, not just the sentence.** `stopSpeaking()` cleared the queue
 but the request was still streaming, and every later `tts` event was enqueued and spoken —
@@ -827,6 +827,17 @@ know whether the other is there. The panel stays hidden: the violet shift is the
 f6a145d chose, and this restores the one piece of it that has to be readable, not the
 overlay. Known gap: `.stagedock` is inside `.stage`, which is `display:none` in compact
 layout and below the tablet breakpoint, so the meter cannot be seen in those layouts.
+
+**Voice notices go to the reminder tray.** The same hidden panel swallowed every voice
+notice written to `#vtrans`: voice interruption switching itself off, a blocked or missing
+microphone, the recognizer's errors — which end voice mode, so the pill just turned off —
+and a failed transcription. `voiceNotice()` puts them in `#remtray`, which is fixed to the
+window and so visible in every layout, orb focus and a phone included: one at a time, never
+chimed or spoken since the microphone may be listening, cleared by Dismiss, a voice restart
+or Space. Subtitles stay hidden; that was f6a145d's design. `/api/transcribe` answers
+`failed` on its own, because its `ok: false` also means "heard nothing" — the old code
+wrote that "nothing found" message as an error too, and only the hidden panel kept it from
+putting a card up after every quiet moment.
 
 ## Running it
 

@@ -9,7 +9,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui
-from laptop_agent.tools.transcribe import TranscribeTool
+from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool
 
 
 class VoiceIoApiTests(unittest.TestCase):
@@ -57,6 +57,32 @@ class VoiceIoApiTests(unittest.TestCase):
         body = json.loads(resp.read())
         self.assertTrue(body["ok"])
         self.assertEqual(body["text"], "turn on the lights")
+
+    def test_transcribe_tells_a_broken_engine_from_silence(self) -> None:
+        """Both come back `ok: false`, so the page could not tell "nothing was said" from
+        "there is no speech engine" - and only the second is worth putting on screen."""
+        def answer_with(backend) -> dict:
+            object.__setattr__(webui._orchestrator.context, "transcribe", TranscribeTool(asr_backend=backend))
+            audio = base64.b64encode(b"RIFF\x00\x00\x00\x00WAVEfake").decode()
+            return json.loads(self._post("/api/transcribe", {"audio": audio, "ext": "wav"}).read())
+
+        def no_engine(path):
+            raise MissingDependencyError("Speech-to-text needs an engine: pip install laptop-agent[stt]")
+
+        self.addCleanup(object.__setattr__, webui._orchestrator.context, "transcribe",
+                        webui._orchestrator.context.transcribe)
+        silence = answer_with(lambda path: {"text": "", "engine": "fake", "segments": []})
+        broken = answer_with(no_engine)
+        heard = answer_with(lambda path: {"text": "turn on the lights", "engine": "fake", "segments": []})
+
+        self.assertIn("failed", broken, "the response cannot say whether the engine failed")
+        self.assertFalse(silence["ok"])
+        self.assertFalse(silence["failed"], "hearing nothing was reported as a broken engine")
+        self.assertFalse(broken["ok"])
+        self.assertTrue(broken["failed"], "a missing engine was reported as silence")
+        self.assertIn("pip install", broken["message"])
+        self.assertTrue(heard["ok"])
+        self.assertFalse(heard["failed"])
 
     def test_transcribe_rejects_empty(self) -> None:
         try:
