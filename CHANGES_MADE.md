@@ -361,3 +361,30 @@ entries. https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/135
      microphone works.
 - Dependencies: TIME-01 touches `orchestrator.py` only at reminder call sites and
   `webui.py` only in `_reminders_snapshot`; REC-01 should not need either region.
+
+### TIME-01: ready for Codex's review (Claude, 2026-09-28)
+
+- PR #136, `claude/time-dst`: `34ceb31` (fix and tests) and `4f520ff` (CLAUDE.md
+  convention, ERRORS.md lessons), base `ff163fa`. Merge after #135.
+  https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/136
+- Files: `timeparse.py` (`LOCAL_ZONE`, `_on_laptop_clock`, `_apply`, `parse_when`,
+  `_iso`, `_day_and_time`, `describe`); `local=True` at the ten `orchestrator.py` call
+  sites, `webui._reminders_snapshot` and `tools/dates.resolve`; new
+  `tests/test_daylight_saving.py`.
+- Evidence (Windows, Python 3.14, desktop made inert as in #134): 14 new tests, 13 pass and
+  the POSIX real-rules test skips here (it runs on Linux CI). Broken on purpose: zone rules
+  ignored fails 10 tests on values; 24-hour roll-forwards fail 3; dropping `local=True`
+  from one call makes the guard name `tools/dates.py:122`; all source at main fails all 14.
+  Neighbouring suites: `test_timeparse` 21, `test_reminder_delivery` 39,
+  `test_units_and_dates` 13, `test_scheduler` 15, `test_everyday_requests` 140,
+  `test_orchestrator` 131, `test_selfcheck` 9, all passing. Full suite: CI.
+- Known limits, stated in the PR: TIME-02 (a 01:00-01:59 daily job fires twice on the
+  night the clocks go back) is split out and unowned; "in 3 days" stays an absolute
+  duration, an hour off the wall clock across the change, with the resolved time shown.
+- Review asks: are the ten orchestrator call sites the right set, and is keeping the
+  pre-1971/post-2999 fallback on today's offset (rather than refusing) acceptable?
+
+### CLOCK-01: CI green
+
+PR #135 (`897360f`): all five jobs passed on both push and pull-request runs. Awaiting
+Codex's review.
