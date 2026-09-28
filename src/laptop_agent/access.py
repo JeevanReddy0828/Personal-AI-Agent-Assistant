@@ -2,8 +2,9 @@
 
 The web server sets the principal for each signed-in request (`acting_as`), and three places
 read it. The approval gate refuses a personal account anything risky enough to need approval
-at HIGH or CRITICAL. The orchestrator refuses the commands below before dispatching them.
-The approval broker shows an account only the approvals it asked for itself.
+at HIGH or CRITICAL. The orchestrator refuses it the developer forms below with a reason,
+and dispatches for it only what is marked everyday. The approval broker shows an account
+only the approvals it asked for itself.
 
 A personal account is the assistant, not the machine. It never acts on the laptop itself
 (apps, windows, the screen, the camera, files, the shell, the browser, music), never reaches
@@ -54,9 +55,10 @@ def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:
 
 
 # Exactly the forms the orchestrator's dispatchers match, whole or as a prefix, so a sentence
-# that merely starts with one of these words ("knowledge is power") is left alone.
-# tests/test_access.py holds this to the dispatchers in both directions: every entry is a
-# form they match, and every form they match is here or named there as everyday.
+# that merely starts with one of these words ("knowledge is power") is left alone. These
+# are refused with a reason, before anything else is looked at. tests/test_access.py holds
+# both lists to the dispatchers: every entry is a form they match, and every form they
+# match is in exactly one of the two.
 _DEV_EXACT = frozenset({
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
@@ -107,6 +109,39 @@ _DEV_PREFIX = (
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
     "terminal", "shell", "play music", "media",
 )
+
+
+# What a personal account may have dispatched, exactly as the dispatchers match it: whole, or
+# by a prefix written with its trailing space. Nothing else is dispatched for it. That is
+# Codex's review of #140: default-deny where a command is claimed, so a command added later,
+# or one no list names, is refused when it runs, not only in CI. The everyday branches chosen
+# by a pattern (a coin, a date question, a list edit) are checked beside the dispatch table,
+# in `AgentOrchestrator._everyday`.
+EVERYDAY_EXACT = frozenset({
+    "help", "/help", "memory", "show memory",
+    "reminders", "reminders list", "show reminders", "reminders due", "due reminders", "show due reminders",
+    "reminders next", "reminders next alarm", "reminders next timer", "reminder done", "reminder stop",
+    "reminder snooze", "timers", "timer",
+    "time", "date", "clock", "what time is it", "what is the time", "current time", "today", "what day is it",
+    "datetime", "capabilities", "what can you do",
+    "news", "weather", "forecast", "weather here", "local weather", "weather forecast",
+    "where am i", "where am i?", "my location", "locate me", "what's my location",
+    "lists", "my lists", "show lists", "show my lists", "calendar", "agenda", "my calendar", "my agenda",
+    "system status", "status", "battery", "disk space", "computer status",
+})
+EVERYDAY_PREFIX = (
+    "remember ", "forget ", "reminder add ", "remind me ", "reminder done ", "reminder stop ",
+    "reminder snooze ", "timer ", "alarm ", "solve ", "advise me on ", "advise ", "strategize ",
+    "strategise ", "research report ", "research ", "time ", "date ", "clock ", "calculate ", "calc ",
+    "compute ", "news ", "document ", "image ", "weather ", "distance ", "trip ", "around ", "map ",
+    "hotels near ", "hotels in ", "nearby ", "summarize youtube ", "youtube summary ", "web search ",
+    "search web ", "list ", "calendar add ", "convert ",
+)
+
+
+def everyday_form(lowered: str) -> bool:
+    """Whether `lowered` (the dispatchers' own `command.lower()`) is a form marked everyday."""
+    return lowered in EVERYDAY_EXACT or lowered.startswith(EVERYDAY_PREFIX)
 
 
 def refused_command(command: str) -> str | None:

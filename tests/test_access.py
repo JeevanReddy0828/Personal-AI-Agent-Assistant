@@ -2,14 +2,16 @@
 
 The gate refuses it every HIGH and CRITICAL action before anyone is asked: an approval card
 it could simply click through would be no control at all. The orchestrator refuses the
-developer-only commands on the command about to run, however it was reached. The broker
-shows an account only its own approvals, and the web server lets it use a short list of
-routes. Nobody signed in (the CLI, the ticker) is the owner, as before.
+developer-only commands on the command about to run, however it was reached, and dispatches
+for it only what is marked everyday. The broker shows an account only its own approvals,
+and the web server lets it use a short list of routes. Nobody signed in (the CLI, the
+ticker) is the owner, as before.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import json
 import tempfile
@@ -22,13 +24,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from laptop_agent import access
-from laptop_agent.access import acting_as, is_personal, refused_command
+from laptop_agent.access import EVERYDAY_EXACT, EVERYDAY_PREFIX, acting_as, everyday_form, is_personal, refused_command
 from laptop_agent.accounts import AccountStore, Principal
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import SessionStore
-from test_everyday_requests import Everyday
+from laptop_agent.tools.base import ToolResult
+from test_everyday_requests import CONTRACT, MUST_STAY_CHAT, Everyday, reached
 
 PERSONAL = Principal("p1", "family", "personal")
 OTHER = Principal("p2", "guest", "personal")
@@ -157,29 +160,6 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
     return exact, prefixes, other
 
 
-# Everything a personal account may run of what the dispatchers match. A form that is in
-# neither this list nor `access` fails the test below, so a command added later is decided
-# on, not inherited: add it to `access._DEV_*` if a personal account must not run it.
-EVERYDAY_EXACT = frozenset({
-    "help", "/help", "memory", "show memory",
-    "reminders", "reminders list", "show reminders", "reminders due", "due reminders", "show due reminders",
-    "reminders next", "reminders next alarm", "reminders next timer", "reminder done", "reminder stop",
-    "reminder snooze", "timers", "timer",
-    "time", "date", "clock", "what time is it", "what is the time", "current time", "today", "what day is it",
-    "datetime", "capabilities", "what can you do",
-    "news", "weather", "forecast", "weather here", "local weather", "weather forecast",
-    "where am i", "where am i?", "my location", "locate me", "what's my location",
-    "lists", "my lists", "show lists", "show my lists", "calendar", "agenda", "my calendar", "my agenda",
-    "system status", "status", "battery", "disk space", "computer status",
-})
-EVERYDAY_PREFIX = frozenset({
-    "remember ", "forget ", "reminder add ", "remind me ", "reminder done ", "reminder stop ",
-    "reminder snooze ", "timer ", "alarm ", "solve ", "advise me on ", "advise ", "strategize ",
-    "strategise ", "research report ", "research ", "time ", "date ", "clock ", "calculate ", "calc ",
-    "compute ", "news ", "document ", "image ", "weather ", "distance ", "trip ", "around ", "map ",
-    "hotels near ", "hotels in ", "nearby ", "summarize youtube ", "youtube summary ", "web search ",
-    "search web ", "list ", "calendar add ", "convert ",
-})
 # Top-level branches chosen by a pattern or a parser, which the scan above cannot read. All
 # everyday today: deleting a reminder, `media volume N`, a bare or asked-after list, a
 # remembered fact, a coin or dice, how long a timer has left, a list edit, a date question.
@@ -187,8 +167,8 @@ OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_
 
 
 class DispatchMirrorTests(unittest.TestCase):
-    """The refused forms are a copy of what the dispatchers match, and a hand-kept copy of a
-    list fails by omission. So both directions are checked against the dispatchers."""
+    """Both lists in `access` are copies of what the dispatchers match, and a hand-kept copy
+    of a list fails by omission. So both are checked against the dispatchers, both ways."""
 
     def setUp(self) -> None:
         self.exact, self.prefixes, self.other = dispatch_forms()
@@ -203,21 +183,28 @@ class DispatchMirrorTests(unittest.TestCase):
         self.assertEqual(access._DEV_EXACT - self.exact, set())
         self.assertEqual({form + " " for form in access._DEV_PREFIX} - self.prefixes, set())
 
+    def test_every_everyday_form_is_one_the_dispatchers_match(self) -> None:
+        # One that matched nothing would widen what is dispatched for a personal account.
+        self.assertEqual(EVERYDAY_EXACT - self.exact, set())
+        self.assertEqual(set(EVERYDAY_PREFIX) - self.prefixes, set())
+
     def test_every_form_the_dispatchers_match_is_decided(self) -> None:
-        undecided, wrong = [], []
+        # Refused by any developer form, however broad, is decided: that fails closed. Everyday
+        # must be the form itself, never a broader everyday prefix: `list secrets` added under
+        # `list ` would otherwise pass here and be dispatched for a personal account.
+        undecided = []
         with acting_as(PERSONAL):
-            for form in sorted(self.exact):
-                refused = refused_command(form) is not None
-                if refused == (form in EVERYDAY_EXACT):
-                    (wrong if form in EVERYDAY_EXACT else undecided).append(form)
-            for form in sorted(self.prefixes):
-                sample = form + ("x" if form.endswith(" ") else " x")
-                refused = refused_command(sample) is not None
-                if refused == (form in EVERYDAY_PREFIX):
-                    (wrong if form in EVERYDAY_PREFIX else undecided).append(form)
-        self.assertEqual(wrong, [], "everyday forms a personal account is refused")
+            for form in sorted(self.exact | self.prefixes):
+                sample = form if form in self.exact else form + ("x" if form.endswith(" ") else " x")
+                everyday = form in (EVERYDAY_EXACT if form in self.exact else EVERYDAY_PREFIX)
+                if refused_command(sample) is not None:
+                    continue
+                if not everyday:
+                    undecided.append(form)
+                else:
+                    self.assertTrue(everyday_form(sample), form)
         self.assertEqual(undecided, [], "forms nobody decided on: refuse them in access._DEV_* or "
-                                        "name them everyday in this test")
+                                        "mark them in access.EVERYDAY_*")
 
     def test_no_branch_escapes_the_scan(self) -> None:
         self.assertEqual(self.other, OTHER_BRANCHES,
@@ -277,6 +264,26 @@ class ThroughTheAssistantTests(unittest.TestCase):
                 result, _ran = self.say(PERSONAL, text)
                 self.assertNotIn("developer account", result.message)
 
+    def test_a_command_nobody_classified_is_not_run_for_a_personal_account(self) -> None:
+        # Codex's point on #140: the AST test catches this in CI, but a command added without
+        # a decision must also be refused where it runs.
+        ran: list[str] = []
+
+        async def zap(orchestrator, command, lowered, history_turns):
+            if lowered == "zap everything":
+                ran.append(command)
+                return ToolResult.success("zapped")
+            return None
+
+        table = (zap,) + AgentOrchestrator._DISPATCH
+        with patch.object(AgentOrchestrator, "_DISPATCH", table):
+            self.say(PERSONAL, "zap everything")
+            with acting_as(PERSONAL):
+                routed = asyncio.run(self.everyday.orchestrator.handle("zap everything", _allow_planner=False))
+            self.assertEqual(ran, [], "an unclassified command ran for a personal account")
+            self.assertEqual((routed.ok, routed.data.get("refused")), (False, "zap"))
+            self.assertEqual(self.say(DEV, "zap everything")[0].message, "zapped")
+
     def test_everyday_requests_still_work(self) -> None:
         for text in ("remind me in 10 minutes to stretch", "what's 17 times 23", "set a timer for 5 minutes",
                      "what time is it", "show my reminders", "weather in Paris", "flip a coin"):
@@ -291,6 +298,35 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.say(PERSONAL, "cancel all reminders")
         self.assertEqual([risk for risk, _ in self.everyday.approvals], ["high"],
                          "bulk cancelling is everyday: asked, as for anyone")
+
+
+class PersonalContractTests(unittest.TestCase):
+    """The whole routing contract, said by a personal account: every phrase whose command is
+    everyday still runs it, which is what holds the pattern-chosen branches in
+    `AgentOrchestrator._everyday` to the dispatchers, and every other one is refused."""
+
+    def test_the_routing_contract_for_a_personal_account(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        everyday = Everyday(Path(tmp.name))
+        broken = []
+        for text, expected in CONTRACT:
+            with acting_as(PERSONAL):
+                developer = refused_command(expected) is not None or refused_command(expected + " x") is not None
+                result, ran = everyday.say(text)
+            refused = result is not None and bool(result.data.get("refused"))
+            # As in the owner's contract test: a direct command answers before any router.
+            direct = ran == text.strip() and result is not None and "answered]" not in result.message
+            if developer and not refused:
+                broken.append(f"{text!r} ran {ran!r} for a personal account")
+            elif not developer and (refused or not (reached(ran, expected) or direct)):
+                broken.append(f"{text!r} reached {ran!r}, not {expected!r}")
+        for text in MUST_STAY_CHAT:
+            with acting_as(PERSONAL):
+                result, ran = everyday.say(text)
+            if ran is not None or "answered]" not in result.message:
+                broken.append(f"{text!r} did not stay chat for a personal account: {ran!r}")
+        self.assertEqual(broken, [], "\n" + "\n".join(broken))
 
 
 class ApprovalScopeTests(unittest.TestCase):
