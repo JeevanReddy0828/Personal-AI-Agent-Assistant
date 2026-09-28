@@ -173,7 +173,12 @@ class RoutingContractTests(unittest.TestCase):
         for text, seconds in (("record voice upto 20 seconds", 20),
                               ("record my voice for 10 seconds", 10),
                               ("record a voice note", 20),
-                              ("record audio up to 2 minutes", 120)):
+                              ("record audio up to 2 minutes", 120),
+                              ("record my voice for up to 20 seconds", 20),
+                              ("could you please record my voice for 15 seconds?", 15),
+                              ("record audio for two minutes", 120),
+                              ("start a voice recording", 20),
+                              ("record a voice memo for 30 seconds please", 30)):
             with self.subTest(text=text):
                 result, ran = self.everyday.say(text)
                 self.assertTrue(result.ok, result.message)

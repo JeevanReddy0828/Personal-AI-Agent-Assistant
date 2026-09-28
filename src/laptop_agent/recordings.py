@@ -10,10 +10,13 @@ from decimal import Decimal
 
 MAX_SECONDS = 120
 MAX_WAV_BYTES = 44 + MAX_SECONDS * 16000 * 2
+# "for up to 20 seconds" and a trailing "please?" are how the request is actually said; the
+# planner removes the polite prefix and turns spoken numbers into digits before this runs.
 _RECORD = re.compile(
-    r"record(?:\s+(?:my\s+)?(?:voice|audio)|\s+(?:a\s+)?voice\s+note)?"
-    r"(?:\s+(?:(?:for|up\s*to)\s+)?(-?\d+(?:\.\d+)?)"
-    r"\s*(seconds?|secs?|s|minutes?|mins?|m)?)?[.!]?", re.I)
+    r"(?:record|start\s+(?:a\s+)?(?:voice\s+)?recording)"
+    r"(?:\s+(?:my\s+)?(?:voice|audio)|\s+(?:a\s+)?voice\s+(?:note|memo))?"
+    r"(?:\s+(?:for\s+)?(?:up\s*to\s+)?(-?\d+(?:\.\d+)?)"
+    r"\s*(seconds?|secs?|s|minutes?|mins?|m)?)?(?:\s*,?\s*please)?[.!?]*", re.I)
 
 
 def recording_seconds(text: str) -> Decimal | None:

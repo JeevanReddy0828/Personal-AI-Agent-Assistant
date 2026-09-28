@@ -3,6 +3,21 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-28 — a recording request answered with "May I?" after every "yes"
+
+- **A request nothing routes reaches a model that thinks it can do it.** Asked "record voice
+  upto 20 seconds" in an app older than REC-01, the fast chat model answered "May I record
+  your voice for up to 20 seconds?" and asked again after each "yes". The prompt already
+  forbade asking permission, but its list of tool actions named windows, apps, reminders,
+  mail and downloads and not recording, and the capability line never mentioned it, so the
+  model took recording for its own to do once allowed. REC-01 routes that exact sentence,
+  but not the model's own wording ("for up to 20 seconds"), "can you ...", "twenty seconds"
+  (how Vosk writes it) or "start recording". **Rule: a new tool goes into the chat prompt's
+  capabilities, and its routing contract includes the phrasings the model itself uses.**
+- The app in the report was a scratch instance on port 8791 (data in `E:/Temp/jarvis-test`)
+  that an agent had started the day before; it ran whatever was checked out then. **Stop a
+  throwaway instance when the check is done.**
+
 ## Session 2026-09-27 — voice notices on screen
 
 - **A hidden surface hides the bugs in what is written to it, not only the text.** Voice

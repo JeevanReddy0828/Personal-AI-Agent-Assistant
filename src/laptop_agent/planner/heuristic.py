@@ -507,7 +507,7 @@ class HeuristicPlannerProvider:
         del available_commands, memory_profile, history
         raw = strip_address(text)
         lowered = raw.lower()
-        seconds = recording_seconds(raw)
+        seconds = recording_seconds(spoken_to_digits(raw[re.match(_POLITE, raw, re.IGNORECASE).end():]))
         if seconds is not None:
             return self._command(f"record {seconds:f}", "User requested a microphone recording.", 0.99)
 
