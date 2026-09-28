@@ -1418,3 +1418,134 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["stillReachable"], "it vanished once voice was on, stranding the mode")
         self.assertFalse(outcome["endedAgain"], "a second click did not end voice")
         self.assertFalse(outcome["pillTracks"], "the composer pill did not follow the same state")
+
+
+@unittest.skipUnless(os.environ.get("JARVIS_BROWSER_TESTS") == "1", "Opt-in Chromium checks")
+class RecordingBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from playwright.sync_api import sync_playwright
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.url = f"http://127.0.0.1:{cls.server.server_port}"
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch(headless=True, args=[
+            "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close(); cls.playwright.stop()
+        cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
+
+    def setUp(self):
+        from dataclasses import replace
+        from laptop_agent.tools.transcribe import TranscribeTool
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.speech_calls = []
+        def speech(path):
+            self.speech_calls.append(Path(path))
+            return {"text": "Remember to buy milk", "engine": "fixture", "segments": []}
+        self.config_patch = patch.object(webui, "_CONFIG", replace(webui._CONFIG, data_dir=self.root))
+        self.speech_patch = patch.object(webui._orchestrator, "context", replace(
+            webui._orchestrator.context, transcribe=TranscribeTool(asr_backend=speech)))
+        self.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 0, "ram_percent": 0, "gpus": []})
+        for fixture in (self.config_patch, self.speech_patch, self.metrics_patch):
+            fixture.start(); self.addCleanup(fixture.stop)
+        self.context = self.browser.new_context(permissions=["microphone"], reduced_motion="reduce")
+        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.page = self.context.new_page()
+        self.errors = []
+        self.page.on("pageerror", lambda error: self.errors.append(str(error)))
+        self.page.goto(self.url)
+
+    wait_js = BrowserRegressions.wait_js
+
+    def tearDown(self):
+        self.context.close()
+        self.assertEqual(self.errors, [])
+
+    def start(self, text="record 1"):
+        self.page.evaluate("text=>void send(text)", text)
+        self.page.locator(".recorder-live").wait_for(state="visible")
+        self.wait_js("()=>document.querySelector('.recorder-live p').textContent.startsWith('Recording')")
+        box = self.page.locator(".recorder-live").bounding_box()
+        self.assertGreater(box["width"], 100)
+        self.assertGreater(box["height"], 25)
+
+    def saved(self):
+        self.page.locator(".recording-card audio").wait_for(state="visible")
+        files = list((self.root/"recordings").glob("*.wav"))
+        self.assertEqual(len(files), 1)
+        self.assertEqual(self.page.locator(".recorder-live").count(), 0)
+        self.assertEqual(self.speech_calls, [])
+        return files[0]
+
+    def test_timeout_saves_one_clip_then_explicit_transcription_joins_history(self):
+        import wave
+        self.start()
+        target = self.saved()
+        with wave.open(str(target), 'rb') as audio:
+            self.assertGreater(audio.getnframes()/audio.getframerate(), .3)
+            self.assertLessEqual(audio.getnframes()/audio.getframerate(), 1)
+        self.page.get_by_role("button", name="Transcribe recording").click()
+        self.wait_js("()=>chat.textContent.includes('Remember to buy milk')")
+        self.assertEqual(self.speech_calls, [target])
+        history = self.page.evaluate("sessionHistory(curSession())")
+        self.assertTrue(any(turn["role"] == "assistant" and "Remember to buy milk" in turn["text"] for turn in history))
+        original = self.page.evaluate("current")
+        self.page.reload()
+        self.page.evaluate("id=>loadSession(id)", original)
+        self.page.locator(".recording-card audio").wait_for(state="visible")
+        self.assertIn("Remember to buy milk", self.page.locator("#chat").inner_text())
+
+    def test_manual_stop_saves_partial_clip_only_once(self):
+        import wave
+        self.start("record my voice for 20 seconds")
+        self.page.wait_for_timeout(350)
+        self.page.locator(".recorder-live button").click()
+        target = self.saved()
+        self.page.keyboard.press("Space")
+        with wave.open(str(target), 'rb') as audio:
+            self.assertGreater(audio.getnframes(), 0)
+            self.assertLess(audio.getnframes()/audio.getframerate(), 5)
+        self.assertEqual(len(list((self.root/"recordings").glob("*.wav"))), 1)
+
+    def test_space_stop_survives_switching_chats_and_keeps_original_ownership(self):
+        self.start("record 20")
+        first = self.page.evaluate("current")
+        self.page.evaluate("newSession()")
+        self.assertTrue(self.page.locator(".recorder-live").is_visible())
+        self.page.wait_for_timeout(350)
+        self.page.keyboard.press("Space")
+        self.wait_js("()=>activeRecording===null")
+        self.assertEqual(self.page.locator(".recording-card").count(), 0)
+        self.page.evaluate("id=>loadSession(id)", first)
+        self.saved()
+        self.page.get_by_role("button", name="Transcribe recording").click()
+        self.wait_js("()=>chat.textContent.includes('Remember to buy milk')")
+
+    def test_unavailable_microphone_is_visible_and_saves_nothing(self):
+        self.page.evaluate("Object.defineProperty(navigator,'mediaDevices',{value:undefined,configurable:true})")
+        self.page.evaluate("void send('record 1')")
+        self.wait_js("()=>chat.textContent.includes('secure connection')")
+        box = self.page.locator('.msg.bot .md').last.bounding_box()
+        self.assertGreater(box['height'], 10)
+        self.assertFalse((self.root/'recordings').exists())
+        self.assertIsNone(self.page.evaluate("activeRecording"))
+
+    def test_cancel_while_permission_pending_stops_late_stream_without_saving(self):
+        self.page.evaluate("""()=>{
+            const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia=opts=>new Promise(resolve=>{
+                window.releaseRecordingMic=async()=>{window.lateStream=await real(opts);resolve(window.lateStream);};
+            });
+        }""")
+        self.page.evaluate("void send('record 1')")
+        self.page.locator('.recorder-live button').click()
+        self.page.evaluate("releaseRecordingMic()")
+        self.wait_js("()=>window.lateStream.getTracks().every(t=>t.readyState==='ended')")
+        self.assertFalse((self.root/'recordings').exists())
+        self.assertIn('No audio was saved', self.page.locator('#chat').inner_text())
