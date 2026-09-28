@@ -284,6 +284,20 @@ class ThroughTheAssistantTests(unittest.TestCase):
             self.assertEqual((routed.ok, routed.data.get("refused")), (False, "zap"))
             self.assertEqual(self.say(DEV, "zap everything")[0].message, "zapped")
 
+    def test_each_everyday_branch_chosen_by_a_pattern_runs_directly(self) -> None:
+        # One phrase per pattern in `_everyday`: the routing contract names none of these
+        # shapes, so dropping one there went unnoticed until this test.
+        for setup in ("add milk to my shopping list", "remind me in 30 minutes to stretch",
+                      "set a timer for 10 minutes"):
+            self.say(None, setup)
+        for text in ("shopping list", "what's on my list", "how much longer", "what's my name",
+                     "add eggs to the list", "how many days until christmas", "roll a die",
+                     "reminder delete 1"):
+            with self.subTest(text):
+                result, ran = self.say(PERSONAL, text)
+                self.assertEqual(ran, text, f"{text!r} was not dispatched for a personal account")
+                self.assertNotIn("refused", result.data)
+
     def test_everyday_requests_still_work(self) -> None:
         for text in ("remind me in 10 minutes to stretch", "what's 17 times 23", "set a timer for 5 minutes",
                      "what time is it", "show my reminders", "weather in Paris", "flip a coin"):
