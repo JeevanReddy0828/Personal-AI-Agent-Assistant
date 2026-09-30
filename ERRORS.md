@@ -3,6 +3,18 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-28 — reminders an hour off across a daylight-saving change
+
+- **`datetime.now().astimezone()` is a fixed offset, not a zone.** `timeparse` stamped it
+  onto every day it placed a time, so on this Eastern-time laptop "Monday at 7am", said on
+  Friday 30 October 2026, was stored as 07:00-04:00 and would ring at 6:00 once the clocks
+  went back; the confirmation read it back in the same offset and said 7:00. **Rule: an
+  offset read today says nothing about another day. Place each time with the zone's rules
+  for that day, and count days on the calendar, not in hours.**
+- **A fix applied by hand to a list of call sites misses one.** The first version changed
+  eight `parse_when`/`describe` calls and missed the repeating path's one-off fallback.
+  **Rule: when a fix has to reach every caller, make a test find the callers.**
+
 ## Session 2026-09-27 — a reminder test that failed one minute a day
 
 - **A time given relative to now still has a day, and it is not always today.**

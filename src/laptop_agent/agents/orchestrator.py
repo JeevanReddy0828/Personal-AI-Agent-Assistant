@@ -293,7 +293,7 @@ def _reminder_line(item: dict, now: datetime) -> str:
     """"- #3 today at 6:22 AM — check the oven", instead of a raw UTC timestamp."""
     try:
         due = datetime.fromisoformat(str(item.get("due_at", "")))
-        when = describe(due, now) + (" (overdue)" if due <= now else "")
+        when = describe(due, now, local=True) + (" (overdue)" if due <= now else "")
     except ValueError:
         when = str(item.get("due_at", ""))
     return f"- #{item.get('id')} {when} — {item.get('message')}"
@@ -1627,7 +1627,7 @@ class AgentOrchestrator:
             if reminder is not None:
                 due = datetime.fromisoformat(str(reminder["due_at"]))
                 return ToolResult.success(f"You have a reminder for that: {reminder['message']} — "
-                                          f"{describe(due, now)}.", reminder=reminder)
+                                          f"{describe(due, now, local=True)}.", reminder=reminder)
             if re.match(r"\s*(?:my|our)\s+", what, re.IGNORECASE):
                 yours = re.sub(r"^(?:my|our)\b", "your", what.strip(), flags=re.IGNORECASE)
                 return ToolResult.success(
@@ -1935,7 +1935,7 @@ class AgentOrchestrator:
         if asked.startswith("I could not find a time in that.") and before:
             for candidate in (reply, f"at {reply}"):
                 try:
-                    if parse_when(spoken_to_digits(candidate), now) is not None:
+                    if parse_when(spoken_to_digits(candidate), now, local=True) is not None:
                         return f"{before} {candidate}"
                 except TimeParseError:
                     return None
@@ -2636,7 +2636,7 @@ class AgentOrchestrator:
                       what: str = "reminder") -> ToolResult:
         now = datetime.now().astimezone()
         try:
-            when = parse_when(cleaned, now, default_half=default_half)
+            when = parse_when(cleaned, now, default_half=default_half, local=True)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
         if when is None:
@@ -2653,7 +2653,7 @@ class AgentOrchestrator:
             )
         message = label or _reminder_message(cleaned, when.start, when.end)
         if not message:
-            return ToolResult.failure(f"What should I remind you about {describe(when.at, now)}?")
+            return ToolResult.failure(f"What should I remind you about {describe(when.at, now, local=True)}?")
         try:
             outcome = self.context.reminders.add(when.at.isoformat(), message)
         except ValueError:
@@ -2661,7 +2661,7 @@ class AgentOrchestrator:
         if not outcome.get("ok"):
             return ToolResult.failure(f"Could not add reminder: {outcome.get('reason', 'unknown error')}")
         reminder = outcome["reminder"]
-        spoken = describe(when.at, now)
+        spoken = describe(when.at, now, local=True)
         # A time already gone is kept, not refused - an explicit past date is a legitimate
         # backfill - but it is never left to look like it was scheduled ahead.
         note = "" if when.at > now else " (that time has already passed, so it is due now)"
@@ -2745,7 +2745,7 @@ class AgentOrchestrator:
         if upcoming:
             due, item = upcoming[0]
             what = "" if str(item["message"]).lower() == kind else f": {item['message']}"
-            parts.append(f"Your next {noun} is {describe(due, now)}{what}.")
+            parts.append(f"Your next {noun} is {describe(due, now, local=True)}{what}.")
         if repeating:
             parts.append("Repeating: " + "; ".join(
                 f"{job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating) + ".")
@@ -2796,7 +2796,7 @@ class AgentOrchestrator:
                 + cleaned[repeat.end():]).strip()
         now = datetime.now().astimezone()
         try:
-            when = parse_when(body, now, default_half=default_half)
+            when = parse_when(body, now, default_half=default_half, local=True)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
         message = label or (_reminder_message(body, when.start, when.end) if when else _reminder_message(body, 0, 0))
@@ -2971,7 +2971,7 @@ class AgentOrchestrator:
         set_up = []
         if reminder is not None:
             due = datetime.fromisoformat(str(reminder["due_at"]))
-            set_up.append(f"{reminder['message']} is set for {describe(due, now)}")
+            set_up.append(f"{reminder['message']} is set for {describe(due, now, local=True)}")
         set_up += [f"{job.spec[len('reminder add now '):]} repeats {job.schedule.describe()}" for job in jobs]
         if not set_up:
             return ToolResult.failure(why or "Nothing is going off right now.")
@@ -3033,7 +3033,7 @@ class AgentOrchestrator:
         now = datetime.now().astimezone()
         until = now + timedelta(minutes=minutes)
         self.context.reminders.snooze(int(reminder["id"]), until)
-        return ToolResult.success(f"Snoozed until {describe(until, now)}: {reminder['message']}.",
+        return ToolResult.success(f"Snoozed until {describe(until, now, local=True)}: {reminder['message']}.",
                                   id=reminder["id"], due_local=until.isoformat())
 
     def _jobs_list(self) -> ToolResult:
