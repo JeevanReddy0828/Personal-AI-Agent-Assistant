@@ -156,7 +156,18 @@ class SetupReportTests(unittest.TestCase):
                 return self.report(browser_engine=lambda: chromium_installed(package, browsers))["browser"]
 
             self.assertEqual((row()["state"], row()["next"]), ("missing", "python -m playwright install chromium"))
-            (browsers / "chromium_headless_shell-1223").mkdir()
+            # Codex's re-review: an interrupted install leaves the revision's folders and nothing
+            # in them. Neither the folders, nor the marker alone, is an installed browser.
+            chrome = browsers / "chromium-1223"
+            chrome.mkdir()
+            (chrome / "INSTALLATION_COMPLETE").write_text("", encoding="utf-8")
+            self.assertEqual(row()["state"], "missing", "the marker without a browser counted as installed")
+            shell = browsers / "chromium_headless_shell-1223"
+            (shell / "chrome-headless-shell-win64").mkdir(parents=True)
+            self.assertEqual(row()["state"], "missing", "empty revision folders counted as installed")
+            (shell / "chrome-headless-shell-win64" / "chrome-headless-shell.exe").write_bytes(b"MZ")
+            self.assertEqual(row()["state"], "missing", "a download Playwright never finished counted as installed")
+            (shell / "INSTALLATION_COMPLETE").write_text("", encoding="utf-8")
             self.assertEqual(row()["state"], "ready")
             self.assertFalse(chromium_installed(Path(root) / "no-such-package", browsers))
 

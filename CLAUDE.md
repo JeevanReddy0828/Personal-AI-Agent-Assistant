@@ -1076,8 +1076,10 @@ report). Offline and cheap: packages are checked with `find_spec` and programs w
 both injected, so nothing heavy is imported and nothing goes over the network; Tesseract's
 package without its program counts as `missing`, since the engine probe only checks the
 package. Two rules from Codex's review: Playwright is ready only when the Chromium revision
-its own `browsers.json` names is in its browsers directory (the package alone said ready with
-no browser, and an upgrade leaves the old revision behind), and a broken tier's advice is
+its own `browsers.json` names is in its browsers directory, finished (its `INSTALLATION_COMPLETE`
+marker and a browser executable inside: an interrupted install leaves the folders empty) — the
+package alone said ready with no browser, and an upgrade leaves the old revision behind — and a
+broken tier's advice is
 rebuilt from the HTTP status, never passed through, because the stored reason names the
 model id. Developer-only by the route allow-list and `.devonly`.
 

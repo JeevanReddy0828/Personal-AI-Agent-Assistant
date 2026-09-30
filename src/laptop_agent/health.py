@@ -143,7 +143,9 @@ def chromium_installed(package: Path | None = None, browsers: Path | None = None
     """Whether the Chromium the installed Playwright expects is on disk, offline: the revision
     its own browsers.json names, looked for in its browsers directory. The package alone is
     not enough (Codex's review of #144), and neither is any Chromium: an upgrade leaves the
-    old revision behind, and Playwright will not launch it."""
+    old revision behind, and Playwright will not launch it. Nor is the revision's folder: an
+    interrupted install leaves it empty, so a revision counts only with Playwright's own
+    `INSTALLATION_COMPLETE` marker and a browser executable inside (Codex's re-review)."""
     try:
         if package is None:
             spec = importlib.util.find_spec("playwright")
@@ -156,7 +158,20 @@ def chromium_installed(package: Path | None = None, browsers: Path | None = None
     except (ImportError, OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
     browsers = browsers or _playwright_browsers(package)
-    return any((browsers / name).is_dir() for name in wanted)
+    return any(_installed(browsers / name) for name in wanted)
+
+
+# What a finished Chromium download holds one folder down (chrome-win64, chrome-linux,
+# chrome-headless-shell-win64, ...): named per platform, so matched by name, not by path.
+_CHROMIUM_EXECUTABLES = {"chrome.exe", "chrome", "chrome-headless-shell.exe", "chrome-headless-shell",
+                         "headless_shell.exe", "headless_shell"}
+
+
+def _installed(revision: Path) -> bool:
+    if not (revision / "INSTALLATION_COMPLETE").is_file():
+        return False
+    return any((entry.is_file() and entry.name.lower() in _CHROMIUM_EXECUTABLES)
+               or (entry.is_dir() and entry.suffix == ".app") for entry in revision.glob("*/*"))
 
 
 def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, stt_engine: str | None,
