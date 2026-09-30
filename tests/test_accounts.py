@@ -128,6 +128,24 @@ class AccountStoreTests(unittest.TestCase):
         self.store.set_role(owner.id, "personal")
         self.assertEqual(self.store.get(owner.id).role, "personal")
 
+    def test_a_new_password_or_a_disable_moves_the_epoch_on(self) -> None:
+        account = self.store.create("jeevan", "dev", GOOD)
+        self.assertEqual(account.epoch, 0)
+        self.assertEqual(self.store.set_password(account.id, "a brand new phrase").epoch, 1)
+        self.assertEqual(self.store.set_disabled(account.id, True).epoch, 2)
+        self.assertEqual(self.store.set_disabled(account.id, False).epoch, 2, "enabling brings nothing back")
+        self.assertEqual(self.store.set_role(account.id, "personal").epoch, 2, "a role is read per request")
+
+    def test_a_mistyped_epoch_is_damaged_storage(self) -> None:
+        self.store.create("jeevan", "dev", GOOD)
+        saved = json.loads(self.store.path.read_text(encoding="utf-8"))
+        for bad in ("1", -1, 1.5, True, None):
+            with self.subTest(bad):
+                saved["accounts"][0]["epoch"] = bad
+                self.store.path.write_text(json.dumps(saved), encoding="utf-8")
+                with self.assertRaises(StorageDamaged):
+                    self.store.exists()
+
     def test_only_a_missing_file_means_no_accounts(self) -> None:
         self.assertFalse(self.store.exists())
         self.store.create("jeevan", "dev", GOOD)

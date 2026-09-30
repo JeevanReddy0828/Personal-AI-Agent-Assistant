@@ -34,6 +34,7 @@ class Session:
     created: float
     seen: float
     method: str
+    epoch: int = 0
 
 
 def _digest(token: str) -> str:
@@ -71,7 +72,8 @@ class SessionStore:
         for digest, raw in raw_sessions.items():
             try:
                 loaded[str(digest)] = Session(str(raw["account_id"]), float(raw["created"]),
-                                              float(raw["seen"]), str(raw.get("method", "")))
+                                              float(raw["seen"]), str(raw.get("method", "")),
+                                              int(raw.get("epoch", 0)))
             except (KeyError, TypeError, ValueError):
                 continue
         self._sessions = loaded
@@ -90,15 +92,27 @@ class SessionStore:
         stat = self.path.stat()
         self._stamp = (stat.st_mtime_ns, stat.st_size)
 
-    def create(self, account_id: str, method: str) -> str:
-        """A new session for the account; returns the token for the cookie, never stored."""
+    def create(self, account_id: str, method: str, epoch: int = 0) -> str:
+        """A new session for the account; returns the token for the cookie, never stored.
+        `epoch` is the account's when its credentials were checked. A session from an older one
+        is refused, so a caller that leaves it out fails closed once the account has changed."""
         token = secrets.token_urlsafe(32)
         now = self.clock()
         with self._lock, file_lock(self.path):
             self._refresh()
-            self._sessions[_digest(token)] = Session(account_id, now, now, method)
+            self._sessions[_digest(token)] = Session(account_id, now, now, method, epoch)
             self._save()
         return token
+
+    def rebind(self, token: str, epoch: int) -> None:
+        """Move this one session to the account's new epoch: the device that just proved the
+        new password stays signed in, where every other session ends with the old one."""
+        with self._lock, file_lock(self.path):
+            self._refresh()
+            session = self._sessions.get(_digest(token or ""))
+            if session is not None:
+                session.epoch = epoch
+                self._save()
 
     def resolve(self, token: str) -> Session | None:
         if not token:

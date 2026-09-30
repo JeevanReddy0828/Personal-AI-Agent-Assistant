@@ -408,6 +408,25 @@ class SignInTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/me", cookie=theirs)[0], 401, "an old session came back to life")
         self.sign_in("amy")
 
+    def test_a_sign_in_checked_before_a_reset_or_disable_does_not_outlive_it(self) -> None:
+        # The review of #142, reproduced at the real hash cost: a sign-in whose password was
+        # checked just before a developer reset it (or disabled the account) finished its hash
+        # after the revoke and minted a live session, which also survived disable-then-enable.
+        # Replayed here without timing: the check answers from the account as it was.
+        self.accounts.create("jeevan", "dev", GOOD)
+        self.accounts.create("amy", "personal", GOOD)
+        owner = self.sign_in()
+        for action, extra in (("password", {"password": "a brand new phrase"}), ("disable", {})):
+            with self.subTest(action):
+                as_it_was = self.accounts.find("amy")
+                self.assertEqual(self.manage(owner, action=action, username="amy", **extra)[0], 200)
+                with patch.object(self.accounts, "authenticate", return_value=as_it_was):
+                    late = self.sign_in("amy")
+                if action == "disable":
+                    self.assertEqual(self.manage(owner, action="enable", username="amy")[0], 200)
+                self.assertEqual(self.call("GET", "/api/me", cookie=late)[1].get("user"), None)
+                self.assertEqual(self.call("GET", "/api/health", cookie=late)[0], 401, "a late session is live")
+
     def test_changes_are_audited_with_who_made_them(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
         owner = self.sign_in()
