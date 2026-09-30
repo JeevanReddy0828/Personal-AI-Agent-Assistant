@@ -609,3 +609,18 @@ used `RUNNER~1`, while safe artifact resolution returned `runneradmin`. Comparin
 spellings failed although they named the same saved WAV. Assert one backend call and
 `samefile` identity, which checks the intended file boundary across Windows short names.
 The Linux units and Chromium job passed on that revision; the corrected test is rerun.
+
+## 2026-09-28 — Riva could wait forever before reaching local speech
+
+VOICE-02 fixed ordinary SDK failures, but a server accepting the socket and never
+answering produced no exception to catch. Riva's synchronous offline_recognize helper
+passes no timeout to gRPC. VOICE-03 obtains its future, waits with a monotonic budget,
+and cancels the RPC/ closes the channel on timeout, error, Stop and successful completion.
+A timeout is logged before auto mode tries local ASR. A Stop that races a connection
+error also propagates cancellation instead of accidentally launching fallback.
+
+Eight isolated future tests cover deadlines, cleanup, success, Stop/races, auto/explicit
+mode and configuration. A real nvidia-riva-client/grpc call using synthetic silence and
+a dummy key to a silent localhost TCP listener saw a TLS ClientHello, returned a timeout
+in 0.680 seconds for a 0.5-second budget (including SDK import), and closed the socket.
+This tests a stalled transport, not hosted model quality or hardware microphone capture.

@@ -380,3 +380,16 @@ Microphone access requires localhost or HTTPS and browser permission. CLI/Tkinte
 that recording needs the app/web page. Closing the page during capture cancels the unsaved
 clip. Fake-device browser tests pass; Jeevan still needs to check his physical microphone
 and native app window. No new runtime dependency is required for recording.
+
+## Hosted speech deadline (VOICE-03, 2026-09-28)
+
+Riva transcription now has a bounded wait: the default budget is 5 seconds plus half
+the WAV's duration, with a 10-second minimum and 120-second maximum. A short voice clip
+therefore fails over quickly while longer media gets more time. Override with
+`RIVA_ASR_TIMEOUT_SECONDS` (finite seconds greater than 0 and at most 600).
+
+On timeout, the RPC is cancelled and its channel is closed. `LAPTOP_AGENT_STT=auto`
+then tries the existing local backend; explicit `riva` reports the deadline failure.
+Stop cancels the pending RPC without launching fallback. The budget bounds the Riva
+wait, not file loading, local model initialization or the full transcription pipeline.
+The timeout is recorded under `transcribe/riva-timeout` for diagnosis.

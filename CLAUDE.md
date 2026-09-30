@@ -1188,3 +1188,16 @@ Both Claude and Codex edit this repo. To avoid collisions:
   have account ownership. A recording filename is not an authorization boundary.
 - Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
   and `RecordingBrowserTests` in the existing opt-in browser CI suite.
+
+## Riva deadline (VOICE-03, 2026-09-28)
+
+`_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
+blocking helper accepts no timeout. Poll `result(timeout=...)` in at most 100 ms slices,
+check operation cancellation, and always cancel the future/close its channel. Do not
+replace this with a background Python thread that leaves the RPC running after timeout.
+`_riva_timeout` scales with WAV duration and accepts `RIVA_ASR_TIMEOUT_SECONDS` in (0,600].
+A real deadline becomes TimeoutError, which auto mode can pass to the local fallback;
+OperationCancelled bypasses ordinary errors, including a Stop racing an RPC failure.
+Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates teardown.
+This is independent of VOICE-02's broader grpc exception fallback and does not import
+those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.
