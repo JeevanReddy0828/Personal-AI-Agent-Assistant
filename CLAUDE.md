@@ -1227,3 +1227,19 @@ Both Claude and Codex edit this repo. To avoid collisions:
   vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
   broken when the tool only sees one folder. That mistake invented four broken links
   that were never broken.
+
+## Recorder integration (REC-01, 2026-09-28)
+
+- `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
+  mono, 16-bit, nonempty, at most 120 seconds). `recording_enabled` is a client capability;
+  webui enables it, CLI/Tkinter do not. `record <seconds>` returns `data.record`.
+- `/api/recordings` saves only; `/api/recordings/transcribe` explicitly requests speech
+  processing; `/api/recording?name=...` serves same-origin private/no-store audio.
+  Preserve the shared token/origin gate and filename confinement for these routes.
+- Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
+  Browser capture owns its own microphone lifecycle and releases voice-chat resources.
+  Save and transcript results stay with the original session across chat changes.
+- AUTH-01 integration: keep recording commands/routes developer-only until artifacts
+  have account ownership. A recording filename is not an authorization boundary.
+- Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
+  and `RecordingBrowserTests` in the existing opt-in browser CI suite.

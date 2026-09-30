@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from laptop_agent.planner.core import PlanDecision
+from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import spoken_to_digits
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.weather import clean_place
@@ -506,6 +507,9 @@ class HeuristicPlannerProvider:
         del available_commands, memory_profile, history
         raw = strip_address(text)
         lowered = raw.lower()
+        seconds = recording_seconds(raw)
+        if seconds is not None:
+            return self._command(f"record {seconds:f}", "User requested a microphone recording.", 0.99)
 
         if lowered in {"commands", "show commands", "command list", "syntax"}:
             return self._command("help", "User asked for the command list.", 0.95)
