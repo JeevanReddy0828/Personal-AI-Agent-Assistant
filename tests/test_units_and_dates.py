@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.tools.dates import answerable, date_question, next_holiday, resolve
@@ -80,6 +81,17 @@ class DateTests(unittest.TestCase):
         self.assertFalse(answerable("how long until the movie starts", NOW))
 
 
+class StoppedClock(datetime):
+    """The orchestrator's `datetime`, stopped at local noon, 90 days before Christmas. On the
+    real clock "how many weeks until christmas" was "5 days" from 19 to 25 December, and
+    midnight passing mid-test moved the answer to a day the test had not expected."""
+
+    @classmethod
+    def now(cls, tz=None):
+        noon = datetime(2026, 9, 26, 12, 0)
+        return noon if tz is None else noon.astimezone(tz)
+
+
 class ThroughTheAssistantTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -108,20 +120,22 @@ class ThroughTheAssistantTests(unittest.TestCase):
 
     def test_counted_in_the_unit_asked_for(self) -> None:
         # "how many weeks until christmas" was answered "90 days".
-        message = self.say("how many weeks until christmas")[0].message
-        self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
-        self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            message = self.say("how many weeks until christmas")[0].message
+            self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
+            self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
 
     def test_today_and_tomorrow_by_name(self) -> None:
         # "what's today" went to a web search for the sentence; "what day is tomorrow" said
         # "Tomorrow is on Sunday ... — tomorrow".
-        today = datetime.now().astimezone().date()
-        for text, day in (("what's today", today), ("what's the date tomorrow", today + timedelta(days=1)),
-                          ("what's tomorrow's date", today + timedelta(days=1)),
-                          ("what day was yesterday", today - timedelta(days=1))):
-            message = self.say(text)[0].message
-            self.assertIn(f"**{day:%A}, {day.day} {day:%B %Y}**", message, text)
-            self.assertNotIn("— tomorrow", message)
+        today = StoppedClock.now().date()
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            for text, day in (("what's today", today), ("what's the date tomorrow", today + timedelta(days=1)),
+                              ("what's tomorrow's date", today + timedelta(days=1)),
+                              ("what day was yesterday", today - timedelta(days=1))):
+                message = self.say(text)[0].message
+                self.assertIn(f"**{day:%A}, {day.day} {day:%B %Y}**", message, text)
+                self.assertNotIn("— tomorrow", message)
         self.assertTrue(self.say("what day was yesterday")[0].message.startswith("Yesterday was"))
 
     def test_a_question_this_cannot_answer_goes_on(self) -> None:

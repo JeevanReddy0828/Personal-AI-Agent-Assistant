@@ -18,6 +18,25 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   AND the test builder in `tests/test_orchestrator.py`.
 
 ## Decisions
+- 2026-09-28: **AUTH-01 phase 1 (accounts, sessions, sign-in; Claude).** Accounts switch
+  sign-in on (none = unchanged; any = every request, loopback included); first account is
+  loopback-only and `dev`; stdlib scrypt N=2^17; server-side sessions persisted as token
+  hashes (7-day idle, 30-day absolute); roles `dev`/`personal`, re-read every request.
+  Proposed and debated in CHANGES_MADE.md; Google sign-in and Gmail are phase 2.
+- 2026-09-28: **AUTH-01 phase 3 (what a `personal` account may do; Claude).** It is the
+  assistant, not the machine: refused at four points, each for a path the others miss — the
+  gate (HIGH/CRITICAL, before anyone is asked), the orchestrator (on the command about to be
+  dispatched), the approval broker (its own cards only) and the web server (an allow-list of
+  routes). After Codex's review, commands are default-deny where they are claimed: only forms
+  marked everyday are dispatched for it, so an unclassified command is refused at runtime.
+  Both command lists mirror the dispatchers exactly, held there by an AST test.
+- 2026-09-28: **Both accounts are the owner's** (Jeevan's answer). A `personal` account is
+  the owner in a safer everyday mode, not another person, so per-account data isolation is
+  dropped: reminders, lists, facts, pictures and documents stay one store and the chat
+  prompt carries the owner's facts. What it is refused limits scope, not privacy. Mail
+  stays per account all the same (phase 2b): each account's own Gmail consent, never the
+  owner's IMAP/SMTP app password as a fallback, since that reaches the whole mailbox and
+  the OAuth grant only reads and sends.
 - 2026-06: Adopted **Agent Operating Principles** (CLAUDE.md preamble) as the governing
   doc. Codebase already conformed, so adopted going forward — no refactor.
 - 2026-06: **Job-search dashboard** initiative. Web UI became multi-page (header nav +
@@ -164,3 +183,14 @@ explicitly so its artifact location also follows the supplied configuration. Exi
 VOICE-02/STOP-01 changes are separate branches and are not included here. AUTH ownership,
 health/setup UI and reminders were left for Claude. Physical microphone/native-window
 verification remains Jeevan's task; fake Chromium media proves the browser flow only.
+
+## 2026-09-28 — VOICE-03 bounded hosted speech
+
+Branch `codex/riva-deadline` starts directly from main `ff163fa`. Default Riva budget:
+`min(120, max(10, 5 + WAV_seconds/2))`; optional finite override up to 600 seconds. The
+SDK exposes an asynchronous future but its blocking helper has no timeout argument.
+Use bounded future waits and cancel the actual RPC, close the channel, and propagate
+Stop without local fallback. Explicit Riva reports a timeout; auto chooses its existing
+local engine. This bounds only hosted waiting, not local ASR or complete file processing.
+No live credentials or provider calls were used in verification. VOICE-02 remains a
+separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this branch.

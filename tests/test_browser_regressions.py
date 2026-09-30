@@ -118,7 +118,9 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("localStorage.jarvis_sessions='{broken'")
         self.page.reload()
         self.page.evaluate("void send('help')")
-        self.wait_js("JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2")
+        # Chats are saved once the page knows whose they are, so the damaged value may still be
+        # there for a moment after the send: unparsed yet is not a failure.
+        self.wait_js("(()=>{try{return JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2}catch(e){return false}})()")
 
     def test_stop_reaches_backend_and_prevents_followup(self):
         from laptop_agent.cancellation import check_cancelled, OperationCancelled
@@ -1498,6 +1500,8 @@ class RecordingBrowserTests(unittest.TestCase):
         self.assertTrue(any(turn["role"] == "assistant" and "Remember to buy milk" in turn["text"] for turn in history))
         original = self.page.evaluate("current")
         self.page.reload()
+        # Saved chats load once /api/me says whose they are (AUTH-01), as the rail fills for a person.
+        self.wait_js("()=>chatKey!==null")
         self.page.evaluate("id=>loadSession(id)", original)
         self.page.locator(".recording-card audio").wait_for(state="visible")
         self.assertIn("Remember to buy milk", self.page.locator("#chat").inner_text())

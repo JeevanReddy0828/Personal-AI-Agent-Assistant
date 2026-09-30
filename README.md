@@ -172,7 +172,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### 🎨 Interfaces & UX
 CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
 Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt, with a live microphone meter showing what the mic hears against the level it must beat to cut in) ·
-a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
+a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics, a **Setup** list (what is on, and the next step for anything that is not), plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
 
 ---
 
@@ -229,10 +229,38 @@ is single-use, and a timeout denies — silence is never consent. With no interf
 connected to answer, the action is denied immediately rather than left hanging. Audit
 events are written to `.agent_data/audit.jsonl`.
 
-**Deployment posture.** Local-first, single-user. By default the web server binds to
-loopback (`127.0.0.1` or `localhost`) with origin checks and a per-process browser
-mutation token. It has no user accounts. Keep the configured `LAPTOP_AGENT_PORT` stable
-for browser history. Secrets live only in a gitignored `.env`; never commit real keys.
+**Deployment posture.** Local-first. By default the web server binds to loopback
+(`127.0.0.1` or `localhost`) with origin checks and a per-process browser mutation token.
+Keep the configured `LAPTOP_AGENT_PORT` stable for browser history. Secrets live only in a
+gitignored `.env`; never commit real keys.
+
+**Accounts and sign-in (optional).** With no accounts the app behaves as above. Once one
+exists, every request needs a sign-in, this computer's included. Set it up from the
+settings popover on the computer running the app, or from a terminal:
+
+```powershell
+python -m laptop_agent.accounts create jeevan --role dev
+python -m laptop_agent.accounts create family --role personal
+```
+
+A `dev` account can use everything. A `personal` account is the assistant, not the
+machine: chat, reminders, timers, lists, weather, news, maps, web search, research, and
+generated pictures and documents — but not files, the screen, the camera, apps, the shell,
+the browser or music on this laptop, not your mail, notes, indexed documents or job search,
+not the diagnostics, and nothing that acts on its own (agent mode, schedules, workflows).
+It is refused those outright rather than shown an approval card, and it sees only its own
+approval cards. It is meant as you in a safer everyday mode: it shares your reminders,
+timers, lists and remembered facts, which are not kept per account, so anyone you give it
+to sees those.
+
+On this computer, a developer can also add and manage accounts in the app: **Manage
+accounts** in the settings popover. Every change asks for your own password again.
+
+The same command resets a password, disables, deletes or lists accounts, so a forgotten
+password never locks the owner out. Passwords are scrypt-hashed. A session lasts up to 30
+days (7 without use) and ends on sign-out, a password change or a disabled account. An
+account also stands in for `LAPTOP_AGENT_LAN_PASSCODE` when you reach the app from another
+device, but LAN mode is plain HTTP, so use it only on a network you trust.
 
 **Reaching it from a phone on your own network.** The page carries the mutation token, and
 that token is shell, files and mail on this laptop — so a non-loopback bind is refused
@@ -380,3 +408,16 @@ Microphone access requires localhost or HTTPS and browser permission. CLI/Tkinte
 that recording needs the app/web page. Closing the page during capture cancels the unsaved
 clip. Fake-device browser tests pass; Jeevan still needs to check his physical microphone
 and native app window. No new runtime dependency is required for recording.
+
+## Hosted speech deadline (VOICE-03, 2026-09-28)
+
+Riva transcription now has a bounded wait: the default budget is 5 seconds plus half
+the WAV's duration, with a 10-second minimum and 120-second maximum. A short voice clip
+therefore fails over quickly while longer media gets more time. Override with
+`RIVA_ASR_TIMEOUT_SECONDS` (finite seconds greater than 0 and at most 600).
+
+On timeout, the RPC is cancelled and its channel is closed. `LAPTOP_AGENT_STT=auto`
+then tries the existing local backend; explicit `riva` reports the deadline failure.
+Stop cancels the pending RPC without launching fallback. The budget bounds the Riva
+wait, not file loading, local model initialization or the full transcription pipeline.
+The timeout is recorded under `transcribe/riva-timeout` for diagnosis.

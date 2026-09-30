@@ -32,6 +32,20 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <div class="hudpop" id="hudPop" role="dialog" aria-label="Settings">
+        <div class="acct" id="acct" hidden>
+          <div class="lbl"><span><span id="acctWho">Account</span><small id="acctRole"></small></span><button type="button" class="acctbtn" id="acctOut" hidden>Sign out</button></div>
+          <button type="button" class="acctlink" id="acctPw" hidden>Change password</button>
+          <button type="button" class="acctlink" id="acctManage" hidden>Manage accounts</button>
+          <form id="acctForm" hidden novalidate>
+            <small id="acctIntro"></small>
+            <input id="acctUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" aria-label="Username">
+            <input id="acctCur" type="password" autocomplete="current-password" placeholder="Current password" aria-label="Current password">
+            <input id="acctNew" type="password" autocomplete="new-password" placeholder="New password (8+ characters)" aria-label="New password">
+            <input id="acctNew2" type="password" autocomplete="new-password" placeholder="Repeat the new password" aria-label="Repeat the new password">
+            <button type="submit" class="acctbtn" id="acctGo">Save</button>
+            <small class="acctmsg" id="acctMsg" role="status"></small>
+          </form>
+        </div>
         <button type="button" class="toggle" id="compactBtn" role="switch" aria-checked="false"><span>Compact layout<small>Chat only — hides the rail and the orb</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="orbFocusSw" role="switch" aria-checked="false"><span>Focus the orb<small>Orb only — hides the chat and the rail</small></span><span class="sw"></span></button>
         <button type="button" class="toggle" id="onTopToggle" role="switch" aria-checked="false"><span>Always on top<small>Desktop app only</small></span><span class="sw"></span></button>
@@ -112,8 +126,8 @@
     <div class="composer">
       <div class="chips" id="chips"></div>
       <div class="box">
-        <button class="iconbtn" id="attachBtn" title="Attach a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.65 5.65l-9.2 9.2a2 2 0 0 1-2.83-2.83l8.5-8.5"/></svg></button>
-        <button class="iconbtn" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
+        <button class="iconbtn devonly" id="attachBtn" title="Attach a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.65 5.65l-9.2 9.2a2 2 0 0 1-2.83-2.83l8.5-8.5"/></svg></button>
+        <button class="iconbtn devonly" id="agentBtn" title="Agent mode — let J.A.R.V.I.S plan and act over multiple steps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
         <textarea id="ta" rows="1" placeholder="Message J.A.R.V.I.S…  (drop a file, or tap the mic)"></textarea>
         <button class="iconbtn" id="micBtn" title="Dictate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="voicetoggle" id="voiceBtn" title="Voice mode — talk to J.A.R.V.I.S hands-free (tap again to stop)">
@@ -134,7 +148,7 @@
     <div class="statcards" id="ovCards"></div>
     <div class="charts">
       <div class="chartcard"><div class="t">System usage</div><div id="ovMetrics"></div></div>
-      <div class="chartcard"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
+      <div class="chartcard devonly"><div class="t">Job pipeline</div><div id="ovFunnel"></div></div>
     </div>
   </section>
 
@@ -214,21 +228,39 @@
     <div class="dsec">
       <h3>Models and connections</h3>
       <div id="connlist"></div>
+      <details class="conn devonly" id="setupPanel">
+        <summary>Setup</summary>
+        <div id="setupList"></div>
+      </details>
       <h3>Usage</h3>
       <div id="metrics"></div>
-      <h3>Memory vault</h3>
-      <div class="vstat" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
-      <input id="vaultSearch" class="vaultsearch" type="text" placeholder="Search notes…" autocomplete="off">
-      <div id="notes"></div>
+      <h3 class="devonly">Memory vault</h3>
+      <div class="vstat devonly" id="vstat"><span class="d off"></span><span id="vtext">checking…</span></div>
+      <input id="vaultSearch" class="vaultsearch devonly" type="text" placeholder="Search notes…" autocomplete="off">
+      <div id="notes" class="devonly"></div>
     </div>
     <div class="dsec">
       <h3>Tools</h3>
-      <details class="conn" open>
+      <details class="conn devonly" open>
         <summary>Tool activity</summary>
         <div id="agentSummary"></div>
         <div id="agentList"></div>
       </details>
-      <details class="conn" id="schedPanel">
+      <details class="conn devonly" id="acctPanel" hidden>
+        <summary>Accounts</summary>
+        <div class="schedform">
+          <input id="admCur" type="password" autocomplete="current-password" placeholder="Your password, to change anything" aria-label="Your password">
+        </div>
+        <div id="admList"></div>
+        <form class="schedform" id="admAdd" novalidate>
+          <input id="admUser" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="New username" aria-label="New username">
+          <select id="admRole" aria-label="Role"><option value="personal">Personal: the assistant, not this laptop</option><option value="dev">Developer: everything</option></select>
+          <input id="admPw" type="password" autocomplete="new-password" placeholder="Their password (8+ characters)" aria-label="Their password">
+          <button type="submit">Add account</button>
+        </form>
+        <div class="schedmsg" id="admMsg" role="status"></div>
+      </details>
+      <details class="conn devonly" id="schedPanel">
         <summary>Scheduled jobs</summary>
         <div class="schedform">
           <select id="schedKind"><option value="command">command</option><option value="agent">agent</option></select>
@@ -239,7 +271,7 @@
         </div>
         <div id="schedList"></div>
       </details>
-      <details class="conn" id="runsPanel">
+      <details class="conn devonly" id="runsPanel">
         <summary>Agent runs</summary>
         <div id="runsList"></div>
       </details>

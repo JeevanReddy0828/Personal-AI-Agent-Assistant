@@ -13,8 +13,11 @@
     // The API token is per server process. If the server was restarted this tab's token
     // goes stale and same-origin calls 403 — reload once to pick up a fresh token rather
     // than dead-ending. A 5s guard prevents a reload loop if the 403 is something else.
+    // A 401 means the sign-in is gone (signed out elsewhere, or accounts just switched on):
+    // reloading lets the server answer with its sign-in page. A 403 marked X-Jarvis-Denied
+    // is a final answer (a role, a wrong password), and reloading would only repeat it.
     return p.then(r=>{
-      if(r.status===403){
+      if(r.status===401||(r.status===403&&!r.headers.get('X-Jarvis-Denied'))){
         let last=0; try{last=+sessionStorage.getItem('jarvisTokReload')||0;}catch(e){}
         if(Date.now()-last>5000){try{sessionStorage.setItem('jarvisTokReload',String(Date.now()));}catch(e){}location.reload();}
       }
@@ -632,23 +635,42 @@
   }
 
   /* suggestions */
-  const SUG=[["Get oriented","What can you do?"],["Summarize","Summarize the README"],["Research","Research local-first AI agents"],["Memory","What do you remember about me?"]];
+  const SUG=[["Get oriented","What can you do?"],["Summarize","Summarize the README",1],["Research","Research local-first AI agents"],["Memory","What do you remember about me?"]];
   const suggest=document.getElementById('suggest');
-  SUG.forEach(([t,q])=>{const c=document.createElement('button');c.type='button';c.className='scard';c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
+  SUG.forEach(([t,q,dev])=>{const c=document.createElement('button');c.type='button';c.className='scard'+(dev?' devonly':'');c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
-  /* sessions (localStorage) */
-  let sessions=[], current=null;
-  try{const saved=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]');
-    if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
-  }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
+  /* sessions (localStorage), one set per account. Nothing is read or written until /api/me
+     says who is signed in (loadChats): one origin-wide key let a personal account reopen the
+     owner's chats in the same browser. */
+  let sessions=[], current=null, chatKey=null;
+  function readChats(key){
+    try{const saved=JSON.parse(localStorage.getItem(key)||'[]');
+      return Array.isArray(saved)?saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40):[];}
+    catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';return [];}
+  }
+  // Keyed by account id, not name: a deleted account's name can be given to someone new. With
+  // sign-in off there is one set, under the original key. Chats from before sign-in was set up
+  // were the owner's, so the first developer to open the app adopts them and a personal account
+  // never sees them. Separation, not secrecy: anyone using the same browser profile can read
+  // its storage, so separate people need separate profiles or devices.
+  function loadChats(accountId,developer){
+    const key=accountId?'jarvis_sessions:'+accountId:'jarvis_sessions';
+    let saved=readChats(key),adopted=false;
+    if(accountId&&developer&&!saved.length){saved=readChats('jarvis_sessions');adopted=saved.length>0;}
+    // A chat begun before we knew who is signed in is theirs: keep it on top.
+    sessions=sessions.filter(s=>!saved.some(o=>o.id===s.id)).concat(saved).slice(0,40);
+    chatKey=key;saveSessions();renderSessions();
+    if(adopted){try{if(localStorage.getItem(key))localStorage.removeItem('jarvis_sessions');}catch(e){}}
+  }
   function saveSessions(){sessions=sessions.slice(0,40);
+    if(!chatKey)return;   // not known yet whose they are: memory only until it is
     // Incognito sessions stay in memory: they are filtered out of everything written to disk.
     const keep=sessions.filter(s=>!s.ghost);
-    try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+    try{localStorage.setItem(chatKey,JSON.stringify(keep));}
     catch(e){
       // Over quota: the tool-data digests are the expendable part — drop them and retry once.
       sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
-      try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+      try{localStorage.setItem(chatKey,JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
   function renderSessions(){
@@ -1048,7 +1070,7 @@
   const conn={fast:[PLANNER!=='heuristic'?'ok':'off',PLANNER],smart:[SMART!=='—'?'ok':'off',SMART],ultra:[ULTRA!=='—'?'ok':'off',ULTRA],vision:[VISION!=='—'?'ok':'off',VISION],vault:['off','checking…'],gpu:['off','n/a']};
   function renderConn(){
     const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
-    const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]];
+    const rows=[[cap(TIER_NAME.fast),conn.fast],[cap(TIER_NAME.smart),conn.smart],[cap(TIER_NAME.ultra),conn.ultra],['Vision model',conn.vision],['Obsidian vault',conn.vault],['GPU',conn.gpu]].filter(([,v])=>v);
     document.getElementById('connlist').innerHTML=rows.map(([k,[s,v]])=>'<div class="crow"><span class="d '+(s==='ok'?'':s)+'"></span><span class="k">'+k+'</span><span class="v" title="'+esc(String(v))+'">'+esc(String(v))+'</span></div>').join('');
   }
   renderConn();
@@ -1058,6 +1080,27 @@
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
+
+  /* setup: each capability, whether it is ready, and the next step if not (developers only) */
+  const setupPanel=document.getElementById('setupPanel'),setupList=document.getElementById('setupList');
+  const SETUP_STATE={ready:'ready',off:'not set up',missing:'missing',busy:'busy',broken:'needs fixing'};
+  async function loadSetup(){
+    let d=null;try{const r=await fetch('/api/setup');d=await r.json();if(!r.ok||!d.ok)return;}catch(e){return;}
+    setupList.textContent='';
+    d.items.forEach(item=>{
+      // Built as nodes: the text is the server's, but it is never treated as markup.
+      const row=document.createElement('div');row.className='crow setrow';row.dataset.state=item.state;
+      const dot=document.createElement('span');dot.className='d'+(item.state==='ready'?'':item.state==='off'?' off':' warn');
+      const name=document.createElement('span');name.className='k';name.textContent=item.name;
+      const state=document.createElement('span');state.className='v';state.textContent=SETUP_STATE[item.state]||item.state;
+      const more=document.createElement('span');more.className='setmore';more.textContent=item.detail||'';
+      if(item.next){const next=document.createElement('span');next.className='setnext';next.textContent=item.next;more.append(next);}
+      row.append(dot,name,state,more);setupList.append(row);
+    });
+    const todo=d.items.filter(item=>item.state!=='ready').length;
+    setupPanel.querySelector('summary').textContent='Setup'+(todo?' · '+todo+' to look at':' · all set');
+  }
+  setupPanel.addEventListener('toggle',()=>{if(setupPanel.open)loadSetup();});
   const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
   pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 
@@ -1068,7 +1111,7 @@
     names.forEach(name=>{const e=document.createElement('button');e.className='note clk';e.textContent=name;e.title=name;e.onclick=()=>openNote(name);notes.appendChild(e);});
   }
   let allNotes=[];
-  async function loadVault(){try{const v=await (await fetch('/api/vault')).json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
+  async function loadVault(){try{const r=await fetch('/api/vault');if(r.headers.get('X-Jarvis-Denied')){conn.vault=null;renderConn();return;}const v=await r.json();const d=document.querySelector('#vstat .d');const t=document.getElementById('vtext');if(v.ok){d.classList.remove('off');t.textContent=(v.status.note_count||0)+' notes connected';conn.vault=['ok',(v.status.note_count||0)+' notes'];}else{d.classList.add('off');t.textContent='not connected';conn.vault=['off','not connected'];}renderConn();allNotes=(v.notes||[]).map(n=>n.name);renderNoteList(allNotes.slice(0,12));}catch(e){}}
   async function openNote(name){
     const nv=document.getElementById('noteViewer');document.body.appendChild(nv);
     document.getElementById('nvTitle').textContent=name;
@@ -1268,6 +1311,124 @@
   onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
   hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
   document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
+
+  /* account: set sign-in up on this machine, or say who is signed in, sign out, change the password */
+  (function(){
+    const box=document.getElementById('acct'),who=document.getElementById('acctWho'),out=document.getElementById('acctOut'),
+          pw=document.getElementById('acctPw'),form=document.getElementById('acctForm'),intro=document.getElementById('acctIntro'),
+          user=document.getElementById('acctUser'),cur=document.getElementById('acctCur'),nw=document.getElementById('acctNew'),
+          nw2=document.getElementById('acctNew2'),go=document.getElementById('acctGo'),msg=document.getElementById('acctMsg'),
+          role=document.getElementById('acctRole'),manage=document.getElementById('acctManage'),
+          panel=document.getElementById('acctPanel'),admList=document.getElementById('admList'),
+          admCur=document.getElementById('admCur'),admMsg=document.getElementById('admMsg'),admAdd=document.getElementById('admAdd');
+    let mode='';   // '' | 'setup' | 'password'
+    function show(next){
+      mode=next;form.hidden=!mode;user.hidden=mode!=='setup';cur.hidden=mode!=='password';
+      intro.textContent=mode==='setup'?'Anyone who opens this app can use it. Set up an owner account and it will ask everyone to sign in.':'';
+      go.textContent=mode==='setup'?'Set up sign-in':'Change password';msg.textContent='';
+    }
+    let seenId;   // whose page this is; a different answer later means someone else signed in
+    async function refresh(){
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(!d||!d.ok)return;
+      seenId=d.user?d.user.id:(d.accounts?null:'');
+      if(seenId!==null)loadChats(seenId,!!(d.user&&d.user.role==='dev'));
+      if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;document.body.dataset.role=d.user.role;
+        // Accounts are managed on this computer only, and only by a developer: the server says so too.
+        const admin=d.user.role==='dev'&&d.local;manage.hidden=panel.hidden=!admin;
+        const hi=document.querySelector('#empty h1');if(hi)hi.textContent='How can I help, '+d.user.username.charAt(0).toUpperCase()+d.user.username.slice(1)+'?';
+        role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
+      else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
+      else box.hidden=true;
+    }
+    pw.onclick=()=>show(mode==='password'?'':'password');
+    function button(label,run){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=run;return b;}
+    function say(text,bad){admMsg.textContent=text||'';admMsg.classList.toggle('err',!!bad);}
+    function renderAccounts(d){
+      admList.textContent='';
+      (d.accounts||[]).forEach(a=>{
+        // Built as nodes, never markup: a username is data.
+        const card=document.createElement('div');card.className='schedcard'+(a.disabled?' off':'');
+        const top=document.createElement('div');top.className='top';
+        const kind=document.createElement('span');kind.className='kind';kind.textContent=a.role==='dev'?'Developer':'Personal';
+        const when=document.createElement('span');when.className='when';when.textContent=a.id===d.me?'you':(a.disabled?'disabled':'');
+        top.append(kind,when);
+        const name=document.createElement('div');name.className='spec';name.textContent=a.username;
+        card.append(top,name);
+        if(a.id!==d.me){
+          const meta=document.createElement('div');meta.className='meta';
+          let armed=null;
+          const del=button('delete',()=>{
+            if(!armed){del.textContent='confirm delete';armed=setTimeout(()=>{del.textContent='delete';armed=null;},4000);return;}
+            clearTimeout(armed);act({action:'delete',username:a.username});});
+          meta.append(
+            button(a.role==='dev'?'make personal':'make developer',()=>act({action:'role',username:a.username,role:a.role==='dev'?'personal':'dev'})),
+            button(a.disabled?'enable':'disable',()=>act({action:a.disabled?'enable':'disable',username:a.username})),
+            button('new password',()=>{
+              if(meta.querySelector('input'))return;
+              const input=document.createElement('input');input.type='password';input.autocomplete='new-password';
+              input.placeholder='Their new password';input.setAttribute('aria-label','New password for '+a.username);
+              meta.replaceChildren(input,button('save',()=>act({action:'password',username:a.username,password:input.value})));
+              input.focus();}),
+            del);
+          card.append(meta);
+        }
+        admList.append(card);
+      });
+    }
+    async function loadAccounts(){
+      try{const r=await fetch('/api/accounts');const d=await r.json();if(r.ok)renderAccounts(d);else say(d.message,true);}
+      catch(e){say('Could not reach the app.',true);}
+    }
+    async function act(body){
+      if(!admCur.value){say('Type your password first: every change asks for it.',true);admCur.focus();return false;}
+      say('Working…');
+      try{
+        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current:admCur.value})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok){renderAccounts(d);say(d.message);return true;}
+        say(d.message||('Could not change that (HTTP '+r.status+').'),true);
+      }catch(e){say('Could not reach the app.',true);}
+      return false;
+    }
+    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();});
+    manage.onclick=()=>{hudPop.classList.remove('open');hudBtn.classList.remove('on');setDrawer(true,hudBtn);panel.open=true;panel.scrollIntoView({block:'nearest'});};
+    admAdd.addEventListener('submit',async ev=>{
+      ev.preventDefault();
+      const user=document.getElementById('admUser'),pass=document.getElementById('admPw');
+      if(await act({action:'create',username:user.value,role:document.getElementById('admRole').value,password:pass.value})){user.value=pass.value='';}
+    });
+    out.onclick=async()=>{
+      try{await fetch('/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
+      location.reload();
+    };
+    form.addEventListener('submit',async ev=>{
+      ev.preventDefault();msg.textContent='';
+      if(nw.value!==nw2.value){msg.textContent='The two passwords differ.';return;}
+      const setup=mode==='setup';
+      go.disabled=true;
+      try{
+        const r=await fetch(setup?'/auth/bootstrap':'/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(setup?{username:user.value,password:nw.value}:{current:cur.value,new:nw.value})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok&&setup){location.reload();return;}
+        // Say what the server said; never guess a cause for a refusal.
+        msg.textContent=d.message||(r.ok?'Saved.':'Could not save (HTTP '+r.status+').');
+        if(r.ok){cur.value=nw.value=nw2.value='';}
+      }catch(e){msg.textContent='Could not reach the app.';}
+      go.disabled=false;
+    });
+    refresh();
+    // Signing in as someone else in another tab changes this tab's cookie too, while its screen
+    // and memory still hold the previous account's chats: reload rather than carry them over.
+    async function checkIdentity(){
+      if(seenId===undefined)return;
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(d&&d.ok&&(d.user?d.user.id:(d.accounts?null:''))!==seenId)location.reload();
+    }
+    window.addEventListener('focus',checkIdentity);
+    setInterval(()=>{if(!document.hidden)checkIdentity();},30000);
+  })();
   (function restoreHud(){
     const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}
     let bf=null; try{bf=localStorage.getItem('jarvis_bargefloor');}catch(e){}
@@ -1503,13 +1664,15 @@
   async function loadOverview(){
     document.getElementById('ovSub').textContent='Loading overview…';
     try{
-      const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),fetch('/api/jobs').then(r=>r.json())]);
+      const personal=document.body.dataset.role==='personal';   // the job search is the owner's
+      const [h,m,j]=await Promise.all([fetch('/api/health').then(r=>r.json()),fetch('/api/metrics').then(r=>r.json()),
+        personal?Promise.resolve({}):fetch('/api/jobs').then(r=>r.json())]);
       const tiers=(h.llm&&h.llm.tiers)||{};
       const busy=Object.values(tiers).filter(v=>v==='degraded').length;
       document.getElementById('ovSub').textContent=new Date().toLocaleString();
       document.getElementById('ovCards').innerHTML=
         statCard('AI status',HEALTH_LABEL[h.overall]||'Unknown',busy?busy+' tier busy':'')+
-        statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers')+
+        (personal?'':statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers'))+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
       let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar('GPU',g.util_percent,'%','g');});
