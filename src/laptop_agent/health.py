@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import os
+import re
+import sys
+from pathlib import Path
 from typing import Any
 
+from laptop_agent.planner.openai_compatible import _PERMANENT_ADVICE
 from laptop_agent.storage import storage_warnings
 
 
@@ -104,20 +111,66 @@ def _row(key: str, name: str, state: str, detail: str, next_step: str | None = N
     return {"key": key, "name": name, "state": state, "detail": detail, "next": next_step}
 
 
+def _broken_advice(reason: str, variable: str) -> str | None:
+    """What to change for a misconfigured tier, rebuilt from the HTTP status alone: the stored
+    reason names the model id (`classify_failure`), and this report never shows one."""
+    found = re.search(r"HTTP (\d{3})\b", reason)
+    status = int(found[1]) if found else None
+    if status not in _PERMANENT_ADVICE:
+        return None
+    fix = {401: "OPENAI_API_KEY", 403: f"OPENAI_API_KEY and {variable}"}.get(status, variable)
+    return f"{_PERMANENT_ADVICE[status]} (HTTP {status}): check {fix}."
+
+
+def _playwright_browsers(package: Path) -> Path:
+    """Where Playwright keeps its browsers, read the way Playwright reads it."""
+    chosen = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if chosen == "0":
+        return package / "driver" / "package" / ".local-browsers"
+    if chosen:
+        return Path(chosen)
+    if sys.platform == "win32":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ms-playwright"
+
+
+def chromium_installed(package: Path | None = None, browsers: Path | None = None) -> bool:
+    """Whether the Chromium the installed Playwright expects is on disk, offline: the revision
+    its own browsers.json names, looked for in its browsers directory. The package alone is
+    not enough (Codex's review of #144), and neither is any Chromium: an upgrade leaves the
+    old revision behind, and Playwright will not launch it."""
+    try:
+        if package is None:
+            spec = importlib.util.find_spec("playwright")
+            if spec is None or not spec.origin:
+                return False
+            package = Path(spec.origin).parent
+        listed = json.loads((package / "driver" / "package" / "browsers.json").read_text(encoding="utf-8"))
+        wanted = [f"{entry['name'].replace('-', '_')}-{entry['revision']}" for entry in listed["browsers"]
+                  if entry.get("name") in ("chromium", "chromium-headless-shell")]
+    except (ImportError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+    browsers = browsers or _playwright_browsers(package)
+    return any((browsers / name).is_dir() for name in wanted)
+
+
 def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, stt_engine: str | None,
                  ocr_engine: str | None, sign_in: bool, lan_mode: bool, find_spec=None,
-                 which=None) -> list[dict[str, object]]:
+                 which=None, browser_engine=None) -> list[dict[str, object]]:
     """Each capability, whether it is ready and what to do if not. States: `ready`, `off`
     (optional and not set up), `missing` (a package or engine it needs is absent), `busy` (a
     model tier is loaded or unreachable) and `broken` (a tier is misconfigured, with why).
 
-    Offline and cheap: packages are looked up with `find_spec` and programs with `which`, both
-    injectable, so nothing heavy is imported and nothing goes over the network."""
-    import importlib.util
+    Offline and cheap: packages are looked up with `find_spec`, programs with `which` and
+    Playwright's Chromium with `browser_engine`, all injectable, so nothing heavy is imported
+    and nothing goes over the network."""
     import shutil
 
     find_spec = find_spec or importlib.util.find_spec
     which = which or shutil.which
+    browser_engine = browser_engine or chromium_installed
 
     def has(module: str) -> bool:
         try:
@@ -146,7 +199,8 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
         detail = {"ready": "Answering.", "busy": "Busy at the moment; replies fall back.",
                   "broken": "Misconfigured: this will not recover by waiting."}[state]
         rows.append(_row("chat", "Chat model", state, detail,
-                         (reason or "Check OPENAI_API_KEY and OPENAI_MODEL.") if state == "broken" else None))
+                         (_broken_advice(reason, "OPENAI_MODEL") or "Check OPENAI_API_KEY and OPENAI_MODEL.")
+                         if state == "broken" else None))
 
     deeper = [(label, name) for label, attr, name in (("balanced", "smart_planner", "smart"),
                                                       ("deep", "ultra_planner", "ultra"))
@@ -157,10 +211,12 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
         states = {name: tier(name) for _, name in deeper}
         state = "broken" if "broken" in states.values() else "busy" if "busy" in states.values() else "ready"
         named = " and ".join(label for label, _ in deeper).capitalize()
-        reasons = "; ".join(str(snapshot.get("reasons", {}).get(name) or "") for name, s in states.items()
-                            if s == "broken")
+        variables = {"smart": "OPENAI_SMART_MODEL", "ultra": "OPENAI_ULTRA_MODEL"}
+        advice = "; ".join(_broken_advice(str(snapshot.get("reasons", {}).get(name) or ""), variables[name])
+                           or f"check OPENAI_API_KEY and {variables[name]}."
+                           for name, s in states.items() if s == "broken")
         rows.append(_row("deeper", "Deeper models", state, f"{named} configured." if state == "ready"
-                         else f"{named} configured; one is {state}.", reasons or None))
+                         else f"{named} configured; one is {state}.", advice or None))
 
     vision = getattr(orchestrator, "vision_planner", None) is not None
     rows.append(_row("vision", "Vision", "ready" if vision else "off",
@@ -193,8 +249,12 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     rows.append(_row("docs", "Documents", "ready" if all(formats.values()) else "missing",
                      ", ".join(f"{name}: {'yes' if ok else 'no'}" for name, ok in formats.items()) + "."))
     browser = has("playwright")
-    rows.append(_row("browser", "Browser and PDF export", "ready" if browser else "missing",
-                     "Reads pages and writes PDFs." if browser else "Page reading and PDF export are off."))
+    engine = browser and browser_engine()
+    rows.append(_row("browser", "Browser and PDF export", "ready" if engine else "missing",
+                     "Reads pages and writes PDFs." if engine else
+                     "Playwright is installed but not the Chromium it uses." if browser else
+                     "Page reading and PDF export are off.",
+                     "python -m playwright install chromium" if browser and not engine else None))
     youtube = has("youtube_transcript_api")
     rows.append(_row("youtube", "YouTube summaries", "ready" if youtube else "missing",
                      "Summarises a video from its transcript." if youtube else "Videos cannot be summarised."))

@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from laptop_agent.health import setup_report
+from laptop_agent.health import chromium_installed, setup_report
 
 SECRETS = ("nvapi-SECRET-chat", "nvapi-SECRET-image", "SECRET-search", "SECRET-imap-password",
            "SECRET-smtp-password", "SECRET-openrouter", "C:\\Users\\me\\Private Vault", "vendor/secret-model-7b",
@@ -64,7 +64,7 @@ def nothing(module):
 class SetupReportTests(unittest.TestCase):
     def report(self, orch=None, cfg=None, **kwargs):
         options = dict(llm_reachable=True, stt_engine="vosk", ocr_engine="tesseract", sign_in=True, lan_mode=True,
-                       find_spec=everything, which=lambda name: "/usr/bin/" + name)
+                       find_spec=everything, which=lambda name: "/usr/bin/" + name, browser_engine=lambda: True)
         options.update(kwargs)
         rows = setup_report(orch or orchestrator(), cfg or config(), **options)
         return {row["key"]: row for row in rows}
@@ -116,6 +116,49 @@ class SetupReportTests(unittest.TestCase):
     def test_tesseract_needs_its_program_not_just_the_package(self):
         self.assertEqual(self.report(which=lambda name: None)["ocr"]["state"], "missing")
         self.assertEqual(self.report(which=lambda name: None, ocr_engine="nemotron-parse")["ocr"]["state"], "ready")
+
+    def test_a_real_failure_reason_never_shows_the_model_id(self):
+        # Codex's review of #144: a stored reason is classify_failure's own wording, which names
+        # the model id, and it went straight into `next`. The advice is rebuilt from the status.
+        from laptop_agent.planner.openai_compatible import classify_failure
+
+        reasons = {}
+        for tier, code in (("fast", 410), ("smart", 404), ("ultra", 401)):
+            _, reasons[tier] = classify_failure(urllib.error.HTTPError("https://example.test", code, "x", {}, None),
+                                                SECRETS[7])
+            self.assertIn(SECRETS[7], reasons[tier], "the premise: the stored reason names the model")
+        status = _Status({tier: "degraded" for tier in reasons}, broken=list(reasons), reasons=reasons)
+        rows = self.report(orchestrator(status=status))
+        self.assertEqual((rows["chat"]["state"], rows["deeper"]["state"]), ("broken", "broken"))
+        self.assertNotIn(SECRETS[7], json.dumps(list(rows.values())))
+        self.assertIn("HTTP 410", rows["chat"]["next"])
+        self.assertIn("OPENAI_MODEL", rows["chat"]["next"])
+        for needed in ("OPENAI_SMART_MODEL", "OPENAI_API_KEY", "HTTP 404", "HTTP 401"):
+            self.assertIn(needed, rows["deeper"]["next"])
+
+    def test_the_browser_row_needs_playwright_s_own_chromium(self):
+        # Codex's review of #144: the package alone said ready with no browser installed. And an
+        # upgrade leaves the old revision behind, which Playwright will not launch.
+        with tempfile.TemporaryDirectory() as root:
+            package, browsers = Path(root) / "playwright", Path(root) / "ms-playwright"
+            (package / "driver" / "package").mkdir(parents=True)
+            (package / "driver" / "package" / "browsers.json").write_text(json.dumps({"browsers": [
+                {"name": "chromium", "revision": "1223"}, {"name": "chromium-headless-shell", "revision": "1223"},
+                {"name": "firefox", "revision": "1522"}]}), encoding="utf-8")
+            (browsers / "chromium-1217").mkdir(parents=True)
+            (browsers / "firefox-1522").mkdir()
+
+            def row():
+                return self.report(browser_engine=lambda: chromium_installed(package, browsers))["browser"]
+
+            self.assertEqual((row()["state"], row()["next"]), ("missing", "python -m playwright install chromium"))
+            (browsers / "chromium_headless_shell-1223").mkdir()
+            self.assertEqual(row()["state"], "ready")
+            self.assertFalse(chromium_installed(Path(root) / "no-such-package", browsers))
+
+    def test_the_browsers_directory_is_the_one_playwright_uses(self):
+        with tempfile.TemporaryDirectory() as empty, patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": empty}):
+            self.assertFalse(chromium_installed(), "an empty browsers directory has no Chromium")
 
     def test_a_chosen_search_provider_without_its_key_says_so(self):
         row = self.report(cfg=config(search_api_key=None))["search"]
