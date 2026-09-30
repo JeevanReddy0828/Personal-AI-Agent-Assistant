@@ -229,10 +229,27 @@ is single-use, and a timeout denies — silence is never consent. With no interf
 connected to answer, the action is denied immediately rather than left hanging. Audit
 events are written to `.agent_data/audit.jsonl`.
 
-**Deployment posture.** Local-first, single-user. By default the web server binds to
-loopback (`127.0.0.1` or `localhost`) with origin checks and a per-process browser
-mutation token. It has no user accounts. Keep the configured `LAPTOP_AGENT_PORT` stable
-for browser history. Secrets live only in a gitignored `.env`; never commit real keys.
+**Deployment posture.** Local-first. By default the web server binds to loopback
+(`127.0.0.1` or `localhost`) with origin checks and a per-process browser mutation token.
+Keep the configured `LAPTOP_AGENT_PORT` stable for browser history. Secrets live only in a
+gitignored `.env`; never commit real keys.
+
+**Accounts and sign-in (optional).** With no accounts the app behaves as above. Once one
+exists, every request needs a sign-in, this computer's included. Set it up from the
+settings popover on the computer running the app, or from a terminal:
+
+```powershell
+python -m laptop_agent.accounts create jeevan --role dev
+python -m laptop_agent.accounts create family --role personal
+```
+
+A `dev` account can use everything; a `personal` account cannot open the diagnostics
+(traces, failures) or agent mode. The same command resets a password, disables, deletes or
+lists accounts, so a forgotten password never locks the owner out. Passwords are
+scrypt-hashed. A session lasts up to 30 days (7 without use) and ends on sign-out, a
+password change or a disabled account. An account also stands in for
+`LAPTOP_AGENT_LAN_PASSCODE` when you reach the app from another device, but LAN mode is
+plain HTTP, so use it only on a network you trust.
 
 **Reaching it from a phone on your own network.** The page carries the mutation token, and
 that token is shell, files and mail on this laptop — so a non-loopback bind is refused

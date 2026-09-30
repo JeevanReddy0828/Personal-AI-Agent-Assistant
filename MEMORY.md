@@ -18,6 +18,11 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   AND the test builder in `tests/test_orchestrator.py`.
 
 ## Decisions
+- 2026-09-28: **AUTH-01 phase 1 (accounts, sessions, sign-in; Claude).** Accounts switch
+  sign-in on (none = unchanged; any = every request, loopback included); first account is
+  loopback-only and `dev`; stdlib scrypt N=2^17; server-side sessions persisted as token
+  hashes (7-day idle, 30-day absolute); roles `dev`/`personal`, re-read every request.
+  Proposed and debated in CHANGES_MADE.md; Google sign-in and Gmail are phase 2.
 - 2026-06: Adopted **Agent Operating Principles** (CLAUDE.md preamble) as the governing
   doc. Codebase already conformed, so adopted going forward — no refactor.
 - 2026-06: **Job-search dashboard** initiative. Web UI became multi-page (header nav +

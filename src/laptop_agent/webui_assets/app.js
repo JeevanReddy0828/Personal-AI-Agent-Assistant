@@ -13,8 +13,11 @@
     // The API token is per server process. If the server was restarted this tab's token
     // goes stale and same-origin calls 403 — reload once to pick up a fresh token rather
     // than dead-ending. A 5s guard prevents a reload loop if the 403 is something else.
+    // A 401 means the sign-in is gone (signed out elsewhere, or accounts just switched on):
+    // reloading lets the server answer with its sign-in page. A 403 marked X-Jarvis-Denied
+    // is a final answer (a role, a wrong password), and reloading would only repeat it.
     return p.then(r=>{
-      if(r.status===403){
+      if(r.status===401||(r.status===403&&!r.headers.get('X-Jarvis-Denied'))){
         let last=0; try{last=+sessionStorage.getItem('jarvisTokReload')||0;}catch(e){}
         if(Date.now()-last>5000){try{sessionStorage.setItem('jarvisTokReload',String(Date.now()));}catch(e){}location.reload();}
       }
@@ -636,19 +639,38 @@
   const suggest=document.getElementById('suggest');
   SUG.forEach(([t,q])=>{const c=document.createElement('button');c.type='button';c.className='scard';c.title=t;c.textContent=q;c.onclick=()=>send(q);suggest.appendChild(c);});
 
-  /* sessions (localStorage) */
-  let sessions=[], current=null;
-  try{const saved=JSON.parse(localStorage.getItem('jarvis_sessions')||'[]');
-    if(Array.isArray(saved))sessions=saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40);
-  }catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';}
+  /* sessions (localStorage), one set per account. Nothing is read or written until /api/me
+     says who is signed in (loadChats): one origin-wide key let a personal account reopen the
+     owner's chats in the same browser. */
+  let sessions=[], current=null, chatKey=null;
+  function readChats(key){
+    try{const saved=JSON.parse(localStorage.getItem(key)||'[]');
+      return Array.isArray(saved)?saved.filter(s=>s&&typeof s.id==='string'&&Array.isArray(s.msgs)).slice(0,40):[];}
+    catch(e){hint.textContent='Saved chat history could not be read. You can still start a new chat.';return [];}
+  }
+  // Keyed by account id, not name: a deleted account's name can be given to someone new. With
+  // sign-in off there is one set, under the original key. Chats from before sign-in was set up
+  // were the owner's, so the first developer to open the app adopts them and a personal account
+  // never sees them. Separation, not secrecy: anyone using the same browser profile can read
+  // its storage, so separate people need separate profiles or devices.
+  function loadChats(accountId,developer){
+    const key=accountId?'jarvis_sessions:'+accountId:'jarvis_sessions';
+    let saved=readChats(key),adopted=false;
+    if(accountId&&developer&&!saved.length){saved=readChats('jarvis_sessions');adopted=saved.length>0;}
+    // A chat begun before we knew who is signed in is theirs: keep it on top.
+    sessions=sessions.filter(s=>!saved.some(o=>o.id===s.id)).concat(saved).slice(0,40);
+    chatKey=key;saveSessions();renderSessions();
+    if(adopted){try{if(localStorage.getItem(key))localStorage.removeItem('jarvis_sessions');}catch(e){}}
+  }
   function saveSessions(){sessions=sessions.slice(0,40);
+    if(!chatKey)return;   // not known yet whose they are: memory only until it is
     // Incognito sessions stay in memory: they are filtered out of everything written to disk.
     const keep=sessions.filter(s=>!s.ghost);
-    try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+    try{localStorage.setItem(chatKey,JSON.stringify(keep));}
     catch(e){
       // Over quota: the tool-data digests are the expendable part — drop them and retry once.
       sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
-      try{localStorage.setItem('jarvis_sessions',JSON.stringify(keep));}
+      try{localStorage.setItem(chatKey,JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
   function renderSessions(){
@@ -1268,6 +1290,63 @@
   onTopToggle.onclick=()=>setOnTop(!onTopToggle.classList.contains('on'),true);
   hudBtn.onclick=e=>{e.stopPropagation();hudPop.classList.toggle('open');hudBtn.classList.toggle('on',hudPop.classList.contains('open'));};
   document.addEventListener('click',e=>{if(!hudPop.contains(e.target)&&e.target!==hudBtn){hudPop.classList.remove('open');hudBtn.classList.remove('on');}});
+
+  /* account: set sign-in up on this machine, or say who is signed in, sign out, change the password */
+  (function(){
+    const box=document.getElementById('acct'),who=document.getElementById('acctWho'),out=document.getElementById('acctOut'),
+          pw=document.getElementById('acctPw'),form=document.getElementById('acctForm'),intro=document.getElementById('acctIntro'),
+          user=document.getElementById('acctUser'),cur=document.getElementById('acctCur'),nw=document.getElementById('acctNew'),
+          nw2=document.getElementById('acctNew2'),go=document.getElementById('acctGo'),msg=document.getElementById('acctMsg'),
+          role=document.getElementById('acctRole');
+    let mode='';   // '' | 'setup' | 'password'
+    function show(next){
+      mode=next;form.hidden=!mode;user.hidden=mode!=='setup';cur.hidden=mode!=='password';
+      intro.textContent=mode==='setup'?'Anyone who opens this app can use it. Set up an owner account and it will ask everyone to sign in.':'';
+      go.textContent=mode==='setup'?'Set up sign-in':'Change password';msg.textContent='';
+    }
+    let seenId;   // whose page this is; a different answer later means someone else signed in
+    async function refresh(){
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(!d||!d.ok)return;
+      seenId=d.user?d.user.id:(d.accounts?null:'');
+      if(seenId!==null)loadChats(seenId,!!(d.user&&d.user.role==='dev'));
+      if(d.user){box.hidden=false;who.textContent='Signed in as '+d.user.username;
+        role.textContent=d.user.role==='dev'?'Developer account':'Personal account';out.hidden=false;pw.hidden=false;show('');}
+      else if(!d.accounts&&d.local){box.hidden=false;who.textContent='Sign-in is off';role.textContent='';out.hidden=true;pw.hidden=true;show('setup');}
+      else box.hidden=true;
+    }
+    pw.onclick=()=>show(mode==='password'?'':'password');
+    out.onclick=async()=>{
+      try{await fetch('/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
+      location.reload();
+    };
+    form.addEventListener('submit',async ev=>{
+      ev.preventDefault();msg.textContent='';
+      if(nw.value!==nw2.value){msg.textContent='The two passwords differ.';return;}
+      const setup=mode==='setup';
+      go.disabled=true;
+      try{
+        const r=await fetch(setup?'/auth/bootstrap':'/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(setup?{username:user.value,password:nw.value}:{current:cur.value,new:nw.value})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok&&setup){location.reload();return;}
+        // Say what the server said; never guess a cause for a refusal.
+        msg.textContent=d.message||(r.ok?'Saved.':'Could not save (HTTP '+r.status+').');
+        if(r.ok){cur.value=nw.value=nw2.value='';}
+      }catch(e){msg.textContent='Could not reach the app.';}
+      go.disabled=false;
+    });
+    refresh();
+    // Signing in as someone else in another tab changes this tab's cookie too, while its screen
+    // and memory still hold the previous account's chats: reload rather than carry them over.
+    async function checkIdentity(){
+      if(seenId===undefined)return;
+      let d=null;try{d=await (await fetch('/api/me')).json();}catch(e){return;}
+      if(d&&d.ok&&(d.user?d.user.id:(d.accounts?null:''))!==seenId)location.reload();
+    }
+    window.addEventListener('focus',checkIdentity);
+    setInterval(()=>{if(!document.hidden)checkIdentity();},30000);
+  })();
   (function restoreHud(){
     const op=localStorage.getItem('hudOpacity'); if(op){opRange.value=op;applyOpacity(+op,true);}
     let bf=null; try{bf=localStorage.getItem('jarvis_bargefloor');}catch(e){}
