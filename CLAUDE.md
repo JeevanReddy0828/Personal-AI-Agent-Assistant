@@ -991,6 +991,15 @@ owner. Decisions that each exist for a reason:
   store reloads when the file's stamp changes, because the CLI revokes from its own
   process. Every request re-reads the account, so a disabled account or a new role applies
   to the next request, not when the session ends.
+- **A session is bound to the credentials it was granted under.** A new password or a
+  disable moves the account's `epoch` on, every session records the epoch it was created
+  with, and `_principal` refuses an older one. Revoking alone could not close the race the
+  review found at the real hash cost: a sign-in checked against the old password finishes
+  its 0.6s hash after `revoke_account` has run, then creates its session, which also came
+  back after disable-then-enable. `create()` defaults to epoch 0, so a caller that leaves it
+  out fails closed; changing your own password rebinds only the session that proved it.
+  Known limit: revoking ends sessions, not work already running - an agent run or stream in
+  flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from

@@ -300,7 +300,9 @@ class SignInTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/me", cookie=here)[0], 200)
         self.assertEqual(self.call("GET", "/api/me", cookie=elsewhere)[0], 401)
         self.assertEqual(self.call("POST", "/auth/login", {"username": "jeevan", "password": GOOD}, token=False)[0], 401)
-        self.sign_in(password="a brand new phrase")
+        # A sign-in after the change must give a session that works, not only a 200.
+        fresh = self.sign_in(password="a brand new phrase")
+        self.assertEqual(self.call("GET", "/api/health", cookie=fresh)[0], 200)
 
     def test_developer_routes_need_a_developer(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
@@ -426,6 +428,9 @@ class SignInTests(unittest.TestCase):
                     self.assertEqual(self.manage(owner, action="enable", username="amy")[0], 200)
                 self.assertEqual(self.call("GET", "/api/me", cookie=late)[1].get("user"), None)
                 self.assertEqual(self.call("GET", "/api/health", cookie=late)[0], 401, "a late session is live")
+                # ...while signing in now, after the change, works as it should.
+                now = self.sign_in("amy", "a brand new phrase")
+                self.assertEqual(self.call("GET", "/api/health", cookie=now)[0], 200)
 
     def test_changes_are_audited_with_who_made_them(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
