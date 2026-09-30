@@ -132,9 +132,12 @@ class AccountsInTheBrowser(unittest.TestCase):
         page.wait_for_function("() => document.querySelectorAll('#setupList .setrow').length === 18", timeout=6000)
         self.assertTrue(self.on_screen(page, "#setupList .setrow"))
         self.assertRegex(page.inner_text("#setupPanel summary"), r"^Setup · (\d+ to look at|all set)$")
-        todo = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]) .setnext", "els => els.length")
-        rows = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready])", "els => els.length")
-        self.assertEqual(todo, rows, "a row that is not ready shows no next step")
+        # Busy means wait, so it carries no set-up step; everything else that is not ready does.
+        todo = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy]) .setnext",
+                                         "els => els.length")
+        rows = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy])",
+                                         "els => els.length")
+        self.assertEqual(todo, rows, "a row that needs doing shows no next step")
         self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
     def test_a_personal_account_is_not_shown_the_setup(self):
