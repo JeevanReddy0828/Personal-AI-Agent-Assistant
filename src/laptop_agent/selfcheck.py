@@ -124,6 +124,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
 MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("record a podcast about space", "not a voice capture instruction"),
     ("what is the record for the 100m", "record is a noun"),
+    ("can you record?", "asks whether it can; only a named request starts the microphone"),
     ("what is a reminder", "a definition, not a listing"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
