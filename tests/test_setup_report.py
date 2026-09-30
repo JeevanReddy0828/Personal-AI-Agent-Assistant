@@ -78,7 +78,7 @@ class SetupReportTests(unittest.TestCase):
     def test_a_fresh_install_says_what_to_do_for_each_missing_piece(self):
         rows = self.report(orchestrator(model=False, smart=False, ultra=False, vision=False, vault=False),
                            SimpleNamespace(), llm_reachable=None, stt_engine=None, ocr_engine=None,
-                           sign_in=False, lan_mode=False, find_spec=nothing)
+                           sign_in=False, lan_mode=False, find_spec=nothing, which=lambda name: None)
         states = {key: row["state"] for key, row in rows.items()}
         self.assertEqual(states["chat"], "off")
         self.assertEqual({states[key] for key in ("stt", "ocr", "docs", "browser", "metrics")}, {"missing"})
@@ -87,6 +87,8 @@ class SetupReportTests(unittest.TestCase):
                 if row["state"] != "ready":
                     self.assertTrue(row["next"], f"{key} is {row['state']} and says nothing about what to do")
         self.assertIn("OPENAI_API_KEY", rows["chat"]["next"])
+        # The shipped .env.example says heuristic; a key alone never turns the model on.
+        self.assertIn("LAPTOP_AGENT_LLM_PROVIDER", rows["chat"]["next"])
         self.assertIn("laptop-agent[browser]", rows["browser"]["next"])
 
     def test_a_busy_tier_and_a_broken_one_are_told_apart(self):
@@ -99,12 +101,14 @@ class SetupReportTests(unittest.TestCase):
         self.assertEqual(unreachable["state"], "busy")
 
     def test_no_secret_path_or_model_id_reaches_the_report(self):
+        # Compared without case: the search row once title-cased what it echoed, which an
+        # exact-case check does not see ("Nvapi-Secret-..." for a key typed into the wrong field).
         for rows in (self.report(), self.report(find_spec=nothing, stt_engine=None, ocr_engine=None),
-                     self.report(cfg=config(search_api_key=None))):
-            text = json.dumps(list(rows.values()))
+                     self.report(cfg=config(search_api_key=None)), self.report(cfg=config(search_provider=SECRETS[0]))):
+            text = json.dumps(list(rows.values())).lower()
             for secret in SECRETS:
                 with self.subTest(secret):
-                    self.assertNotIn(secret, text)
+                    self.assertNotIn(secret.lower(), text)
 
     def test_a_package_probe_that_raises_counts_as_missing(self):
         def broken(module):
@@ -159,6 +163,33 @@ class SetupReportTests(unittest.TestCase):
     def test_the_browsers_directory_is_the_one_playwright_uses(self):
         with tempfile.TemporaryDirectory() as empty, patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": empty}):
             self.assertFalse(chromium_installed(), "an empty browsers directory has no Chromium")
+
+    def test_busy_says_wait_and_broken_says_what_to_change_even_when_unreachable(self):
+        busy = self.report(orchestrator(status=_Status({"fast": "degraded", "smart": "degraded"})))
+        self.assertEqual((busy["chat"]["state"], busy["chat"]["next"]), ("busy", None))
+        self.assertEqual((busy["deeper"]["state"], busy["deeper"]["next"]), ("busy", None))
+        broken = _Status({"fast": "degraded"}, broken=["fast"], reasons={"fast": "the API key was rejected - HTTP 401"})
+        row = self.report(orchestrator(status=broken), llm_reachable=False)["chat"]
+        self.assertEqual(row["state"], "broken", "an unanswered ping must not hide a known misconfiguration")
+        self.assertIn("OPENAI_API_KEY", row["next"])
+
+    def test_web_search_names_only_providers_it_uses(self):
+        rows = {name: self.report(cfg=config(**values))["search"] for name, values in (
+            ("unknown", {"search_provider": "bing"}), ("no provider", {"search_provider": ""}),
+            ("no key", {"search_api_key": None}), ("working", {}))}
+        self.assertEqual(rows["working"]["detail"], "Brave, with DuckDuckGo behind it.")
+        self.assertIn("SEARCH_API_KEY", rows["no key"]["next"])
+        for name in ("unknown", "no provider"):
+            with self.subTest(name):
+                self.assertIn("DuckDuckGo", rows[name]["detail"])
+                self.assertIn("brave, serpapi, serper", rows[name]["next"])
+        self.assertNotIn("bing", json.dumps(rows["unknown"]).lower())
+
+    def test_usage_meters_count_windows_own_counters(self):
+        # metrics.py falls back to PowerShell when psutil is absent, and the drawer shows usage.
+        self.assertEqual(self.report(find_spec=nothing, which=lambda name: "C:/ps/powershell.exe")["metrics"]["state"],
+                         "ready")
+        self.assertEqual(self.report(find_spec=nothing, which=lambda name: None)["metrics"]["state"], "missing")
 
     def test_a_chosen_search_provider_without_its_key_says_so(self):
         row = self.report(cfg=config(search_api_key=None))["search"]

@@ -10,6 +10,7 @@ from typing import Any
 
 from laptop_agent.planner.openai_compatible import _PERMANENT_ADVICE
 from laptop_agent.storage import storage_warnings
+from laptop_agent.tools.websearch import _API_BACKENDS
 
 
 def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) -> dict[str, object]:
@@ -79,7 +80,8 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
 # What each row that is not ready says to do. Environment variable names and install commands
 # only: never a value, a path or a model id, since this is shown in the page.
 _NEXT = {
-    "chat": "Set OPENAI_API_KEY in .env (with OPENAI_BASE_URL and OPENAI_MODEL for your provider), then restart.",
+    "chat": "Set LAPTOP_AGENT_LLM_PROVIDER=openai-compatible and OPENAI_API_KEY in .env (with OPENAI_BASE_URL "
+            "and OPENAI_MODEL for your provider), then restart.",
     "deeper": "Set OPENAI_SMART_MODEL and OPENAI_ULTRA_MODEL for harder questions.",
     "vision": "Set OPENAI_VISION_MODEL to describe pictures and the screen.",
     "pictures": "Set OPENAI_IMAGE_KEY (or OPENAI_API_KEY) to draw pictures.",
@@ -106,7 +108,8 @@ _OCR = {"nemotron-parse": "NVIDIA parse, hosted, with Tesseract behind it", "tes
 
 
 def _row(key: str, name: str, state: str, detail: str, next_step: str | None = None) -> dict[str, object]:
-    if next_step is None and state != "ready":
+    # Set-up advice is for what is off or missing. Busy means wait, and a broken tier says why.
+    if next_step is None and state in ("off", "missing"):
         next_step = _NEXT.get(key)
     return {"key": key, "name": name, "state": state, "detail": detail, "next": next_step}
 
@@ -190,7 +193,7 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     provider = getattr(getattr(orchestrator, "planner", None), "provider", None)
     if provider is None or "OpenAI" not in type(provider).__name__:
         rows.append(_row("chat", "Chat model", "off", "Replies come from built-in rules only."))
-    elif llm_reachable is False:
+    elif llm_reachable is False and tier("fast") != "broken":
         rows.append(_row("chat", "Chat model", "busy", "Configured, but the endpoint is not answering.",
                          "Check OPENAI_BASE_URL and the network."))
     else:
@@ -225,13 +228,24 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     rows.append(_row("pictures", "Pictures", "ready" if image_key else "off",
                      "Draws pictures from a description." if image_key else "Drawing is not set up."))
 
+    # Named only from the providers the backend knows: the setting's own text is never shown, since
+    # a key pasted into SEARCH_PROVIDER would otherwise be printed in the page.
     chosen = (getattr(config, "search_provider", "") or "").strip().lower()
-    if chosen and chosen != "duckduckgo" and not getattr(config, "search_api_key", None):
+    key = bool(getattr(config, "search_api_key", None))
+    known = ", ".join(sorted(_API_BACKENDS))
+    if chosen in _API_BACKENDS and key:
+        rows.append(_row("search", "Web search", "ready", f"{chosen.title()}, with DuckDuckGo behind it."))
+    elif chosen in _API_BACKENDS:
         rows.append(_row("search", "Web search", "ready", "DuckDuckGo, because the chosen provider has no key.",
                          "Set SEARCH_API_KEY for the chosen provider."))
+    elif chosen and chosen != "duckduckgo":
+        rows.append(_row("search", "Web search", "ready", "DuckDuckGo: SEARCH_PROVIDER names no provider it knows.",
+                         f"Set SEARCH_PROVIDER to one of {known}."))
+    elif key and not chosen:
+        rows.append(_row("search", "Web search", "ready", "DuckDuckGo: a search key is set but no provider.",
+                         f"Set SEARCH_PROVIDER to one of {known}."))
     else:
-        rows.append(_row("search", "Web search", "ready", "DuckDuckGo, no key needed."
-                         if not chosen or chosen == "duckduckgo" else f"{chosen.title()}, with DuckDuckGo behind it."))
+        rows.append(_row("search", "Web search", "ready", "DuckDuckGo, no key needed."))
 
     rows.append(_row("stt", "Speech to text", "ready" if stt_engine else "missing",
                      _STT.get(stt_engine or "", "No engine here: voice uses the browser's own recognizer.")))
@@ -267,9 +281,11 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     obsidian = getattr(getattr(orchestrator, "context", None), "obsidian", None)
     vault = bool(obsidian.available()) if obsidian is not None else False
     rows.append(_row("vault", "Notes vault", "ready" if vault else "off", "Connected." if vault else "No vault connected."))
-    metrics = has("psutil")
-    rows.append(_row("metrics", "Usage meters", "ready" if metrics else "missing",
-                     "CPU and memory in this drawer." if metrics else "This drawer shows no usage."))
+    # Without psutil, metrics.py reads Windows' own counters through PowerShell.
+    metrics, counters = has("psutil"), bool(which("powershell"))
+    rows.append(_row("metrics", "Usage meters", "ready" if metrics or counters else "missing",
+                     "CPU and memory in this drawer." if metrics else
+                     "CPU and memory from Windows' own counters." if counters else "This drawer shows no usage."))
     window = has("webview")
     rows.append(_row("window", "Desktop window", "ready" if window else "off",
                      "Opens as its own window." if window else "Opens in a browser tab."))
