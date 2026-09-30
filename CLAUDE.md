@@ -1013,6 +1013,52 @@ owner. Decisions that each exist for a reason:
   written into the data directory the runner shares would put every other web test
   behind a sign-in page.
 
+**A `personal` account is the assistant, not the machine (`access.py`).** It never acts on
+the laptop itself (files, the screen, the camera, apps, windows, the shell, the browser,
+music), never reaches the owner's mail, notes, indexed documents or job search, never sees
+the internals, and never starts anything that acts on its own. The web server sets the
+principal per request (`acting_as`, a ContextVar, which `asyncio.to_thread` carries into the
+task runner). Four checks, because each covers a path the others miss:
+- **The gate** refuses it HIGH and CRITICAL before anyone is asked: an approval card it could
+  click through is no control. `ApprovalRequest(everyday=True)` marks the one HIGH action it
+  may still take (clearing several reminders at once), asked as for anyone.
+- **The orchestrator** checks the command *about to be dispatched* (`_account_limits`),
+  inside the branch that dispatches. The first draft checked the top of `_handle` and was
+  wrong twice. `_follow_up` rebuilds the command afterwards from history the *client* sends,
+  so `[user: "email unread", assistant: "I could not find a time in that."]` plus "5pm"
+  became `email unread 5pm` — and an inbox read is MEDIUM, which the gate lets through. And
+  it refused prose the prose guard sends to the router ("schedule a meeting with bob").
+  Routed and split commands come back through the same line as commands of their own. A
+  developer form is refused with a reason; past that it is **default-deny where a command
+  is claimed**, Codex's review of #140: only what is marked everyday (`access.EVERYDAY_*`,
+  plus the pattern-chosen branches in `AgentOrchestrator._everyday`) is dispatched. Free
+  text that matches none of it goes to the router, and a command the router made that is
+  not everyday is refused — so a command added later without a decision is refused where
+  it runs, not only in CI.
+- **The approval broker** gives an account only its own cards. It broadcast every card to
+  every open stream, so another account read the command, recipient or path and could
+  answer it. A card the machine asked for itself (the ticker) goes to a developer.
+- **The web server** lets it use an allow-list of routes (`_PERSONAL_ROUTES`), so a route
+  added later is closed to it until decided. The deny-list it replaced missed
+  `/api/pipeline`, whose resume loader reads any path.
+
+Both lists are copies of what the dispatchers match, and a copy fails by omission.
+`DispatchMirrorTests` reads every literal form out of `_DISPATCH` with `ast`: each must be
+refused, or listed everyday *as itself* — never merely covered by a broader everyday prefix,
+or `list secrets` added under `list ` would be dispatched for a personal account — and every
+listed form must be one the dispatchers match (a phantom `knowledge` prefix would refuse
+"knowledge is power"). It counts the branches chosen by a pattern, which it cannot read, and
+`PersonalContractTests` plus one phrase per pattern branch hold `_everyday` to them: each of
+its eight patterns was removed in turn and caught, the routing contract alone missed two.
+Every rule here was broken on purpose and every break was caught. `read file` is LOW, which
+is why files are on the list at all: without it a personal account could `read file .env`.
+Data stays shared until it is kept per account — reminders, timers, lists, remembered facts,
+generated pictures and documents — and the chat prompt still carries the owner's facts. The
+page hides `.devonly` controls under `body[data-role="personal"]` and greets the account by
+its own name; the server is the enforcement. Known limits: the gate's prompt lock serialises
+approvals across accounts, and attachments are developer-only, because every use of one is a
+file command.
+
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
 outright. `send()` called `crypto.randomUUID()` on its first line, threw

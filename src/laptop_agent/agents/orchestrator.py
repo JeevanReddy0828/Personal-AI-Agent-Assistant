@@ -52,6 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.access import everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -236,6 +237,7 @@ _WHOLE_ARGUMENT = frozenset({
     "email", "send", "remember", "note", "document", "image", "research", "solve", "ask", "agent", "autopilot",
     "workflow", "multi", "schedule", "run", "terminal", "shell", "write", "draft", "summarize", "translate",
 })
+_REMINDER_REMOVE = re.compile(r"reminder (?:delete|cancel|remove)(?: |$)")
 _HOW_LONG_LEFT = re.compile(r"(?:how\s+much\s+longer|how\s+much\s+time(?:\s+is)?\s+left|how\s+long\s+(?:is\s+)?left"
                             r"|time\s+left|how\s+long\s+to\s+go)[\s?.!]*")
 
@@ -925,7 +927,7 @@ class AgentOrchestrator:
         if lowered == "reminder done" or lowered.startswith("reminder done "):
             return self._reminder_done(command[len("reminder done") :].strip())
 
-        if re.match(r"reminder (?:delete|cancel|remove)(?: |$)", lowered):
+        if _REMINDER_REMOVE.match(lowered):
             return self._reminder_remove(command.split(" ", 2)[2] if len(command.split(" ", 2)) > 2 else "")
 
         if lowered == "reminder stop" or lowered.startswith("reminder stop "):
@@ -1787,6 +1789,37 @@ class AgentOrchestrator:
             lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
         return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
 
+    def _account_limits(self, command: str, lowered: str, planner: bool) -> tuple[ToolResult | None, bool]:
+        """(a refusal, whether to dispatch) for the command about to run.
+
+        Checked there, not at the top of `_handle`: after `_follow_up` has rebuilt the command
+        from history the client sent, and never on prose, which goes to the router. What the
+        router or a split sentence produces comes back through here as a command of its own.
+        A developer form is refused with a reason. Past that it is default-deny where a command
+        is claimed: for a personal account only what is marked everyday is dispatched. Free
+        text that is not goes to the router; a command the router made that is not is refused,
+        including one nobody has classified yet.
+        """
+        refused = refused_command(command)
+        if refused:
+            return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused), False
+        if not is_personal() or self._everyday(command, lowered):
+            return None, True
+        if planner:
+            return None, False
+        return ToolResult.failure("That isn't available to a personal account.",
+                                  refused=lowered.split(" ", 1)[0]), False
+
+    def _everyday(self, command: str, lowered: str) -> bool:
+        """Whether a personal account may have `command` dispatched: a form marked everyday,
+        or one of the everyday branches chosen by a pattern, which `test_access` counts."""
+        return bool(
+            everyday_form(lowered) or _BARE_LIST.fullmatch(lowered) or _WHICH_LIST.fullmatch(lowered)
+            or _HOW_LONG_LEFT.fullmatch(lowered) or _REMINDER_REMOVE.match(lowered)
+            or fact_question(command) is not None or nameless_list_edit(command) is not None
+            or date_question(command) is not None or draw(command) is not None   # a throwaway draw
+        )
+
     # Dispatch order, as data. A group returns a ToolResult or None; the first
     # non-None wins, exactly as the original if/elif chain did.
     _DISPATCH = (
@@ -2062,7 +2095,10 @@ class AgentOrchestrator:
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
         if not (_allow_planner and self._reads_as_prose(command, lowered)):
-            for dispatch in self._DISPATCH:
+            refusal, allowed = self._account_limits(command, lowered, _allow_planner)
+            if refusal is not None:
+                return refusal
+            for dispatch in self._DISPATCH if allowed else ():
                 handled = await dispatch(self, command, lowered, history_turns)
                 if handled is not None:
                     return handled
@@ -2997,7 +3033,7 @@ class AgentOrchestrator:
             preview = [_reminder_line(item, now) for item in chosen[:20]]
             preview += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
             self.context.web.approval_gate.require(ApprovalRequest(
-                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH,
+                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH, everyday=True,
                 reason="Removes every one of them at once; they cannot be brought back.", preview="\n".join(preview)))
         for item in chosen:
             self.context.reminders.remove(int(item["id"]))
