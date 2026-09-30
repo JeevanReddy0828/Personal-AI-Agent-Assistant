@@ -172,7 +172,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### 🎨 Interfaces & UX
 CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
 Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt, with a live microphone meter showing what the mic hears against the level it must beat to cut in) ·
-a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
+a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics, a **Setup** list (what is on, and the next step for anything that is not), plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
 
 ---
 
@@ -249,8 +249,9 @@ generated pictures and documents — but not files, the screen, the camera, apps
 the browser or music on this laptop, not your mail, notes, indexed documents or job search,
 not the diagnostics, and nothing that acts on its own (agent mode, schedules, workflows).
 It is refused those outright rather than shown an approval card, and it sees only its own
-approval cards. Until data is kept per account it shares your reminders, timers, lists and
-remembered facts, so give it to someone you would share those with.
+approval cards. It is meant as you in a safer everyday mode: it shares your reminders,
+timers, lists and remembered facts, which are not kept per account, so anyone you give it
+to sees those.
 
 On this computer, a developer can also add and manage accounts in the app: **Manage
 accounts** in the settings popover. Every change asks for your own password again.

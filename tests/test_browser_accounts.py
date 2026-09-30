@@ -125,6 +125,27 @@ class AccountsInTheBrowser(unittest.TestCase):
         self.assertTrue(self.on_screen(page, "#admList"))
         self.assertEqual(page.input_value("#admUser"), "", "the form was not cleared after adding")
 
+    def test_a_developer_sees_what_is_set_up_and_what_to_do(self):
+        page = self.open_as("dev")
+        page.click("#healthPill")
+        page.click("#setupPanel summary")
+        page.wait_for_function("() => document.querySelectorAll('#setupList .setrow').length === 18", timeout=6000)
+        self.assertTrue(self.on_screen(page, "#setupList .setrow"))
+        self.assertRegex(page.inner_text("#setupPanel summary"), r"^Setup · (\d+ to look at|all set)$")
+        # Busy means wait, so it carries no set-up step; everything else that is not ready does.
+        todo = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy]) .setnext",
+                                         "els => els.length")
+        rows = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy])",
+                                         "els => els.length")
+        self.assertEqual(todo, rows, "a row that needs doing shows no next step")
+        self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
+    def test_a_personal_account_is_not_shown_the_setup(self):
+        page = self.open_as("personal")
+        page.click("#healthPill")
+        page.wait_for_timeout(300)
+        self.assertFalse(self.on_screen(page, "#setupPanel"))
+
     def test_a_developer_is_offered_everything_as_before(self):
         page = self.open_as("dev")
         self.assertEqual(page.inner_text("#empty h1"), "How can I help, Jeevan?")
