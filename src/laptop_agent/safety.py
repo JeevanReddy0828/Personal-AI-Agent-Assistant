@@ -6,6 +6,7 @@ from laptop_agent.cancellation import check_cancelled
 from enum import Enum
 from typing import Callable
 
+from laptop_agent.access import is_personal
 from laptop_agent.audit import AuditLogger
 
 
@@ -22,6 +23,9 @@ class ApprovalRequest:
     risk: RiskLevel
     reason: str
     preview: str | None = None
+    # A HIGH action a personal account may still take, with approval as ever: clearing
+    # several of its own reminders is everyday, even though it is irreversible.
+    everyday: bool = False
 
 
 class ApprovalDenied(RuntimeError):
@@ -36,6 +40,11 @@ class ApprovalGate:
 
     def require(self, request: ApprovalRequest) -> None:
         check_cancelled()
+        # Before asking anyone: a personal account is refused outright, not offered an
+        # approval card it could simply click through.
+        if request.risk in (RiskLevel.HIGH, RiskLevel.CRITICAL) and not request.everyday and is_personal():
+            self._record(request, approved=False, skipped=True)
+            raise ApprovalDenied(f"That needs a developer account: {request.action}")
         if request.risk == RiskLevel.LOW:
             self._record(request, approved=True, skipped=True)
             return

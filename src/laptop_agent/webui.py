@@ -23,6 +23,7 @@ import base64
 import contextlib
 import ipaddress
 import json
+import math
 import os
 import re
 import secrets
@@ -34,23 +35,28 @@ import socket
 import threading
 import time
 import webbrowser
+from collections import OrderedDict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
+from laptop_agent.access import acting_as
+from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
+from laptop_agent.storage import StorageDamaged
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
-from laptop_agent.health import system_health
+from laptop_agent.health import setup_report, system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
 from laptop_agent.timeparse import describe
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
-from laptop_agent.webui_page import PAGE
+from laptop_agent.webui_page import PAGE, SIGNIN_PAGE
 from laptop_agent.window_fx import apply_window_effects
 
 # Local single-user interface: origin checks and a per-process token protect mutations.
@@ -61,19 +67,90 @@ _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 # API token, which is shell, files and mail on this laptop. So a non-loopback bind is
 # refused outright unless a passcode is set, and every request that does not come from
 # this machine has to present it before it is served anything at all.
+# Accounts switch sign-in on. With none, this is the single-user loopback service it always
+# was; once one exists, every request needs a session, this machine's included.
+ACCOUNTS = AccountStore(_CONFIG.data_dir / "accounts.json")
+SESSIONS = SessionStore(_CONFIG.data_dir / "sessions.json")
+_SESSION_COOKIE = "jarvis_session"
 LAN_PASSCODE = os.environ.get("LAPTOP_AGENT_LAN_PASSCODE", "").strip()
 LAN_MODE = HOST not in _LOOPBACK
-if LAN_MODE and len(LAN_PASSCODE) < 8:
+if LAN_MODE and len(LAN_PASSCODE) < 8 and not ACCOUNTS.exists():
     raise ValueError(
-        "J.A.R.V.I.S is a single-user app. To reach it from another device on your network, "
-        "set LAPTOP_AGENT_LAN_PASSCODE (8+ characters) as well as LAPTOP_AGENT_HOST — without "
-        "one, anyone on the same wifi gets a page that can run shell commands on this laptop."
+        "To reach J.A.R.V.I.S from another device on your network, set "
+        "LAPTOP_AGENT_LAN_PASSCODE (8+ characters), or create an account with "
+        "`python -m laptop_agent.accounts create <name> --role dev`, as well as "
+        "LAPTOP_AGENT_HOST — without either, anyone on the same wifi gets a page that can run "
+        "shell commands on this laptop."
     )
 # Sessions that have presented the passcode. Per process, so restarting asks again.
 _LAN_SESSIONS: set[str] = set()
 _LAN_FAILURES: dict[str, int] = {}
 _LAN_LOCK = threading.Lock()
 _LAN_MAX_TRACKED = 256
+
+
+class _SignInLimit:
+    """Failed sign-ins, counted per client and per username. From the fifth, the next
+    attempt waits 30 seconds, doubling to a 15-minute ceiling; a success clears both. The
+    table is bounded and drops its stalest entry, so a flood of made-up usernames cannot
+    grow it without limit."""
+
+    FREE, FIRST_WAIT, CEILING, TRACKED = 5, 30.0, 900.0, 1024
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._failures: OrderedDict[str, tuple[int, float]] = OrderedDict()
+
+    def wait(self, *keys: str) -> int:
+        """Whole seconds before any of `keys` may try again; 0 means now."""
+        now = self.clock()
+        longest = 0.0
+        with self._lock:
+            for key in keys:
+                count, last = self._failures.get(key, (0, 0.0))
+                if count >= self.FREE:
+                    delay = min(self.CEILING, self.FIRST_WAIT * 2 ** (count - self.FREE))
+                    longest = max(longest, last + delay - now)
+        return math.ceil(longest) if longest > 0 else 0
+
+    def fail(self, *keys: str) -> None:
+        now = self.clock()
+        with self._lock:
+            for key in keys:
+                count, _last = self._failures.pop(key, (0, 0.0))
+                self._failures[key] = (count + 1, now)
+            while len(self._failures) > self.TRACKED:
+                self._failures.popitem(last=False)
+
+    def clear(self, *keys: str) -> None:
+        with self._lock:
+            for key in keys:
+                self._failures.pop(key, None)
+
+
+_SIGNIN_LIMIT = _SignInLimit()
+# The only routes a `personal` account may use; everything else is a developer's, so a route
+# added later is closed to it until someone decides otherwise. Left out on purpose: the
+# owner's notes, job search and resume loader (which reads any path), uploads (every use of
+# one is a file command), scheduled jobs, the agent and the app's internals. A refusal carries
+# `X-Jarvis-Denied`, because the page reloads on a bare 403 (a stale token after a restart)
+# and would loop on a final one.
+_PERSONAL_ROUTES = frozenset({
+    "/", "/index.html", "/api/me", "/api/health", "/api/metrics", "/api/reminders", "/api/approvals",
+    "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
+    "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
+})
+
+
+def _session_cookie(token: str) -> str:
+    # Max-Age keeps the desktop window signed in across restarts, HttpOnly keeps the token
+    # from the page's own script, and Strict keeps it off every cross-site request.
+    return f"{_SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(ABSOLUTE_SECONDS)}"
+
+
+def _expired_session_cookie() -> str:
+    return f"{_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
@@ -301,7 +378,7 @@ def _reminders_snapshot() -> dict:
         except ValueError:
             continue
         entry = {"id": item.get("id"), "message": item.get("message"), "due_at": at.isoformat(),
-                 "due_spoken": describe(at, now)}
+                 "due_spoken": describe(at, now, local=True)}
         (due if at <= now else upcoming).append(entry)
     next_in = None
     if upcoming:
@@ -388,7 +465,7 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
     )
 
 
-_orchestrator = build_orchestrator(approval_callback=_guarded_approval)
+_orchestrator = build_orchestrator(approval_callback=_guarded_approval, recording_enabled=True)
 
 
 def _probe_llm(ping: Callable[[], bool], attempts: int = 2, delay: float = 1.5) -> bool:
@@ -581,18 +658,54 @@ class Handler(BaseHTTPRequestHandler):
     def _client_is_local(self) -> bool:
         return (self.client_address[0] if self.client_address else "") in {"127.0.0.1", "::1"}
 
-    def _lan_session(self) -> str:
+    def _cookie(self, wanted: str) -> str:
         for part in (self.headers.get("Cookie") or "").split(";"):
             name, _, value = part.strip().partition("=")
-            if name == "jarvis_lan":
+            if name == wanted:
                 return value.strip()
         return ""
 
+    def _lan_session(self) -> str:
+        return self._cookie("jarvis_lan")
+
+    _who_checked = False
+    _who: Principal | None = None
+
+    def _principal(self) -> Principal | None:
+        """Who is signed in on this request, read from the account as it is now, so a
+        disabled account or a changed role applies to the very next request."""
+        if not self._who_checked:
+            self._who_checked = True
+            session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
+            account = ACCOUNTS.get(session.account_id) if session else None
+            # A session is good only for the credentials it was granted under: a new password or
+            # a disable moves the account's epoch on, and ends a session its revoke arrived too
+            # early to catch (a sign-in checked just before, still finishing its hash).
+            self._who = (Principal(account.id, account.username, account.role)
+                         if account is not None and not account.disabled and session.epoch == account.epoch
+                         else None)
+        return self._who
+
     def _authorized(self) -> bool:
-        """Whether this request may be served anything. This machine always may."""
+        """Whether this request may be served anything. With accounts, only a signed-in
+        request may, this machine's included; without, this machine always may and a device
+        on the network needs the passcode."""
+        if ACCOUNTS.exists():
+            return self._principal() is not None
         if not LAN_MODE or self._client_is_local():
             return True
         return self._lan_session() in _LAN_SESSIONS
+
+    def _may_use(self, route: str) -> bool:
+        if not ACCOUNTS.exists():
+            return True
+        principal = self._principal()
+        return principal is not None and (principal.role == "dev" or route in _PERSONAL_ROUTES)
+
+    def _signin_page(self) -> None:
+        # The default `no-store`, like the unlock page: it carries this process's nonce.
+        self._send(401, SIGNIN_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
+                   "text/html; charset=utf-8")
 
     def _unlock_page(self) -> None:
         # Takes the default `no-store`, and must: this page carries a per-process script
@@ -603,6 +716,233 @@ class Handler(BaseHTTPRequestHandler):
         # small and rarely fetched, so it does not need to.
         self._send(401, _UNLOCK_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
                    "text/html; charset=utf-8")
+
+    def _client(self) -> str:
+        return self.client_address[0] if self.client_address else "?"
+
+    def _me(self) -> dict[str, object]:
+        principal = self._principal()
+        return {"ok": True, "accounts": ACCOUNTS.exists(), "local": self._client_is_local(),
+                "user": None if principal is None else {"id": principal.account_id, "username": principal.username,
+                                                         "role": principal.role}}
+
+    def _audit(self, event: str, **payload: object) -> None:
+        try:
+            _orchestrator.context.audit.record(event, client=self._client(), **payload)
+        except Exception as exc:  # an audit write must never decide a sign-in
+            record_failure("auth/audit", exc)
+
+    def _limit_keys(self, username: str) -> tuple[str, str]:
+        # Scoped by where the attempt comes from, so failures from another device can lock a
+        # username out on the network without locking its owner out of this laptop.
+        where = "local" if self._client_is_local() else "lan"
+        return f"client:{self._client()}", f"user:{where}:{(username or '').strip().lower()[:64]}"
+
+    def _read_small_json(self, limit: int = 4096) -> dict:
+        """A body read before anyone has signed in: capped small, so an anonymous client
+        cannot make this process hold megabytes."""
+        if self.headers.get_content_type() != "application/json":
+            raise ValueError("Content-Type must be application/json")
+        length = int(self.headers.get("Content-Length") or 0)
+        if length < 0 or length > limit:
+            raise ValueError("payload too large")
+        self.connection.settimeout(15)
+        self._body_read += length
+        payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError("expected a JSON object")
+        return payload
+
+    def _busy(self, exc: HashingBusy) -> None:
+        # Nothing was checked, so this is not a failed attempt and must not count toward a wait.
+        self._json(503, {"ok": False, "message": str(exc)}, headers=(("Retry-After", "5"),))
+
+    def _start_session(self, account, method: str) -> None:
+        # A new token every time, and whatever this browser held before is ended: a session
+        # id is never carried across a sign-in.
+        SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
+        token = SESSIONS.create(account.id, method, epoch=account.epoch)
+        self._audit("signin", username=account.username, role=account.role, method=method)
+        self._json(200, {"ok": True, "user": {"username": account.username, "role": account.role}},
+                   headers=(("Set-Cookie", _session_cookie(token)),))
+
+    def _login(self) -> None:
+        payload = self._read_small_json()
+        username = str(payload.get("username") or "")[:64]
+        password = str(payload.get("password") or "")[:MAX_PASSWORD]
+        if not ACCOUNTS.exists():
+            self._json(409, {"ok": False, "message": "Sign-in is not set up yet. Set it up on the computer running the app."})
+            return
+        keys = self._limit_keys(username)
+        wait = _SIGNIN_LIMIT.wait(*keys)
+        if wait:
+            self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
+            return
+        try:
+            account = ACCOUNTS.authenticate(username, password)
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        if account is None:
+            _SIGNIN_LIMIT.fail(*keys)
+            self._audit("signin_failed", username=username.strip().lower()[:64])
+            self._json(401, {"ok": False, "message": "Wrong username or password."})
+            return
+        _SIGNIN_LIMIT.clear(*keys)
+        self._start_session(account, "password")
+
+    def _bootstrap(self) -> None:
+        """The first account, from this machine only. Always `dev`: whoever sets the app up
+        owns it, and a device on the network never sees this form."""
+        if not self._client_is_local():
+            self._json(403, {"ok": False, "message": "Set up sign-in on the computer running the app."})
+            return
+        payload = self._read_json()
+        try:
+            account = ACCOUNTS.create(str(payload.get("username") or ""), "dev",
+                                      str(payload.get("password") or ""), first=True)
+        except AccountError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        self._start_session(account, "bootstrap")
+
+    def _logout(self) -> None:
+        principal = self._principal()
+        SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
+        if principal is not None:
+            self._audit("signout", username=principal.username)
+        self._json(200, {"ok": True}, headers=(("Set-Cookie", _expired_session_cookie()),))
+
+    def _change_password(self) -> None:
+        principal = self._principal()
+        if principal is None:
+            self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
+            return
+        payload = self._read_json()
+        keys = self._limit_keys(principal.username)
+        wait = _SIGNIN_LIMIT.wait(*keys)
+        if wait:
+            self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
+            return
+        try:
+            known = ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD])
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        if known is None:
+            _SIGNIN_LIMIT.fail(*keys)
+            self._json(403, {"ok": False, "message": "Your current password is not right."},
+                       headers=(("X-Jarvis-Denied", "password"),))
+            return
+        try:
+            updated = ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
+        except AccountError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        _SIGNIN_LIMIT.clear(*keys)
+        SESSIONS.rebind(self._cookie(_SESSION_COOKIE), updated.epoch)
+        ended = SESSIONS.revoke_account(principal.account_id, keep=self._cookie(_SESSION_COOKIE))
+        self._audit("password_changed", username=principal.username, sessions_ended=ended)
+        self._json(200, {"ok": True, "message": "Password changed. Any other signed-in device was signed out."})
+
+    # --- managing accounts, from this computer only
+    _ACCOUNT_ACTIONS = frozenset({"create", "password", "role", "disable", "enable", "delete"})
+
+    def _account_admin(self) -> Principal | None:
+        """The developer at this computer, or None once the refusal is sent. Accounts are managed
+        here and nowhere else, like setting sign-in up: a session carried to a phone, or taken
+        from one, cannot add a developer."""
+        principal = self._principal()
+        if principal is None or principal.role != "dev":
+            self._json(403, {"ok": False, "message": "That needs a developer account."},
+                       headers=(("X-Jarvis-Denied", "role"),))
+            return None
+        if not self._client_is_local():
+            self._json(403, {"ok": False, "message": "Manage accounts on the computer running J.A.R.V.I.S."},
+                       headers=(("X-Jarvis-Denied", "local"),))
+            return None
+        return principal
+
+    def _account_listing(self, principal: Principal) -> dict[str, object]:
+        return {"ok": True, "me": principal.account_id, "accounts": [account.public() for account in ACCOUNTS.list()]}
+
+    def _list_accounts(self) -> None:
+        principal = self._account_admin()
+        if principal is not None:
+            self._json(200, self._account_listing(principal))
+
+    def _manage_account(self) -> None:
+        """Add, reset, re-role, disable, enable or delete an account. Each change asks for the
+        developer's own password again, so a session left signed in cannot mint another one."""
+        principal = self._account_admin()
+        if principal is None:
+            return
+        payload = self._read_json()
+        action = str(payload.get("action") or "")
+        if action not in self._ACCOUNT_ACTIONS:
+            self._json(400, {"ok": False, "message": "Unknown account action."})
+            return
+        keys = self._limit_keys(principal.username)
+        wait = _SIGNIN_LIMIT.wait(*keys)
+        if wait:
+            self._json(429, {"ok": False, "message": f"Too many attempts. Try again in {wait} seconds."})
+            return
+        try:
+            if ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD]) is None:
+                _SIGNIN_LIMIT.fail(*keys)
+                self._json(403, {"ok": False, "message": "Your password is not right."},
+                           headers=(("X-Jarvis-Denied", "password"),))
+                return
+            _SIGNIN_LIMIT.clear(*keys)
+            message = self._apply_account_action(principal, action, payload)
+        except AccountError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        except HashingBusy as exc:
+            self._busy(exc)
+            return
+        self._json(200, {**self._account_listing(principal), "message": message})
+
+    def _apply_account_action(self, principal: Principal, action: str, payload: dict) -> str:
+        username = str(payload.get("username") or "").strip().lower()[:64]
+        if action == "create":
+            account = ACCOUNTS.create(username, str(payload.get("role") or ""), str(payload.get("password") or ""))
+            self._audit("account_created", username=account.username, role=account.role, by=principal.username)
+            return f"Added {account.username} as a {'developer' if account.role == 'dev' else 'personal'} account."
+        target = ACCOUNTS.find(username)
+        if target is None:
+            raise AccountError(f"No account called {username or 'that'}.")
+        if target.id == principal.account_id:
+            # Your own password has Change password; your own role and existence have the
+            # command line, so nobody demotes or deletes themselves out of the app by a click.
+            raise AccountError("Change your own account with Change password, or from the command line.")
+        if action == "password":
+            ACCOUNTS.set_password(target.id, str(payload.get("password") or ""))
+            SESSIONS.revoke_account(target.id)
+            message = f"New password set for {target.username}; they were signed out everywhere."
+        elif action == "role":
+            role = str(payload.get("role") or "")
+            ACCOUNTS.set_role(target.id, role, keep_developer=True)
+            message = f"{target.username} is now a {'developer' if role == 'dev' else 'personal'} account."
+        elif action == "disable":
+            ACCOUNTS.set_disabled(target.id, True, keep_developer=True)
+            SESSIONS.revoke_account(target.id)
+            message = f"{target.username} is disabled and was signed out."
+        elif action == "enable":
+            ACCOUNTS.set_disabled(target.id, False)
+            message = f"{target.username} can sign in again."
+        else:
+            ACCOUNTS.delete(target.id, keep_developer=True)
+            SESSIONS.revoke_account(target.id)
+            message = f"Deleted {target.username}."
+        self._audit(f"account_{action}", username=target.username, by=principal.username)
+        return message
 
     def _pair(self) -> None:
         """Exchange the passcode for a session cookie. The one endpoint that runs before
@@ -651,6 +991,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_one_request(self) -> None:
         self._body_read = 0                # per request, so keep-alive re-arms the drain
+        self._who_checked = False          # likewise: one connection can carry two users' requests
         super().handle_one_request()
 
     def _drain_request_body(self) -> None:
@@ -696,11 +1037,13 @@ class Handler(BaseHTTPRequestHandler):
             record_failure("webui/drain", exc, path=self.path)
 
     def _send(self, code: int, body: bytes, content_type: str,
-              etag: str | None = None) -> None:
+              etag: str | None = None, headers: tuple[tuple[str, str], ...] = ()) -> None:
         self._drain_request_body()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for name, value in headers:
+            self.send_header(name, value)
         if etag:
             self.send_header("ETag", etag)
             # `private`, not bare `no-cache`: the page embeds the per-process API token,
@@ -716,16 +1059,54 @@ class Handler(BaseHTTPRequestHandler):
         except ConnectionError:
             pass  # The client closed a completed, non-streaming response.
 
-    def _json(self, code: int, obj: dict) -> None:
-        self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json")
+    def _json(self, code: int, obj: dict, headers: tuple[tuple[str, str], ...] = ()) -> None:
+        self._send(code, json.dumps(obj, default=str).encode("utf-8"), "application/json", headers=headers)
 
     def do_GET(self) -> None:
+        # Everything this request does, down to the approval gate, acts for whoever signed in.
+        # Outside `acting_as`: finding out who that is reads the account store, which may be damaged.
+        try:
+            with acting_as(self._principal()):
+                self._do_get()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
+
+    def do_POST(self) -> None:
+        try:
+            with acting_as(self._principal()):
+                self._do_post()
+        except StorageDamaged as exc:
+            self._storage_damaged(exc)
+
+    def _storage_damaged(self, exc: StorageDamaged) -> None:
+        """Sign-in storage exists but cannot be read. Refuse everything: read as "no accounts"
+        it would switch sign-in off and hand the app, and its API token, to anyone."""
+        record_failure("auth.storage", exc)
+        message = ("Sign-in cannot be checked because its storage is damaged, so nobody can use "
+                   "J.A.R.V.I.S until it is repaired on the computer running it. See "
+                   "python -m laptop_agent.accounts list.")
+        if self.path.split("?", 1)[0] in {"/", "/index.html"}:
+            self._send(503, f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
+                       "text/html; charset=utf-8")
+        else:
+            self._json(503, {"ok": False, "message": message})
+
+    def _do_get(self) -> None:
         if not self._trusted_request():
             return
-        if not self._authorized():
-            self._unlock_page()
-            return
         path = self.path.split("?", 1)[0]  # ignore query (the native window loads /?app=1)
+        if not self._authorized():
+            if not ACCOUNTS.exists():
+                self._unlock_page()
+            elif path in {"/", "/index.html"}:
+                self._signin_page()
+            else:
+                self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
+            return
+        if not self._may_use(path):
+            self._json(403, {"ok": False, "message": "That needs a developer account."},
+                       headers=(("X-Jarvis-Denied", "role"),))
+            return
         if path in {"/", "/index.html"}:
             body, etag = _rendered_page()
             # `no-store` (added so a cached page could not outlive its script nonce) meant
@@ -740,12 +1121,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             self._send(200, body, "text/html; charset=utf-8", etag=etag)
+        elif path == "/api/me":
+            self._json(200, self._me())
+        elif path == "/api/accounts":
+            self._list_accounts()
         elif path == "/api/health":
             report = system_health(_orchestrator, _LLM_STATUS.get("reachable"), _CONFIG)
             # The page decides between its own recognizer and posting audio here.
             report["stt"] = {"engine": _stt_engine()}
             report["ocr"] = {"engine": _ocr_engine()}
             self._json(200, report)
+        elif path == "/api/setup":
+            # Developer-only by the route allow-list: it describes this installation.
+            self._json(200, {"ok": True, "items": setup_report(
+                _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
+                ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":
@@ -783,6 +1173,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_resume_pdf()
         elif path == "/api/image":
             self._serve_image()
+        elif path == "/api/recording":
+            self._serve_recording()
         elif path == "/api/document":
             self._serve_document()
         else:
@@ -814,15 +1206,29 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid chat history")
         return payload
 
-    def do_POST(self) -> None:
+    def _do_post(self) -> None:
         if self.path.split("?", 1)[0] == "/api/pair":
             if self._trusted_request():          # origin checks, but no API token yet
                 self._pair()
             return
+        if self.path.split("?", 1)[0] == "/auth/login":
+            if self._trusted_request():          # likewise: signing in comes before the page
+                try:
+                    self._login()
+                except (ValueError, TypeError, UnicodeError):
+                    self._json(400, {"ok": False, "message": "Invalid request values."})
+            return
         if not self._trusted_request(mutation=True):
             return
         if not self._authorized():
-            self._json(401, {"ok": False, "message": "Enter the passcode to use J.A.R.V.I.S from this device."})
+            if ACCOUNTS.exists():
+                self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
+            else:
+                self._json(401, {"ok": False, "message": "Enter the passcode to use J.A.R.V.I.S from this device."})
+            return
+        if not self._may_use(self.path.split("?", 1)[0]):
+            self._json(403, {"ok": False, "message": "That needs a developer account."},
+                       headers=(("X-Jarvis-Denied", "role"),))
             return
         try:
             if self.path in {"/api/stream", "/api/agent", "/api/command"}:
@@ -841,6 +1247,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"ok": False, "message": "Could not access local data. Check disk space and permissions."})
 
     def _dispatch_post(self) -> None:
+        if self.path == "/auth/logout":
+            self._logout()
+            return
+        if self.path == "/auth/password":
+            self._change_password()
+            return
+        if self.path == "/auth/bootstrap":
+            self._bootstrap()
+            return
+        if self.path == "/api/accounts":
+            self._manage_account()
+            return
         if self.path == "/api/approve":
             self._handle_approve()
             return
@@ -877,6 +1295,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_notes()
         elif self.path == "/api/trip":
             self._handle_trip()
+        elif self.path == "/api/recordings":
+            self._handle_recording()
+        elif self.path == "/api/recordings/transcribe":
+            self._transcribe_recording()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1037,6 +1459,54 @@ class Handler(BaseHTTPRequestHandler):
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
 
+    def _handle_recording(self) -> None:
+        from laptop_agent.recordings import MAX_WAV_BYTES, save_recording
+
+        payload = self._read_json()
+        encoded = payload.get("audio", "")
+        if encoded.startswith("data:audio/wav;base64,"):
+            encoded = encoded.split(",", 1)[1]
+        if len(encoded) > ((min(MAX_WAV_BYTES, MAX_UPLOAD_BYTES) + 2) // 3) * 4:
+            self._json(413, {"ok": False, "message": "Recording exceeds the upload limit."})
+            return
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+            if len(raw) > MAX_UPLOAD_BYTES:
+                raise ValueError("Recording exceeds the upload limit.")
+            recording = save_recording(_CONFIG.data_dir, raw)
+        except ValueError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        self._json(200, {"ok": True, "recording": recording})
+
+    def _transcribe_recording(self) -> None:
+        payload = self._read_json()
+        target = _safe_artifact(payload.get("name", ""), "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._json(404, {"ok": False, "message": "Recording not found."})
+            return
+        result = _orchestrator.context.transcribe.transcribe_media(str(target))
+        text = str(result.data.get("text", "")).strip() if result.ok else ""
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+
+    def _serve_recording(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(self.path).query)
+        target = _safe_artifact(query.get("name", [""])[0], "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._send(404, b"Recording not found.", "text/plain")
+            return
+        raw = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(raw)))
+        if query.get("download") == ["1"]:
+            self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self._cache("private, no-store")
+        self.end_headers()
+        self.wfile.write(raw)
+
     def _handle_transcribe(self) -> None:
         """Speech-to-text for the native app's voice loop: accept a recorded audio
         clip and return the transcript via the local TranscribeTool. This replaces
@@ -1076,7 +1546,10 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             clip.unlink(missing_ok=True)
         text = str(result.data.get("text", "")).strip() if result.ok else ""
-        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+        # `ok` is false both when the engine failed and when it heard nothing, and the page
+        # must tell those apart: a broken engine is worth a notice, silence is not.
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message,
+                         "failed": not result.ok})
 
     def _handle_tts(self) -> None:
         """Text-to-speech for the native app's voice loop: render a sentence to WAV

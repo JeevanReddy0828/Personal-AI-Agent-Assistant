@@ -3,6 +3,86 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-30 — a sign-in that outlived the reset it raced
+
+- **Revoking sessions cannot end one created after the revoke.** A sign-in checks the
+  password (0.6s of scrypt) and then creates its session. A developer's reset in between
+  wrote the new hash and revoked every session, and the sign-in, already verified against
+  the old hash, created a live one; after disable-then-enable the same happened. The review
+  reproduced it at the real hash cost, and the test replays it without timing by answering
+  the check from the account as it was. **Rule: a session carries the version of the
+  credentials it was granted under; a revoke cannot see what is created after it.**
+- **A test of a sign-in must use the session it gets.** Leaving the epoch out of
+  `_start_session` passed every test, since they asserted the sign-in's 200 and never used
+  the cookie - and after any password change that bug would have locked everyone out.
+
+## Session 2026-09-28 — a recording request answered with "May I?" after every "yes"
+
+- **A request nothing routes reaches a model that thinks it can do it.** Asked "record voice
+  upto 20 seconds" in an app older than REC-01, the fast chat model answered "May I record
+  your voice for up to 20 seconds?" and asked again after each "yes". The prompt already
+  forbade asking permission, but its list of tool actions named windows, apps, reminders,
+  mail and downloads and not recording, and the capability line never mentioned it, so the
+  model took recording for its own to do once allowed. REC-01 routes that exact sentence,
+  but not the model's own wording ("for up to 20 seconds"), "can you ...", "twenty seconds"
+  (how Vosk writes it) or "start recording". **Rule: a new tool goes into the chat prompt's
+  capabilities, and its routing contract includes the phrasings the model itself uses.**
+- The app in the report was a scratch instance on port 8791 (data in `E:/Temp/jarvis-test`)
+  that an agent had started the day before; it ran whatever was checked out then. **Stop a
+  throwaway instance when the check is done.**
+
+## Session 2026-09-28 — a scheduled job that fired twice in the repeated hour
+
+- **A target rebuilt from each tick's own offset moves with the clock.** `Schedule.is_due`
+  built today's target as `now.replace(hour, minute)`, so on the night the clocks go back
+  a 01:30 job fired at 01:30 EDT, and at 01:30 EST the target was an hour later than that
+  run and it fired again. The ticker now asks for today's target by the zone's rules, the
+  first occurrence of a repeated time. "Fire once per local date" looked simpler and was
+  wrong: `mark_ran` records the finish time, so a job running past midnight would have
+  skipped the next day.
+- **A stopped clock must keep which of two identical readings it is.** The test helper
+  returned a naive local time, and a naive 01:30 in the repeated hour means the first
+  occurrence, so a clock stopped at the second 01:30 read as the first and the test of
+  that hour passed against the bug. Breaking the fix on purpose is what showed it.
+  **Rule: a naive local time cannot carry the repeated hour; keep `fold`, or stay aware.**
+
+## Session 2026-09-28 — reminders an hour off across a daylight-saving change
+
+- **`datetime.now().astimezone()` is a fixed offset, not a zone.** `timeparse` stamped it
+  onto every day it placed a time, so on this Eastern-time laptop "Monday at 7am", said on
+  Friday 30 October 2026, was stored as 07:00-04:00 and would ring at 6:00 once the clocks
+  went back; the confirmation read it back in the same offset and said 7:00. **Rule: an
+  offset read today says nothing about another day. Place each time with the zone's rules
+  for that day, and count days on the calendar, not in hours.**
+- **A fix applied by hand to a list of call sites misses one.** The first version changed
+  eight `parse_when`/`describe` calls and missed the repeating path's one-off fallback.
+  **Rule: when a fix has to reach every caller, make a test find the callers.**
+
+## Session 2026-09-27 — a reminder test that failed one minute a day
+
+- **A time given relative to now still has a day, and it is not always today.**
+  `test_due_and_upcoming_with_the_time_to_the_next` set a reminder "a minute ago" and
+  asserted the card said "today at". For the first minute after midnight a minute ago is
+  yesterday and the card gives the full date: CI run 36280996201 failed exactly so, on a
+  UTC runner at 00:00. Moving the reminder cannot fix it, because the day word is counted
+  from the clock `_reminders_snapshot` reads, so the test now stops that clock
+  (`StoppedClock`) and asserts the exact string. To reproduce a clock-dependent test, set
+  `TZ` to a fixed offset that puts local midnight inside the run (`TZ=XXX-04:39:10` works to
+  the second, on Windows too): the old test failed on the first try, and running every test
+  file from 00:00:05 found no other that fails in that minute. **Rule: a test that asserts a
+  day word stops the clock that decides it. "Give every time a day" is not enough when the
+  day is counted from now.**
+
+## Session 2026-09-27 — voice notices on screen
+
+- **A hidden surface hides the bugs in what is written to it, not only the text.** Voice
+  notices went to `#vtrans`, `display:none` since June, and one of them was wrong as well
+  as invisible: the listening turn showed `/api/transcribe`'s message whenever `ok` was
+  false, and `ok` is false for silence too, so moving the notices somewhere visible as
+  they were would have put a "nothing found" card up after every quiet moment. **Rule:
+  before surfacing messages that were never seen, check each one was ever right - nobody
+  has read them, so nobody has checked them.**
+
 ## Session 2026-09-27 — the suite played Despacito
 
 - **Every run of the unit suite opened a real YouTube video on this laptop.** The
@@ -595,3 +675,38 @@ near-miss. Newest first.
   wins" was meant to prefer a real Chrome window over a page mentioning Chrome — instead
   it picked **Live Caption**, a Chrome-hosted widget also running as `chrome.exe` with a
   shorter title. Rank title+process matches above either alone.
+
+## 2026-09-28 — a recording request was treated as a made-up media file
+
+`record voice upto 20 seconds` could reach `transcribe record 20s` and report a missing
+file. There was no microphone-recording route, and target repair accepted any stem token
+shared with the conversation. The verb `record` therefore counted as a named file.
+REC-01 adds deterministic recording intent and requires the complete transcription
+filename in the conversation (or history), rather than one shared stem token. Regression
+cases cover the reported sentence, invented `record.wav`, real filenames and near misses.
+
+The first browser persistence assertion expected a reload to reopen a chat automatically;
+the existing app starts a new chat. Correct verification reopens the saved original chat
+and asserts its actual audio box and transcript. Cancelling while permission is pending
+also checks that a late MediaStream is stopped and no file is created.
+
+REC-01's first Windows CI run exposed a test-only path alias: the temporary directory
+used `RUNNER~1`, while safe artifact resolution returned `runneradmin`. Comparing Path
+spellings failed although they named the same saved WAV. Assert one backend call and
+`samefile` identity, which checks the intended file boundary across Windows short names.
+The Linux units and Chromium job passed on that revision; the corrected test is rerun.
+
+## 2026-09-28 — Riva could wait forever before reaching local speech
+
+VOICE-02 fixed ordinary SDK failures, but a server accepting the socket and never
+answering produced no exception to catch. Riva's synchronous offline_recognize helper
+passes no timeout to gRPC. VOICE-03 obtains its future, waits with a monotonic budget,
+and cancels the RPC/ closes the channel on timeout, error, Stop and successful completion.
+A timeout is logged before auto mode tries local ASR. A Stop that races a connection
+error also propagates cancellation instead of accidentally launching fallback.
+
+Eight isolated future tests cover deadlines, cleanup, success, Stop/races, auto/explicit
+mode and configuration. A real nvidia-riva-client/grpc call using synthetic silence and
+a dummy key to a silent localhost TCP listener saw a TLS ClientHello, returned a timeout
+in 0.680 seconds for a 0.5-second budget (including SDK import), and closed the socket.
+This tests a stalled transport, not hosted model quality or hardware microphone capture.

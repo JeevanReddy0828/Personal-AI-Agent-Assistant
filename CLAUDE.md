@@ -494,6 +494,14 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
+    carries only today's, so every caller that reads the laptop's clock passes `local=True`
+    to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
+    does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
+    `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
+    fixed-offset `now` without `local` parses exactly as before.
+    The ticker does the same for scheduled jobs (`claim_due_jobs(local=True)`), so a
+    01:30 job fires once, not twice, on the night the clocks go back.
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
@@ -764,8 +772,8 @@ is ignored (400ms in the browser path, 800ms on the server-STT path), and a thir
 interruption inside 25s turns spoken barge-in off for the session. The server-STT listening turn also
 needs a quarter second of sound, with no quiet gap over 250ms, before it counts as the
 user: one loud frame, and later clicks seconds apart, were transcribed and answered. With
-open speakers full duplex is never fully reliable; Space and Interrupt are the manual
-fallback.
+open speakers full duplex is never fully reliable; Space is the manual fallback (the
+Interrupt button is in the hidden `#voice` panel, see below).
 
 **Stopping has to stop the turn, not just the sentence.** `stopSpeaking()` cleared the queue
 but the request was still streaming, and every later `tts` event was enqueued and spoken —
@@ -803,8 +811,8 @@ been tried on the laptop.
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
 closure, and that is why the feature could be "fixed" twice and still reported as not
 working — nobody could see what the microphone was hearing or what it had to beat. Both are
-now on screen: a meter in `.stagedock` at the foot of the presence panel shows
-**peak / learned leak / threshold** live while
+now on screen: a meter in `.stagedock` (at the foot of the presence panel, or above the
+composer wherever that panel is hidden) shows **peak / learned leak / threshold** live while
 barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
 it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
 per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
@@ -822,11 +830,42 @@ test passed throughout, because it asserted `#vmeter.hidden` is false, and `hidd
 false on an element inside a `display:none` parent. **An element's own visibility
 attribute says nothing about whether it is on screen** — assert a box:
 `getBoundingClientRect().height > 0`. The meter now lives in `.stagedock`, a flex column
-at the foot of the stage holding it above the orb-focus voice toggle, so neither has to
-know whether the other is there. The panel stays hidden: the violet shift is the design
-f6a145d chose, and this restores the one piece of it that has to be readable, not the
-overlay. Known gap: `.stagedock` is inside `.stage`, which is `display:none` in compact
-layout and below the tablet breakpoint, so the meter cannot be seen in those layouts.
+holding it above the orb-focus voice toggle, so neither has to know whether the other is
+there. The panel stays hidden: the violet shift is the design f6a145d chose, and this
+restores the one piece of it that has to be readable, not the overlay.
+
+**The dock is fixed to the viewport, not parked in `.stage`.** Put at the foot of the
+presence panel it was still unreadable wherever that panel is `display:none` — under
+`body.compact`, below 1100px and below 700px — which is to say on a small laptop, on a
+phone, and for anyone using the compact-layout toggle: the same "fixed but still not
+visible" shape as the three months above, one level up. `.stagedock` is a sibling of
+`.stage` now and `--dock-x/-r/-w/-y` say where it lands: over the presence panel's own
+grid cell by default, spanning the window in orb focus, and 12px above the composer
+whenever the panel is off screen. `app.js` asks the **stage itself** whether it is
+displayed (`syncDock`, toggling `.app.stageless`) rather than restating the breakpoints in
+JS, so a breakpoint moved in the CSS alone cannot strand the meter again — and it
+publishes the composer's measured height as `--composer-h`, because the textarea grows as
+you type and a constant offset would put the meter over the box it is meant to sit above.
+Three things learned by breaking them: the class goes on `.app`, not `body`, because three
+orb-focus tests read `document.body.className` **whole**; the dock needs `z-index:40`,
+since orb focus makes `.stage` a `z-index:30` overlay and at the old 6 a sibling dock was
+painted over — a click on the voice toggle landed on the canvas; and the dock must be
+hidden off the chat view (`body:not([data-view="chat"])`), which hides the composer too,
+or it floats over the Overview page anchored to a composer of height 0. Docked above the
+composer the meter draws its own hairline-and-blur panel so it is readable against chat
+text; over the orb it stays bare. Verified at 1440 compact, 1000, 700 and 390 in headless
+Chromium, asserting a real box and that it clears the composer.
+
+**Voice notices go to the reminder tray.** The same hidden panel swallowed every voice
+notice written to `#vtrans`: voice interruption switching itself off, a blocked or missing
+microphone, the recognizer's errors — which end voice mode, so the pill just turned off —
+and a failed transcription. `voiceNotice()` puts them in `#remtray`, which is fixed to the
+window and so visible in every layout, orb focus and a phone included: one at a time, never
+chimed or spoken since the microphone may be listening, cleared by Dismiss, a voice restart
+or Space. Subtitles stay hidden; that was f6a145d's design. `/api/transcribe` answers
+`failed` on its own, because its `ok: false` also means "heard nothing" — the old code
+wrote that "nothing found" message as an error too, and only the hidden panel kept it from
+putting a card up after every quiet moment.
 
 ## Running it
 
@@ -918,6 +957,148 @@ before the API-token check, since a new device cannot have the token until it ha
 In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_literal`):
 DNS rebinding needs a domain the attacker controls, so refusing names is what makes
 widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
+
+**Accounts switch sign-in on (`accounts.py`, `sessions.py`).** With no accounts nothing
+changes. Once any account exists, a disabled one included, every request needs a session,
+loopback too: disabling the last account must not reopen the app. The first account is
+made from this machine only (the settings popover or `python -m laptop_agent.accounts`), is
+always `dev`, and `create(first=True)` decides "none yet" under the file lock, so two
+set-up requests cannot both win. The CLI is OS trust and the way back in for a locked-out
+owner. Decisions that each exist for a reason:
+- Passwords are stdlib scrypt at OWASP's N=2^17, r=8, p=1 (0.6s here). hashlib's default
+  `maxmem` of 32 MiB **refuses** those parameters, which a cheap-cost test never notices;
+  `test_the_real_cost_hashes_and_verifies` runs the real one. Hashing happens outside the
+  file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled
+  them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing
+  does not say who exists.
+- **At most two hash at once** (`HASH_SLOTS`). A hash holds 128 MiB outside the GIL and
+  the server runs a thread per request: measured, four at once took the peak working set
+  from 21 MiB to 534 MiB, so fifty sign-in attempts from a phone on the same wifi would ask
+  for 6.4 GB. The backoff cannot stop that, because it counts a failure only once its hash
+  has finished. A request that gets no turn within `HASH_WAIT` is answered 503 with
+  `Retry-After`, and is **not** counted as a failure: nothing was checked, so treating it
+  as a wrong password would lock the owner out because someone else was flooding.
+- **Damaged sign-in storage fails closed** (Codex's review). `accounts.json` is read
+  strictly (`storage.read_json_strict`): only a *missing* file means "no accounts". Read the
+  generic way, a damaged file came back empty, which switched sign-in off and served the
+  app and its API token to anyone; a damaged or invalid one now answers every request 503
+  with how to recover. Neither store keeps a `.bak` or is ever read from one: a backup can
+  bring back a deleted account, an old password or role, or a session revoked since it was
+  written. A damaged `sessions.json` signs everyone out.
+- **Saved chats are kept per account** (`jarvis_sessions:<account id>` in the browser),
+  loaded only once `/api/me` says who is signed in: one origin-wide key let a personal
+  account reopen the owner's chats on the same browser. Keyed by id, not name, since a
+  name can be reused. Chats from before sign-in go to the first developer only, and a tab
+  reloads when another tab signs in as someone else. Separation, not secrecy: whoever uses
+  the browser profile can read its storage.
+- On `http://localhost` a cookie is sent to **every port** of the host, so any other web
+  server you run locally receives the session cookie. That is HTTP, not this code: the fix
+  is HTTPS with a `__Host-` cookie (TLS-01), which the browser scopes to one origin.
+- Sessions are server-side and persisted, keyed by the SHA-256 of the token, so a restart
+  does not sign the desktop window out and the file holds nothing usable as a cookie. The
+  store reloads when the file's stamp changes, because the CLI revokes from its own
+  process. Every request re-reads the account, so a disabled account or a new role applies
+  to the next request, not when the session ends.
+- **A session is bound to the credentials it was granted under.** A new password or a
+  disable moves the account's `epoch` on, every session records the epoch it was created
+  with, and `_principal` refuses an older one. Revoking alone could not close the race the
+  review found at the real hash cost: a sign-in checked against the old password finishes
+  its 0.6s hash after `revoke_account` has run, then creates its session, which also came
+  back after disable-then-enable. `create()` defaults to epoch 0, so a caller that leaves it
+  out fails closed; changing your own password rebinds only the session that proved it.
+  Known limit: revoking ends sessions, not work already running - an agent run or stream in
+  flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
+- `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
+  token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
+  per client and per username. The username key is scoped `local`/`lan`, so failures from
+  the wifi cannot lock the owner out of the laptop.
+- A signed-out `/` gets `signin.html`, a separate document, so the API token inside
+  `PAGE` never reaches anyone who has not signed in.
+- The page's fetch wrapper reloads on a **bare** 403 (a stale token after a restart), so a
+  final refusal must say so: role and wrong-password 403s carry `X-Jarvis-Denied`, or a
+  `personal` account would reload-loop on every developer route. A 401 now reloads too,
+  and the server answers with the sign-in page.
+- Tests swap `webui.ACCOUNTS`, `SESSIONS` and `_SIGNIN_LIMIT` for their own. One account
+  written into the data directory the runner shares would put every other web test
+  behind a sign-in page.
+
+**A `personal` account is the assistant, not the machine (`access.py`).** It never acts on
+the laptop itself (files, the screen, the camera, apps, windows, the shell, the browser,
+music), never reaches the owner's mail, notes, indexed documents or job search, never sees
+the internals, and never starts anything that acts on its own. The web server sets the
+principal per request (`acting_as`, a ContextVar, which `asyncio.to_thread` carries into the
+task runner). Four checks, because each covers a path the others miss:
+- **The gate** refuses it HIGH and CRITICAL before anyone is asked: an approval card it could
+  click through is no control. `ApprovalRequest(everyday=True)` marks the one HIGH action it
+  may still take (clearing several reminders at once), asked as for anyone.
+- **The orchestrator** checks the command *about to be dispatched* (`_account_limits`),
+  inside the branch that dispatches. The first draft checked the top of `_handle` and was
+  wrong twice. `_follow_up` rebuilds the command afterwards from history the *client* sends,
+  so `[user: "email unread", assistant: "I could not find a time in that."]` plus "5pm"
+  became `email unread 5pm` — and an inbox read is MEDIUM, which the gate lets through. And
+  it refused prose the prose guard sends to the router ("schedule a meeting with bob").
+  Routed and split commands come back through the same line as commands of their own. A
+  developer form is refused with a reason; past that it is **default-deny where a command
+  is claimed**, Codex's review of #140: only what is marked everyday (`access.EVERYDAY_*`,
+  plus the pattern-chosen branches in `AgentOrchestrator._everyday`) is dispatched. Free
+  text that matches none of it goes to the router, and a command the router made that is
+  not everyday is refused — so a command added later without a decision is refused where
+  it runs, not only in CI.
+- **The approval broker** gives an account only its own cards. It broadcast every card to
+  every open stream, so another account read the command, recipient or path and could
+  answer it. A card the machine asked for itself (the ticker) goes to a developer.
+- **The web server** lets it use an allow-list of routes (`_PERSONAL_ROUTES`), so a route
+  added later is closed to it until decided. The deny-list it replaced missed
+  `/api/pipeline`, whose resume loader reads any path.
+
+Both lists are copies of what the dispatchers match, and a copy fails by omission.
+`DispatchMirrorTests` reads every literal form out of `_DISPATCH` with `ast`: each must be
+refused, or listed everyday *as itself* — never merely covered by a broader everyday prefix,
+or `list secrets` added under `list ` would be dispatched for a personal account — and every
+listed form must be one the dispatchers match (a phantom `knowledge` prefix would refuse
+"knowledge is power"). It counts the branches chosen by a pattern, which it cannot read, and
+`PersonalContractTests` plus one phrase per pattern branch hold `_everyday` to them: each of
+its eight patterns was removed in turn and caught, the routing contract alone missed two.
+Every rule here was broken on purpose and every break was caught. `read file` is LOW, which
+is why files are on the list at all: without it a personal account could `read file .env`.
+Data is shared on purpose: the personal account is the owner in a safer everyday mode, not
+another person (Jeevan's answer, 2026-09-28). So reminders, timers, lists, remembered facts,
+generated pictures and documents stay one store, the chat prompt carries the owner's facts,
+and per-account data is not planned; what it is refused limits scope, not privacy. The
+page hides `.devonly` controls under `body[data-role="personal"]` and greets the account by
+its own name; the server is the enforcement. Known limits: the gate's prompt lock serialises
+approvals across accounts, and attachments are developer-only, because every use of one is a
+file command.
+
+**Accounts are managed from this computer** (`GET`/`POST /api/accounts`, the Accounts panel in
+the System status drawer, "Manage accounts" in the settings popover). Developer-only by the
+route allow-list and again in `_account_admin`, and loopback-only like setting sign-in up, so
+a session carried to a phone cannot add a developer. Every change asks for the developer's
+own password again (the same backoff as sign-in), so a session left signed in cannot mint
+another account. Nobody demotes, disables or deletes themselves here; the command line
+stays the way back in. The store refuses, under its lock, any web change that would leave
+no enabled developer (`keep_developer=True`), since two developers demoting each other at
+once would otherwise both succeed; the command line does not pass it. Disabling, resetting
+or deleting ends that account's sessions: a disabled account is refused on its next request
+anyway, but without the revoke a cookie taken before the disable came back to life when the
+account was enabled again, which is the one test that could tell.
+
+**Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
+Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,
+not set up), `missing` (a package or engine it needs is absent), `busy` (a tier loaded or
+unreachable) or `broken` (a tier misconfigured, with its reason), and for anything not
+ready the next step as an environment variable *name* or an install command, never a value,
+a path or a model id (a test puts secrets in every config field and asserts none reach the
+report). Offline and cheap: packages are checked with `find_spec` and programs with `which`,
+both injected, so nothing heavy is imported and nothing goes over the network; Tesseract's
+package without its program counts as `missing`, since the engine probe only checks the
+package. Two rules from Codex's review: Playwright is ready only when the Chromium revision
+its own `browsers.json` names is in its browsers directory, finished (its `INSTALLATION_COMPLETE`
+marker and a browser executable inside: an interrupted install leaves the folders empty) — the
+package alone said ready with no browser, and an upgrade leaves the old revision behind — and a
+broken tier's advice is
+rebuilt from the HTTP status, never passed through, because the stored reason names the
+model id. Developer-only by the route allow-list and `.devonly`.
 
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
@@ -1149,3 +1330,35 @@ Both Claude and Codex edit this repo. To avoid collisions:
   vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
   broken when the tool only sees one folder. That mistake invented four broken links
   that were never broken.
+
+## Recorder integration (REC-01, 2026-09-28)
+
+- `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
+  mono, 16-bit, nonempty, at most 120 seconds). `recording_enabled` is a client capability;
+  webui enables it, CLI/Tkinter do not. `record <seconds>` returns `data.record`.
+- `/api/recordings` saves only; `/api/recordings/transcribe` explicitly requests speech
+  processing; `/api/recording?name=...` serves same-origin private/no-store audio.
+  Preserve the shared token/origin gate and filename confinement for these routes.
+- Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
+  Browser capture owns its own microphone lifecycle and releases voice-chat resources.
+  Save and transcript results stay with the original session across chat changes.
+- The planner strips `_POLITE` and turns spoken numbers into digits before
+  `recording_seconds`, so "can you record my voice for up to twenty seconds?" routes; the
+  chat prompt names recording as a tool, or the model asks permission it cannot act on.
+- AUTH-01 integration: keep recording commands/routes developer-only until artifacts
+  have account ownership. A recording filename is not an authorization boundary.
+- Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
+  and `RecordingBrowserTests` in the existing opt-in browser CI suite.
+
+## Riva deadline (VOICE-03, 2026-09-28)
+
+`_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
+blocking helper accepts no timeout. Poll `result(timeout=...)` in at most 100 ms slices,
+check operation cancellation, and always cancel the future/close its channel. Do not
+replace this with a background Python thread that leaves the RPC running after timeout.
+`_riva_timeout` scales with WAV duration and accepts `RIVA_ASR_TIMEOUT_SECONDS` in (0,600].
+A real deadline becomes TimeoutError, which auto mode can pass to the local fallback;
+OperationCancelled bypasses ordinary errors, including a Stop racing an RPC failure.
+Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates teardown.
+This is independent of VOICE-02's broader grpc exception fallback and does not import
+those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.

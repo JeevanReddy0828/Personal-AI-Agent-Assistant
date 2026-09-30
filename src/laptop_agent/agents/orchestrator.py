@@ -52,6 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
+from laptop_agent.access import everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -236,6 +237,7 @@ _WHOLE_ARGUMENT = frozenset({
     "email", "send", "remember", "note", "document", "image", "research", "solve", "ask", "agent", "autopilot",
     "workflow", "multi", "schedule", "run", "terminal", "shell", "write", "draft", "summarize", "translate",
 })
+_REMINDER_REMOVE = re.compile(r"reminder (?:delete|cancel|remove)(?: |$)")
 _HOW_LONG_LEFT = re.compile(r"(?:how\s+much\s+longer|how\s+much\s+time(?:\s+is)?\s+left|how\s+long\s+(?:is\s+)?left"
                             r"|time\s+left|how\s+long\s+to\s+go)[\s?.!]*")
 
@@ -293,7 +295,7 @@ def _reminder_line(item: dict, now: datetime) -> str:
     """"- #3 today at 6:22 AM — check the oven", instead of a raw UTC timestamp."""
     try:
         due = datetime.fromisoformat(str(item.get("due_at", "")))
-        when = describe(due, now) + (" (overdue)" if due <= now else "")
+        when = describe(due, now, local=True) + (" (overdue)" if due <= now else "")
     except ValueError:
         when = str(item.get("due_at", ""))
     return f"- #{item.get('id')} {when} — {item.get('message')}"
@@ -317,8 +319,10 @@ class AgentOrchestrator:
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
         data_dir: Path | None = None,
+        recording_enabled: bool = False,
     ) -> None:
         self.context = context
+        self.recording_enabled = recording_enabled
         self.planner = planner
         # Optional higher-capability model for moderately complex questions.
         self.smart_planner = smart_planner
@@ -621,7 +625,14 @@ class AgentOrchestrator:
         spoken = text.lower() + " " + " ".join(
             str(turn.get("text", "")).lower() for turn in (history or [])[-6:]
         )
-        if any(token in spoken for token in tokens):
+        if prefix == "transcribe":
+            # A shared verb ("record") is not a named file ("record 20s"). Require
+            # the whole filename, including its extension, not any stem token.
+            name = re.split(r"[/\\]", target.strip('"\''))[-1].lower()
+            grounded = bool(name) and re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", spoken)
+        else:
+            grounded = any(token in spoken for token in tokens)
+        if grounded:
             return planned
         return PlanDecision(
             action="chat",
@@ -916,7 +927,7 @@ class AgentOrchestrator:
         if lowered == "reminder done" or lowered.startswith("reminder done "):
             return self._reminder_done(command[len("reminder done") :].strip())
 
-        if re.match(r"reminder (?:delete|cancel|remove)(?: |$)", lowered):
+        if _REMINDER_REMOVE.match(lowered):
             return self._reminder_remove(command.split(" ", 2)[2] if len(command.split(" ", 2)) > 2 else "")
 
         if lowered == "reminder stop" or lowered.startswith("reminder stop "):
@@ -1099,6 +1110,18 @@ class AgentOrchestrator:
 
         if lowered.startswith("ocr "):
             return self.context.transcribe.ocr_image(command[len("ocr ") :].strip())
+
+        if lowered == "record" or re.fullmatch(r"record -?\d+(?:\.\d+)?", lowered):
+            from laptop_agent.recordings import MAX_SECONDS, recording_seconds
+            seconds = recording_seconds(command)
+            if seconds is None or not 0 < seconds <= MAX_SECONDS:
+                return ToolResult.failure("Choose a recording duration greater than 0 and at most 120 seconds.")
+            if not self.recording_enabled:
+                return ToolResult.failure("Voice recording needs the J.A.R.V.I.S app or web page. Open it and ask there.")
+            return ToolResult.success(
+                f"Record up to {seconds:g} seconds. Stop or press Space to keep a shorter clip.",
+                record={"seconds": float(seconds)},
+            )
 
         if lowered.startswith("transcribe "):
             return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
@@ -1606,7 +1629,7 @@ class AgentOrchestrator:
             if reminder is not None:
                 due = datetime.fromisoformat(str(reminder["due_at"]))
                 return ToolResult.success(f"You have a reminder for that: {reminder['message']} — "
-                                          f"{describe(due, now)}.", reminder=reminder)
+                                          f"{describe(due, now, local=True)}.", reminder=reminder)
             if re.match(r"\s*(?:my|our)\s+", what, re.IGNORECASE):
                 yours = re.sub(r"^(?:my|our)\b", "your", what.strip(), flags=re.IGNORECASE)
                 return ToolResult.success(
@@ -1766,6 +1789,37 @@ class AgentOrchestrator:
             lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
         return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
 
+    def _account_limits(self, command: str, lowered: str, planner: bool) -> tuple[ToolResult | None, bool]:
+        """(a refusal, whether to dispatch) for the command about to run.
+
+        Checked there, not at the top of `_handle`: after `_follow_up` has rebuilt the command
+        from history the client sent, and never on prose, which goes to the router. What the
+        router or a split sentence produces comes back through here as a command of its own.
+        A developer form is refused with a reason. Past that it is default-deny where a command
+        is claimed: for a personal account only what is marked everyday is dispatched. Free
+        text that is not goes to the router; a command the router made that is not is refused,
+        including one nobody has classified yet.
+        """
+        refused = refused_command(command)
+        if refused:
+            return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused), False
+        if not is_personal() or self._everyday(command, lowered):
+            return None, True
+        if planner:
+            return None, False
+        return ToolResult.failure("That isn't available to a personal account.",
+                                  refused=lowered.split(" ", 1)[0]), False
+
+    def _everyday(self, command: str, lowered: str) -> bool:
+        """Whether a personal account may have `command` dispatched: a form marked everyday,
+        or one of the everyday branches chosen by a pattern, which `test_access` counts."""
+        return bool(
+            everyday_form(lowered) or _BARE_LIST.fullmatch(lowered) or _WHICH_LIST.fullmatch(lowered)
+            or _HOW_LONG_LEFT.fullmatch(lowered) or _REMINDER_REMOVE.match(lowered)
+            or fact_question(command) is not None or nameless_list_edit(command) is not None
+            or date_question(command) is not None or draw(command) is not None   # a throwaway draw
+        )
+
     # Dispatch order, as data. A group returns a ToolResult or None; the first
     # non-None wins, exactly as the original if/elif chain did.
     _DISPATCH = (
@@ -1914,7 +1968,7 @@ class AgentOrchestrator:
         if asked.startswith("I could not find a time in that.") and before:
             for candidate in (reply, f"at {reply}"):
                 try:
-                    if parse_when(spoken_to_digits(candidate), now) is not None:
+                    if parse_when(spoken_to_digits(candidate), now, local=True) is not None:
                         return f"{before} {candidate}"
                 except TimeParseError:
                     return None
@@ -2041,7 +2095,10 @@ class AgentOrchestrator:
         # None to mean 'not mine'; order is preserved exactly as it was, and the
         # shadowing test in tests/test_command_dispatch.py still reads every prefix.
         if not (_allow_planner and self._reads_as_prose(command, lowered)):
-            for dispatch in self._DISPATCH:
+            refusal, allowed = self._account_limits(command, lowered, _allow_planner)
+            if refusal is not None:
+                return refusal
+            for dispatch in self._DISPATCH if allowed else ():
                 handled = await dispatch(self, command, lowered, history_turns)
                 if handled is not None:
                     return handled
@@ -2519,6 +2576,7 @@ class AgentOrchestrator:
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
                 "  ocr image <path>",
+                "  record <seconds>  (app/web microphone; up to 120 seconds)",
                 "  transcribe <audio-or-video-path>",
                 "  read screen [question]   (vision: looks at your screen)",
                 "  describe image <path>    (vision)",
@@ -2614,7 +2672,7 @@ class AgentOrchestrator:
                       what: str = "reminder") -> ToolResult:
         now = datetime.now().astimezone()
         try:
-            when = parse_when(cleaned, now, default_half=default_half)
+            when = parse_when(cleaned, now, default_half=default_half, local=True)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
         if when is None:
@@ -2631,7 +2689,7 @@ class AgentOrchestrator:
             )
         message = label or _reminder_message(cleaned, when.start, when.end)
         if not message:
-            return ToolResult.failure(f"What should I remind you about {describe(when.at, now)}?")
+            return ToolResult.failure(f"What should I remind you about {describe(when.at, now, local=True)}?")
         try:
             outcome = self.context.reminders.add(when.at.isoformat(), message)
         except ValueError:
@@ -2639,7 +2697,7 @@ class AgentOrchestrator:
         if not outcome.get("ok"):
             return ToolResult.failure(f"Could not add reminder: {outcome.get('reason', 'unknown error')}")
         reminder = outcome["reminder"]
-        spoken = describe(when.at, now)
+        spoken = describe(when.at, now, local=True)
         # A time already gone is kept, not refused - an explicit past date is a legitimate
         # backfill - but it is never left to look like it was scheduled ahead.
         note = "" if when.at > now else " (that time has already passed, so it is due now)"
@@ -2723,7 +2781,7 @@ class AgentOrchestrator:
         if upcoming:
             due, item = upcoming[0]
             what = "" if str(item["message"]).lower() == kind else f": {item['message']}"
-            parts.append(f"Your next {noun} is {describe(due, now)}{what}.")
+            parts.append(f"Your next {noun} is {describe(due, now, local=True)}{what}.")
         if repeating:
             parts.append("Repeating: " + "; ".join(
                 f"{job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating) + ".")
@@ -2774,7 +2832,7 @@ class AgentOrchestrator:
                 + cleaned[repeat.end():]).strip()
         now = datetime.now().astimezone()
         try:
-            when = parse_when(body, now, default_half=default_half)
+            when = parse_when(body, now, default_half=default_half, local=True)
         except TimeParseError as exc:
             return ToolResult.failure(str(exc))
         message = label or (_reminder_message(body, when.start, when.end) if when else _reminder_message(body, 0, 0))
@@ -2949,7 +3007,7 @@ class AgentOrchestrator:
         set_up = []
         if reminder is not None:
             due = datetime.fromisoformat(str(reminder["due_at"]))
-            set_up.append(f"{reminder['message']} is set for {describe(due, now)}")
+            set_up.append(f"{reminder['message']} is set for {describe(due, now, local=True)}")
         set_up += [f"{job.spec[len('reminder add now '):]} repeats {job.schedule.describe()}" for job in jobs]
         if not set_up:
             return ToolResult.failure(why or "Nothing is going off right now.")
@@ -2975,7 +3033,7 @@ class AgentOrchestrator:
             preview = [_reminder_line(item, now) for item in chosen[:20]]
             preview += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}" for job in repeating]
             self.context.web.approval_gate.require(ApprovalRequest(
-                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH,
+                action=f"Cancel all {count} {kind}", risk=RiskLevel.HIGH, everyday=True,
                 reason="Removes every one of them at once; they cannot be brought back.", preview="\n".join(preview)))
         for item in chosen:
             self.context.reminders.remove(int(item["id"]))
@@ -3011,7 +3069,7 @@ class AgentOrchestrator:
         now = datetime.now().astimezone()
         until = now + timedelta(minutes=minutes)
         self.context.reminders.snooze(int(reminder["id"]), until)
-        return ToolResult.success(f"Snoozed until {describe(until, now)}: {reminder['message']}.",
+        return ToolResult.success(f"Snoozed until {describe(until, now, local=True)}: {reminder['message']}.",
                                   id=reminder["id"], due_local=until.isoformat())
 
     def _jobs_list(self) -> ToolResult:
@@ -3438,7 +3496,9 @@ class AgentOrchestrator:
         'schedule run due' command. Each job runs through handle()/run_agent so risky steps
         still hit the approval gate."""
         moment = now or datetime.now().astimezone()
-        due = self.context.scheduler.claim_due_jobs(moment)
+        # No `now` given means this read the laptop's clock, so today's target takes the
+        # zone's rules: the ticker is what runs jobs through a daylight-saving change.
+        due = self.context.scheduler.claim_due_jobs(moment, local=now is None)
         ran = []
         for index, job in enumerate(due):
             try:

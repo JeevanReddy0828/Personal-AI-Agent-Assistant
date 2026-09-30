@@ -167,6 +167,44 @@ class RoutingContractTests(unittest.TestCase):
                 self.assertIsNone(ran, f"{text!r} ran {ran!r}")
                 self.assertIn("answered]", result.message)
 
+    def test_recording_duration_and_unsupported_clients(self) -> None:
+        o = self.everyday.orchestrator
+        o.recording_enabled = True
+        for text, seconds in (("record voice upto 20 seconds", 20),
+                              ("record my voice for 10 seconds", 10),
+                              ("record a voice note", 20),
+                              ("record audio up to 2 minutes", 120),
+                              ("record my voice for up to 20 seconds", 20),
+                              ("could you please record my voice for 15 seconds?", 15),
+                              ("record audio for two minutes", 120),
+                              ("start a voice recording", 20),
+                              ("record a voice memo for 30 seconds please", 30)):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertTrue(result.ok, result.message)
+                self.assertEqual(result.data["record"], {"seconds": seconds})
+                self.assertTrue(reached(ran, "record"), ran)
+        for text in ("record 0", "record -1", "record audio for 3 minutes", "record voice for 1000000 seconds", "record " + "9" * 500):
+            result, _ = self.everyday.say(text)
+            self.assertFalse(result.ok, text)
+            self.assertNotIn("record", result.data)
+        o.recording_enabled = False
+        result, _ = self.everyday.say("record voice upto 20 seconds")
+        self.assertFalse(result.ok)
+        self.assertIn("app or web page", result.message)
+
+    def test_record_verb_is_not_a_transcription_filename(self) -> None:
+        o = self.everyday.orchestrator
+        for name in ("record 20s", "record.wav", "C:/Users/owner/record 20s"):
+            planned = PlanDecision(action="command", confidence=.9, explanation="",
+                                   command="transcribe " + name)
+            self.assertTrue(o._repair_target_command("record voice upto 20 seconds", planned, []).is_chat)
+        planned = PlanDecision(action="command", confidence=.9, explanation="",
+                               command="transcribe C:/clips/record 20s.wav")
+        self.assertTrue(o._repair_target_command("transcribe record 20s.wav", planned, []).is_command)
+        self.assertTrue(o._repair_target_command("transcribe it", planned,
+                        [{"role": "user", "text": "record 20s.wav"}]).is_command)
+
     def test_a_near_miss_is_not_a_match(self) -> None:
         """A check that cannot tell `windows` from `window` passes a wrong route."""
         self.assertFalse(reached("windows", "window"))

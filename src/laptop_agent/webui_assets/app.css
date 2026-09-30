@@ -71,6 +71,20 @@
   .hudpop .toggle.on .sw{background:var(--accent)}
   .hudpop .toggle.on .sw::after{left:17px;background:var(--accent-ink)}
   .hudpop .row{display:flex;flex-direction:column;gap:8px;padding:9px 10px 6px}
+  /* What a personal account cannot use: the server refuses it anyway, so do not offer it. */
+  body[data-role="personal"] .devonly{display:none!important}
+  /* Account: the first block of the settings popover. `[hidden]` is restated because the
+     block's own `display:flex` would otherwise override the attribute. */
+  .hudpop .acct{display:flex;flex-direction:column;gap:8px;padding:9px 10px 10px;border-bottom:1px solid var(--hair);margin-bottom:4px}
+  .hudpop .acct [hidden],.hudpop .acct[hidden]{display:none!important}
+  .hudpop .acct .lbl{align-items:center;gap:10px}
+  .hudpop .acct form{display:flex;flex-direction:column;gap:6px}
+  .hudpop .acct input{width:100%;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1px solid var(--hair);background:rgba(0,0,0,.25);color:var(--text);font:400 13px var(--sans)}
+  .hudpop .acctbtn{flex:none;border:0;border-radius:8px;padding:6px 10px;background:var(--accent);color:var(--accent-ink);font:600 12.5px var(--sans);cursor:pointer}
+  .hudpop .acctbtn[disabled]{opacity:.6;cursor:default}
+  .hudpop .acctlink{align-self:flex-start;border:0;background:none;padding:0;color:var(--accent);font:500 12.5px var(--sans);cursor:pointer}
+  .hudpop .acct small{color:var(--muted);font:400 11.5px/1.35 var(--sans)}
+  .hudpop .acct .lbl small{display:block;margin-top:2px}
   .hudpop .lbl{display:flex;justify-content:space-between;font:500 13px var(--sans);color:var(--text)}
   .hudpop .lbl span:last-child{font:12px var(--mono);color:var(--muted)}
   .hudpop input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;background:rgba(255,255,255,.12);outline:none;margin:4px 0}
@@ -141,17 +155,35 @@
   .corestate b{font-weight:600;color:var(--text)}
   .corestate .blip{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:middle;opacity:.9}
   body.voicing .corestate{opacity:0}
-  /* The foot of the stage: the mic meter above the voice toggle. A stack rather than two
-     absolutely-positioned elements, so whichever of them is on screen sits correctly
-     without the other having to know. Clear of .corestate at bottom:34px.
+  /* The mic meter above the voice toggle. A stack rather than two absolutely-positioned
+     elements, so whichever of them is on screen sits correctly without the other having
+     to know.
      The toggle shows only in orb focus, where the chat column — and with it the
      composer's Voice pill — is hidden. It toggles both ways rather than handing off to
      the .voice panel, because that panel has been display:none since f6a145d dropped the
      written overlay, so End voice and Interrupt are not on screen to hand off TO.
-     No glow: the orb stays the only glowing element on the page. */
-  .stagedock{position:absolute;left:0;right:0;bottom:70px;z-index:6;display:flex;
+     No glow: the orb stays the only glowing element on the page.
+
+     Fixed to the VIEWPORT, not to .stage. It used to sit at the foot of .stage, and
+     .stage is display:none in compact layout and under 1100px — so the one thing the
+     meter exists for, reading the level a real room has to beat, was impossible in
+     exactly the layouts a small laptop and a phone use. The --dock-* variables say where
+     it lands; every layout that hides the presence panel repoints them at the composer.
+     The default anchor mirrors the stage's own grid cell: column 2, clear of .corestate
+     at bottom:34px.
+     z-index sits above orb focus's own overlay (30) and below the header, the approval
+     cards and the drawer. As a child of .stage it was inside that overlay; as a sibling
+     at the old z-index 6 the overlay painted over it and a click on the voice toggle
+     landed on the canvas instead. */
+  .stagedock{position:fixed;left:var(--dock-x,var(--rail-w));right:var(--dock-r,auto);
+    width:var(--dock-w,var(--presence-w));bottom:var(--dock-y,70px);z-index:40;display:flex;
     flex-direction:column;align-items:center;gap:14px;padding:0 26px;pointer-events:none}
   .stagedock>*{pointer-events:auto}
+  /* Orb focus makes .stage a full-window overlay, so the dock has to span the window too. */
+  body.orbstage{--dock-x:0;--dock-r:0;--dock-w:auto}
+  /* The other views hide the composer along with the stage, so there is nothing for the
+     dock to sit above and no orb to talk to. */
+  body:not([data-view="chat"]) .stagedock{display:none}
   .orbvoice{display:none;align-items:center;gap:9px;height:44px;padding:0 20px 0 17px;border-radius:999px;
     border:1px solid var(--hair-2);background:rgba(255,255,255,.05);color:var(--text-2);
     font:500 14px var(--sans);backdrop-filter:blur(6px);
@@ -179,8 +211,13 @@
      to cut in. The 0.045 floor was invisible until it was a number on the screen. */
   /* max-width, not width: the presence panel is clamp(280px,26vw,400px) and its gutter is
      26px a side, so a fixed 260px spills into the gutter between 1100 and 1200px wide. */
-  .vmeter{display:flex;flex-direction:column;gap:5px;width:100%;max-width:260px}
+  .vmeter{display:flex;flex-direction:column;gap:5px;width:100%;max-width:260px;pointer-events:none}
   .vmeter[hidden]{display:none}
+  /* Docked above the composer there is chat text behind it, so it carries its own quiet
+     panel — the same hairline-and-blur treatment as .orbvoice, and no glow. Over the
+     presence panel there is nothing behind it but the orb, so it stays bare there. */
+  .stageless .vmeter{max-width:300px;padding:9px 14px 10px;border-radius:var(--r-md);
+    border:1px solid var(--hair-2);background:rgba(255,255,255,.05);backdrop-filter:blur(6px)}
   /* No overflow:hidden — it clipped the threshold tick's 2px overhang top and bottom, so
      the one reference line the meter exists to show sat flush with the bar. The fill
      carries its own border-radius, so the track does not need clipping. */
@@ -394,6 +431,10 @@
   .dsec>h3{font:500 11.5px var(--sans);color:var(--faint);margin:14px 8px 6px}
   .crow{display:flex;align-items:center;gap:10px;padding:8px 8px;font:13px var(--sans);border-bottom:1px solid var(--hair)}
   .crow:last-child{border-bottom:0}
+  /* Setup: capability rows reuse .crow; what it is and the next step wrap under the row. */
+  .setrow{flex-wrap:wrap}
+  .setrow .setmore{flex-basis:100%;padding-left:17px;font:12px var(--sans);color:var(--muted);line-height:1.45}
+  .setrow .setnext{display:block;color:var(--text-2)}
   .crow .d{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none} .crow .d.off{background:var(--faint)} .crow .d.warn{background:var(--warn)}
   .crow .k{color:var(--muted)} .crow .v{margin-left:auto;font:12px var(--mono);color:var(--text-2);text-align:right;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .metric{margin:9px 8px}
@@ -445,6 +486,9 @@
   button:disabled{opacity:.5;cursor:default}
   .schedmsg,.mapmsg{font:12px var(--sans);color:var(--muted);min-height:14px;margin:2px 8px}
   .schedmsg.err,.mapmsg.err{color:var(--warn)}
+  /* Accounts: shown to a developer on this computer only; rows reuse the schedule cards. */
+  #acctPanel[hidden]{display:none}
+  .schedcard .meta input{flex:1;min-width:0;background:rgba(0,0,0,.25);border:1px solid var(--hair-2);border-radius:8px;color:var(--text);font:12px var(--sans);padding:4px 7px}
   .schedcard,.runcard{margin:4px 6px;background:rgba(255,255,255,.03);border-radius:10px;padding:9px 11px}
   .schedcard.off{opacity:.5}
   .schedcard .top,.runcard .top{display:flex;align-items:center;gap:8px}
@@ -558,6 +602,15 @@
   body.compact main.chatcol{grid-column:1/-1}
   body.compact .brand{min-width:0}
 
+  /* ---------- where the voice dock goes when the presence panel is not on screen ------
+     The class is on .app, not on body: three orb-focus tests read document.body.className
+     whole, and a layout-state class there would have made them all assert around it.
+     --composer-h is published by app.js from the composer's real height, because the
+     textarea grows as you type and the chips row appears with attachments: a constant
+     would put the meter over the box it is supposed to sit above. The fallback covers the
+     frames before the first measurement. */
+  .app.stageless{--dock-x:0;--dock-r:0;--dock-w:auto;--dock-y:calc(var(--composer-h,116px) + 12px)}
+
   /* ---------- motion ---------- */
   @keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
   @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
@@ -601,3 +654,11 @@
   }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
   @media(prefers-reduced-motion:reduce){.think i{width:100%}}
+
+/* Deliberate voice recording is visible even while another chat is selected. */
+.recording-card { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px; margin-top:12px; border:1px solid var(--hair-3); border-radius:12px; background:var(--surface); }
+.recording-card audio { max-width:100%; width:300px; }
+.recording-card button, .recording-card a { padding:8px 12px; cursor:pointer; }
+.recording-note { flex-basis:100%; margin:0; font-size:13px; }
+.recorder-live { position:fixed; z-index:1000; right:16px; bottom:100px; max-width:calc(100vw - 32px); box-shadow:0 8px 32px #0006; }
+.recorder-live p { margin:0; }

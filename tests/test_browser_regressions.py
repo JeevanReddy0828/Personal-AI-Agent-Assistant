@@ -118,7 +118,9 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("localStorage.jarvis_sessions='{broken'")
         self.page.reload()
         self.page.evaluate("void send('help')")
-        self.wait_js("JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2")
+        # Chats are saved once the page knows whose they are, so the damaged value may still be
+        # there for a moment after the send: unparsed yet is not a failure.
+        self.wait_js("(()=>{try{return JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2}catch(e){return false}})()")
 
     def test_stop_reaches_backend_and_prevents_followup(self):
         from laptop_agent.cancellation import check_cancelled, OperationCancelled
@@ -682,7 +684,7 @@ class BrowserRegressions(unittest.TestCase):
         };
         const realFetch = window.fetch;
         window.fetch = async (url, init) => (String(url).includes('/api/transcribe')
-            ? { ok: true, json: async () => ({ ok: true, text: rig.heard }) }
+            ? { ok: true, json: async () => (rig.reply || { ok: true, text: rig.heard }) }
             : realFetch(url, init));
         send = async (q) => { rig.sent.push(q); };
         sttServer = true; sttChosen = true; sttEngine = 'test-engine';
@@ -828,6 +830,127 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(outcome["afterTail"], [], "the tail of our own reply was answered as the user")
         self.assertEqual(outcome["afterUser"], ["and what about tomorrow"], "the user was not heard after the tail")
 
+    # The voice notice, if one is showing: its text, and whether it is really on screen -
+    # a box, inside the window, and not painted over by anything else.
+    _VOICE_NOTICE = """() => {
+        const card = document.querySelector('#remtray [data-voice-notice]');
+        if (!card) return null;
+        const r = card.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { text: card.textContent, height: r.height,
+                 inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight,
+                 uncovered: !!hit && card.contains(hit),
+                 count: document.querySelectorAll('#remtray [data-voice-notice]').length };
+    }"""
+
+    def test_a_voice_notice_is_on_screen_in_every_layout(self):
+        """Voice notices were written into #vtrans, inside a panel that has been display:none
+        since June, so voice interruption switching itself off told nobody. They go to the
+        reminder tray now, which is fixed to the window. Asserted as a real, uncovered box in
+        every layout - not `hidden === false`, which is how the meter shipped invisible."""
+        self.page.evaluate("() => { voiceActive = true; bargeReset(); bargeAllowed(); bargeAllowed(); bargeAllowed(); voiceActive = false; }")
+        layouts = (
+            ("1440", {"width": 1440, "height": 950}, ""),
+            ("1440 compact", {"width": 1440, "height": 950}, "setCompact(true)"),
+            ("1440 orb focus", {"width": 1440, "height": 950}, "setCompact(false); setOrbFocus(true, false, true)"),
+            ("1000", {"width": 1000, "height": 800}, "setOrbFocus(false, false, true)"),
+            ("700", {"width": 700, "height": 900}, ""),
+            ("390", {"width": 390, "height": 844}, ""),
+        )
+        for name, size, setup in layouts:
+            with self.subTest(layout=name):
+                self.page.set_viewport_size(size)
+                if setup:
+                    self.page.evaluate("() => { " + setup + "; }")
+                seen = self.page.evaluate(self._VOICE_NOTICE)
+                self.assertIsNotNone(seen, name + ": voice interruption switched off with no notice at all")
+                self.assertIn("voice interruption is off", seen["text"])
+                self.assertGreater(seen["height"], 0, name + ": the notice has no box on screen")
+                self.assertTrue(seen["inside"], name + ": the notice runs off the window")
+                self.assertTrue(seen["uncovered"], name + ": something is drawn over the notice")
+
+        self.page.set_viewport_size({"width": 1440, "height": 950})
+        self.page.evaluate("() => { voiceNotice('first'); voiceNotice('second'); }")
+        self.assertEqual(self.page.evaluate(self._VOICE_NOTICE)["count"], 1, "notices stacked instead of replacing")
+        self.page.click("#remtray [data-voice-notice] .apbtn")
+        self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE), "Dismiss left the notice up")
+        self.page.evaluate("() => { voiceNotice('stale'); bargeReset(); }")
+        self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE),
+                          "restarting voice, or Space, left a notice that no longer holds")
+
+    def test_a_blocked_microphone_says_so(self):
+        """The server-STT listening turn wrote "Microphone permission is needed" into the
+        hidden panel, and voice just went quiet."""
+        self.page.evaluate(self._VOICE_RIG)
+        self.page.evaluate("""async () => {
+            navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('denied', 'NotAllowedError'); };
+            voiceActive = true; speaking = false; recognizing = false;
+            listen(); await window.__rig.wait(60);
+            voiceActive = false; recognizing = false;
+        }""")
+        seen = self.page.evaluate(self._VOICE_NOTICE)
+        self.assertIsNotNone(seen, "a blocked microphone left no notice on screen")
+        self.assertIn("Microphone permission is needed for voice.", seen["text"])
+        self.assertGreater(seen["height"], 0)
+
+    def test_a_broken_speech_engine_says_so_and_silence_does_not(self):
+        """/api/transcribe answers `ok: false` both when it heard nothing and when there is
+        no engine at all. Only the second deserves a notice - surfacing every `ok: false`
+        would put a card up after every quiet moment."""
+        self.page.evaluate(self._VOICE_RIG)
+        outcome = self.page.evaluate("""async () => {
+            const rig = window.__rig;
+            speechEndedAt = performance.now() - 5000;
+            voiceActive = true; speaking = false; recognizing = false;
+            rig.reply = { ok: false, text: '', message: 'Transcribed voice.wav: no speech found.', failed: false };
+            listen(); await rig.wait(60);
+            await rig.say(0.3, 4);                          // heard nothing
+            const afterSilence = !!document.querySelector('#remtray [data-voice-notice]');
+            rig.reply = { ok: false, text: '', message: 'Speech-to-text needs an engine: pip install laptop-agent[stt]', failed: true };
+            await rig.say(0.3, 4);                          // there is no engine
+            const out = { afterSilence: afterSilence, sent: rig.sent.slice() };
+            try { if (captureStop) captureStop(); } catch (e) {}
+            voiceActive = false; recognizing = false;
+            return out;
+        }""")
+        self.assertFalse(outcome["afterSilence"], "hearing nothing put up a notice")
+        seen = self.page.evaluate(self._VOICE_NOTICE)
+        self.assertIsNotNone(seen, "a missing speech engine left no notice on screen")
+        self.assertIn("pip install", seen["text"])
+        self.assertEqual(outcome["sent"], [], "a failed transcription was answered")
+
+    def test_the_browser_recognizer_says_why_voice_stopped(self):
+        """A blocked microphone ends voice mode, and the only sign was the Voice pill
+        turning off - the reason went to the hidden panel."""
+        # SR is captured when the page loads, so the fake has to exist before the script runs.
+        self.page.add_init_script("""
+            window.SpeechRecognition = window.webkitSpeechRecognition = class {
+                start() { if (window.__recThrows) throw new Error('the device is busy'); }
+                stop() {} abort() {}
+            };""")
+        self.page.reload()
+        outcome = self.page.evaluate("""() => {
+            sttServer = false; sttChosen = true;            // the browser recognizer, whatever /api/health says
+            voiceActive = true; speaking = false; recognizing = false;
+            listen();
+            rec.onerror({ error: 'not-allowed' });
+            const blocked = document.querySelector('#remtray [data-voice-notice]');
+            const out = { blocked: blocked ? blocked.textContent : null, endedVoice: voiceActive === false };
+            voiceNotice('');                                // so the next notice has to be the new one
+            window.__recThrows = true;
+            voiceActive = true; recognizing = false;
+            listen();
+            const busy = document.querySelector('#remtray [data-voice-notice]');
+            out.busy = busy ? busy.textContent : null;
+            voiceActive = false; recognizing = false;
+            return out;
+        }""")
+        self.assertIsNotNone(outcome["blocked"], "a blocked microphone ended voice with no notice")
+        self.assertIn("Microphone blocked", outcome["blocked"])
+        self.assertTrue(outcome["endedVoice"])
+        self.assertIsNotNone(outcome["busy"], "a microphone that would not start left no notice")
+        self.assertIn("Could not start the microphone: the device is busy", outcome["busy"])
+
     def test_voice_panel_shows_the_microphone_level_against_the_threshold(self):
         """Barge-in was fixed twice and still reported as not working, because the level it
         needs was a constant inside a closure — nobody could see what the microphone heard.
@@ -921,6 +1044,81 @@ class BrowserRegressions(unittest.TestCase):
             float(outcome["quiet"]["width"].rstrip("%")),
             "the bar did not grow when the room got louder",
         )
+
+    def test_the_microphone_meter_is_readable_where_the_presence_panel_is_not(self):
+        """#121 finally put the meter on screen — at the foot of `.stage`. But `.stage` is
+        display:none under `body.compact` and at both width breakpoints, so the number the
+        0.045 barge-in floor has to be tuned against was still unreadable on a small laptop,
+        on a phone, and for anyone using the compact-layout toggle. The dock is fixed to the
+        viewport now and moves to sit above the composer wherever the presence panel is not
+        on screen. Asserts a real box, not `hidden === false`: an element inside a
+        display:none parent reports `hidden` as false, which is exactly how the meter
+        shipped invisible for three months."""
+        armed = self.page.evaluate(
+            """async () => {
+                navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop() {} }] });
+                let proc = null;
+                window.AudioContext = function () {
+                    this.sampleRate = 48000;
+                    this.createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+                    this.createGain = () => ({ gain: { value: 0 }, connect() {}, disconnect() {} });
+                    this.createScriptProcessor = () => { proc = { onaudioprocess: null, connect() {}, disconnect() {} }; return proc; };
+                    this.close = () => {};
+                };
+                window.webkitAudioContext = window.AudioContext;
+                sttServer = true; sttChosen = true; sttEngine = 'test-engine';
+                voiceActive = true; speaking = true; bargeReset(); bargeStart();
+                await new Promise(r => setTimeout(r, 80));
+                return !!proc;
+            }"""
+        )
+        self.assertTrue(armed, "barge-in never armed in server-STT mode")
+        geometry = """() => {
+            const meter = document.getElementById('vmeter');
+            const box = document.querySelector('.composer .box');
+            const m = meter.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return { height: m.height, width: m.width, top: m.top, bottom: m.bottom,
+                     left: m.left, right: m.right, boxTop: b.top,
+                     visibility: getComputedStyle(meter).visibility,
+                     stage: getComputedStyle(document.querySelector('.stage')).display,
+                     stageRect: document.querySelector('.stage').getBoundingClientRect().toJSON() };
+        }"""
+        try:
+            # Every layout that takes the presence panel away: the compact toggle, the
+            # tablet breakpoint and a phone.
+            for label, width, height, compact in (
+                ("compact toggle", 1440, 950, True),
+                ("tablet width", 1000, 900, False),
+                ("phone width", 390, 844, False),
+            ):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.evaluate("on => setCompact(on)", arg=compact)
+                self.page.wait_for_timeout(120)
+                seen = self.page.evaluate(geometry)
+                self.assertEqual(seen["stage"], "none",
+                                 f"{label}: the presence panel is on screen, so this proves nothing")
+                self.assertGreater(seen["height"], 0, f"{label}: the meter has no box on screen")
+                self.assertGreater(seen["width"], 0, f"{label}: the meter has no box on screen")
+                self.assertNotEqual(seen["visibility"], "hidden", f"{label}: the meter is invisible")
+                # Readable means not sitting on top of the composer, and not off the edge.
+                self.assertLessEqual(seen["bottom"], seen["boxTop"] + 1,
+                                     f"{label}: the meter covers the composer")
+                self.assertGreaterEqual(seen["left"], 0, f"{label}: the meter runs off the left edge")
+                self.assertLessEqual(seen["right"], width, f"{label}: the meter runs off the right edge")
+                self.assertGreater(seen["top"], 0, f"{label}: the meter is above the top of the window")
+            # …and the default layout still reads it over the presence panel, where #121 put it.
+            self.page.set_viewport_size({"width": 1440, "height": 950})
+            self.page.evaluate("setCompact(false)")
+            self.page.wait_for_timeout(120)
+            wide = self.page.evaluate(geometry)
+            self.assertNotEqual(wide["stage"], "none", "the presence panel vanished at 1440px")
+            self.assertGreater(wide["height"], 0, "the meter lost its box over the presence panel")
+            self.assertGreaterEqual(wide["left"], wide["stageRect"]["x"],
+                                    "the meter no longer sits over the presence panel")
+            self.assertLessEqual(wide["right"], wide["stageRect"]["x"] + wide["stageRect"]["width"],
+                                 "the meter spilled out of the presence panel and over the chat")
+        finally:
+            self.page.evaluate("try{bargeStop();}catch(e){} voiceActive=false; speaking=false;")
 
     def _motion_page(self):
         """A page that actually animates. The shared context is reduced_motion="reduce",
@@ -1222,3 +1420,137 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["stillReachable"], "it vanished once voice was on, stranding the mode")
         self.assertFalse(outcome["endedAgain"], "a second click did not end voice")
         self.assertFalse(outcome["pillTracks"], "the composer pill did not follow the same state")
+
+
+@unittest.skipUnless(os.environ.get("JARVIS_BROWSER_TESTS") == "1", "Opt-in Chromium checks")
+class RecordingBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from playwright.sync_api import sync_playwright
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.url = f"http://127.0.0.1:{cls.server.server_port}"
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch(headless=True, args=[
+            "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close(); cls.playwright.stop()
+        cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
+
+    def setUp(self):
+        from dataclasses import replace
+        from laptop_agent.tools.transcribe import TranscribeTool
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.speech_calls = []
+        def speech(path):
+            self.speech_calls.append(Path(path))
+            return {"text": "Remember to buy milk", "engine": "fixture", "segments": []}
+        self.config_patch = patch.object(webui, "_CONFIG", replace(webui._CONFIG, data_dir=self.root))
+        self.speech_patch = patch.object(webui._orchestrator, "context", replace(
+            webui._orchestrator.context, transcribe=TranscribeTool(asr_backend=speech)))
+        self.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 0, "ram_percent": 0, "gpus": []})
+        for fixture in (self.config_patch, self.speech_patch, self.metrics_patch):
+            fixture.start(); self.addCleanup(fixture.stop)
+        self.context = self.browser.new_context(permissions=["microphone"], reduced_motion="reduce")
+        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.page = self.context.new_page()
+        self.errors = []
+        self.page.on("pageerror", lambda error: self.errors.append(str(error)))
+        self.page.goto(self.url)
+
+    wait_js = BrowserRegressions.wait_js
+
+    def tearDown(self):
+        self.context.close()
+        self.assertEqual(self.errors, [])
+
+    def start(self, text="record 1"):
+        self.page.evaluate("text=>void send(text)", text)
+        self.page.locator(".recorder-live").wait_for(state="visible")
+        self.wait_js("()=>document.querySelector('.recorder-live p').textContent.startsWith('Recording')")
+        box = self.page.locator(".recorder-live").bounding_box()
+        self.assertGreater(box["width"], 100)
+        self.assertGreater(box["height"], 25)
+
+    def saved(self):
+        self.page.locator(".recording-card audio").wait_for(state="visible")
+        files = list((self.root/"recordings").glob("*.wav"))
+        self.assertEqual(len(files), 1)
+        self.assertEqual(self.page.locator(".recorder-live").count(), 0)
+        self.assertEqual(self.speech_calls, [])
+        return files[0]
+
+    def test_timeout_saves_one_clip_then_explicit_transcription_joins_history(self):
+        import wave
+        self.start()
+        target = self.saved()
+        with wave.open(str(target), 'rb') as audio:
+            self.assertGreater(audio.getnframes()/audio.getframerate(), .3)
+            self.assertLessEqual(audio.getnframes()/audio.getframerate(), 1)
+        self.page.get_by_role("button", name="Transcribe recording").click()
+        self.wait_js("()=>chat.textContent.includes('Remember to buy milk')")
+        self.assertEqual(len(self.speech_calls), 1)
+        self.assertTrue(self.speech_calls[0].samefile(target))
+        history = self.page.evaluate("sessionHistory(curSession())")
+        self.assertTrue(any(turn["role"] == "assistant" and "Remember to buy milk" in turn["text"] for turn in history))
+        original = self.page.evaluate("current")
+        self.page.reload()
+        # Saved chats load once /api/me says whose they are (AUTH-01), as the rail fills for a person.
+        self.wait_js("()=>chatKey!==null")
+        self.page.evaluate("id=>loadSession(id)", original)
+        self.page.locator(".recording-card audio").wait_for(state="visible")
+        self.assertIn("Remember to buy milk", self.page.locator("#chat").inner_text())
+
+    def test_manual_stop_saves_partial_clip_only_once(self):
+        import wave
+        self.start("record my voice for 20 seconds")
+        self.page.wait_for_timeout(350)
+        self.page.locator(".recorder-live button").click()
+        target = self.saved()
+        self.page.keyboard.press("Space")
+        with wave.open(str(target), 'rb') as audio:
+            self.assertGreater(audio.getnframes(), 0)
+            self.assertLess(audio.getnframes()/audio.getframerate(), 5)
+        self.assertEqual(len(list((self.root/"recordings").glob("*.wav"))), 1)
+
+    def test_space_stop_survives_switching_chats_and_keeps_original_ownership(self):
+        self.start("record 20")
+        first = self.page.evaluate("current")
+        self.page.evaluate("newSession()")
+        self.assertTrue(self.page.locator(".recorder-live").is_visible())
+        self.page.wait_for_timeout(350)
+        self.page.keyboard.press("Space")
+        self.wait_js("()=>activeRecording===null")
+        self.assertEqual(self.page.locator(".recording-card").count(), 0)
+        self.page.evaluate("id=>loadSession(id)", first)
+        self.saved()
+        self.page.get_by_role("button", name="Transcribe recording").click()
+        self.wait_js("()=>chat.textContent.includes('Remember to buy milk')")
+
+    def test_unavailable_microphone_is_visible_and_saves_nothing(self):
+        self.page.evaluate("Object.defineProperty(navigator,'mediaDevices',{value:undefined,configurable:true})")
+        self.page.evaluate("void send('record 1')")
+        self.wait_js("()=>chat.textContent.includes('secure connection')")
+        box = self.page.locator('.msg.bot .md').last.bounding_box()
+        self.assertGreater(box['height'], 10)
+        self.assertFalse((self.root/'recordings').exists())
+        self.assertIsNone(self.page.evaluate("activeRecording"))
+
+    def test_cancel_while_permission_pending_stops_late_stream_without_saving(self):
+        self.page.evaluate("""()=>{
+            const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia=opts=>new Promise(resolve=>{
+                window.releaseRecordingMic=async()=>{window.lateStream=await real(opts);resolve(window.lateStream);};
+            });
+        }""")
+        self.page.evaluate("void send('record 1')")
+        self.page.locator('.recorder-live button').click()
+        self.page.evaluate("releaseRecordingMic()")
+        self.wait_js("()=>window.lateStream.getTracks().every(t=>t.readyState==='ended')")
+        self.assertFalse((self.root/'recordings').exists())
+        self.assertIn('No audio was saved', self.page.locator('#chat').inner_text())
