@@ -465,7 +465,7 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
     )
 
 
-_orchestrator = build_orchestrator(approval_callback=_guarded_approval)
+_orchestrator = build_orchestrator(approval_callback=_guarded_approval, recording_enabled=True)
 
 
 def _probe_llm(ping: Callable[[], bool], attempts: int = 2, delay: float = 1.5) -> bool:
@@ -1068,6 +1068,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_resume_pdf()
         elif path == "/api/image":
             self._serve_image()
+        elif path == "/api/recording":
+            self._serve_recording()
         elif path == "/api/document":
             self._serve_document()
         else:
@@ -1185,6 +1187,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_notes()
         elif self.path == "/api/trip":
             self._handle_trip()
+        elif self.path == "/api/recordings":
+            self._handle_recording()
+        elif self.path == "/api/recordings/transcribe":
+            self._transcribe_recording()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1344,6 +1350,54 @@ class Handler(BaseHTTPRequestHandler):
         dest = Path(tempfile.mkdtemp(prefix="upload_", dir=UPLOAD_DIR)) / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_recording(self) -> None:
+        from laptop_agent.recordings import MAX_WAV_BYTES, save_recording
+
+        payload = self._read_json()
+        encoded = payload.get("audio", "")
+        if encoded.startswith("data:audio/wav;base64,"):
+            encoded = encoded.split(",", 1)[1]
+        if len(encoded) > ((min(MAX_WAV_BYTES, MAX_UPLOAD_BYTES) + 2) // 3) * 4:
+            self._json(413, {"ok": False, "message": "Recording exceeds the upload limit."})
+            return
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+            if len(raw) > MAX_UPLOAD_BYTES:
+                raise ValueError("Recording exceeds the upload limit.")
+            recording = save_recording(_CONFIG.data_dir, raw)
+        except ValueError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        self._json(200, {"ok": True, "recording": recording})
+
+    def _transcribe_recording(self) -> None:
+        payload = self._read_json()
+        target = _safe_artifact(payload.get("name", ""), "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._json(404, {"ok": False, "message": "Recording not found."})
+            return
+        result = _orchestrator.context.transcribe.transcribe_media(str(target))
+        text = str(result.data.get("text", "")).strip() if result.ok else ""
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+
+    def _serve_recording(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(self.path).query)
+        target = _safe_artifact(query.get("name", [""])[0], "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._send(404, b"Recording not found.", "text/plain")
+            return
+        raw = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(raw)))
+        if query.get("download") == ["1"]:
+            self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self._cache("private, no-store")
+        self.end_headers()
+        self.wfile.write(raw)
 
     def _handle_transcribe(self) -> None:
         """Speech-to-text for the native app's voice loop: accept a recorded audio
