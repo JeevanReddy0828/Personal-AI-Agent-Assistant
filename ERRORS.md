@@ -589,3 +589,23 @@ near-miss. Newest first.
   wins" was meant to prefer a real Chrome window over a page mentioning Chrome — instead
   it picked **Live Caption**, a Chrome-hosted widget also running as `chrome.exe` with a
   shorter title. Rank title+process matches above either alone.
+
+## 2026-09-28 — a recording request was treated as a made-up media file
+
+`record voice upto 20 seconds` could reach `transcribe record 20s` and report a missing
+file. There was no microphone-recording route, and target repair accepted any stem token
+shared with the conversation. The verb `record` therefore counted as a named file.
+REC-01 adds deterministic recording intent and requires the complete transcription
+filename in the conversation (or history), rather than one shared stem token. Regression
+cases cover the reported sentence, invented `record.wav`, real filenames and near misses.
+
+The first browser persistence assertion expected a reload to reopen a chat automatically;
+the existing app starts a new chat. Correct verification reopens the saved original chat
+and asserts its actual audio box and transcript. Cancelling while permission is pending
+also checks that a late MediaStream is stopped and no file is created.
+
+REC-01's first Windows CI run exposed a test-only path alias: the temporary directory
+used `RUNNER~1`, while safe artifact resolution returned `runneradmin`. Comparing Path
+spellings failed although they named the same saved WAV. Assert one backend call and
+`samefile` identity, which checks the intended file boundary across Windows short names.
+The Linux units and Chromium job passed on that revision; the corrected test is rerun.
