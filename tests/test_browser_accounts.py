@@ -90,7 +90,7 @@ class AccountsInTheBrowser(unittest.TestCase):
         self.assertTrue(self.on_screen(page, ".scard[title=Research]"))
         page.click("#healthPill")
         page.wait_for_timeout(400)
-        for selector in ("#vstat", "#vaultSearch", "#agentList", "#schedPanel", "#runsPanel"):
+        for selector in ("#vstat", "#vaultSearch", "#agentList", "#schedPanel", "#runsPanel", "#acctPanel"):
             self.assertFalse(self.on_screen(page, selector), f"{selector} is in a personal account's drawer")
         self.assertTrue(self.on_screen(page, "#mapPanel"))
         self.assertNotIn("Obsidian vault", page.inner_text("#connlist"))
@@ -98,6 +98,32 @@ class AccountsInTheBrowser(unittest.TestCase):
         self.assertIn("needs a developer account", self.ask(page, "latency"))
         page.wait_for_timeout(1500)
         self.assertEqual(loads, [], "the page reloaded itself on a refusal")
+
+    def test_a_personal_account_is_not_offered_account_management(self):
+        page = self.open_as("personal")
+        page.click("#hudBtn")
+        page.wait_for_timeout(300)
+        self.assertTrue(self.on_screen(page, "#acctOut"), "the popover did not open")
+        self.assertFalse(self.on_screen(page, "#acctManage"))
+
+    def test_a_developer_adds_an_account_from_the_drawer(self):
+        page = self.open_as("dev")
+        page.click("#hudBtn")
+        page.click("#acctManage")
+        page.wait_for_function("() => document.getElementById('acctPanel').open", timeout=3000)
+        page.wait_for_function("() => document.querySelectorAll('#admList .schedcard').length >= 2", timeout=6000)
+        page.fill("#admUser", "guest1")
+        page.select_option("#admRole", "personal")
+        page.fill("#admPw", "a good password")
+        page.click("#admAdd button[type=submit]")
+        self.assertIn("Type your password first", page.inner_text("#admMsg"))
+        page.fill("#admCur", "correct horse battery")
+        page.click("#admAdd button[type=submit]")
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#admList .spec')].some(e => e.textContent === 'guest1')", timeout=8000)
+        self.assertIn("Added guest1", page.inner_text("#admMsg"))
+        self.assertTrue(self.on_screen(page, "#admList"))
+        self.assertEqual(page.input_value("#admUser"), "", "the form was not cleared after adding")
 
     def test_a_developer_is_offered_everything_as_before(self):
         page = self.open_as("dev")

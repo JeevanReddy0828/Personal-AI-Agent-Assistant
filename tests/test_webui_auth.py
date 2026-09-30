@@ -324,6 +324,100 @@ class SignInTests(unittest.TestCase):
         self.accounts.set_role(account.id, "dev")
         self.assertEqual(self.call("GET", "/api/traces", cookie=cookie)[0], 200)
 
+    # --- managing accounts, from this computer
+    def manage(self, cookie: str, current: str = GOOD, **body):
+        return self.call("POST", "/api/accounts", {**body, "current": current}, cookie=cookie)
+
+    def test_a_developer_adds_a_personal_account_that_can_sign_in(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        status, body, _ = self.manage(owner, action="create", username="Family", role="personal",
+                                      password="another good one")
+        self.assertEqual(status, 200, body)
+        self.assertEqual([(a["username"], a["role"]) for a in body["accounts"]],
+                         [("jeevan", "dev"), ("family", "personal")])
+        self.assertNotIn("password_hash", json.dumps(body))
+        self.sign_in("family", "another good one")
+        listed = self.call("GET", "/api/accounts", cookie=owner)[1]
+        self.assertEqual(len(listed["accounts"]), 2)
+
+    def test_every_change_asks_for_the_developers_own_password(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        for current in ("", "not my password"):
+            status, _, headers = self.manage(owner, current=current, action="create", username="x",
+                                             role="dev", password="a good password")
+            self.assertEqual((status, headers.get("X-Jarvis-Denied")), (403, "password"))
+        self.assertIsNone(self.accounts.find("x"), "a session left signed in minted an account")
+
+    def test_wrong_passwords_here_count_toward_the_same_wait(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        for _ in range(5):
+            self.manage(owner, current="wrong guess", action="create", username="x", role="dev", password="p" * 8)
+        self.assertEqual(self.manage(owner, action="create", username="x", role="dev", password="p" * 8)[0], 429)
+
+    def test_only_a_developer_on_this_computer_manages_accounts(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        self.accounts.create("family", "personal", GOOD)
+        family = self.sign_in("family")
+        for method, body in (("GET", None), ("POST", {"action": "create", "username": "x", "role": "dev",
+                                                       "password": "p" * 8, "current": GOOD})):
+            status, _, headers = self.call(method, "/api/accounts", body, cookie=family)
+            self.assertEqual((status, headers.get("X-Jarvis-Denied")), (403, "role"))
+        owner = self.sign_in()
+        with patch.object(self.webui.Handler, "_client_is_local", lambda handler: False):
+            status, _, headers = self.call("GET", "/api/accounts", cookie=owner)
+        self.assertEqual((status, headers.get("X-Jarvis-Denied")), (403, "local"))
+
+    def test_nobody_demotes_disables_or_deletes_themselves_here(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        for action, extra in (("role", {"role": "personal"}), ("disable", {}), ("delete", {}),
+                              ("password", {"password": "a brand new one"})):
+            with self.subTest(action):
+                status, body, _ = self.manage(owner, action=action, username="jeevan", **extra)
+                self.assertEqual(status, 400, body)
+        account = self.accounts.find("jeevan")
+        self.assertEqual((account.role, account.disabled), ("dev", False))
+        self.sign_in()
+
+    def test_disabling_resetting_or_deleting_signs_that_account_out(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        for name, action, extra in (("amy", "disable", {}), ("ben", "password", {"password": "a brand new one"}),
+                                    ("cat", "delete", {})):
+            with self.subTest(action):
+                self.accounts.create(name, "personal", GOOD)
+                theirs = self.sign_in(name)
+                self.assertEqual(self.call("GET", "/api/me", cookie=theirs)[1]["user"]["username"], name)
+                status, body, _ = self.manage(owner, action=action, username=name, **extra)
+                self.assertEqual(status, 200, body)
+                self.assertEqual(self.call("GET", "/api/me", cookie=theirs)[0], 401, "still signed in")
+        self.sign_in("ben", "a brand new one")
+        self.assertIsNone(self.accounts.find("cat"))
+
+    def test_enabling_an_account_again_does_not_bring_its_old_sessions_back(self) -> None:
+        # A disabled account is refused on its next request anyway; what revoking adds is that
+        # a cookie taken before the disable stays dead once the account is enabled again.
+        self.accounts.create("jeevan", "dev", GOOD)
+        self.accounts.create("amy", "personal", GOOD)
+        owner, theirs = self.sign_in(), self.sign_in("amy")
+        self.assertEqual(self.manage(owner, action="disable", username="amy")[0], 200)
+        self.assertEqual(self.manage(owner, action="enable", username="amy")[0], 200)
+        self.assertEqual(self.call("GET", "/api/me", cookie=theirs)[0], 401, "an old session came back to life")
+        self.sign_in("amy")
+
+    def test_changes_are_audited_with_who_made_them(self) -> None:
+        self.accounts.create("jeevan", "dev", GOOD)
+        owner = self.sign_in()
+        self.manage(owner, action="create", username="family", role="personal", password="p" * 8)
+        self.manage(owner, action="role", username="family", role="dev")
+        events = [(event.get("event_type"), (event.get("payload") or {}).get("by"))
+                  for event in self.webui._orchestrator.context.audit.tail(20)]
+        self.assertIn(("account_created", "jeevan"), events)
+        self.assertIn(("account_role", "jeevan"), events)
+
 
 class NetworkAccessTests(unittest.TestCase):
     def test_an_account_stands_in_for_the_passcode(self) -> None:

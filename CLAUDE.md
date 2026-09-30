@@ -1059,6 +1059,19 @@ its own name; the server is the enforcement. Known limits: the gate's prompt loc
 approvals across accounts, and attachments are developer-only, because every use of one is a
 file command.
 
+**Accounts are managed from this computer** (`GET`/`POST /api/accounts`, the Accounts panel in
+the System status drawer, "Manage accounts" in the settings popover). Developer-only by the
+route allow-list and again in `_account_admin`, and loopback-only like setting sign-in up, so
+a session carried to a phone cannot add a developer. Every change asks for the developer's
+own password again (the same backoff as sign-in), so a session left signed in cannot mint
+another account. Nobody demotes, disables or deletes themselves here; the command line
+stays the way back in. The store refuses, under its lock, any web change that would leave
+no enabled developer (`keep_developer=True`), since two developers demoting each other at
+once would otherwise both succeed; the command line does not pass it. Disabling, resetting
+or deleting ends that account's sessions: a disabled account is refused on its next request
+anyway, but without the revoke a cookie taken before the disable came back to life when the
+account was enabled again, which is the one test that could tell.
+
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
 outright. `send()` called `crypto.randomUUID()` on its first line, threw
