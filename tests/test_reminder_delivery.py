@@ -18,6 +18,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.reminders import ReminderStore
@@ -356,6 +357,16 @@ class ReminderConversationTests(unittest.TestCase):
         self.assertNotIn("+00:00", listing)
 
 
+class StoppedClock(datetime):
+    """webui's `datetime`, stopped at local noon. On the real clock "a minute ago" is
+    yesterday for the first minute after midnight, and "today at" became a full date."""
+
+    @classmethod
+    def now(cls, tz=None):
+        noon = datetime(2026, 9, 26, 12, 0)
+        return noon if tz is None else noon.astimezone(tz)
+
+
 class DeliveryApiTests(unittest.TestCase):
     """/api/reminders against a live server: what the page polls, and its card buttons."""
 
@@ -394,14 +405,15 @@ class DeliveryApiTests(unittest.TestCase):
         return json.loads(urllib.request.urlopen(request, timeout=15).read())
 
     def test_due_and_upcoming_with_the_time_to_the_next(self) -> None:
-        now = datetime.now(UTC)
-        self.store.add((now - timedelta(minutes=1)).isoformat(), "stretch")
-        self.store.add((now + timedelta(seconds=90)).isoformat(), "Timer (90 seconds)")
-        snapshot = self.get()
+        noon = StoppedClock.now().astimezone()
+        self.store.add((noon - timedelta(minutes=1)).isoformat(), "stretch")
+        self.store.add((noon + timedelta(seconds=90)).isoformat(), "Timer (90 seconds)")
+        with patch.object(self.webui, "datetime", StoppedClock):
+            snapshot = self.get()
         self.assertEqual([item["message"] for item in snapshot["due"]], ["stretch"])
         self.assertEqual([item["message"] for item in snapshot["upcoming"]], ["Timer (90 seconds)"])
-        self.assertTrue(0 < snapshot["next_in"] <= 90, snapshot["next_in"])
-        self.assertIn("today at", snapshot["due"][0]["due_spoken"])
+        self.assertEqual(snapshot["next_in"], 90.0)
+        self.assertEqual(snapshot["due"][0]["due_spoken"], "today at 11:59 AM")
 
     def test_polling_writes_no_latency_traces(self) -> None:
         """A poll every half minute through handle() would push real turns out of the
