@@ -3460,7 +3460,9 @@ class AgentOrchestrator:
         'schedule run due' command. Each job runs through handle()/run_agent so risky steps
         still hit the approval gate."""
         moment = now or datetime.now().astimezone()
-        due = self.context.scheduler.claim_due_jobs(moment)
+        # No `now` given means this read the laptop's clock, so today's target takes the
+        # zone's rules: the ticker is what runs jobs through a daylight-saving change.
+        due = self.context.scheduler.claim_due_jobs(moment, local=now is None)
         ran = []
         for index, job in enumerate(due):
             try:

@@ -500,6 +500,8 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
     does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
     `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
     fixed-offset `now` without `local` parses exactly as before.
+    The ticker does the same for scheduled jobs (`claim_due_jobs(local=True)`), so a
+    01:30 job fires once, not twice, on the night the clocks go back.
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
