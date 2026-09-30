@@ -202,6 +202,24 @@ Mobile, 390px:
 
 ![Verified mobile layout](docs/review/mobile.png)
 
+## REC-01 review addendum — 2026-09-28
+
+Branch `codex/record-voice` starts at main `ff163fa`; this addendum preserves the earlier
+report. The change adds requested browser voice notes, up to 120 seconds, with local WAV
+storage, playback/download, explicit transcription and original-chat history updates.
+Code regions: recordings.py, heuristic routing, orchestrator file dispatch/target repair,
+app construction, separate web recording endpoints, and isolated recorder UI/CSS.
+
+Evidence: recording API 6/6; everyday requests 142/142; five real Chromium recorder
+checks pass. Existing 51 browser regressions also passed in the combined run; the new
+persistence test was corrected to reopen the saved chat after reload and rerun with all
+five recorder checks. Adjacent web suites 60/60, command dispatch 6/6, selfcheck 9/9, page suites 27/27
+and orchestrator 131/131 passed.
+Physical microphone/native-window behavior is not established by fake-device tests.
+The app health/status drawer, reminder scheduling, account implementation and existing
+VOICE-02/STOP-01 commits are outside this feature. Recording/account ownership must be
+explicit when AUTH-01 is integrated; use developer-only access until then.
+
 ## VOICE-03 review addendum — 2026-09-28
 
 `codex/riva-deadline` is independent of the REC-01 and DOCS/VOICE/STOP branches and starts

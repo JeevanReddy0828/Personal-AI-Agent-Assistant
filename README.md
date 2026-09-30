@@ -362,6 +362,25 @@ python -B tests/run_tests.py test_browser_regressions.py
 On Linux/macOS, prefix the last command with `JARVIS_BROWSER_TESTS=1`.
 The CI workflow runs offline tests on Windows/Linux and a separate Chromium job.
 
+## Voice notes (REC-01, 2026-09-28)
+
+In the app or web page, ask `record voice upto 20 seconds`, `record my voice for
+10 seconds`, `record a voice note` (20 seconds), or `record audio up to 2 minutes`.
+Durations above 120 seconds are refused. The visible recorder shows a countdown;
+Stop or Space keeps a shorter clip. Changing chats leaves the Stop control visible.
+
+The recording is saved as a 16 kHz mono PCM WAV under the configured data directory's
+`recordings/` folder, separate from temporary speech uploads. The original chat has an
+audio player and **Save WAV**. **Transcribe recording** is optional: it uses the configured
+speech engine, which may send audio to a hosted service. Its transcript becomes part of
+that chat's assistant history, so a later request can summarize it. Transcription failure
+does not remove the recording. Reopen the saved chat to find the player again.
+
+Microphone access requires localhost or HTTPS and browser permission. CLI/Tkinter explain
+that recording needs the app/web page. Closing the page during capture cancels the unsaved
+clip. Fake-device browser tests pass; Jeevan still needs to check his physical microphone
+and native app window. No new runtime dependency is required for recording.
+
 ## Hosted speech deadline (VOICE-03, 2026-09-28)
 
 Riva transcription now has a bounded wait: the default budget is 5 seconds plus half

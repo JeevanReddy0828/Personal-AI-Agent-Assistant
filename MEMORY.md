@@ -150,6 +150,21 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
 - `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
   a hash-only navigation (`#/chat`) does not refetch the page.
 
+## 2026-09-28 — REC-01 voice notes
+
+On `codex/record-voice`, based directly on main `ff163fa`: browser recording defaults to
+20 seconds and refuses durations above 120. Capture and save are local; transcription is
+an explicit action because auto/Riva can be hosted. Playback/download survive a speech
+backend failure. Recorded assistant messages retain artifact metadata and transcripts
+when their chat is reopened; in-flight work never changes ownership to the selected chat.
+
+The server persists recordings beneath its supplied configuration, validates PCM bytes
+and duration, and serves them privately. The app's orchestrator now receives config.data_dir
+explicitly so its artifact location also follows the supplied configuration. Existing
+VOICE-02/STOP-01 changes are separate branches and are not included here. AUTH ownership,
+health/setup UI and reminders were left for Claude. Physical microphone/native-window
+verification remains Jeevan's task; fake Chromium media proves the browser flow only.
+
 ## 2026-09-28 — VOICE-03 bounded hosted speech
 
 Branch `codex/riva-deadline` starts directly from main `ff163fa`. Default Riva budget:

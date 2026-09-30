@@ -317,8 +317,10 @@ class AgentOrchestrator:
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
         data_dir: Path | None = None,
+        recording_enabled: bool = False,
     ) -> None:
         self.context = context
+        self.recording_enabled = recording_enabled
         self.planner = planner
         # Optional higher-capability model for moderately complex questions.
         self.smart_planner = smart_planner
@@ -621,7 +623,14 @@ class AgentOrchestrator:
         spoken = text.lower() + " " + " ".join(
             str(turn.get("text", "")).lower() for turn in (history or [])[-6:]
         )
-        if any(token in spoken for token in tokens):
+        if prefix == "transcribe":
+            # A shared verb ("record") is not a named file ("record 20s"). Require
+            # the whole filename, including its extension, not any stem token.
+            name = re.split(r"[/\\]", target.strip('"\''))[-1].lower()
+            grounded = bool(name) and re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", spoken)
+        else:
+            grounded = any(token in spoken for token in tokens)
+        if grounded:
             return planned
         return PlanDecision(
             action="chat",
@@ -1099,6 +1108,18 @@ class AgentOrchestrator:
 
         if lowered.startswith("ocr "):
             return self.context.transcribe.ocr_image(command[len("ocr ") :].strip())
+
+        if lowered == "record" or re.fullmatch(r"record -?\d+(?:\.\d+)?", lowered):
+            from laptop_agent.recordings import MAX_SECONDS, recording_seconds
+            seconds = recording_seconds(command)
+            if seconds is None or not 0 < seconds <= MAX_SECONDS:
+                return ToolResult.failure("Choose a recording duration greater than 0 and at most 120 seconds.")
+            if not self.recording_enabled:
+                return ToolResult.failure("Voice recording needs the J.A.R.V.I.S app or web page. Open it and ask there.")
+            return ToolResult.success(
+                f"Record up to {seconds:g} seconds. Stop or press Space to keep a shorter clip.",
+                record={"seconds": float(seconds)},
+            )
 
         if lowered.startswith("transcribe "):
             return self.context.transcribe.transcribe_media(command[len("transcribe ") :].strip())
@@ -2519,6 +2540,7 @@ class AgentOrchestrator:
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
                 "  ocr image <path>",
+                "  record <seconds>  (app/web microphone; up to 120 seconds)",
                 "  transcribe <audio-or-video-path>",
                 "  read screen [question]   (vision: looks at your screen)",
                 "  describe image <path>    (vision)",

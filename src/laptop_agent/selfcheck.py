@@ -35,6 +35,10 @@ from laptop_agent.planner.heuristic import HeuristicPlannerProvider, is_plain_qu
 # ask an LLM what it means is not broken, but it is not guaranteed either — and every
 # routing bug found so far was a phrasing that silently fell through to one.
 ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
+    ("record voice upto 20 seconds", "record", "REC-01: was an invented transcribe filename"),
+    ("record my voice for 10 seconds", "record", "requested microphone duration"),
+    ("record a voice note", "record", "default 20 seconds"),
+    ("record audio up to 2 minutes", "record", "maximum duration in minutes"),
     # Reminders — #122. Two of these were answered by a model with no access to the store.
     ("what are my reminders", "reminders", "the phrasing the backlog reported"),
     ("do i have any reminders", "reminders", "no 'my', so it reached no router at all"),
@@ -114,6 +118,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
 # real routing rule was, or nearly was, wrong about — they are regression fuel, not
 # decoration.
 MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
+    ("record a podcast about space", "not a voice capture instruction"),
+    ("what is the record for the 100m", "record is a noun"),
     ("what is a reminder", "a definition, not a listing"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
