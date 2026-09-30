@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import math
+import time
 import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
@@ -422,6 +425,19 @@ def _riva_available() -> bool:
     return importlib.util.find_spec("riva") is not None and bool(_riva_key())
 
 
+def _riva_timeout(audio_seconds: float) -> float:
+    configured = os.environ.get("RIVA_ASR_TIMEOUT_SECONDS", "").strip()
+    if configured:
+        try:
+            seconds = float(configured)
+        except ValueError as exc:
+            raise RuntimeError("RIVA_ASR_TIMEOUT_SECONDS must be a number greater than 0 and at most 600.") from exc
+        if not math.isfinite(seconds) or not 0 < seconds <= 600:
+            raise RuntimeError("RIVA_ASR_TIMEOUT_SECONDS must be a number greater than 0 and at most 600.")
+        return seconds
+    return min(120.0, max(10.0, 5.0 + audio_seconds / 2))
+
+
 def _riva_asr_backend(target: Path) -> dict[str, object]:
     """Hosted NVIDIA Parakeet over Riva gRPC: the most accurate engine here, and the
     fastest (~1s), but it needs the network and only takes PCM WAV."""
@@ -429,6 +445,7 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
 
     try:
         import riva.client  # type: ignore
+        import grpc  # type: ignore
     except ImportError as exc:
         raise MissingDependencyError(
             "Cloud speech recognition needs: pip install nvidia-riva-client "
@@ -447,6 +464,7 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
         if wf.getsampwidth() != 2:
             raise RuntimeError("Cloud speech recognition needs 16-bit PCM WAV audio.")
         channels, rate = wf.getnchannels(), wf.getframerate()
+        budget = _riva_timeout(wf.getnframes() / rate)
         audio = wf.readframes(wf.getnframes())
     if not audio:
         raise RuntimeError("That audio file is empty.")
@@ -454,20 +472,49 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
     server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
     function_id = os.environ.get("RIVA_ASR_FUNCTION_ID", RIVA_ASR_FUNCTION_ID).strip() or RIVA_ASR_FUNCTION_ID
     language = os.environ.get("RIVA_ASR_LANGUAGE", "en-US").strip() or "en-US"
+    check_cancelled()
+    deadline = time.monotonic() + budget
     auth = riva.client.Auth(
         uri=server,
         use_ssl=True,
         metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
     )
-    config = riva.client.RecognitionConfig(
-        encoding=riva.client.AudioEncoding.LINEAR_PCM,
-        language_code=language,
-        max_alternatives=1,
-        enable_automatic_punctuation=True,
-        sample_rate_hertz=rate,
-        audio_channel_count=channels,
-    )
-    response = riva.client.ASRService(auth).offline_recognize(audio, config)
+    pending = None
+    try:
+        config = riva.client.RecognitionConfig(
+            encoding=riva.client.AudioEncoding.LINEAR_PCM,
+            language_code=language,
+            max_alternatives=1,
+            enable_automatic_punctuation=True,
+            sample_rate_hertz=rate,
+            audio_channel_count=channels,
+        )
+        check_cancelled()
+        # The SDK's blocking helper has no timeout parameter. Its future supports bounded
+        # waits and cancellation; cancel the RPC itself, not just a waiting Python thread.
+        pending = riva.client.ASRService(auth).offline_recognize(audio, config, future=True)
+        while True:
+            check_cancelled()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                error = TimeoutError(f"Riva speech recognition exceeded its {budget:g}-second deadline.")
+                record_failure("transcribe/riva-timeout", error)
+                raise error
+            try:
+                response = pending.result(timeout=min(0.1, remaining))
+                check_cancelled()
+                break
+            except grpc.FutureTimeoutError:
+                continue
+    except Exception:
+        check_cancelled()  # Stop racing an RPC error must not start a local fallback.
+        raise
+    finally:
+        try:
+            if pending is not None:
+                pending.cancel()
+        finally:
+            auth.channel.close()
     text = " ".join(
         result.alternatives[0].transcript for result in response.results if result.alternatives
     ).strip()

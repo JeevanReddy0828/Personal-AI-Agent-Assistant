@@ -88,7 +88,7 @@ _DEV_EXACT = frozenset({
     "look at webcam", "describe webcam", "what do you see", "look at me", "webcam", "capture webcam",
     "webcam capture", "take a photo", "windows", "list windows", "show windows",
     "what windows are open", "window", "split", "snap", "arrange", "screenshot", "take a screenshot",
-    "take screenshot", "screen shot",
+    "take screenshot", "screen shot", "record",
 })
 _DEV_PREFIX = (
     # the app's internals, and acting on its own

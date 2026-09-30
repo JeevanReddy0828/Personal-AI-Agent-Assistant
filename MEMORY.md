@@ -168,3 +168,29 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   `--voice` via `getComputedStyle` for the orb, and inline styles use the token names directly.
 - `PAGE` is read at import: after editing CSS/JS restart the server, and do a real reload —
   a hash-only navigation (`#/chat`) does not refetch the page.
+
+## 2026-09-28 — REC-01 voice notes
+
+On `codex/record-voice`, based directly on main `ff163fa`: browser recording defaults to
+20 seconds and refuses durations above 120. Capture and save are local; transcription is
+an explicit action because auto/Riva can be hosted. Playback/download survive a speech
+backend failure. Recorded assistant messages retain artifact metadata and transcripts
+when their chat is reopened; in-flight work never changes ownership to the selected chat.
+
+The server persists recordings beneath its supplied configuration, validates PCM bytes
+and duration, and serves them privately. The app's orchestrator now receives config.data_dir
+explicitly so its artifact location also follows the supplied configuration. Existing
+VOICE-02/STOP-01 changes are separate branches and are not included here. AUTH ownership,
+health/setup UI and reminders were left for Claude. Physical microphone/native-window
+verification remains Jeevan's task; fake Chromium media proves the browser flow only.
+
+## 2026-09-28 — VOICE-03 bounded hosted speech
+
+Branch `codex/riva-deadline` starts directly from main `ff163fa`. Default Riva budget:
+`min(120, max(10, 5 + WAV_seconds/2))`; optional finite override up to 600 seconds. The
+SDK exposes an asynchronous future but its blocking helper has no timeout argument.
+Use bounded future waits and cancel the actual RPC, close the channel, and propagate
+Stop without local fallback. Explicit Riva reports a timeout; auto chooses its existing
+local engine. This bounds only hosted waiting, not local ASR or complete file processing.
+No live credentials or provider calls were used in verification. VOICE-02 remains a
+separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this branch.

@@ -494,6 +494,14 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
+    carries only today's, so every caller that reads the laptop's clock passes `local=True`
+    to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
+    does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
+    `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
+    fixed-offset `now` without `local` parses exactly as before.
+    The ticker does the same for scheduled jobs (`claim_due_jobs(local=True)`), so a
+    01:30 job fires once, not twice, on the night the clocks go back.
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
@@ -1314,3 +1322,35 @@ Both Claude and Codex edit this repo. To avoid collisions:
   vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
   broken when the tool only sees one folder. That mistake invented four broken links
   that were never broken.
+
+## Recorder integration (REC-01, 2026-09-28)
+
+- `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
+  mono, 16-bit, nonempty, at most 120 seconds). `recording_enabled` is a client capability;
+  webui enables it, CLI/Tkinter do not. `record <seconds>` returns `data.record`.
+- `/api/recordings` saves only; `/api/recordings/transcribe` explicitly requests speech
+  processing; `/api/recording?name=...` serves same-origin private/no-store audio.
+  Preserve the shared token/origin gate and filename confinement for these routes.
+- Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
+  Browser capture owns its own microphone lifecycle and releases voice-chat resources.
+  Save and transcript results stay with the original session across chat changes.
+- The planner strips `_POLITE` and turns spoken numbers into digits before
+  `recording_seconds`, so "can you record my voice for up to twenty seconds?" routes; the
+  chat prompt names recording as a tool, or the model asks permission it cannot act on.
+- AUTH-01 integration: keep recording commands/routes developer-only until artifacts
+  have account ownership. A recording filename is not an authorization boundary.
+- Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
+  and `RecordingBrowserTests` in the existing opt-in browser CI suite.
+
+## Riva deadline (VOICE-03, 2026-09-28)
+
+`_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
+blocking helper accepts no timeout. Poll `result(timeout=...)` in at most 100 ms slices,
+check operation cancellation, and always cancel the future/close its channel. Do not
+replace this with a background Python thread that leaves the RPC running after timeout.
+`_riva_timeout` scales with WAV duration and accepts `RIVA_ASR_TIMEOUT_SECONDS` in (0,600].
+A real deadline becomes TimeoutError, which auto mode can pass to the local fallback;
+OperationCancelled bypasses ordinary errors, including a Stop racing an RPC failure.
+Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates teardown.
+This is independent of VOICE-02's broader grpc exception fallback and does not import
+those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.

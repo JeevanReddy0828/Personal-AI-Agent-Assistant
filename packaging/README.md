@@ -64,3 +64,23 @@ window opens. Closing the window quits the app.
 - Voice still uses the browser's Web Speech API inside the app window; in
   environments where that engine is slow, prefer a server-side transcription
   backend (the `transcribe` extra) as a follow-up.
+
+## Voice recording update (REC-01, 2026-09-28)
+
+The current page supports requested voice notes through browser MediaDevices/Web Audio
+and the existing PCM WAV encoder; it does not require Web Speech recognition to record.
+`record 20` opens a visible countdown. Stop/Space keeps the partial WAV, saved beneath
+`data_dir/recordings`, and the chat offers playback, Save WAV and optional transcription.
+Transcription uses the configured backend, which may be hosted. This supplements the
+older voice-engine note above; recording adds no Python dependency. Restart the server
+or rebuild the package after page-asset changes. Validate permission, capture, playback
+and Stop on the physical microphone in the packaged native window before release.
+
+## Hosted speech wait bound (VOICE-03, 2026-09-28)
+
+The optional Riva SDK is unchanged. Its async future is used to bound recognition waits
+and cancel the RPC when Stop or the deadline occurs. The default scales with WAV duration
+from 10 to 120 seconds; `RIVA_ASR_TIMEOUT_SECONDS` overrides it with a finite value in
+(0,600]. Auto mode then tries its local engine; an explicit Riva selection reports failure.
+This does not bound local-model loading or offline transcription. Rebuild the app after
+runtime changes; test a real configured provider separately from the synthetic SDK checks.

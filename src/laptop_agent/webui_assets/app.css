@@ -654,3 +654,11 @@
   }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
   @media(prefers-reduced-motion:reduce){.think i{width:100%}}
+
+/* Deliberate voice recording is visible even while another chat is selected. */
+.recording-card { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px; margin-top:12px; border:1px solid var(--hair-3); border-radius:12px; background:var(--surface); }
+.recording-card audio { max-width:100%; width:300px; }
+.recording-card button, .recording-card a { padding:8px 12px; cursor:pointer; }
+.recording-note { flex-basis:100%; margin:0; font-size:13px; }
+.recorder-live { position:fixed; z-index:1000; right:16px; bottom:100px; max-width:calc(100vw - 32px); box-shadow:0 8px 32px #0006; }
+.recorder-live p { margin:0; }

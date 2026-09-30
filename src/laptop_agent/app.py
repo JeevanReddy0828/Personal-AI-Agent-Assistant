@@ -106,6 +106,7 @@ def build_context(
 def build_orchestrator(
     approval_callback: Callable[[ApprovalRequest], bool] | None = None,
     config: AppConfig | None = None,
+    recording_enabled: bool = False,
 ) -> AgentOrchestrator:
     config = config or load_config()
     context = build_context(config, approval_callback)
@@ -116,6 +117,8 @@ def build_orchestrator(
         _build_vision_planner(config),
         _build_ultra_planner(config),
         _build_openrouter_planner(config),
+        data_dir=config.data_dir,
+        recording_enabled=recording_enabled,
     )
 
 
