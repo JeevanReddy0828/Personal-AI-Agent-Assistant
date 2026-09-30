@@ -1500,6 +1500,8 @@ class RecordingBrowserTests(unittest.TestCase):
         self.assertTrue(any(turn["role"] == "assistant" and "Remember to buy milk" in turn["text"] for turn in history))
         original = self.page.evaluate("current")
         self.page.reload()
+        # Saved chats load once /api/me says whose they are (AUTH-01), as the rail fills for a person.
+        self.wait_js("()=>chatKey!==null")
         self.page.evaluate("id=>loadSession(id)", original)
         self.page.locator(".recording-card audio").wait_for(state="visible")
         self.assertIn("Remember to buy milk", self.page.locator("#chat").inner_text())
