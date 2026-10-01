@@ -17,7 +17,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone, tzinfo
+
+# The laptop's zone, for callers that pass `local`. None reads the operating system's own
+# rules; a test puts a named zone here, because a process cannot change its zone on Windows
+# and CI runs in UTC.
+LOCAL_ZONE: tzinfo | None = None
+
+# The years the operating system's rules can be read for: Windows' C runtime raises OSError
+# before 1970 and after 3000. No reminder needs them, so there `now`'s offset stands in.
+_ZONE_YEARS = range(1971, 3000)
 
 # Shared with scheduler.parse_schedule. Weeks are here; months are not, because "in 2
 # months" has no single correct answer and a reminder may not guess.
@@ -123,25 +132,48 @@ def _normalise_clock(hour: int, minute: int, meridiem: str, had_minutes: bool) -
     return hour, minute
 
 
-def _apply(day: date, clock: tuple[int, int], now: datetime) -> datetime:
-    return datetime(day.year, day.month, day.day, clock[0], clock[1], tzinfo=now.tzinfo)
+def on_laptop_clock(moment: datetime, fallback: tzinfo | None) -> datetime:
+    """`moment` on the laptop's clock, with the offset in force at that moment rather than
+    today's: across a daylight-saving change they are an hour apart, and an alarm read back
+    as 7:00 rang at 6:00. A naive `moment` is a wall time. One the clock skips (spring)
+    moves forward by the gap; one it shows twice (autumn) is the first - what Windows'
+    own rules and `zoneinfo` both do."""
+    if LOCAL_ZONE is not None:
+        aware = moment if moment.tzinfo else moment.replace(tzinfo=LOCAL_ZONE)
+        shown = aware.astimezone(LOCAL_ZONE)
+        # A fixed offset, as `astimezone()` gives: two times sharing one zone object compare
+        # by wall clock, which is wrong in the hour autumn repeats.
+        return shown.replace(tzinfo=timezone(shown.utcoffset() or timedelta()))
+    if moment.year not in _ZONE_YEARS:
+        return moment.replace(tzinfo=fallback) if moment.tzinfo is None else moment.astimezone(fallback)
+    return moment.astimezone()
 
 
-def parse_when(text: str, now: datetime | None = None, default_half: str = "") -> When | None:
+def _apply(day: date, clock: tuple[int, int], now: datetime, local: bool = False) -> datetime:
+    wall = datetime(day.year, day.month, day.day, clock[0], clock[1])
+    return on_laptop_clock(wall, now.tzinfo) if local else wall.replace(tzinfo=now.tzinfo)
+
+
+def parse_when(text: str, now: datetime | None = None, default_half: str = "",
+               local: bool = False) -> When | None:
     """Resolve the first date/time expression in `text`, or None if there is none.
 
-    `now` must be timezone-aware; the result carries the same zone. The span lets the
-    caller strip the time words out of a message without guessing where they were.
-    `default_half` ('am'/'pm') settles a bare hour with nothing around it to say which:
-    an alarm passes 'am'.
+    The result is in `now`'s zone, and a fixed offset stays fixed, so the parse is pure.
+    `local` says `now` is a reading of the laptop's clock, as a naive or missing `now` is:
+    `datetime.now().astimezone()` carries only today's offset, so each time is placed with
+    the laptop's own rules for its day instead. The span lets the caller strip the time
+    words out of a message without guessing where they were. `default_half` ('am'/'pm')
+    settles a bare hour with nothing around it to say which: an alarm passes 'am'.
     """
     if now is None:
-        now = datetime.now().astimezone()
-    if now.tzinfo is None:
-        now = now.astimezone()
+        now = datetime.now()
+    local = local or now.tzinfo is None
+    if local:
+        now = on_laptop_clock(now, now.tzinfo)
     lowered = text.lower()
 
-    resolvers = (_iso, _duration, lambda text, now: _day_and_time(text, now, default_half), _right_now)
+    resolvers = (lambda text, now: _iso(text, now, local), _duration,
+                 lambda text, now: _day_and_time(text, now, default_half, local), _right_now)
     for resolve in resolvers:
         found = resolve(lowered, now)
         if found is not None:
@@ -215,7 +247,7 @@ def spoken_to_digits(text: str) -> str:
                   lambda m: str(_spoken_number(m.group(1))), out, flags=flags)
 
 
-def _iso(text: str, now: datetime) -> When | None:
+def _iso(text: str, now: datetime, local: bool = False) -> When | None:
     match = re.search(
         r"\b(\d{4})-(\d{2})-(\d{2})(?:[ t](\d{1,2}):(\d{2}))?\b", text)
     if not match:
@@ -224,7 +256,7 @@ def _iso(text: str, now: datetime) -> When | None:
     hour = int(match.group(4)) if match.group(4) else DEFAULT_HOUR
     minute = int(match.group(5)) if match.group(5) else 0
     try:
-        at = datetime(year, month, day, hour, minute, tzinfo=now.tzinfo)
+        at = _apply(date(year, month, day), (hour, minute), now, local)
     except ValueError as exc:                       # 2026-02-30, 25:00
         raise TimeParseError(str(exc)) from exc
     return When(at, match.start(), match.end())
@@ -372,7 +404,7 @@ def _with_period_words(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def _day_and_time(text: str, now: datetime, default_half: str = "") -> When | None:
+def _day_and_time(text: str, now: datetime, default_half: str = "", local: bool = False) -> When | None:
     day = _find_day(text, now)
     time_found = _find_time(text, default_half)
     if day is None and time_found is None:
@@ -381,9 +413,10 @@ def _day_and_time(text: str, now: datetime, default_half: str = "") -> When | No
     if day is None:
         clock, start, end = time_found            # type: ignore[misc]
         start, end = _with_period_words(text, start, end)
-        at = _apply(now.date(), clock, now)
+        at = _apply(now.date(), clock, now, local)
         if at <= now:                             # "6pm" said at 7pm means tomorrow
-            at += timedelta(days=1)
+            # The next day, not 24 hours on: across a daylight-saving change those differ.
+            at = _apply(now.date() + timedelta(days=1), clock, now, local)
         return When(at, start, end)
 
     target, day_start, day_end, implied = day
@@ -394,27 +427,36 @@ def _day_and_time(text: str, now: datetime, default_half: str = "") -> When | No
         clock = NAMED_TIMES["tonight"] if implied else (DEFAULT_HOUR, 0)
         start, end = day_start, day_end
     start, end = _with_period_words(text, start, end)
-    at = _apply(target, clock, now)
+    at = _apply(target, clock, now, local)
     # A weekday that resolves to today with a time already gone means the one coming.
     # "today"/"tonight" are exempt: the user named today, so a time that has passed is a
     # mistake worth reporting, not one to silently move a week.
     said_today = re.search(r"\b(today|tonight)\b", text) is not None
     if at <= now and target == now.date() and not said_today:
-        at += timedelta(days=7)
+        at = _apply(target + timedelta(days=7), clock, now, local)
     return When(at, start, end)
 
 
-def describe(moment: datetime, now: datetime | None = None) -> str:
-    """A human rendering of a resolved instant, for confirming it back to the user."""
+def describe(moment: datetime, now: datetime | None = None, local: bool = False) -> str:
+    """A human rendering of a resolved instant, for confirming it back to the user.
+
+    Read in `now`'s zone - or, with `local` or a naive or missing `now`, on the laptop's
+    clock in the offset in force at `moment`: read in today's, a 7:00 alarm set across a
+    daylight-saving change was confirmed as 8:00.
+    """
     if now is None:
-        now = datetime.now().astimezone()
-    local = moment.astimezone(now.tzinfo)
-    clock = local.strftime("%I:%M %p").lstrip("0")   # %-I is glibc only; see ERRORS.md
-    days = (local.date() - now.astimezone(now.tzinfo).date()).days
+        now = datetime.now()
+    if local or now.tzinfo is None:
+        now = on_laptop_clock(now, now.tzinfo)
+        shown = on_laptop_clock(moment, now.tzinfo)
+    else:
+        shown = moment.astimezone(now.tzinfo)
+    clock = shown.strftime("%I:%M %p").lstrip("0")   # %-I is glibc only; see ERRORS.md
+    days = (shown.date() - now.date()).days
     if days == 0:
         return f"today at {clock}"
     if days == 1:
         return f"tomorrow at {clock}"
     if 2 <= days < 7:
-        return f"{local.strftime('%A')} at {clock}"
-    return f"{local.strftime('%A, %d %B %Y')} at {clock}".replace(" 0", " ")
+        return f"{shown.strftime('%A')} at {clock}"
+    return f"{shown.strftime('%A, %d %B %Y')} at {clock}".replace(" 0", " ")

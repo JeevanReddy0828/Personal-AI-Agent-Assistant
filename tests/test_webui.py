@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from functools import partial
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import laptop_agent.webui as webui
+from laptop_agent.model_status import BROKEN, DEGRADED, ModelStatus
 from laptop_agent.webui import _CONFIG, _compose_command, _image_path, _probe_llm
 
 
@@ -99,6 +106,41 @@ class LlmProbeTests(unittest.TestCase):
             raise TimeoutError("no route")
 
         self.assertFalse(_probe_llm(ping, delay=0))
+
+
+class KeepWarmStatusTests(unittest.TestCase):
+    """The keep-warm ping recorded every failure without its reason, which reads as busy:
+    a tier already known to be broken was demoted, retried after 60s instead of 900, and
+    dropped from the file that carries it across a restart."""
+
+    def refresh(self, outcome: tuple[str, str] | None) -> Path:
+        path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "model_status.json"
+        status = ModelStatus(path)
+        status.record("fast", False, reason=BROKEN, detail="that model id has been retired")
+
+        def ping(on_failure=None) -> bool:
+            if outcome is None:
+                return True
+            if on_failure is not None:
+                on_failure(*outcome)
+            return False
+
+        planner = SimpleNamespace(provider=SimpleNamespace(ping=ping))
+        with patch.object(webui._orchestrator, "planner", planner), \
+                patch.object(webui._orchestrator, "model_status", status), \
+                patch.object(webui, "_probe_llm", partial(_probe_llm, delay=0)), \
+                patch.dict(webui._LLM_STATUS):
+            webui._refresh_llm_status()
+        return path
+
+    def test_a_ping_that_fails_the_same_way_keeps_the_tier_broken(self) -> None:
+        path = self.refresh((BROKEN, "that model id has been retired - HTTP 410"))
+        self.assertEqual(ModelStatus(path).broken_tiers(), ["fast"])
+
+    def test_a_busy_ping_is_still_busy_and_a_good_one_clears_it(self) -> None:
+        busy = self.refresh((DEGRADED, "the model did not answer in time"))
+        self.assertEqual(ModelStatus(busy).broken_tiers(), [])
+        self.assertEqual(ModelStatus(self.refresh(None)).broken_tiers(), [])
 
 
 class RenderedPageTests(unittest.TestCase):

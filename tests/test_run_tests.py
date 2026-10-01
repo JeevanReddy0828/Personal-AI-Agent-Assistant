@@ -138,5 +138,41 @@ class FailureReportTests(unittest.TestCase):
                          "test-failures.log is not gitignored; it would be committed")
 
 
+class IsolationTests(unittest.TestCase):
+    def test_nothing_a_test_opens_reaches_the_desktop(self) -> None:
+        """A URL handed to the OS is fetched by the browser, not the test process, so the
+        socket guard never saw it: the routing contract played a real YouTube video in
+        Chrome on every run, and pressed the real volume keys. The probe looks at each of
+        them without calling it, so this test cannot open or press anything even with the
+        guard gone."""
+        # Per process: runs sharing a checkout (a sweep runs eight) would otherwise unlink
+        # each other's probe, and a run that discovers nothing still exits 0.
+        planted = Path(__file__).resolve().parent / f"test_probe_opener_{os.getpid()}.py"
+        planted.write_text(
+            "import ctypes\nimport os\nimport unittest\nimport webbrowser\n\n\n"
+            "class Opener(unittest.TestCase):\n"
+            "    def test_is_inert(self):\n"
+            "        self.assertNotEqual(webbrowser.open.__module__, 'webbrowser',\n"
+            "                            'webbrowser.open still opens a real browser')\n"
+            "        if hasattr(os, 'startfile'):\n"
+            "            import nt\n"
+            "            self.assertIsNot(os.startfile, nt.startfile,\n"
+            "                             'os.startfile still opens a real browser')\n"
+            "        if hasattr(ctypes, 'windll'):\n"
+            "            self.assertNotEqual(ctypes.windll.user32.keybd_event.__module__, 'ctypes',\n"
+            "                                'keybd_event still presses real keys')\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(planted.unlink, True)
+        done = subprocess.run(
+            [sys.executable, "-B", "tests/run_tests.py", planted.name],
+            cwd=run_tests.ROOT, capture_output=True, text=True, timeout=120,
+            env={**os.environ, "PYTHONPATH": "src"},
+        )
+        out = done.stdout + done.stderr
+        self.assertIn("Ran 1 test in", out, "the probe never ran, so nothing was checked")
+        self.assertEqual(done.returncode, 0, out)
+
+
 if __name__ == "__main__":
     unittest.main()

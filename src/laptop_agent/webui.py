@@ -49,7 +49,7 @@ from urllib.parse import parse_qs, urlsplit
 from laptop_agent.app import build_orchestrator
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
-from laptop_agent.health import system_health
+from laptop_agent.health import setup_report, system_health
 from laptop_agent.metrics import system_metrics
 from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
@@ -382,7 +382,7 @@ def _reminders_snapshot() -> dict:
         except ValueError:
             continue
         entry = {"id": item.get("id"), "message": item.get("message"), "due_at": at.isoformat(),
-                 "due_spoken": describe(at, now)}
+                 "due_spoken": describe(at, now, local=True)}
         (due if at <= now else upcoming).append(entry)
     next_in = None
     if upcoming:
@@ -469,7 +469,7 @@ def _guarded_approval(request: ApprovalRequest) -> bool:
     )
 
 
-_orchestrator = build_orchestrator(approval_callback=_guarded_approval)
+_orchestrator = build_orchestrator(approval_callback=_guarded_approval, recording_enabled=True)
 
 
 def _probe_llm(ping: Callable[[], bool], attempts: int = 2, delay: float = 1.5) -> bool:
@@ -495,9 +495,14 @@ def _refresh_llm_status() -> None:
     if ping is None:
         _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
         return
-    reachable = _probe_llm(ping)
+    # Recorded without its reason, a failed ping counted as "busy" and overwrote a tier
+    # already known to be broken - retried after 60s instead of 900, and forgotten on
+    # restart.
+    why: list[tuple[str, str]] = []
+    reachable = _probe_llm(lambda: ping(on_failure=lambda *reason: why.append(reason)))
     _LLM_STATUS["reachable"] = reachable
-    _orchestrator.model_status.record("fast", reachable)
+    reason, detail = why[-1] if why and not reachable else ("", "")
+    _orchestrator.model_status.record("fast", reachable, reason=reason, detail=detail)
 
 
 def _warmup() -> None:
@@ -682,8 +687,12 @@ class Handler(BaseHTTPRequestHandler):
             self._who_checked = True
             session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
             account = ACCOUNTS.get(session.account_id) if session else None
+            # A session is good only for the credentials it was granted under: a new password or
+            # a disable moves the account's epoch on, and ends a session its revoke arrived too
+            # early to catch (a sign-in checked just before, still finishing its hash).
             self._who = (Principal(account.id, account.username, account.role)
-                         if account is not None and not account.disabled else None)
+                         if account is not None and not account.disabled and session.epoch == account.epoch
+                         else None)
         return self._who
 
     def _authorized(self) -> bool:
@@ -761,7 +770,7 @@ class Handler(BaseHTTPRequestHandler):
         # A new token every time, and whatever this browser held before is ended: a session
         # id is never carried across a sign-in.
         SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
-        token = SESSIONS.create(account.id, method)
+        token = SESSIONS.create(account.id, method, epoch=account.epoch)
         self._audit("signin", username=account.username, role=account.role, method=method)
         self._json(200, {"ok": True, "user": {"username": account.username, "role": account.role}},
                    headers=(("Set-Cookie", _session_cookie(token)),))
@@ -984,7 +993,7 @@ class Handler(BaseHTTPRequestHandler):
                        headers=(("X-Jarvis-Denied", "password"),))
             return
         try:
-            ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
+            updated = ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
         except AccountError as exc:
             self._json(400, {"ok": False, "message": str(exc)})
             return
@@ -992,6 +1001,7 @@ class Handler(BaseHTTPRequestHandler):
             self._busy(exc)
             return
         _SIGNIN_LIMIT.clear(*keys)
+        SESSIONS.rebind(self._cookie(_SESSION_COOKIE), updated.epoch)
         ended = SESSIONS.revoke_account(principal.account_id, keep=self._cookie(_SESSION_COOKIE))
         self._audit("password_changed", username=principal.username, sessions_ended=ended)
         self._json(200, {"ok": True, "message": "Password changed. Any other signed-in device was signed out."})
@@ -1283,6 +1293,11 @@ class Handler(BaseHTTPRequestHandler):
             report["stt"] = {"engine": _stt_engine()}
             report["ocr"] = {"engine": _ocr_engine()}
             self._json(200, report)
+        elif path == "/api/setup":
+            # Developer-only by the route allow-list: it describes this installation.
+            self._json(200, {"ok": True, "items": setup_report(
+                _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
+                ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":
@@ -1320,6 +1335,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_resume_pdf()
         elif path == "/api/image":
             self._serve_image()
+        elif path == "/api/recording":
+            self._serve_recording()
         elif path == "/api/document":
             self._serve_document()
         else:
@@ -1444,6 +1461,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_notes()
         elif self.path == "/api/trip":
             self._handle_trip()
+        elif self.path == "/api/recordings":
+            self._handle_recording()
+        elif self.path == "/api/recordings/transcribe":
+            self._transcribe_recording()
         elif self.path == "/api/transcribe":
             self._handle_transcribe()
         elif self.path == "/api/tts":
@@ -1603,6 +1624,54 @@ class Handler(BaseHTTPRequestHandler):
         dest = Path(tempfile.mkdtemp(prefix="upload_", dir=UPLOAD_DIR)) / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
+
+    def _handle_recording(self) -> None:
+        from laptop_agent.recordings import MAX_WAV_BYTES, save_recording
+
+        payload = self._read_json()
+        encoded = payload.get("audio", "")
+        if encoded.startswith("data:audio/wav;base64,"):
+            encoded = encoded.split(",", 1)[1]
+        if len(encoded) > ((min(MAX_WAV_BYTES, MAX_UPLOAD_BYTES) + 2) // 3) * 4:
+            self._json(413, {"ok": False, "message": "Recording exceeds the upload limit."})
+            return
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+            if len(raw) > MAX_UPLOAD_BYTES:
+                raise ValueError("Recording exceeds the upload limit.")
+            recording = save_recording(_CONFIG.data_dir, raw)
+        except ValueError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
+            return
+        self._json(200, {"ok": True, "recording": recording})
+
+    def _transcribe_recording(self) -> None:
+        payload = self._read_json()
+        target = _safe_artifact(payload.get("name", ""), "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._json(404, {"ok": False, "message": "Recording not found."})
+            return
+        result = _orchestrator.context.transcribe.transcribe_media(str(target))
+        text = str(result.data.get("text", "")).strip() if result.ok else ""
+        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message})
+
+    def _serve_recording(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(self.path).query)
+        target = _safe_artifact(query.get("name", [""])[0], "recordings", {".wav": "audio/wav"})
+        if target is None:
+            self._send(404, b"Recording not found.", "text/plain")
+            return
+        raw = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(raw)))
+        if query.get("download") == ["1"]:
+            self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self._cache("private, no-store")
+        self.end_headers()
+        self.wfile.write(raw)
 
     def _handle_transcribe(self) -> None:
         """Speech-to-text for the native app's voice loop: accept a recorded audio

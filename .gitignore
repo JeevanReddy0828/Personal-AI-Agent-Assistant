@@ -23,3 +23,6 @@ Thumbs.db
 
 # Local git worktrees used for parallel agent work
 .worktrees/
+
+# Probe modules tests/test_run_tests.py plants and removes; a killed run leaves them behind
+tests/test_probe_*.py

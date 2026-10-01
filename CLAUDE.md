@@ -494,6 +494,14 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
+    carries only today's, so every caller that reads the laptop's clock passes `local=True`
+    to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
+    does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
+    `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
+    fixed-offset `now` without `local` parses exactly as before.
+    The ticker does the same for scheduled jobs (`claim_due_jobs(local=True)`), so a
+    01:30 job fires once, not twice, on the night the clocks go back.
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
@@ -636,7 +644,10 @@ app runs and a tier never retried can never be seen to recover; and the state st
 information rather than a rename. The provider reports why through an optional
 `on_failure` **callback argument**, never a field on the provider: one provider serves
 every request thread. A caller that passes no sink behaves exactly as before, which is why
-the advisor, the document tool and the copilot needed no change.
+the advisor, the document tool and the copilot needed no change. A caller that **records**
+the outcome must pass one: the keep-warm `ping` did not, so every failed ping was recorded
+as busy and demoted a tier a chat turn had found broken. Known gap: `plan()` has no sink,
+so a non-streaming turn whose route failed still records the fast tier as busy.
 
 **Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
 `data_dir/model_status.json`, so a retired model id or a rejected key is still known at
@@ -991,6 +1002,15 @@ owner. Decisions that each exist for a reason:
   store reloads when the file's stamp changes, because the CLI revokes from its own
   process. Every request re-reads the account, so a disabled account or a new role applies
   to the next request, not when the session ends.
+- **A session is bound to the credentials it was granted under.** A new password or a
+  disable moves the account's `epoch` on, every session records the epoch it was created
+  with, and `_principal` refuses an older one. Revoking alone could not close the race the
+  review found at the real hash cost: a sign-in checked against the old password finishes
+  its 0.6s hash after `revoke_account` has run, then creates its session, which also came
+  back after disable-then-enable. `create()` defaults to epoch 0, so a caller that leaves it
+  out fails closed; changing your own password rebinds only the session that proved it.
+  Known limit: revoking ends sessions, not work already running - an agent run or stream in
+  flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from
@@ -1044,8 +1064,10 @@ listed form must be one the dispatchers match (a phantom `knowledge` prefix woul
 its eight patterns was removed in turn and caught, the routing contract alone missed two.
 Every rule here was broken on purpose and every break was caught. `read file` is LOW, which
 is why files are on the list at all: without it a personal account could `read file .env`.
-Data stays shared until it is kept per account — reminders, timers, lists, remembered facts,
-generated pictures and documents — and the chat prompt still carries the owner's facts. The
+Data is shared on purpose: the personal account is the owner in a safer everyday mode, not
+another person (Jeevan's answer, 2026-09-28). So reminders, timers, lists, remembered facts,
+generated pictures and documents stay one store, the chat prompt carries the owner's facts,
+and per-account data is not planned; what it is refused limits scope, not privacy. The
 page hides `.devonly` controls under `body[data-role="personal"]` and greets the account by
 its own name; the server is the enforcement. Known limits: the gate's prompt lock serialises
 approvals across accounts, and attachments are developer-only, because every use of one is a
@@ -1063,6 +1085,23 @@ once would otherwise both succeed; the command line does not pass it. Disabling,
 or deleting ends that account's sessions: a disabled account is refused on its next request
 anyway, but without the revoke a cookie taken before the disable came back to life when the
 account was enabled again, which is the one test that could tell.
+
+**Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
+Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,
+not set up), `missing` (a package or engine it needs is absent), `busy` (a tier loaded or
+unreachable) or `broken` (a tier misconfigured, with its reason), and for anything not
+ready the next step as an environment variable *name* or an install command, never a value,
+a path or a model id (a test puts secrets in every config field and asserts none reach the
+report). Offline and cheap: packages are checked with `find_spec` and programs with `which`,
+both injected, so nothing heavy is imported and nothing goes over the network; Tesseract's
+package without its program counts as `missing`, since the engine probe only checks the
+package. Two rules from Codex's review: Playwright is ready only when the Chromium revision
+its own `browsers.json` names is in its browsers directory, finished (its `INSTALLATION_COMPLETE`
+marker and a browser executable inside: an interrupted install leaves the folders empty) — the
+package alone said ready with no browser, and an upgrade leaves the old revision behind — and a
+broken tier's advice is
+rebuilt from the HTTP status, never passed through, because the stored reason names the
+model id. Developer-only by the route allow-list and `.devonly`.
 
 **Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
 browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
@@ -1248,6 +1287,14 @@ on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/r
 
 Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
 
+**The runner makes `os.startfile`, `webbrowser.open` and `keybd_event` inert** — they
+succeed and do nothing (the music tool also pressed the real volume keys). A URL handed to the OS is fetched by the browser, not by the test process, so the
+socket guard never saw it: the routing contract opened a real YouTube video on this laptop
+on every run, and a sweep rerunning it 48 times was reported as an automation. A test that
+needs to see what was opened still injects its own fake (`test_music.py`,
+`test_web_targets.py`). Known limit: on macOS and Linux, `desktop.py` (and `web.py` on
+macOS) launch `open`/`xdg-open` through `subprocess`, which this does not touch.
+
 **A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
 deleted on the next clean run so a stale report cannot mislead) holding each test id and
 traceback plus the interpreter, platform and argv. `TextTestRunner` already prints all of
@@ -1287,6 +1334,37 @@ Both Claude and Codex edit this repo. To avoid collisions:
   broken when the tool only sees one folder. That mistake invented four broken links
   that were never broken.
 
+## Recorder integration (REC-01, 2026-09-28)
+
+- `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
+  mono, 16-bit, nonempty, at most 120 seconds). `recording_enabled` is a client capability;
+  webui enables it, CLI/Tkinter do not. `record <seconds>` returns `data.record`.
+- `/api/recordings` saves only; `/api/recordings/transcribe` explicitly requests speech
+  processing; `/api/recording?name=...` serves same-origin private/no-store audio.
+  Preserve the shared token/origin gate and filename confinement for these routes.
+- Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
+  Browser capture owns its own microphone lifecycle and releases voice-chat resources.
+  Save and transcript results stay with the original session across chat changes.
+- The planner strips `_POLITE` and turns spoken numbers into digits before
+  `recording_seconds`, so "can you record my voice for up to twenty seconds?" routes; the
+  chat prompt names recording as a tool, or the model asks permission it cannot act on.
+- AUTH-01 integration: keep recording commands/routes developer-only until artifacts
+  have account ownership. A recording filename is not an authorization boundary.
+- Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
+  and `RecordingBrowserTests` in the existing opt-in browser CI suite.
+
+## Riva deadline (VOICE-03, 2026-09-28)
+
+`_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
+blocking helper accepts no timeout. Poll `result(timeout=...)` in at most 100 ms slices,
+check operation cancellation, and always cancel the future/close its channel. Do not
+replace this with a background Python thread that leaves the RPC running after timeout.
+`_riva_timeout` scales with WAV duration and accepts `RIVA_ASR_TIMEOUT_SECONDS` in (0,600].
+A real deadline becomes TimeoutError, which auto mode can pass to the local fallback;
+OperationCancelled bypasses ordinary errors, including a Stop racing an RPC failure.
+Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates teardown.
+This is independent of VOICE-02's broader grpc exception fallback and does not import
+those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.
 
 ### AUTH-01 phase 2a — Google identity handoff (Codex, 2026-09-28)
 

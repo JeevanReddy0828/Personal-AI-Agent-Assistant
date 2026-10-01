@@ -713,7 +713,7 @@
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>renderMsg(m.role,m.text,m.atts,m.at));}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);});}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
@@ -1001,7 +1001,7 @@
       if(d.ok&&d.data&&(d.data.due_local||d.data.job)){remPermission();checkReminders();}   // a reminder, timer or alarm was just set
       // Chat already revealed itself token-by-token; a local command result arrives
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
-      if(streamed)setMd(md,reply); else typewriter(md,reply);
+      if(streamed||(d.data&&d.data.record))setMd(md,reply); else typewriter(md,reply);
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
@@ -1011,7 +1011,8 @@
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s;if(ss){ss.msgs.push({role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()});saveSessions();}
+      const ss=s, message={role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()};if(ss){ss.msgs.push(message);saveSessions();}
+      if(d.ok&&d.data&&d.data.record)startRecording(d.data.record.seconds,node,ss,message);
       loadVault();
     }catch(err){
       if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed,at:Date.now()});saveSessions();}}
@@ -1079,6 +1080,27 @@
   async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
+
+  /* setup: each capability, whether it is ready, and the next step if not (developers only) */
+  const setupPanel=document.getElementById('setupPanel'),setupList=document.getElementById('setupList');
+  const SETUP_STATE={ready:'ready',off:'not set up',missing:'missing',busy:'busy',broken:'needs fixing'};
+  async function loadSetup(){
+    let d=null;try{const r=await fetch('/api/setup');d=await r.json();if(!r.ok||!d.ok)return;}catch(e){return;}
+    setupList.textContent='';
+    d.items.forEach(item=>{
+      // Built as nodes: the text is the server's, but it is never treated as markup.
+      const row=document.createElement('div');row.className='crow setrow';row.dataset.state=item.state;
+      const dot=document.createElement('span');dot.className='d'+(item.state==='ready'?'':item.state==='off'?' off':' warn');
+      const name=document.createElement('span');name.className='k';name.textContent=item.name;
+      const state=document.createElement('span');state.className='v';state.textContent=SETUP_STATE[item.state]||item.state;
+      const more=document.createElement('span');more.className='setmore';more.textContent=item.detail||'';
+      if(item.next){const next=document.createElement('span');next.className='setnext';next.textContent=item.next;more.append(next);}
+      row.append(dot,name,state,more);setupList.append(row);
+    });
+    const todo=d.items.filter(item=>item.state!=='ready').length;
+    setupPanel.querySelector('summary').textContent='Setup'+(todo?' · '+todo+' to look at':' · all set');
+  }
+  setupPanel.addEventListener('toggle',()=>{if(setupPanel.open)loadSetup();});
   const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
   pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 
@@ -1391,16 +1413,18 @@
     }
     async function act(body){
       if(!admCur.value){say('Type your password first: every change asks for it.',true);admCur.focus();return false;}
+      // Used once: left in the field it would answer for every later click at this keyboard.
+      const current=admCur.value;admCur.value='';
       say('Working…');
       try{
-        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current:admCur.value})});
+        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current})});
         const d=await r.json().catch(()=>({}));
         if(r.ok){renderAccounts(d);say(d.message);return true;}
         say(d.message||('Could not change that (HTTP '+r.status+').'),true);
       }catch(e){say('Could not reach the app.',true);}
       return false;
     }
-    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();});
+    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();else admCur.value='';});
     manage.onclick=()=>{hudPop.classList.remove('open');hudBtn.classList.remove('on');setDrawer(true,hudBtn);panel.open=true;panel.scrollIntoView({block:'nearest'});};
     admAdd.addEventListener('submit',async ev=>{
       ev.preventDefault();
@@ -1769,7 +1793,7 @@
     ttsVoice=vs.find(x=>/^en/i.test(x.lang))||vs[0];
   }
   if(window.speechSynthesis)speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
-  window.addEventListener('pagehide',()=>{endVoice();stopGen();});
+  window.addEventListener('pagehide',()=>{if(activeRecording)activeRecording.stop(false);endVoice();stopGen();});
   micBtn.onclick=()=>{if(!SR)return;if(dictating){rec&&rec.stop();return;}rec=new SR();rec.lang='en-US';rec.interimResults=true;dictating=true;micBtn.classList.add('live');const base=ta.value?ta.value+' ':'';rec.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;ta.value=base+t;auto();};rec.onend=()=>{dictating=false;micBtn.classList.remove('live');};rec.start();};
   // One handler, two buttons. The orb-focus one is a second surface for the same toggle,
   // not a second implementation — the availability check below is the thing that must not
@@ -1789,7 +1813,7 @@
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
-  function startVoice(){voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);listen();}
+  function startVoice(){if(activeRecording){voiceNotice('Stop the current recording before starting voice chat.');return;}voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);listen();}
   function endVoice(){voiceGeneration++;voiceActive=false;bargePaused=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
@@ -2099,6 +2123,97 @@
     for(let i=0;i<outLen;i++){let s=samples[Math.floor(i*ratio)]||0;s=Math.max(-1,Math.min(1,s));dv.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true);}
     let bin='';const u8=new Uint8Array(buf);for(let i=0;i<u8.length;i++)bin+=String.fromCharCode(u8[i]);
     return 'data:audio/wav;base64,'+btoa(bin);
+  }
+  // Kept recordings have a separate lifecycle from disposable speech-loop clips.
+  let activeRecording=null;
+  const transcribingRecordings=new Set();
+  document.addEventListener('keydown',e=>{
+    if(activeRecording&&e.code==='Space'&&!e.repeat){e.preventDefault();e.stopImmediatePropagation();activeRecording.stop(true);}
+  },true);
+  function refreshRecordedMessage(node,session,message){
+    setMd(node.querySelector('.md'),message.text);
+    saveSessions();
+    if(session&&curSession()===session&&!node.isConnected)loadSession(session.id);
+  }
+  function renderRecording(node,session,message){
+    const recording=message.recording;
+    if(!recording||!/^recording-[a-f0-9]{32}\.wav$/.test(recording.name))return;
+    const card=document.createElement('section');card.className='recording-card';
+    card.setAttribute('aria-label','Saved voice recording');
+    const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';
+    audio.src='/api/recording?name='+encodeURIComponent(recording.name);card.appendChild(audio);
+    const save=document.createElement('a');save.href=audio.src+'&download=1';save.download=recording.name;save.textContent='Save WAV';card.appendChild(save);
+    const button=document.createElement('button');button.type='button';button.textContent='Transcribe recording';
+    button.disabled=transcribingRecordings.has(recording.name);card.appendChild(button);
+    const note=document.createElement('p');note.className='recording-note';note.setAttribute('role','status');
+    note.textContent='Saved on this computer. Transcription uses your configured speech engine, which may send audio to a hosted service.';card.appendChild(note);
+    button.onclick=async()=>{
+      if(transcribingRecordings.has(recording.name))return;
+      transcribingRecordings.add(recording.name);button.disabled=true;note.textContent='Transcribing…';
+      try{
+        const response=await fetch('/api/recordings/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:recording.name})});
+        const result=await response.json();
+        if(!response.ok||!result.ok)throw new Error(result.message||'No speech was recognized.');
+        message.text=(recording.caption||'Voice recording saved.')+'\n\nTranscript:\n'+result.text;
+        recording.transcript=result.text;
+        refreshRecordedMessage(node,session,message);note.textContent='Transcript added to this conversation.';
+      }catch(e){note.textContent='Transcription failed: '+e.message+' The recording is still saved.';}
+      finally{transcribingRecordings.delete(recording.name);button.disabled=false;if(session&&curSession()===session&&!node.isConnected)loadSession(session.id);}
+    };
+    node.querySelector('.content').appendChild(card);
+  }
+  async function startRecording(seconds,node,session,message){
+    if(!Number.isFinite(seconds)||seconds<=0||seconds>120)return;
+    if(activeRecording){message.text='A recording is already active. Stop it before starting another.';refreshRecordedMessage(node,session,message);return;}
+    endVoice();
+    const card=document.createElement('section');card.className='recording-card recorder-live';card.setAttribute('aria-label','Voice recorder');
+    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='Waiting for microphone permission…';card.appendChild(status);
+    const button=document.createElement('button');button.type='button';button.textContent='Stop';card.appendChild(button);document.body.appendChild(card);
+    let stream,ac,source,processor,sink,timeout,ticker,finished=false,count=0;
+    const samples=[];
+    const cleanup=()=>{
+      clearTimeout(timeout);clearInterval(ticker);
+      if(processor){processor.onaudioprocess=null;processor.disconnect();}
+      if(source)source.disconnect();if(sink)sink.disconnect();
+      if(stream)stream.getTracks().forEach(track=>track.stop());
+      if(ac)ac.close().catch(()=>{});
+    };
+    const finish=async(keep=true)=>{
+      if(finished)return;finished=true;
+      const rate=ac&&ac.sampleRate;cleanup();button.disabled=true;status.textContent='Saving recording…';
+      try{
+        if(!keep||!count){message.text='Recording cancelled. No audio was saved.';return;}
+        const response=await fetch('/api/recordings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encodeWavB64(flattenF32(samples),rate)})});
+        const result=await response.json();
+        if(!response.ok||!result.ok)throw new Error(result.message||'Could not save recording.');
+        message.text='Voice recording saved ('+result.recording.seconds.toFixed(1)+' seconds).';
+        message.recording=Object.assign({},result.recording,{caption:message.text});
+        renderRecording(node,session,message);
+      }catch(e){message.text='Could not save recording: '+e.message;}
+      finally{activeRecording=null;card.remove();refreshRecordedMessage(node,session,message);}
+    };
+    activeRecording={stop:finish};button.onclick=()=>finish(true);
+    try{
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('Microphone access needs a secure connection. Open J.A.R.V.I.S on this computer (localhost) or use HTTPS.');
+      stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+      if(finished){stream.getTracks().forEach(track=>track.stop());return;}
+      ac=new (window.AudioContext||window.webkitAudioContext)();await ac.resume();
+      if(finished){cleanup();return;}
+      source=ac.createMediaStreamSource(stream);processor=ac.createScriptProcessor(4096,1,1);sink=ac.createGain();sink.gain.value=0;
+      const limit=Math.floor(seconds*ac.sampleRate),started=performance.now();
+      processor.onaudioprocess=e=>{
+        if(finished)return;
+        const chunk=e.inputBuffer.getChannelData(0).slice(0,limit-count);samples.push(chunk);count+=chunk.length;
+        if(count>=limit)finish(true);
+      };
+      const paint=()=>{status.textContent='Recording · '+Math.max(0,seconds-(performance.now()-started)/1000).toFixed(1)+' seconds left · Space to stop';};
+      source.connect(processor);processor.connect(sink);sink.connect(ac.destination);
+      paint();ticker=setInterval(paint,100);timeout=setTimeout(()=>finish(true),seconds*1000);
+    }catch(e){
+      if(finished)return;
+      finished=true;cleanup();activeRecording=null;card.remove();
+      message.text='Recording could not start: '+e.message;refreshRecordedMessage(node,session,message);
+    }
   }
   async function nativeListen(){
     if(!voiceActive||recognizing||speaking)return;

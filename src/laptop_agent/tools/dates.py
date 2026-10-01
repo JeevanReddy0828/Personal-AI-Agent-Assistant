@@ -119,7 +119,7 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     if found:
         return found, found.strftime("%B %d").replace(" 0", " ")
     try:
-        when = parse_when(cleaned, now)
+        when = parse_when(cleaned, now, local=True)
     except TimeParseError:
         return None
     if when is not None and when.start == 0 and when.end >= len(cleaned) - 1:

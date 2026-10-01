@@ -177,7 +177,11 @@ class ImageTool:
         # `flux.1-schnell`, a model CLAUDE.md already records as timing out at 90s.
         deadline = time.monotonic() + self.timeout
         for index, candidate in enumerate(candidates):
-            remaining = deadline - time.monotonic()
+            # Never more than the whole budget. When the clock has not moved between the two
+            # reads, `(t + 30) - t` rounds above 30 for about one value of t in forty
+            # (30.000000000000004 at t=6.98), and Windows' coarse monotonic clock makes an
+            # unmoved clock common: the budget test failed on a Windows runner that way.
+            remaining = min(float(self.timeout), deadline - time.monotonic())
             # The first attempt always runs. The deadline bounds the EXTRA attempts, and
             # a misconfigured or tiny budget must not turn image generation into a no-op
             # that never even asks — found by a test that set the budget to zero and got

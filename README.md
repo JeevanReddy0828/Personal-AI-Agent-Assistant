@@ -172,7 +172,7 @@ Talk naturally — most of these are reached by plain language; the explicit com
 ### 🎨 Interfaces & UX
 CLI · Tkinter GUI · **multi-page web app** (header nav + router: Chat · Overview · **Job tracker** · **Pipeline**, with funnel/trend charts + a live job-search board) · native **`JARVIS.exe`** (pywebview, packaged via PyInstaller).
 Streaming **and** typewriter reveal · real-time voice (Vosk/Whisper STT + offline TTS, barge-in + Interrupt, with a live microphone meter showing what the mic hears against the level it must beat to cut in) ·
-a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
+a calm, premium dark workspace: slim chat rail, the animated particle **orb** as the single focal point, a wide quiet conversation column, and a **System status** drawer holding model/usage/vault diagnostics, a **Setup** list (what is on, and the next step for anything that is not), plus the **Map**, **Trip planner**, **memory-vault browser**, **Scheduled jobs** and **Agent runs** panels · **orb focus** (hide the chat, the orb grows into the window; its own voice toggle, Esc to come back) · settings popover (compact / orb focus / always-on-top / transparency / voice cut-in level) · status pill + per-reply model/latency line.
 
 ---
 
@@ -249,8 +249,9 @@ generated pictures and documents — but not files, the screen, the camera, apps
 the browser or music on this laptop, not your mail, notes, indexed documents or job search,
 not the diagnostics, and nothing that acts on its own (agent mode, schedules, workflows).
 It is refused those outright rather than shown an approval card, and it sees only its own
-approval cards. Until data is kept per account it shares your reminders, timers, lists and
-remembered facts, so give it to someone you would share those with.
+approval cards. It is meant as you in a safer everyday mode: it shares your reminders,
+timers, lists and remembered facts, which are not kept per account, so anyone you give it
+to sees those.
 
 On this computer, a developer can also add and manage accounts in the app: **Manage
 accounts** in the settings popover. Every change asks for your own password again.
@@ -389,6 +390,37 @@ python -B tests/run_tests.py test_browser_regressions.py
 On Linux/macOS, prefix the last command with `JARVIS_BROWSER_TESTS=1`.
 The CI workflow runs offline tests on Windows/Linux and a separate Chromium job.
 
+## Voice notes (REC-01, 2026-09-28)
+
+In the app or web page, ask `record voice upto 20 seconds`, `record my voice for
+10 seconds`, `record a voice note` (20 seconds), or `record audio up to 2 minutes`.
+Durations above 120 seconds are refused. The visible recorder shows a countdown;
+Stop or Space keeps a shorter clip. Changing chats leaves the Stop control visible.
+
+The recording is saved as a 16 kHz mono PCM WAV under the configured data directory's
+`recordings/` folder, separate from temporary speech uploads. The original chat has an
+audio player and **Save WAV**. **Transcribe recording** is optional: it uses the configured
+speech engine, which may send audio to a hosted service. Its transcript becomes part of
+that chat's assistant history, so a later request can summarize it. Transcription failure
+does not remove the recording. Reopen the saved chat to find the player again.
+
+Microphone access requires localhost or HTTPS and browser permission. CLI/Tkinter explain
+that recording needs the app/web page. Closing the page during capture cancels the unsaved
+clip. Fake-device browser tests pass; Jeevan still needs to check his physical microphone
+and native app window. No new runtime dependency is required for recording.
+
+## Hosted speech deadline (VOICE-03, 2026-09-28)
+
+Riva transcription now has a bounded wait: the default budget is 5 seconds plus half
+the WAV's duration, with a 10-second minimum and 120-second maximum. A short voice clip
+therefore fails over quickly while longer media gets more time. Override with
+`RIVA_ASR_TIMEOUT_SECONDS` (finite seconds greater than 0 and at most 600).
+
+On timeout, the RPC is cancelled and its channel is closed. `LAPTOP_AGENT_STT=auto`
+then tries the existing local backend; explicit `riva` reports the deadline failure.
+Stop cancels the pending RPC without launching fallback. The budget bounds the Riva
+wait, not file loading, local model initialization or the full transcription pipeline.
+The timeout is recorded under `transcribe/riva-timeout` for diagnosis.
 
 ### Google sign-in (AUTH-01 phase 2a)
 
