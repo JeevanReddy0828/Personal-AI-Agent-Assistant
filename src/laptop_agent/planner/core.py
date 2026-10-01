@@ -11,6 +11,10 @@ class PlanDecision:
     explanation: str
     command: str | None = None
     response: str | None = None
+    # Why the model call behind this decision failed, as (DEGRADED|BROKEN, detail), when it
+    # did. A decision belongs to one call, so it can carry this where a provider field
+    # could not: one provider serves every request thread.
+    failure: tuple[str, str] | None = None
 
     @property
     def is_command(self) -> bool:

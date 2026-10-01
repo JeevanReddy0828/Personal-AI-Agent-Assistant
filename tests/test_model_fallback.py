@@ -120,6 +120,15 @@ class ProviderReportsWhyTests(unittest.TestCase):
                 self.assertFalse(provider.ping(on_failure=lambda k, d: seen.append((k, d))))
                 self.assertEqual(seen[0][0], expected)
 
+    def test_a_failed_route_carries_the_reason(self) -> None:
+        for error, expected in ((http(410), BROKEN), (http(503), DEGRADED), (TimeoutError(), DEGRADED)):
+            with self.subTest(type(error).__name__, code=getattr(error, "code", None)):
+                provider = OpenAICompatiblePlannerProvider(
+                    "k", "m", transport=lambda payload, e=error: (_ for _ in ()).throw(e))
+                decision = provider.plan("hi", "", {})
+                self.assertEqual(decision.confidence, 0.0)
+                self.assertEqual(decision.failure[0], expected)
+
     def test_a_caller_that_passes_no_sink_is_unaffected(self) -> None:
         """Every existing caller — the advisor, the document tool, the copilot — calls
         answer() with no sink and must behave exactly as before."""
@@ -185,6 +194,24 @@ class LadderTests(unittest.TestCase):
             asyncio.run(orchestrator.handle(self.ASK))
             self.assertEqual(orchestrator.model_status.status("smart"), DEGRADED)
             self.assertEqual(orchestrator.model_status.broken_tiers(), [])
+
+    def test_a_failed_route_on_a_turn_that_does_not_stream_records_why(self) -> None:
+        """The failed routing call is all such a turn learns about the fast tier, and it
+        was recorded without its reason: a retired model id read as busy, retried after
+        60s instead of 900."""
+        class LowConfRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
+
+        for code, state in ((410, BROKEN), (503, DEGRADED)):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as raw:
+                orchestrator = self.build(Path(raw))
+                orchestrator.router = Planner(LowConfRouter())
+                orchestrator.planner = Planner(OpenAICompatiblePlannerProvider(
+                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c))))
+                orchestrator.smart_planner = orchestrator.ultra_planner = orchestrator.fallback_planner = None
+                asyncio.run(orchestrator.handle(self.ASK))
+                self.assertEqual(orchestrator.model_status.status("fast"), state)
 
     def test_a_silent_tier_is_still_only_degraded(self) -> None:
         """A provider that reports nothing (an older one, or a test double) must not be
