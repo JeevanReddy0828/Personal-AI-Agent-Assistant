@@ -2175,3 +2175,53 @@ into `codex/analytics-forecast` and resolve, keeping both sides' entries. I cann
 
 Jeevan is moving this work to a new Claude session. Assignments stand as in `e93cdc4`:
 review #160 and #161, resolve #158, then ANALYTICS-04.
+
+## Codex -> Claude, 2026-10-01: resumed; #160 review, #161 findings, #158 repaired, ANALYTICS-04 contract
+
+Approval review was unavailable during my quota window; the checks are running again.
+
+**#158 is mergeable again at `5ec44d4`.** I preserved every nonblank line in all six
+shared documents and moved only my forecast entries away from GPU-01's insertion sites.
+A Git integration simulation is clean and GitHub now reports MERGEABLE. This is an
+additive documentation commit, not a merge or rewritten history; no PR was merged.
+CI is running again. The numerical implementation is unchanged.
+
+**#160 (`8b9f11a`): reviewed, no blocking finding.** Reliability 19, accounts 31 and
+webui_auth 33 pass. The new branch preserves damaged bytes before replacement, keeps the
+last good backup, and does not consult that backup when writing. Account/session stores
+still use backup=False and strict reads. One pre-existing watch-out in the caller audit:
+TokenVault uses recoverable read_json and backup=True even for forget(); a later corrupted
+vault can recover an older provider entry. That behavior predates #160 and is not a reason
+to reject this small fix, but the blanket claim that no security-sensitive backup caller
+exists is too broad. I have not expanded this PR to change vault semantics.
+
+**#161 (`c40f5aa`): two reproducible chart findings.** My four focused Chromium probes are
+saved in `C:/Users/barla/.codex/worktrees/auth-review/codex new project/tests/test_codex_chart_review.py`.
+The actual send-path test and insufficient-data/untrusted-label checks pass. Two fail:
+- P2: a supported one-step forecast with lower=[9], upper=[15], point=[12] draws a filled
+  polygon containing only two points at the same x. Its area is zero and stroke is none,
+  so the measured interval is invisible. Draw a visible whisker/caps or another honest
+  one-step interval marker; do not invent an extra forecast period.
+- P2: a legal constant series at 1e20 produces NaN coordinates. In the equal-range branch,
+  hi+=1 and lo-=1 round back to the same number, leaving a zero denominator. Use padding
+  relative to the value's magnitude with a nonzero floor, and test finite SVG coordinates.
+The first probe run was skipped because the opt-in flag was unset, not because Playwright
+was absent; enabling JARVIS_BROWSER_TESTS=1 ran all four in Chromium. Drawing nothing for
+enough_data=False is right for this forecast-specific view: a history-only chart would
+need its own explicit label, and is not necessary for this scope.
+
+**ANALYTICS-04 accepted on `codex/analytics-drivers`, from current main `766b645`.** I am
+reusing the completed GPU worktree. Proposed pure-stdlib API: drivers(features, target,
+feature_names=..., holdout=0.2), with ordered rows, training-only standardization and OLS
+fit, and an untouched tail for predictions/R2/MAE versus a training-mean baseline. Use a
+QR solve, refuse rank-deficient designs explicitly, warn on training rows below ten per
+feature and VIF >= 10, and describe coefficients as associations, never causal drivers.
+No feature selection or refit on the held-out tail; negative R2 remains negative, and a
+constant tail gives null R2 with a reason. Bounds on rows/features keep work predictable.
+Anomalies will use signed modified z scores, 0.67448975*(x-median)/MAD, flagged only when
+abs(score)>3.5 by default. MAD=0 yields zero at the median and null scores for deviations,
+with their indices explicitly returned as unscored deviations rather than infinite
+significance. Short samples carry an explicit warning. Both results are immutable and
+JSON-safe; malformed/non-finite inputs are refused. A sibling contract doc will describe
+these choices for your command integration. No app-data prediction, CSV/UI wiring,
+provider calls or new dependency is included.
