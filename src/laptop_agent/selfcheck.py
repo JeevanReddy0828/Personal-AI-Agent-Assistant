@@ -39,6 +39,10 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("record my voice for 10 seconds", "record", "requested microphone duration"),
     ("record a voice note", "record", "default 20 seconds"),
     ("record audio up to 2 minutes", "record", "maximum duration in minutes"),
+    ("record my voice for up to 20 seconds", "record", "missed, so a chat model asked 'May I?' after every 'yes'"),
+    ("can you record my voice for 20 seconds?", "record", "politeness and a question mark"),
+    ("record my voice for twenty seconds", "record", "Vosk writes the number as a word"),
+    ("start recording", "record", "the other verb people use"),
     # Reminders — #122. Two of these were answered by a model with no access to the store.
     ("what are my reminders", "reminders", "the phrasing the backlog reported"),
     ("do i have any reminders", "reminders", "no 'my', so it reached no router at all"),
@@ -120,6 +124,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
 MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("record a podcast about space", "not a voice capture instruction"),
     ("what is the record for the 100m", "record is a noun"),
+    ("can you record?", "asks whether it can; only a named request starts the microphone"),
     ("what is a reminder", "a definition, not a listing"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),

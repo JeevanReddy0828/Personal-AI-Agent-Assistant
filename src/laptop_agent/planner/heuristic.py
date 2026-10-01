@@ -507,7 +507,12 @@ class HeuristicPlannerProvider:
         del available_commands, memory_profile, history
         raw = strip_address(text)
         lowered = raw.lower()
-        seconds = recording_seconds(raw)
+        polite = re.match(_POLITE, raw, re.IGNORECASE).end()
+        asked = raw[polite:]
+        # "can you record?" asks whether it can: politeness around the bare verb is a question,
+        # and starting the microphone is a bigger mistake than answering it.
+        bare = polite and re.fullmatch(r"record\W*", asked.strip(), re.IGNORECASE)
+        seconds = None if bare else recording_seconds(spoken_to_digits(asked))
         if seconds is not None:
             return self._command(f"record {seconds:f}", "User requested a microphone recording.", 0.99)
 

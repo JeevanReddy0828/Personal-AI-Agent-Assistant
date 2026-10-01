@@ -334,6 +334,16 @@ class ChatPromptActionClaimsTests(unittest.TestCase):
                        "done, started or initiated", "approval card"):
             self.assertIn(phrase, lowered, f"the chat prompt no longer covers: {phrase}")
 
+    def test_the_chat_knows_recording_is_a_tool_and_what_to_ask_for(self) -> None:
+        # It answered "record voice upto 20 seconds" with "May I record your voice for up to
+        # 20 seconds?", and asked again after every "yes": nothing told it recording is a
+        # tool, so it took it for its own to do once allowed.
+        from laptop_agent.planner.openai_compatible import _CAPABILITIES, _NO_TOOL_CLAIMS
+
+        self.assertIn("record voice notes", _CAPABILITIES)
+        self.assertIn("recording from the microphone", _NO_TOOL_CLAIMS)
+        self.assertIn("'record my voice for 20 seconds'", _NO_TOOL_CLAIMS)
+
 
 
 class RoutingDeadlineTests(unittest.TestCase):

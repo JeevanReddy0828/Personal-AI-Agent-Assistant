@@ -1325,6 +1325,9 @@ Both Claude and Codex edit this repo. To avoid collisions:
 - Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
   Browser capture owns its own microphone lifecycle and releases voice-chat resources.
   Save and transcript results stay with the original session across chat changes.
+- The planner strips `_POLITE` and turns spoken numbers into digits before
+  `recording_seconds`, so "can you record my voice for up to twenty seconds?" routes; the
+  chat prompt names recording as a tool, or the model asks permission it cannot act on.
 - AUTH-01 integration: keep recording commands/routes developer-only until artifacts
   have account ownership. A recording filename is not an authorization boundary.
 - Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
