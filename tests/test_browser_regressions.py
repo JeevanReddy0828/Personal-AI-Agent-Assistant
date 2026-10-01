@@ -554,12 +554,19 @@ class BrowserRegressions(unittest.TestCase):
                     chart.remove();
                     return result;
                 };
-                return {oneStep: draw([10, 12, 11], 12, 9, 15), huge: draw([1e20, 1e20], 1e20, 1e20, 1e20)};
+                const small = forecastChart({labels: ['next'], series: {labels: ['a', 'b', 'c'],
+                    values: [0.0031, 0.0029, 0.0034]}, forecast: {enough_data: true, points: [0.0032],
+                    lower: [null], upper: [null]}});
+                const ticks = [...small.querySelectorAll('text[text-anchor="end"]')]
+                    .filter(t => +t.getAttribute('x') < 52).map(t => t.textContent);   // the y-axis gutter
+                return {oneStep: draw([10, 12, 11], 12, 9, 15), huge: draw([1e20, 1e20], 1e20, 1e20, 1e20), ticks};
             }"""
         )
         self.assertGreater(outcome["oneStep"]["area"], 0, "a one-step range has no visible area")
         self.assertTrue(outcome["oneStep"]["finite"])
         self.assertTrue(outcome["huge"]["finite"], "a flat series at 1e20 drew NaN coordinates")
+        # Review of #159: two decimals labelled every gridline of a small series 0.
+        self.assertEqual(outcome["ticks"], ["0.0029", "0.00315", "0.0034"])
         self.assertEqual(self.errors, [])
 
     def test_copying_works_without_a_secure_context(self):

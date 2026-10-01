@@ -1541,7 +1541,9 @@
     svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','fchart');svg.setAttribute('role','img');
     svg.setAttribute('aria-label','Forecast chart: '+hist.length+' past values and '+pts.length+' ahead'+(banded?', with the measured range':''));
     const add=(tag,attrs,text,parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;(parent||svg).appendChild(e);return e;};
-    const fmt=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():String(+v.toFixed(2));
+    // The reply's own rule (`_shown`): under 1, three significant figures. Two decimals put 0 on
+    // every gridline of a small series, such as an error rate (review of #159).
+    const fmt=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():Math.abs(v)>=1||v===0?String(+v.toFixed(2)):String(+v.toPrecision(3));
     [lo,(lo+hi)/2,hi].forEach(v=>{add('line',{x1:L,x2:W-R,y1:y(v),y2:y(v),style:'stroke:var(--hair);stroke-width:1'});
       add('text',{x:L-6,y:y(v)+3,'text-anchor':'end','font-size':10,style:'fill:var(--muted);font-family:var(--sans)'},fmt(v));});
     if(banded&&pts.length>1){const upper=pts.map((_,k)=>x(h0+1+k)+','+y(highB[k])), lower=pts.map((_,k)=>x(h0+1+k)+','+y(lowB[k])).reverse();
