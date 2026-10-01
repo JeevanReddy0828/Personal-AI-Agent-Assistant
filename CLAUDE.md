@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
+
+
 Guidance for AI coding agents (Claude Code, Codex) working in this repo.
 
 > **Read [Agent Operating Principles](#agent-operating-principles) first — it governs

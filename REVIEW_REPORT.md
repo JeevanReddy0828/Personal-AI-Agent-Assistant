@@ -1,5 +1,10 @@
 # J.A.R.V.I.S review and remediation
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04: 15 focused tests pass on Python 3.11 and 3.14; 17 independent in-memory mutations caught. Validated prefix-only fitting/scaling, held-out scores, singular/collinear designs, numerical units, MAD-zero handling and JSON-safe results. See docs/analytics.md; no real app-data skill or causal interpretation is claimed.
+
+
 Reviewed: 2026-09-08. Baseline: version 0.39.0. Requested target: at least 8.5/10 for a dependable local, single-user assistant.
 
 ## Baseline assessment

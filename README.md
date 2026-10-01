@@ -1,5 +1,10 @@
 # J.A.R.V.I.S — Local-First Personal Agent
 
+## ANALYTICS-04 update — 2026-10-01
+
+Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
+
+
 [![Tests](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
