@@ -513,7 +513,7 @@ class OpenAICompatiblePlannerProvider:
         """Fire a tiny request so the first real message does not pay cold-start cost."""
         self.ping()
 
-    def ping(self) -> bool:
+    def ping(self, on_failure: Callable[[str, str], None] | None = None) -> bool:
         """Tiny request to check the endpoint is reachable. Returns True on success."""
         payload: dict[str, object] = {
             "model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]
@@ -522,7 +522,9 @@ class OpenAICompatiblePlannerProvider:
         try:
             self._transport(payload)
             return True
-        except Exception:
+        except Exception as exc:
+            if on_failure is not None:
+                on_failure(*classify_failure(exc, self.model))
             return False
 
     def _send(self, payload: dict, timeout: float | None = None) -> str:
