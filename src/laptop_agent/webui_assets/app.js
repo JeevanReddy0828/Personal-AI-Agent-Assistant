@@ -1531,19 +1531,27 @@
     const banded=lowB.length===pts.length&&highB.length===pts.length&&lowB.concat(highB).every(v=>typeof v==='number');
     const ys=hist.concat(pts,banded?lowB:[],banded?highB:[]);
     let lo=Math.min(...ys), hi=Math.max(...ys);
-    if(hi===lo){hi+=1;lo-=1;}
+    // Padding scaled to the value: past ~9e15, adding 1 rounds back to the same number, and a
+    // flat series at 1e20 drew every point at NaN (Codex's review).
+    if(hi===lo){const d=Math.max(Math.abs(hi)*.05,1);hi+=d;lo-=d;}
     const pad=(hi-lo)*.08, top=hi+pad, bottom=lo-pad;
     const W=600,H=200,L=52,R=12,T=12,B=24,n=hist.length+pts.length,h0=hist.length-1;
     const x=i=>L+(W-L-R)*(n<=1?0:i/(n-1)), y=v=>T+(H-T-B)*(1-(v-bottom)/(top-bottom));
     const NS='http://www.w3.org/2000/svg', svg=document.createElementNS(NS,'svg');
     svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','fchart');svg.setAttribute('role','img');
     svg.setAttribute('aria-label','Forecast chart: '+hist.length+' past values and '+pts.length+' ahead'+(banded?', with the measured range':''));
-    const add=(tag,attrs,text)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;svg.appendChild(e);return e;};
+    const add=(tag,attrs,text,parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;(parent||svg).appendChild(e);return e;};
     const fmt=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():String(+v.toFixed(2));
     [lo,(lo+hi)/2,hi].forEach(v=>{add('line',{x1:L,x2:W-R,y1:y(v),y2:y(v),style:'stroke:var(--hair);stroke-width:1'});
       add('text',{x:L-6,y:y(v)+3,'text-anchor':'end','font-size':10,style:'fill:var(--muted);font-family:var(--sans)'},fmt(v));});
-    if(banded){const upper=pts.map((_,k)=>x(h0+1+k)+','+y(highB[k])), lower=pts.map((_,k)=>x(h0+1+k)+','+y(lowB[k])).reverse();
+    if(banded&&pts.length>1){const upper=pts.map((_,k)=>x(h0+1+k)+','+y(highB[k])), lower=pts.map((_,k)=>x(h0+1+k)+','+y(lowB[k])).reverse();
       add('polygon',{points:upper.concat(lower).join(' '),class:'fband',style:'fill:var(--accent);fill-opacity:.16;stroke:none'});}
+    else if(banded){
+      // One step has no width to fill: as a polygon its two corners shared an x, so the measured
+      // range had no area and did not show (Codex's review). An interval marker with caps instead.
+      const cx=x(h0+1), up=y(highB[0]), down=y(lowB[0]);
+      const band=add('g',{class:'fband',style:'stroke:var(--accent);stroke-opacity:.55;stroke-width:2'});
+      [[cx,cx,up,down],[cx-5,cx+5,up,up],[cx-5,cx+5,down,down]].forEach(([x1,x2,y1,y2])=>add('line',{x1,x2,y1,y2},null,band));}
     add('line',{x1:x(h0),x2:x(h0),y1:T,y2:H-B,style:'stroke:var(--hair-2);stroke-dasharray:3 3'});
     add('polyline',{points:hist.map((v,i)=>x(i)+','+y(v)).join(' '),class:'fhist',style:'fill:none;stroke:var(--text-2);stroke-width:1.6'});
     add('polyline',{points:[x(h0)+','+y(hist[h0])].concat(pts.map((v,k)=>x(h0+1+k)+','+y(v))).join(' '),class:'fline',

@@ -536,6 +536,32 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(outcome["charts"], 2)
         self.assertEqual(self.errors, [])
 
+    def test_a_one_step_range_shows_and_huge_flat_values_stay_finite(self):
+        """Codex's review of #161. A one-step range drawn as a polygon had two corners at the
+        same x, so it had no area and did not show; and a flat series at 1e20 drew every
+        point at NaN, because 1e20 + 1 is 1e20 again and the scale divided by zero."""
+        outcome = self.page.evaluate(
+            """() => {
+                const draw = (values, point, low, high) => {
+                    const chart = forecastChart({labels: ['next'],
+                        series: {labels: values.map((_, i) => 'p' + i), values},
+                        forecast: {enough_data: true, points: [point], lower: [low], upper: [high]}});
+                    document.body.appendChild(chart);
+                    const band = chart.querySelector('.fband');
+                    const box = band ? band.getBBox() : null;
+                    const result = {area: box ? box.width * box.height : 0,
+                                    finite: !/NaN|Infinity/.test(chart.outerHTML)};
+                    chart.remove();
+                    return result;
+                };
+                return {oneStep: draw([10, 12, 11], 12, 9, 15), huge: draw([1e20, 1e20], 1e20, 1e20, 1e20)};
+            }"""
+        )
+        self.assertGreater(outcome["oneStep"]["area"], 0, "a one-step range has no visible area")
+        self.assertTrue(outcome["oneStep"]["finite"])
+        self.assertTrue(outcome["huge"]["finite"], "a flat series at 1e20 drew NaN coordinates")
+        self.assertEqual(self.errors, [])
+
     def test_copying_works_without_a_secure_context(self):
         """navigator.clipboard is also absent outside a secure context. One Copy button
         used it unguarded and reported 'Blocked' on a phone."""

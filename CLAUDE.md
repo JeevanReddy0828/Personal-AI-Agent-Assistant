@@ -271,7 +271,9 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             web reply `forecastChart` (app.js) draws it from the result's data, never the
             text: recent history (eight times the steps ahead, 12-48 points - with all 48
             behind three steps the band had 6% of the width), the dashed forecast, and the
-            band under the same every-bound rule, built as DOM nodes. Only a
+            band under the same every-bound rule, built as DOM nodes. One step is a capped
+            whisker (as a polygon its corners shared an x and it had no area), and a flat
+            series is padded by its own magnitude (1e20 + 1 is 1e20, which drew NaN). Only a
             `.csv`/`.tsv` makes it a data
             forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
             weather. Developer-only by default-deny, since it reads a file),
