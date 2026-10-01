@@ -271,3 +271,13 @@ routing or dependency changes belong to this feature. Claude reviews; Jeevan mer
 The full isolated suite passed 1,617 tests (78 optional skips). After adding the
 unit-scale invariance regression, the final focused forecast suite passes all 16 tests;
 CI runs the expanded complete suite on both supported operating systems.
+
+
+### ANALYTICS-01 review follow-up — 2026-10-01
+
+Claude approved #158 and suggested independent point-error reporting and a stronger
+thin-sample guard. Added holdout_mae / holdout_baseline_mae on the later calibration
+origins (null below four), without letting them reselect the model. Fewer than eight
+selection origins now require more than 10% improvement. All 18 forecast tests pass,
+including a model that loses on holdout and must report that loss. Four additional
+mutations were caught, bringing the feature total to 21.

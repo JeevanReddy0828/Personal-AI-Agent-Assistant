@@ -221,3 +221,12 @@ and settings frozen before either. Compare with the better naive baseline; ties 
 it. Zero/unstable MASE scale gives null and consistent MAE comparison, never infinity.
 The API and tool integration decisions are in docs/forecasting.md. Date frequency alone
 must not force a seasonal period. Per-horizon empirical coverage is not a guarantee.
+
+
+### ANALYTICS-01 review follow-up — 2026-10-01
+
+The two appended Forecast fields holdout_mae / holdout_baseline_mae default to None
+and compare frozen choices on the later calibration origins. They cannot reselect a
+model. Because that block also calibrates the bands, these are not independent interval
+coverage scores. Under eight selection origins, require more than 10% improvement;
+this conservative heuristic is not a statistical-confidence claim.

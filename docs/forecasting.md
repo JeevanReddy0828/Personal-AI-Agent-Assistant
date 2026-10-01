@@ -53,6 +53,7 @@ into arrays and missing values into null. The public fields are:
 | `mae`, `baseline_mae` | Absolute errors in input units, on the same selection origins |
 | `backtest_origins`, `calibration_origins` | Number of origins actually used in each block |
 | `interval_reason` | Whether empirical bounds are available, and why |
+| `holdout_mae`, `holdout_baseline_mae` | Point MAE of the frozen winner and baseline on the later calibration origins; null with fewer than four origins |
 
 Fewer than eight points, fewer than two explicit seasons, or too few full-horizon
 selection origins gives `enough_data=False`, null scores and null bounds. With nonempty
@@ -79,9 +80,15 @@ requested horizon. Default horizon 3 in the tool is reasonable.
    mean absolute lag-difference as its scale (seasonal lag if a period exists, else 1).
    If any scale/result is undefined, use MAE consistently for every competitor and return
    null MASE. Choose the better baseline first. A smoother needs strict improvement
-   (relative tolerance 1e-9); ties keep the baseline.
+   (relative tolerance 1e-9); ties keep the baseline. With fewer than eight selection
+   origins, it must improve by more than 10%. This is a conservative policy against
+   chance wins in a thin sample, not a statistical significance threshold.
 4. Freeze that choice. A separate later block supplies signed forecast errors for each
-   horizon. Bounds are final point forecasts plus linearly interpolated empirical error
+   horizon. With at least four calibration origins, also report the chosen model's and
+   baseline's MAE there as `holdout_mae`/`holdout_baseline_mae`. A model that loses on this
+   block remains selected and reports its loss honestly; these values never reselect
+   it. The block also calibrates intervals, so this is a point-error comparison untouched
+   by model selection, not independent validation of interval coverage. Bounds are final point forecasts plus linearly interpolated empirical error
    quantiles at `(1-level)/2` and `(1+level)/2`. No Gaussian distribution is assumed and
    different horizons' errors are never pooled. At least `max(10, ceil(2/(1-level)))`
    calibration origins are required. Each evaluation block is deterministically thinned
@@ -121,10 +128,11 @@ with period 7 where enabled. No licensed/external dataset or app data was used.
 
 The 4,096-point / 48-horizon limit took 0.358 s on the development laptop for a synthetic
 seasonal series. This is a sample timing, not a guarantee for every machine.
-Seventeen independent in-memory mutations were caught: minimum history, two-season guard,
+Twenty-one independent in-memory mutations were caught: minimum history, two-season guard,
 prefix-only season/tuning, selection/calibration separation, better baseline, strict
 improvement, origin-local MASE, no lookahead fit, empirical quantiles, per-horizon errors,
-calibration minimum, Holt trend, Holt-Winters phase, SES smoothing and unit-scale normalization.
+calibration minimum, Holt trend, Holt-Winters phase, SES smoothing, unit-scale normalization, the thin-sample margin,
+later holdout origins, honest baseline holdout error and the holdout minimum.
 
 Method references: [rolling-origin evaluation](https://otexts.com/fpp3/tscv.html),
 [scaled forecast errors](https://otexts.com/fpp3/accuracy.html),

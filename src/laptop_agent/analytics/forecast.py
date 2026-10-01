@@ -36,6 +36,8 @@ class Forecast:
     backtest_origins: int
     calibration_origins: int
     interval_reason: str
+    holdout_mae: float | None = None
+    holdout_baseline_mae: float | None = None
 
 
 @dataclass(frozen=True)
@@ -226,18 +228,27 @@ def forecast(values: Sequence[float], horizon: int = 1, *, season: int | None = 
         return mase if mase is not None else mae
     baseline = min(baselines,key=score)
     candidate = min(models,key=score)
-    chosen = candidate if score(candidate) < score(baseline)*(1-1e-9) else baseline
+    margin = 0.10 if len(origins) < 8 else 1e-9
+    chosen = candidate if score(candidate) < score(baseline)*(1-margin) else baseline
     reason = ("Beat the best available naive baseline on rolling-origin backtests"
               if chosen != baseline else "No smoothing method beat the best naive baseline; kept the baseline")
+    if len(origins) < 8:
+        reason += "; fewer than 8 selection origins require more than 10% improvement"
     if scored[chosen][1] is None:
         reason += "; MASE is undefined for a zero or numerically unstable training scale, so compared MAE"
     points = _predict(y,horizon,chosen)
     # Model/parameter choices stop before this block. These errors cannot select a model.
+    holdout_mae = holdout_baseline_mae = None
+    errors = None
+    if len(calibration) >= 4:
+        errors = _errors(y,chosen,calibration,horizon)
+        baseline_errors = errors if chosen == baseline else _errors(y,baseline,calibration,horizon)
+        holdout_mae = fmean(abs(error) for row in errors for error in row)
+        holdout_baseline_mae = fmean(abs(error) for row in baseline_errors for error in row)
     minimum = max(10, math.ceil(2/(1-level)-1e-9))
     lower = upper = (None,)*horizon
     interval_reason = f"Need {minimum} calibration origins for a {level:.0%} interval; have {len(calibration)}"
-    if len(calibration) >= minimum:
-        errors = _errors(y,chosen,calibration,horizon)
+    if errors is not None and len(calibration) >= minimum:
         tail = (1-level)/2
         lower = tuple(point+_quantile(row,tail) for point,row in zip(points,errors))
         upper = tuple(point+_quantile(row,1-tail) for point,row in zip(points,errors))
@@ -245,4 +256,5 @@ def forecast(values: Sequence[float], horizon: int = 1, *, season: int | None = 
     mae,mase = scored[chosen]
     baseline_mae,baseline_mase = scored[baseline]
     return Forecast(chosen.method,points,lower,upper,float(level),period,mase,baseline_mase,True,
-                    reason,baseline.method,mae,baseline_mae,len(origins),len(calibration),interval_reason)
+                    reason,baseline.method,mae,baseline_mae,len(origins),len(calibration),interval_reason,
+                    holdout_mae,holdout_baseline_mae)
