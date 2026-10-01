@@ -10,14 +10,25 @@ from __future__ import annotations
 
 import threading
 import time
+from bisect import bisect_left
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 import json
+
+# The ring of recent traces holds 300 turns, about three weeks here: too short to see an
+# hour-of-week pattern. So every turn's timings are also appended to `<name>_timings.jsonl`,
+# one short line each, kept for ROLLUP_DAYS, and `hourly()` folds them into hours when asked.
+# An append costs the same however long the history is; rewriting a 90-day rollup file on
+# every turn measured 122ms at its worst. LATENCY_BUCKETS are the upper bounds (ms) of the
+# buckets an hour counts, the last bucket being everything slower.
+ROLLUP_DAYS = 90
+LATENCY_BUCKETS = (250, 500, 1000, 2000, 4000, 8000, 16000, 32000)
+_HISTOGRAMS = ("total_ms", "ttft_ms")
 
 
 def _ms(seconds: float) -> int:
@@ -90,14 +101,33 @@ def end_trace(token) -> None:
     _CURRENT.reset(token)
 
 
+def _timing(line: str) -> dict[str, object] | None:
+    """One line of the timing log, or None for a line that cannot be one (a torn last write,
+    a hand edit): the log is read inside a user's turn, and the caller guards only OSError."""
+    try:
+        entry = json.loads(line)
+        at = datetime.fromisoformat(entry["at"]).astimezone(UTC)
+    except (ValueError, TypeError, KeyError):
+        return None
+    if not (isinstance(entry, dict) and isinstance(entry.get("kind"), str) and isinstance(entry.get("tier"), str)
+            and isinstance(entry.get("ok"), bool) and isinstance(entry.get("degraded"), bool)):
+        return None
+    if any(entry.get(name) is not None and type(entry.get(name)) is not int for name in _HISTOGRAMS):
+        return None
+    return {**entry, "at": at}
+
+
 class TraceStore:
-    """A bounded ring of recent turn traces, persisted so history survives a restart."""
+    """A bounded ring of recent turn traces, persisted so history survives a restart, and a
+    log of every turn's timings (`<name>_timings.jsonl`), kept for `ROLLUP_DAYS`."""
 
     def __init__(self, path: Path, max_traces: int = 300) -> None:
         self.path = Path(path)
+        self.timings_path = self.path.with_name(self.path.stem + "_timings.jsonl")
         self.max_traces = max_traces
         self._lock = threading.Lock()
         self._traces: list[dict[str, object]] = []
+        self._pruned_on = ""
         self._load()
 
     def _load(self) -> None:
@@ -108,6 +138,33 @@ class TraceStore:
     def _save(self) -> None:
         atomic_write_text(self.path, json.dumps(self._traces, indent=2, default=str))
 
+    def _timings(self) -> list[dict[str, object]]:
+        try:
+            lines = self.timings_path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            return []
+        return [timing for timing in map(_timing, lines) if timing is not None]
+
+    def _log_timing(self, record: dict[str, object]) -> None:
+        """Append one turn's timings: when, the tier that was asked for (so a turn that fell
+        back counts against the tier that failed it), and how it went. Timings and outcomes
+        only, like the record itself: no verb, nothing the user wrote."""
+        entry = {"at": record.get("at"), "kind": record.get("kind"),
+                 "tier": record.get("requested_model") or record.get("model") or "",
+                 "ok": record.get("ok") is not False, "degraded": bool(record.get("degraded")),
+                 **{name: record.get(name) for name in _HISTOGRAMS}}
+        if _timing(json.dumps(entry)) is None:
+            return
+        day = str(entry["at"])[:10]
+        if day != self._pruned_on:   # once a day: drop what has aged out, in one rewrite
+            self._pruned_on = day
+            oldest = datetime.fromisoformat(str(entry["at"])).astimezone(UTC) - timedelta(days=ROLLUP_DAYS)
+            kept = [timing for timing in self._timings() if timing["at"] >= oldest]
+            atomic_write_text(self.timings_path, "".join(
+                json.dumps({**timing, "at": timing["at"].isoformat()}) + "\n" for timing in kept))
+        with self.timings_path.open("a", encoding="utf-8", newline="\n") as log:
+            log.write(json.dumps(entry) + "\n")
+
     @synchronized
     def add(self, trace: TurnTrace) -> dict[str, object]:
         record = trace.record()
@@ -115,7 +172,27 @@ class TraceStore:
         if len(self._traces) > self.max_traces:
             self._traces = self._traces[-self.max_traces :]
         self._save()
+        self._log_timing(record)
         return record
+
+    @synchronized
+    def hourly(self) -> list[dict[str, object]]:
+        """The timing log folded into hours (UTC), oldest first: turns, failures and fallbacks
+        per kind and tier, and how many turns fell in each `LATENCY_BUCKETS` bucket for total
+        time and for time to first token. The log is pruned to `ROLLUP_DAYS` once a day."""
+        rows: dict[tuple[str, str, str], dict[str, object]] = {}
+        for timing in self._timings():
+            hour = timing["at"].strftime("%Y-%m-%dT%H")
+            row = rows.setdefault((hour, timing["kind"], timing["tier"]), {
+                "hour": hour, "kind": timing["kind"], "tier": timing["tier"], "turns": 0, "failed": 0,
+                "degraded": 0, **{name: [0] * (len(LATENCY_BUCKETS) + 1) for name in _HISTOGRAMS}})
+            row["turns"] += 1
+            row["failed"] += int(not timing["ok"])
+            row["degraded"] += int(timing["degraded"])
+            for name in _HISTOGRAMS:
+                if timing.get(name) is not None:
+                    row[name][bisect_left(LATENCY_BUCKETS, timing[name])] += 1
+        return [rows[key] for key in sorted(rows)]
 
     @synchronized
     def recent(self, limit: int = 25) -> list[dict[str, object]]:

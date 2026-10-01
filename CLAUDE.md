@@ -324,7 +324,15 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         fallback, ok — timings only, never prompts or replies; the only text kept is the
         resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
         `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the
-        right turn. Read it with `latency` or `/api/traces`),
+        right turn. Read it with `latency` or `/api/traces`. **History outlives the 300-turn
+        ring** (ANALYTICS-02): every turn also appends one line to `traces_timings.jsonl` -
+        when, kind, the tier *asked for* (so a fallback counts against the tier that failed
+        it), ok, fallback, total and first-token ms, no verb - pruned to 90 days once a day,
+        and `TraceStore.hourly()` folds it into hours with fixed latency buckets. An append,
+        not a rewrite: rewriting a 90-day rollup file on every turn measured 122ms at its
+        worst; the append is 0.4ms, against 19.8ms for the ring's own rewrite. A line that
+        cannot be read is skipped, since the log is read inside a turn whose caller guards
+        only `OSError`),
         embeddings.py (semantic retrieval: `nvidia/nemotron-3-embed-1b` on the chat host and
             key — `OPENAI_EMBED_MODEL` / `OPENAI_EMBED_KEY` override. The model is
             **asymmetric**: a document embeds as `passage`, a question as `query`; using one
@@ -414,7 +422,11 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         stored profile, project links are grounded in the candidate's real GitHub repos),
         jobs.py (JobTracker: job pipeline — stages incl. a sourced `lead` stage,
         funnel/response-rate stats, base-resume + tailoring persistence, JSON-persisted;
-        `job add/list/stage/remove` + `/api/jobs`),
+        `job add/list/stage/remove` + `/api/jobs`. Every stage a job enters is kept as
+        `events` [{stage, at}], 50 per job, because `reached` keeps only the furthest stage
+        and the time to a reply cannot be read back from it. Records saved before 0.40.0
+        (2026-09-08) carry neither `events` nor `applied_at`: the fields did not exist when
+        they were made, so their history starts at their next change instead of being made up),
         tools/jobright.py (JobrightTool: Playwright scraper ported from job-agent--Jarvis,
         behind the `browser` extra — session-first login, API-interception + DOM-fallback
         scrape, JD enrichment, then filters to early-career fit: seniority/years/PhD/
