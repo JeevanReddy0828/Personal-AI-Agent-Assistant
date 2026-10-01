@@ -1024,8 +1024,11 @@ owner. Decisions that each exist for a reason:
   or a batch answers "0 succeeded" instead of stopping. A loop that marks its steps in the
   control room finishes the step on `OperationCancelled` before re-raising: the workflow and
   autopilot loops caught only `Exception`, so a step that never ran stayed `working` for good
-  (Codex's review). Known limits: a command already inside a tool finishes, and scheduled
-  jobs have no owner to check.
+  (Codex's review); a routed command does the same, since a session that ends during the
+  routing call stops the routed turn. A GET that dispatches (`/api/schedule`,
+  `/api/agent-runs`, `/api/vault`) answers 401 like a POST: unhandled, `SignedOut` killed
+  the worker thread and the client got no answer. Known limits: a command already inside a
+  tool finishes, and scheduled jobs have no owner to check.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from

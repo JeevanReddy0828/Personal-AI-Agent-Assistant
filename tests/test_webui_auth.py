@@ -107,6 +107,24 @@ class SignInTests(unittest.TestCase):
         self.assertIn("session ended", body["message"])
         self.assertEqual(seen, ["jeevan"])
 
+    def test_a_get_whose_session_ends_midway_is_answered(self) -> None:
+        """GET routes that dispatch a command (/api/schedule, /api/agent-runs, /api/vault) had
+        no SignedOut handler: the worker thread died and the client got no answer at all,
+        where a POST is told 401 (review of #156)."""
+        from laptop_agent import access
+
+        self.accounts.create("jeevan", "dev", GOOD)
+        cookie = self.sign_in()
+
+        async def handle(command, history=None, on_token=None, **kwargs):
+            self.sessions.revoke(cookie.split("=", 1)[1])   # signed out from another device
+            access.ensure_signed_in()
+
+        with patch.object(self.webui._orchestrator, "handle", handle):
+            status, body, _ = self.call("GET", "/api/schedule", cookie=cookie)
+        self.assertEqual((status, body["ok"]), (401, False), body)
+        self.assertIn("session ended", body["message"])
+
     # --- no accounts: exactly as before
     def test_without_accounts_nothing_asks_for_a_sign_in(self) -> None:
         status, page, _ = self.call("GET", "/")

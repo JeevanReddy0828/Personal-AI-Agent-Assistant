@@ -2119,7 +2119,13 @@ class AgentOrchestrator:
                     trace.kind = "command"
                     trace.verb = planned.command.strip().split(" ", 1)[0].lower()
                     trace.tool_started()
-                result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
+                try:
+                    result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
+                except BaseException as exc:
+                    # handle() turns every Exception into a result; what still escapes - Stop,
+                    # a session that ended, a refused approval - left this specialist working.
+                    self.control_room.finish(resolved_agent, str(exc) or "Stopped", ok=False)
+                    raise
                 if trace is not None:
                     trace.tool_done()
                 self.control_room.finish(resolved_agent, result.message, ok=result.ok)

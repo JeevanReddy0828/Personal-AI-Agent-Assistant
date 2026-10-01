@@ -1242,6 +1242,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._do_get()
         except StorageDamaged as exc:
             self._storage_damaged(exc)
+        except SignedOut as exc:
+            # A GET that dispatches a command (/api/schedule, /api/agent-runs, /api/vault): with
+            # no answer here the worker thread died and the client got nothing at all.
+            self._json(401, {"ok": False, "message": str(exc)})
 
     def do_POST(self) -> None:
         try:

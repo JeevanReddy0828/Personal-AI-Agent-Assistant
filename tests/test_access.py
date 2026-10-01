@@ -328,6 +328,23 @@ class SignedOutTests(unittest.TestCase):
                 self.assertEqual(orchestrator.control_room.snapshot()["summary"]["working"], 0)
                 memory.forget_profile_value("first")
 
+    def test_a_routed_command_does_not_stay_working(self) -> None:
+        # The session ends while the sentence is being routed (the routing call can take
+        # seconds): the routed command's own turn stops, and the specialist it lit up was left
+        # working, since that path had no cleanup at all (review of #156).
+        asked: list[bool] = []
+
+        def still_signed_in() -> bool:
+            asked.append(True)
+            return len(asked) == 1
+
+        orchestrator = self.everyday.orchestrator
+        with acting_as(DEV, still_signed_in):
+            with self.assertRaises(access.SignedOut):
+                asyncio.run(orchestrator.handle("what's the weather"))
+        self.assertGreater(len(asked), 1, "the routed command never ran, so this proved nothing")
+        self.assertEqual(orchestrator.control_room.snapshot()["summary"]["working"], 0)
+
 
 class ThroughTheAssistantTests(unittest.TestCase):
     def setUp(self) -> None:
