@@ -2,6 +2,8 @@
 
 ## ANALYTICS-04 update — 2026-10-01
 
+Final local suite: 1,633 tests, 80 optional skips, with only the unrelated prefix fuzzer's live metrics read stubbed in memory; CI runs the unmodified suite. An independent 200-case NumPy comparison agrees on coefficients, VIF, predictions and held-out R2 to below 1e-9. Exact evidence and the local hardware caveat are in docs/analytics.md.
+
 ANALYTICS-04: 15 focused tests pass on Python 3.11 and 3.14; 17 independent in-memory mutations caught. Validated prefix-only fitting/scaling, held-out scores, singular/collinear designs, numerical units, MAD-zero handling and JSON-safe results. See docs/analytics.md; no real app-data skill or causal interpretation is claimed.
 
 

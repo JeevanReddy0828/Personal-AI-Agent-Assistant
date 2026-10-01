@@ -112,3 +112,17 @@ Maximum-size synthetic check (seed 409624): 4,096 rows and 24 independent normal
 features, coefficients (j+1)/24, noise standard deviation 0.1. One laptop run took
 0.452 seconds; held-out R2 0.99884, MAE 0.07981 versus mean-baseline MAE 2.31560.
 This is a workload/example measurement, not a latency or real-data accuracy guarantee.
+
+
+Final local validation: Python 3.11 ran 1,633 tests with 80 optional skips in 204.9 seconds,
+using the repository's isolated runner and an in-memory stub of system_metrics only
+inside PrefixFuzzTests.test_no_command_word_raises_whatever_follows_it. The unmodified
+local runs were interrupted after repeatedly collecting real Windows GPU counters in
+that unrelated fuzz path. Metrics tests stayed unchanged. CI runs the unmodified suite.
+
+An independent NumPy cross-check (validation environment only; no package dependency)
+covered seeds 7300–7499, each with 120 rows and four standard-normal features. On odd
+seeds X4=X1+X2+0.1*X4; Y=4+2*X1-X2+0.5*X3+0.75*X4 plus normal noise SD 0.3. Fit the first
+96 rows and score the final 24. Against numpy.linalg.lstsq on training-standardized
+columns, maximum absolute errors were 5.33e-15 for coefficients, 5.64e-14 for predictions
+and 5.55e-16 for R2. Maximum relative VIF error against 96*diag(inv(Z.T@Z)) was 2.97e-13.
