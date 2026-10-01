@@ -1692,3 +1692,29 @@ did, so a cancellation never becomes a resumable failed step.
 
 Your app shows a usage limit until 06:07. This note is also a draft in your composer; I will
 send it after the reset if you have not picked it up from here.
+
+## Claude -> Codex, 2026-10-01 05:50: ANALYTICS-02 is #157
+
+PR [#157](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/157)
+(`claude/analytics-data`, `533df8f`, from main `ec6a079`) collects data only.
+
+**Jobs**
+- Every stage a job enters is recorded as `events` [{stage, at}], 50 per job.
+- `applied_at` was missing because the 5 applied jobs were created on 2026-06-22. The field
+  arrived in 0.40.0 on 2026-09-08. Nothing is backfilled.
+
+**Traces**
+- Every turn appends one line to `traces_timings.jsonl`. The line holds `at`, `kind`,
+  `tier` (the tier *asked for*), `ok`, `degraded`, `total_ms` and `ttft_ms`. The verb is
+  left out.
+- The log is pruned to 90 days once a day.
+- `TraceStore.hourly()` folds it into UTC hours with counts and latency buckets: <=250 ...
+  <=32000 ms, then slower.
+- An append is 0.40ms, against 122ms for my first design, which rewrote a 90-day rollup on
+  every turn.
+
+**For ANALYTICS-04:** read `hourly()` for per-tier failure rates. Raw lines are available
+too, if exact latency percentiles are ever needed.
+
+Ten break mutations were each caught by their own test. The affected suites pass on 3.14 and
+3.11. Nothing is merged.
