@@ -678,8 +678,12 @@ class Handler(BaseHTTPRequestHandler):
             self._who_checked = True
             session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
             account = ACCOUNTS.get(session.account_id) if session else None
+            # A session is good only for the credentials it was granted under: a new password or
+            # a disable moves the account's epoch on, and ends a session its revoke arrived too
+            # early to catch (a sign-in checked just before, still finishing its hash).
             self._who = (Principal(account.id, account.username, account.role)
-                         if account is not None and not account.disabled else None)
+                         if account is not None and not account.disabled and session.epoch == account.epoch
+                         else None)
         return self._who
 
     def _authorized(self) -> bool:
@@ -757,7 +761,7 @@ class Handler(BaseHTTPRequestHandler):
         # A new token every time, and whatever this browser held before is ended: a session
         # id is never carried across a sign-in.
         SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
-        token = SESSIONS.create(account.id, method)
+        token = SESSIONS.create(account.id, method, epoch=account.epoch)
         self._audit("signin", username=account.username, role=account.role, method=method)
         self._json(200, {"ok": True, "user": {"username": account.username, "role": account.role}},
                    headers=(("Set-Cookie", _session_cookie(token)),))
@@ -834,7 +838,7 @@ class Handler(BaseHTTPRequestHandler):
                        headers=(("X-Jarvis-Denied", "password"),))
             return
         try:
-            ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
+            updated = ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
         except AccountError as exc:
             self._json(400, {"ok": False, "message": str(exc)})
             return
@@ -842,6 +846,7 @@ class Handler(BaseHTTPRequestHandler):
             self._busy(exc)
             return
         _SIGNIN_LIMIT.clear(*keys)
+        SESSIONS.rebind(self._cookie(_SESSION_COOKIE), updated.epoch)
         ended = SESSIONS.revoke_account(principal.account_id, keep=self._cookie(_SESSION_COOKIE))
         self._audit("password_changed", username=principal.username, sessions_ended=ended)
         self._json(200, {"ok": True, "message": "Password changed. Any other signed-in device was signed out."})

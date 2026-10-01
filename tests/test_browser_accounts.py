@@ -124,6 +124,12 @@ class AccountsInTheBrowser(unittest.TestCase):
         self.assertIn("Added guest1", page.inner_text("#admMsg"))
         self.assertTrue(self.on_screen(page, "#admList"))
         self.assertEqual(page.input_value("#admUser"), "", "the form was not cleared after adding")
+        # The password answers one change: left in the field, it answered every later click.
+        self.assertEqual(page.input_value("#admCur"), "")
+        page.fill("#admUser", "guest2")
+        page.fill("#admPw", "a good password")
+        page.click("#admAdd button[type=submit]")
+        self.assertIn("Type your password first", page.inner_text("#admMsg"))
 
     def test_a_developer_sees_what_is_set_up_and_what_to_do(self):
         page = self.open_as("dev")

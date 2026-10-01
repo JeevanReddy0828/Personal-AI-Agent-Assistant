@@ -65,6 +65,9 @@ class Account:
     google_email: str | None = None
     disabled: bool = False
     created_at: str = ""
+    # Moves on with every new password and every disable, and a session carries the epoch it
+    # was granted under (webui._principal compares them): see `set_password`.
+    epoch: int = 0
 
     def public(self) -> dict[str, object]:
         """What may leave the process: never the hash."""
@@ -84,7 +87,8 @@ def _valid(account: Account) -> bool:
     text_or_none = (account.password_hash, account.google_sub, account.google_email)
     return (isinstance(account.id, str) and bool(account.id) and account.role in ROLES
             and isinstance(account.username, str) and bool(_USERNAME.fullmatch(account.username))
-            and isinstance(account.disabled, bool) and all(v is None or isinstance(v, str) for v in text_or_none))
+            and isinstance(account.disabled, bool) and all(v is None or isinstance(v, str) for v in text_or_none)
+            and type(account.epoch) is int and account.epoch >= 0)
 
 
 def _b64(raw: bytes) -> str:
@@ -255,9 +259,17 @@ class AccountStore:
         raise AccountError("No such account.")
 
     def set_password(self, account_id: str, password: str) -> Account:
+        """Also ends every session granted under the old password, including one whose sign-in
+        was checked just before this and is still finishing: revoking sessions cannot, since that
+        sign-in creates its session after the revoke has run."""
         check_password(password)
         hashed = hash_password(password, self.cost)
-        return self._locked_update(account_id, lambda account: setattr(account, "password_hash", hashed))
+
+        def change(account: Account) -> None:
+            account.password_hash = hashed
+            account.epoch += 1
+
+        return self._locked_update(account_id, change)
 
     @synchronized
     def _locked_update(self, account_id: str, change: Callable[[Account], None]) -> Account:
@@ -273,7 +285,12 @@ class AccountStore:
 
     @synchronized
     def set_disabled(self, account_id: str, disabled: bool, keep_developer: bool = False) -> Account:
-        return self._update(account_id, lambda account: setattr(account, "disabled", disabled), keep_developer)
+        def change(account: Account) -> None:
+            if disabled:
+                account.epoch += 1   # so enabling it again brings back no session, however late
+            account.disabled = disabled
+
+        return self._update(account_id, change, keep_developer)
 
     @synchronized
     def link_google(self, account_id: str, sub: str, email: str | None) -> Account:

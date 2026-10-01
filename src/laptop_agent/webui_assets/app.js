@@ -1382,16 +1382,18 @@
     }
     async function act(body){
       if(!admCur.value){say('Type your password first: every change asks for it.',true);admCur.focus();return false;}
+      // Used once: left in the field it would answer for every later click at this keyboard.
+      const current=admCur.value;admCur.value='';
       say('Working…');
       try{
-        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current:admCur.value})});
+        const r=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,current})});
         const d=await r.json().catch(()=>({}));
         if(r.ok){renderAccounts(d);say(d.message);return true;}
         say(d.message||('Could not change that (HTTP '+r.status+').'),true);
       }catch(e){say('Could not reach the app.',true);}
       return false;
     }
-    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();});
+    panel.addEventListener('toggle',()=>{if(panel.open)loadAccounts();else admCur.value='';});
     manage.onclick=()=>{hudPop.classList.remove('open');hudBtn.classList.remove('on');setDrawer(true,hudBtn);panel.open=true;panel.scrollIntoView({block:'nearest'});};
     admAdd.addEventListener('submit',async ev=>{
       ev.preventDefault();

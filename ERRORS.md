@@ -3,6 +3,19 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-30 — a sign-in that outlived the reset it raced
+
+- **Revoking sessions cannot end one created after the revoke.** A sign-in checks the
+  password (0.6s of scrypt) and then creates its session. A developer's reset in between
+  wrote the new hash and revoked every session, and the sign-in, already verified against
+  the old hash, created a live one; after disable-then-enable the same happened. The review
+  reproduced it at the real hash cost, and the test replays it without timing by answering
+  the check from the account as it was. **Rule: a session carries the version of the
+  credentials it was granted under; a revoke cannot see what is created after it.**
+- **A test of a sign-in must use the session it gets.** Leaving the epoch out of
+  `_start_session` passed every test, since they asserted the sign-in's 200 and never used
+  the cookie - and after any password change that bug would have locked everyone out.
+
 ## Session 2026-09-28 — a recording request answered with "May I?" after every "yes"
 
 - **A request nothing routes reaches a model that thinks it can do it.** Asked "record voice
