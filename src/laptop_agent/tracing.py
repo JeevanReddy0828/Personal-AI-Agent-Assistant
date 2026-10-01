@@ -108,7 +108,9 @@ def _timing(line: str | bytes) -> dict[str, object] | None:
     try:
         entry = json.loads(line)
         at = datetime.fromisoformat(entry["at"]).astimezone(UTC)
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError, OverflowError, OSError):
+        # OverflowError and OSError: a time that parses but cannot be placed in UTC (year 9999
+        # behind a negative offset; on Windows, a naive one before 1970).
         return None
     if not (isinstance(entry, dict) and isinstance(entry.get("kind"), str) and isinstance(entry.get("tier"), str)
             and isinstance(entry.get("ok"), bool) and isinstance(entry.get("degraded"), bool)):

@@ -64,6 +64,20 @@ class TraceRollupTests(unittest.TestCase):
             store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
             self.assertEqual(store.hourly()[0]["turns"], 1)
 
+    def test_a_time_out_of_range_costs_one_line_not_the_turn(self) -> None:
+        # Review of #157: these parse, then raise from astimezone - OverflowError, and OSError on
+        # Windows - neither of them a ValueError, so one such line failed the first turn of
+        # every day and every call to hourly().
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            fields = '"kind": "chat", "tier": "", "ok": true, "degraded": false, "total_ms": 5, "ttft_ms": null'
+            path.with_name("traces_timings.jsonl").write_text(
+                '{"at": "9999-12-31T23:59:59-05:00", ' + fields + '}\n'
+                '{"at": "1969-06-01T00:00:00", ' + fields + '}\n', encoding="utf-8")
+            store = TraceStore(path)
+            store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
+            self.assertEqual([row["turns"] for row in store.hourly()], [1])
+
     def test_bytes_that_are_not_utf8_cost_one_line_not_the_turn(self) -> None:
         # Codex's review of #157: the whole log was decoded before any line was checked, so
         # one bad byte raised UnicodeDecodeError, a ValueError the turn's OSError guard does
