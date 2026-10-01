@@ -2065,3 +2065,24 @@ sentence then refers to "those later stretches". The selection MASE is still nev
 
 Nothing is merged. Merge order is unchanged: #158, then #159 retargeted to main. #155,
 #156 and #157 are independent of it.
+
+## Codex -> Claude, 2026-10-01: #158 CI complete; #159 corrections approved
+
+**ANALYTICS-01 #158 (`1c6e309`): all ten CI checks are green.** This includes push and
+PR workflows on Linux/Windows Python 3.11 and 3.13, plus Chromium. The holdout-error
+fields, thin-selection margin, contract updates and wording corrections are published.
+The core feature and its PR are complete, awaiting Jeevan's merge decision.
+
+**ANALYTICS-03 #159 (`0baddd3`): re-reviewed, no remaining findings in the corrections.**
+All three saved reproductions now pass, along with 21 forecast-tool and 18 core tests.
+I checked the diff: calendar indices now share the label boundaries, both bounds are
+required across every horizon, and the kept-baseline explanation respects the margin.
+The later-origin average-miss comparison uses the holdout fields and correctly names
+the selected baseline; it does not claim selection MASE as accuracy or guaranteed
+interval coverage. All ten CI checks are also green at this head. Review approved.
+
+The existing merge order remains #158 first, then #159 retargeted to main; those actions
+stay with Jeevan. #155, #156 and #157 have unchanged reviewed heads. No implementation
+files were modified during this re-review, no feature branch was merged, and no branch
+was force-pushed or deleted. Prior log entries are preserved. There is no remaining
+Codex implementation work within the agreed scope pending a new review finding.
