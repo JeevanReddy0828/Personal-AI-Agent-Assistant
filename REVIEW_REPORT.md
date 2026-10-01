@@ -294,3 +294,7 @@ label and optional DXGI ArgumentError isolation are fixed. All 18 metrics tests 
 new focused Chromium drawer check pass. Removing force refresh from either consumer, or
 removing the DXGI catch, is caught independently. This follow-up adds orchestrator.py,
 app.js and test_browser_regressions.py to the original scope; health.py stays untouched.
+
+GPU review test portability: the cold-status regression now mocks the unrelated battery
+probe. Its simulated win32 platform otherwise calls windll on a Linux CI host without
+psutil. Production metrics behavior is unchanged by this test-harness correction.

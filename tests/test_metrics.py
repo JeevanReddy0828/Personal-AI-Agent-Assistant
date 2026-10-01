@@ -233,7 +233,8 @@ class MetricsCacheTests(unittest.TestCase):
             orchestrator = OrchestratorTests("test_reminder_flow").build(Path(scratch))
             self.collect.return_value = {"cpu_percent": 42, "ram_percent": 25,
                 "gpus": [{"name": "GPU 2", "util_percent": None, "util_kind": "3D"}]}
-            status = orchestrator._system_status()
+            with patch("laptop_agent.agents.orchestrator.battery_status", return_value=None):
+                status = orchestrator._system_status()
             self.assertIn("CPU: 42%", status.message)
             self.assertIn("GPU 2 (3D): n/a", status.message)
             self.assertNotIn("GPU GPU", status.message)
