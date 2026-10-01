@@ -46,8 +46,8 @@ class GpuTests(unittest.TestCase):
         runner=Mock(return_value=result(_CAPTURED))
         actual=self.probe(runner)
         self.assertEqual(actual,[
-            {"name":"AMD Radeon(TM) Graphics","util_percent":0.9,"mem_used_mb":416.6,"mem_total_mb":496},
-            {"name":"GPU 2","util_percent":0.0,"mem_used_mb":0.0,"mem_total_mb":None}])
+            {"name":"AMD Radeon(TM) Graphics","util_kind":"3D","util_percent":0.9,"mem_used_mb":416.6,"mem_total_mb":496},
+            {"name":"GPU 2","util_kind":"3D","util_percent":0.0,"mem_used_mb":0.0,"mem_total_mb":None}])
         command=runner.call_args.args[0]
         self.assertEqual(command[:3],["powershell","-NoProfile","-NonInteractive"])
         self.assertIn("GPU Engine(*engtype_3D)",command[-1])
@@ -135,6 +135,15 @@ class GpuTests(unittest.TestCase):
             self.assertEqual(self.probe(runner,smi=True)[0]["util_percent"],12)
             self.assertNotIn("creationflags",runner.call_args.kwargs)
 
+    def test_dxgi_argument_error_leaves_counter_values_available(self):
+        import ctypes
+        with patch.object(ctypes, "WinDLL", side_effect=ctypes.ArgumentError("private"), create=True):
+            self.names.side_effect = metrics._dxgi_adapters
+            actual = self.probe(Mock(return_value=result(_CAPTURED)))
+        self.assertEqual(actual[0]["util_percent"], 0.9)
+        self.assertEqual(actual[0]["name"], "GPU 1")
+        metrics.record_failure.assert_called_once_with("metrics/gpu-dxgi", "ArgumentError")
+
     def test_failure_deduplication_is_thread_safe(self):
         threads=[threading.Thread(target=metrics._failure_once,args=("gpu-counters","same cause")) for _ in range(12)]
         for thread in threads:thread.start()
@@ -215,6 +224,24 @@ class MetricsCacheTests(unittest.TestCase):
         metrics.system_metrics(force=True)
         self.assertEqual(metrics.system_metrics(),metrics._empty_metrics())
         self.assertEqual(self.collect.call_count,calls+1)
+
+    def test_one_shot_status_and_briefing_refresh_cold_and_stale_snapshots(self):
+        import tempfile
+        from pathlib import Path
+        from test_orchestrator import OrchestratorTests
+        with tempfile.TemporaryDirectory() as scratch:
+            orchestrator = OrchestratorTests("test_reminder_flow").build(Path(scratch))
+            self.collect.return_value = {"cpu_percent": 42, "ram_percent": 25,
+                "gpus": [{"name": "GPU 2", "util_percent": None, "util_kind": "3D"}]}
+            status = orchestrator._system_status()
+            self.assertIn("CPU: 42%", status.message)
+            self.assertIn("GPU 2 (3D): n/a", status.message)
+            self.assertNotIn("GPU GPU", status.message)
+            self.assertNotIn("None%", status.message)
+            metrics._cached_at = 0
+            self.collect.return_value = {"cpu_percent": 23, "ram_percent": 20, "gpus": []}
+            self.assertIn("CPU 23%", orchestrator._briefing().message)
+            self.assertEqual(self.collect.call_count, 2)
 
     def test_non_windows_keeps_synchronous_initial_snapshot(self):
         with patch.object(metrics.sys,"platform","linux"):

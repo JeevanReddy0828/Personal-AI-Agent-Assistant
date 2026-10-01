@@ -198,7 +198,7 @@ def _dxgi_adapters() -> dict[tuple[int, int], tuple[str, int]]:
                     adapters[(desc.luid.high & 0xffffffff, desc.luid.low)] = (desc.name, desc.video)
             finally:
                 method(adapter, 2, c.c_uint32)(adapter)
-    except (OSError, AttributeError) as exc:
+    except (OSError, AttributeError, c.ArgumentError) as exc:
         _failure_once("gpu-dxgi", type(exc).__name__)
     finally:
         if factory:
@@ -243,6 +243,7 @@ def _counter_gpus(output: str, adapters: dict) -> list[dict[str, object]]:
         busy = max(engines[luid].values()) if luid in engines else None
         result.append({"name": name or f"GPU {index}",
                        "util_percent": round(min(100.0, busy), 1) if busy is not None else None,
+                       "util_kind": "3D",
                        "mem_used_mb": round(memory[luid] / 1_048_576, 1) if luid in memory else None,
                        "mem_total_mb": round(capacity / 1_048_576) if capacity else None})
     if not result:

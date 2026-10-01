@@ -230,3 +230,10 @@ separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this bra
   [adapter LUID/description](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1),
   [independent GPU engines](https://devblogs.microsoft.com/directx/gpus-in-the-task-manager/).
   Our fallback deliberately covers only the requested 3D counters, not all Task Manager engines.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+Claude found one-shot callers inheriting the async cache: system status/briefing now
+force a fresh sample. Only HTTP polling uses stale-while-refresh. Optional util_kind=3D
+labels counter data; unknown usage remains unknown through prose and UI formatting.

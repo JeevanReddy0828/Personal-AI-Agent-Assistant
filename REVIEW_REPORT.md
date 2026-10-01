@@ -285,3 +285,12 @@ The first Windows response may contain unknown metrics. Localized/disabled count
 can be unavailable; failures remain graceful. Packaged-executable validation is still a
 release check. Claude reviews; Jeevan controls merging. No health.py, app.js, auth,
 routing or packaging-script changes are part of GPU-01.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review follow-up: fresh one-shot status/briefing, n/a GPU/VRAM formatting, a 3D
+label and optional DXGI ArgumentError isolation are fixed. All 18 metrics tests and the
+new focused Chromium drawer check pass. Removing force refresh from either consumer, or
+removing the DXGI catch, is caught independently. This follow-up adds orchestrator.py,
+app.js and test_browser_regressions.py to the original scope; health.py stays untouched.

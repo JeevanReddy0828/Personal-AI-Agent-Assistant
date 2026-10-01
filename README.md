@@ -721,3 +721,10 @@ remediation evidence and remaining limits.
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
+keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
+VRAM usage displays n/a rather than zero.

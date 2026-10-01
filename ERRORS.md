@@ -770,3 +770,10 @@ cookie handling. Plain HTTP tests alone did not expose this lifecycle issue.
 
 An old flow's cancellation must not clear a newer flow's proof cookie in another tab.
 Cancel now clears that cookie only after a matching flow/proof was actually cancelled.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review caught a cache-consumer regression: one-shot status reported old values as
+current or omitted a cold CPU sample. Both callers now refresh synchronously. JavaScript
+null arithmetic also converted unknown VRAM into zero; test the rendered n/a state.

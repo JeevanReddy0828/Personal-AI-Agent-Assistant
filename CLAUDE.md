@@ -1410,3 +1410,10 @@ existing CSP nonce. Provider opener isolation can sever a popup reference; `popu
 is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
 The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
 new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review: one-shot system status and briefing use force=True for fresh data; the
+polled HTTP path alone serves stale snapshots. Fallback bars are explicitly labelled 3D.
+Unknown dedicated usage is n/a, even when capacity is known.

@@ -113,3 +113,9 @@ adapter may have a generic name and unknown memory capacity. Missing or localize
 sets degrade to unavailable metrics with one failure record per cause. Check a rebuilt
 native window without elevation before distribution; the source HTTP endpoint and DXGI
 path were verified non-elevated on the laptop on 2026-10-01.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU review follow-up also updates app.js: rebuild to get the explicit 3D label and
+unknown VRAM display. One-shot status/briefing calls wait for a fresh measurement.
