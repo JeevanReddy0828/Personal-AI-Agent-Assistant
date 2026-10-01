@@ -231,7 +231,7 @@ def forecast(values: Sequence[float], horizon: int = 1, *, season: int | None = 
     margin = 0.10 if len(origins) < 8 else 1e-9
     chosen = candidate if score(candidate) < score(baseline)*(1-margin) else baseline
     reason = ("Beat the best available naive baseline on rolling-origin backtests"
-              if chosen != baseline else "No smoothing method beat the best naive baseline; kept the baseline")
+              if chosen != baseline else "No smoothing method met the required improvement over the best naive baseline; kept the baseline")
     if len(origins) < 8:
         reason += "; fewer than 8 selection origins require more than 10% improvement"
     if scored[chosen][1] is None:
@@ -247,7 +247,7 @@ def forecast(values: Sequence[float], horizon: int = 1, *, season: int | None = 
         holdout_baseline_mae = fmean(abs(error) for row in baseline_errors for error in row)
     minimum = max(10, math.ceil(2/(1-level)-1e-9))
     lower = upper = (None,)*horizon
-    interval_reason = f"Need {minimum} calibration origins for a {level:.0%} interval; have {len(calibration)}"
+    interval_reason = f"Need {minimum} calibration origins for {level:.0%} bounds; have {len(calibration)}"
     if errors is not None and len(calibration) >= minimum:
         tail = (1-level)/2
         lower = tuple(point+_quantile(row,tail) for point,row in zip(points,errors))
