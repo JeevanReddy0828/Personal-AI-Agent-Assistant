@@ -101,9 +101,10 @@ def end_trace(token) -> None:
     _CURRENT.reset(token)
 
 
-def _timing(line: str) -> dict[str, object] | None:
+def _timing(line: str | bytes) -> dict[str, object] | None:
     """One line of the timing log, or None for a line that cannot be one (a torn last write,
-    a hand edit): the log is read inside a user's turn, and the caller guards only OSError."""
+    a hand edit, bytes that are not UTF-8): the log is read inside a user's turn, and the
+    caller guards only OSError."""
     try:
         entry = json.loads(line)
         at = datetime.fromisoformat(entry["at"]).astimezone(UTC)
@@ -139,8 +140,10 @@ class TraceStore:
         atomic_write_text(self.path, json.dumps(self._traces, indent=2, default=str))
 
     def _timings(self) -> list[dict[str, object]]:
+        # Bytes, decoded line by line inside _timing: decoding the whole file first raised
+        # UnicodeDecodeError for one bad byte anywhere in it (Codex's review of #157).
         try:
-            lines = self.timings_path.read_text(encoding="utf-8").splitlines()
+            lines = self.timings_path.read_bytes().splitlines()
         except FileNotFoundError:
             return []
         return [timing for timing in map(_timing, lines) if timing is not None]
@@ -160,8 +163,10 @@ class TraceStore:
             self._pruned_on = day
             oldest = datetime.fromisoformat(str(entry["at"])).astimezone(UTC) - timedelta(days=ROLLUP_DAYS)
             kept = [timing for timing in self._timings() if timing["at"] >= oldest]
+            # No backup: the prune drops lines on purpose, and backing up the old copy meant
+            # decoding the whole file as UTF-8 again, which one bad byte turns into an error.
             atomic_write_text(self.timings_path, "".join(
-                json.dumps({**timing, "at": timing["at"].isoformat()}) + "\n" for timing in kept))
+                json.dumps({**timing, "at": timing["at"].isoformat()}) + "\n" for timing in kept), backup=False)
         with self.timings_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(json.dumps(entry) + "\n")
 

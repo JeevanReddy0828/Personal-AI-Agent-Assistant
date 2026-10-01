@@ -332,7 +332,10 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         not a rewrite: rewriting a 90-day rollup file on every turn measured 122ms at its
         worst; the append is 0.4ms, against 19.8ms for the ring's own rewrite. A line that
         cannot be read is skipped, since the log is read inside a turn whose caller guards
-        only `OSError`),
+        only `OSError`. That includes bytes that are not UTF-8 (Codex's review): the log is
+        read as bytes and decoded line by line, and the prune keeps no backup, because both
+        a whole-file decode and the backup's re-read raised `UnicodeDecodeError` - a
+        `ValueError` - for one bad byte anywhere),
         embeddings.py (semantic retrieval: `nvidia/nemotron-3-embed-1b` on the chat host and
             key — `OPENAI_EMBED_MODEL` / `OPENAI_EMBED_KEY` override. The model is
             **asymmetric**: a document embeds as `passage`, a question as `query`; using one

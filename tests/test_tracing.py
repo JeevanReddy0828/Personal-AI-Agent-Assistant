@@ -64,6 +64,19 @@ class TraceRollupTests(unittest.TestCase):
             store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
             self.assertEqual(store.hourly()[0]["turns"], 1)
 
+    def test_bytes_that_are_not_utf8_cost_one_line_not_the_turn(self) -> None:
+        # Codex's review of #157: the whole log was decoded before any line was checked, so
+        # one bad byte raised UnicodeDecodeError, a ValueError the turn's OSError guard does
+        # not catch, from the first prune after a restart.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            TraceStore(path).add(TurnTrace(at="2026-10-01T05:00:00+00:00", total_ms=100))
+            with path.with_name("traces_timings.jsonl").open("ab") as log:
+                log.write(b"\xff\n")
+            reopened = TraceStore(path)
+            reopened.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=100))
+            self.assertEqual(reopened.hourly()[0]["turns"], 2)
+
     def test_an_append_does_not_grow_with_the_history(self) -> None:
         # Rewriting a 90-day rollup on every turn measured 122ms at its worst: the history
         # is appended to, and only rewritten once a day to drop what has aged out.
