@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import tempfile
 import unittest
 from dataclasses import replace
@@ -10,7 +11,7 @@ from unittest.mock import patch
 from laptop_agent.access import acting_as
 from laptop_agent.analytics.forecast import forecast
 from laptop_agent.accounts import Principal
-from laptop_agent.tools.forecast import SeriesError, forecast_request, load_series, run_forecast
+from laptop_agent.tools.forecast import SeriesError, _shown, forecast_command, forecast_request, load_series, run_forecast
 from test_everyday_requests import Everyday
 
 
@@ -112,6 +113,14 @@ class LoadSeriesTests(unittest.TestCase):
         self.assertIn("has no rows under its header", self.refused(self.csv("Sales\n"), "Sales"))
         self.assertIn("One dated row", self.refused(self.csv("Day,Sales\n2025-01-01,5\n"), "Sales", "Day"))
 
+    def test_a_column_named_with_in_is_told_to_quote_the_file(self) -> None:
+        # Review of #159: the column is read up to the first "in", so "Revenue in USD in
+        # sales.csv" asks for a file called "USD in sales.csv"; the refusal now says what to do.
+        request = forecast_request("forecast Revenue in USD in sales.csv")
+        self.assertEqual((request.column, request.path), ("Revenue", "USD in sales.csv"))
+        self.assertIn("put the file in quotes", self.refused(self.dir / request.path, request.column))
+        self.assertNotIn("quotes", self.refused(self.dir / "absent.csv", "Sales"))
+
 
 class ForecastRequestTests(unittest.TestCase):
     def test_the_request_names_a_column_a_file_and_optionally_dates_and_a_horizon(self) -> None:
@@ -127,6 +136,31 @@ class ForecastRequestTests(unittest.TestCase):
                      "what's the forecast", "forecast revenue in sales.xlsx"):
             with self.subTest(text):
                 self.assertIsNone(forecast_request(text))
+                self.assertIsNone(forecast_command(text))
+
+    def test_a_request_is_read_the_way_it_is_said(self) -> None:
+        # Review of #159: each of these missed the strict grammar, fell through the dispatcher
+        # and was answered with the weather at a place called "sales.csv".
+        cases = {
+            "forecast Revenue in sales.csv.": (None, 3, None),
+            "forecast Revenue in sales.csv?": (None, 3, None),
+            "forecast Revenue in sales.csv please": (None, 3, None),
+            "forecast Revenue in sales.csv for next 6 months": (None, 6, None),
+            "forecast Revenue in sales.csv for 6 months by Month": ("Month", 6, None),
+            "forecast Revenue in sales.csv by Month for the next 6 months.": ("Month", 6, None),
+            "forecast Revenue in sales.csv by Month season 12": ("Month", 3, 12),
+            "forecast Revenue in sales.csv with a season of 4 for 2 quarters by Quarter": ("Quarter", 2, 4),
+        }
+        for text, expected in cases.items():
+            with self.subTest(text):
+                request = forecast_request(text)
+                self.assertEqual((request.column, request.path), ("Revenue", "sales.csv"))
+                self.assertEqual((request.date_column, request.horizon, request.season), expected)
+
+    def test_a_table_that_cannot_be_followed_gets_the_usage_not_the_weather(self) -> None:
+        result = forecast_command("forecast Revenue in sales.csv for six months")
+        self.assertFalse(result.ok)
+        self.assertIn("Use: forecast <column> in <file.csv>", result.message)
 
 
 class RunForecastTests(unittest.TestCase):
@@ -202,6 +236,39 @@ class RunForecastTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("4096", result.message)
 
+    def test_a_small_series_keeps_its_figures(self) -> None:
+        # Review of #159: two fixed decimals turned an error rate of 0.003 into 0 - its forecast,
+        # its range, and "its average miss was 0", which claims a perfect forecast.
+        self.assertEqual([_shown(v) for v in (0.00306, 0.000128, -0.004, 0.0, -0.0, 0.5, 12.5, 1234.5)],
+                         ["0.00306", "0.000128", "-0.004", "0", "0", "0.5", "12.5", "1,234"])
+        rates = [0.003 + 0.0004 * ((month * 7) % 5) / 4 for month in range(36)]
+        result = self.run_on(rates)
+        self.assertTrue(result.ok, result.message)
+        self.assertNotIn("| 0 |", result.message)
+        self.assertNotIn("miss was 0,", result.message)
+
+    def test_a_season_is_the_users_to_state(self) -> None:
+        # Calendar frequency is not a season (docs/forecasting.md), so none is inferred, and the
+        # core's own search cannot see a yearly cycle in under 108 months. Stated, it is tested
+        # like any other candidate; unstated, the reply says how to state it.
+        def months(count: int) -> Path:
+            path = self.dir / f"m{count}.csv"
+            path.write_text("Month,Revenue\n" + "".join(
+                f"{2020 + m // 12}-{m % 12 + 1:02d},{1200 + 5 * m + 300 * math.sin(2 * math.pi * m / 12):.2f}\n"
+                for m in range(count)), encoding="utf-8")
+            return path
+
+        told = run_forecast(forecast_request(f"forecast Revenue in {months(36)} by Month season 12"))
+        self.assertTrue(told.ok, told.message)
+        self.assertEqual(told.data["forecast"]["season"], 12)
+        self.assertIn("12-month", told.message)
+        untold = run_forecast(forecast_request(f"forecast Revenue in {months(36)} by Month"))
+        self.assertIsNone(untold.data["forecast"]["season"])
+        self.assertIn("add `season 12`", untold.message)
+        short = run_forecast(forecast_request(f"forecast Revenue in {months(20)} by Month season 12"))
+        self.assertFalse(short.ok)
+        self.assertIn("12-month season needs two full cycles", short.message)
+
 
 class ThroughTheAssistantTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -221,10 +288,21 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertEqual(ran, command)
         # It reads a file, so default-deny refuses it to a personal account, wherever it is reached.
         with acting_as(Principal("p1", "family", "personal")):
-            refused, _ran = self.everyday.say(command)
+            refused, routed = self.everyday.say(command)
             self.assertNotIn("the next 3 months", refused.message)
             direct = asyncio.run(self.everyday.orchestrator.handle(command, _allow_planner=False))
         self.assertIn("isn't available to a personal account", direct.message)
+        # Review of #159: this passed while the planner sent the sentence to the weather, the
+        # file standing in for a place - no forecast, so nothing here could tell.
+        self.assertFalse((routed or "").startswith("weather"), routed)
+
+    def test_a_near_miss_is_never_the_weather(self) -> None:
+        for text in (f"forecast Revenue in {self.path}.", f"forecast Revenue in {self.path} for next 6 months",
+                     f"forecast Revenue in {self.path} for six months",
+                     f"what is the forecast for Revenue in {self.path}"):
+            with self.subTest(text):
+                _result, ran = self.everyday.say(text)
+                self.assertFalse((ran or "").startswith("weather"), ran)
 
 
 if __name__ == "__main__":

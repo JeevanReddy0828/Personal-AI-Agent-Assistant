@@ -12,8 +12,6 @@ could not measure one, and never its own selection score dressed up as accuracy.
 
 from __future__ import annotations
 
-import csv
-import math
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
@@ -21,16 +19,27 @@ from pathlib import Path
 
 from laptop_agent.analytics.forecast import MAX_HORIZON, forecast
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.files import parse_number, read_rows
 
 MAX_ROWS = 10000   # what `analyze spreadsheet` reads too
 DEFAULT_HORIZON = 3
+USAGE = "forecast <column> in <file.csv> [by <date column>] [for N] [season N]"
 
 # A file is what makes this a data forecast: "forecast", "boston forecast" and "forecast
-# for tomorrow" are the weather, and must fall through to it untouched.
+# for tomorrow" are the weather, and must fall through to it untouched. After the file come
+# two optional clauses in either order, and a sentence may end in "." or "please".
 _REQUEST = re.compile(
     r"forecast\s+(?P<column>.+?)\s+(?:in|from)\s+(?P<path>\"[^\"]+\.(?:csv|tsv)\"|\S.*?\.(?:csv|tsv))"
-    r"(?:\s+by\s+(?P<date>.+?))?(?:\s+for\s+(?:the\s+next\s+)?(?P<horizon>\d+)(?:\s+[a-z]+)?)?",
-    re.IGNORECASE)
+    r"(?P<rest>(?:\s.*)?)", re.IGNORECASE | re.DOTALL)
+_HORIZON = re.compile(r"\s+for\s+(?:the\s+)?(?:next\s+)?(?P<horizon>\d+)(?:\s+(?!by\b)[a-z]+)?(?=\s|$)",
+                      re.IGNORECASE)
+_SEASON = re.compile(r"\s+(?:with\s+)?(?:a\s+)?season(?:\s+of)?\s+(?P<season>\d+)(?:\s+(?!by\b|for\b)[a-z]+)?(?=\s|$)",
+                     re.IGNORECASE)
+_DATE = re.compile(r"\s+by\s+(?P<date>\S.*)", re.IGNORECASE | re.DOTALL)
+_TRAILING = re.compile(r"(?:[\s,]+please)?[\s.?!]*$", re.IGNORECASE)
+# A sentence that starts with "forecast" and names a table is a data forecast whether or not it
+# parses: unparsed, it went on to the weather, with the file for a place (review of #159).
+_NAMES_TABLE = re.compile(r"\s*forecast\b.*\.(?:csv|tsv)\b", re.IGNORECASE | re.DOTALL)
 _HOW = {
     "naive": "repeating the last value",
     "seasonal_naive": "repeating the last {season}-{unit} cycle",
@@ -45,9 +54,11 @@ _HOW = {
 _PERIODS = (("day", 1, 1), ("week", 7, 7), ("month", 28, 31), ("quarter", 89, 92), ("year", 365, 366))
 _MONTHS_PER = {"month": 1, "quarter": 3, "year": 12}
 _DATE_FORMATS = ("%Y-%m", "%Y/%m", "%m/%d/%Y", "%Y/%m/%d", "%b %Y", "%B %Y", "%Y")
-_NO_SYMBOLS = str.maketrans("", "", "$€£¥ ")
-# A comma only as a thousands separator: "1,234.5" is a number, "1,5" is a question.
-_THOUSANDS = re.compile(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+# The cycle a calendar period usually has, offered as a hint and never applied: the contract
+# says calendar frequency is not a season (docs/forecasting.md), and a season is the user's
+# to state. The core looks for one only in the first third of the history, so without being
+# told, a monthly series needed 108 months before a yearly cycle could be seen (review of #159).
+_CYCLE = {"day": 7, "week": 52, "month": 12, "quarter": 4}
 
 
 class SeriesError(ValueError):
@@ -66,19 +77,6 @@ class Series:
         if self.last is None:
             return [str(len(self.values) + step) for step in range(1, count + 1)]
         return [_label(_step(self.last, self.period, step), self.period) for step in range(1, count + 1)]
-
-
-def _number(cell: str) -> float | None:
-    text = cell.strip().translate(_NO_SYMBOLS).removesuffix("%")
-    if "," in text:
-        if not _THOUSANDS.fullmatch(text):
-            return None
-        text = text.replace(",", "")
-    try:
-        value = float(text)
-    except ValueError:
-        return None
-    return value if math.isfinite(value) else None
 
 
 def _date(cell: str) -> date | None:
@@ -135,13 +133,13 @@ def _rows(path: Path) -> tuple[list[str], list[list[str]]]:
         raise SeriesError(f"I can forecast from a .csv or .tsv file, not {path.suffix or 'that file'}. "
                           "Save the sheet as CSV first.")
     try:
-        # utf-8-sig: a file saved by Excel starts with a byte-order mark, which would
-        # otherwise become part of the first column's name and stop it from matching.
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
-            reader = csv.reader(handle, delimiter="\t" if path.suffix.lower() == ".tsv" else ",")
-            rows = [row for _, row in zip(range(MAX_ROWS + 1), reader)]
+        rows = read_rows(path, MAX_ROWS)
     except FileNotFoundError:
-        raise SeriesError(f"There is no file at {path}.") from None
+        # The column is read up to the first "in": "Revenue in USD in sales.csv" asks for a
+        # file called "USD in sales.csv" (review of #159).
+        hint = (' If the column\'s name has "in" or "from" in it, put the file in quotes: '
+                'forecast Revenue in USD in "sales.csv".') if re.search(r"\s(?:in|from)\s", str(path)) else ""
+        raise SeriesError(f"There is no file at {path}.{hint}") from None
     if len(rows) < 2:
         raise SeriesError(f"{path.name} has no rows under its header.")
     return [name.strip() for name in rows[0]], rows[1:]
@@ -152,7 +150,7 @@ def _column(header: list[str], wanted: str, body: list[list[str]], numeric: bool
     if wanted.strip().lower() in lowered:
         return lowered.index(wanted.strip().lower())
     names = [name for index, name in enumerate(header) if not numeric or all(
-        _number(row[index]) is not None for row in body[:20] if index < len(row) and row[index].strip())]
+        parse_number(row[index]) is not None for row in body[:20] if index < len(row) and row[index].strip())]
     listed = f" Its {'numeric ' if numeric else ''}columns are: {', '.join(names)}." if names else ""
     raise SeriesError(f"There is no column called '{wanted}'.{listed}")
 
@@ -169,7 +167,7 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
         if not cell.strip():
             raise SeriesError(f"Row {line} has no {header[value_at]}. Fill it in or remove the row; "
                               "I will not guess a missing value.")
-        number = _number(cell)
+        number = parse_number(cell)
         if number is None:
             raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[value_at]} is not a number.")
         values.append(number)
@@ -222,19 +220,45 @@ class Request:
     path: str
     date_column: str | None
     horizon: int
+    season: int | None = None   # a cycle the user knows; never inferred from the calendar
 
 
 def forecast_request(command: str) -> Request | None:
     """The data forecast `command` asks for, or None for anything else, the weather included."""
-    match = _REQUEST.fullmatch(command.strip())
+    match = _REQUEST.fullmatch(_TRAILING.sub("", command.strip()))
     if match is None:
         return None
-    return Request(match["column"].strip(), match["path"].strip('"'), (match["date"] or "").strip() or None,
-                   int(match["horizon"]) if match["horizon"] else DEFAULT_HORIZON)
+    rest, horizon, season, date_column = match["rest"], DEFAULT_HORIZON, None, None
+    if (found := _HORIZON.search(rest)) is not None:
+        horizon, rest = int(found["horizon"]), rest[:found.start()] + rest[found.end():]
+    if (found := _SEASON.search(rest)) is not None:
+        season, rest = int(found["season"]), rest[:found.start()] + rest[found.end():]
+    if rest.strip():
+        if (by := _DATE.fullmatch(rest)) is None:
+            return None
+        date_column = by["date"].strip()
+    return Request(match["column"].strip(), match["path"].strip('"'), date_column, horizon, season)
+
+
+def forecast_command(command: str) -> ToolResult | None:
+    """The forecast `command` asks for, run; a usage reply when it names a table but cannot be
+    followed; None when it names none, which leaves it to the weather."""
+    if (request := forecast_request(command)) is not None:
+        return run_forecast(request)
+    if _NAMES_TABLE.match(command):
+        return ToolResult.failure(f"That names a table, so I took it for a data forecast, but I could not "
+                                  f"follow the rest. Use: {USAGE}")
+    return None
 
 
 def _shown(value: float) -> str:
-    return f"{value:,.0f}" if abs(value) >= 100 else f"{value:,.2f}".rstrip("0").rstrip(".")
+    if abs(value) >= 100:
+        return f"{value:,.0f}"
+    if abs(value) >= 1 or value == 0:
+        return f"{value:,.2f}".rstrip("0").rstrip(".") if value else "0"
+    # Fixed decimals rounded a small series to 0 - its forecast, its range and its average miss
+    # alike, which claims a perfect forecast (review of #159). Three significant figures.
+    return f"{value:.3g}"
 
 
 def _many(count: int, noun: str) -> str:
@@ -247,7 +271,7 @@ def run_forecast(request: Request) -> ToolResult:
         return ToolResult.failure(f"I can forecast 1 to {MAX_HORIZON} periods ahead, not {request.horizon}.")
     try:
         series = load_series(request.path, request.column, request.date_column)
-        result = forecast(series.values, request.horizon)
+        result = forecast(series.values, request.horizon, season=request.season)
     except ValueError as exc:   # SeriesError, or one of the core's own input limits
         return ToolResult.failure(str(exc))
     name, count = Path(request.path).name, len(series.values)
@@ -257,6 +281,9 @@ def run_forecast(request: Request) -> ToolResult:
         # no number is shown at all.
         short = (f"testing a forecast against simply repeating the last value needs at least 8 {noun}s, "
                  f"and it has {count}" if count < 8 else
+                 f"testing a {request.season}-{noun} season needs two full cycles of history and more after "
+                 f"them to score it on, and {_many(count, noun)} are not enough. Leave the season out, or add "
+                 f"history" if request.season else
                  f"{_many(count, noun)} are not enough to test a {request.horizon}-{noun} forecast against "
                  f"simply repeating the last value. Ask for fewer {noun}s ahead, or add history")
         return ToolResult.failure(f"I can't forecast {request.column} from {name} yet: {short}.",
@@ -294,5 +321,9 @@ def run_forecast(request: Request) -> ToolResult:
                      "stretches. Not a guarantee: a change in whatever drives these numbers would not be in it.")
     else:
         lines.append(f"No range yet ({result.interval_reason}).")
+    cycle = _CYCLE.get(series.period)
+    if cycle and request.season is None and result.season is None and count >= 2 * cycle:
+        lines.append(f"_No season was found in it. If it repeats every {cycle} {noun}s, add `season {cycle}` "
+                     "and that cycle is tested too._")
     return ToolResult.success("\n".join(lines), forecast=asdict(result), labels=labels,
                               series={"labels": series.labels, "values": series.values, "period": series.period})
