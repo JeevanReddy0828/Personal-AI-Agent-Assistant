@@ -31,4 +31,4 @@ jobs:
           python-version: '3.13'
       - run: pip install playwright pypdf
       - run: python -m playwright install --with-deps chromium
-      - run: python -B tests/run_tests.py test_browser_regressions.py
+      - run: python -B tests/run_tests.py "test_browser_*.py"
