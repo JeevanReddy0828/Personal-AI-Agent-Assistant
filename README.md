@@ -433,7 +433,7 @@ python -m laptop_agent.accounts create family --role personal
 - **Sessions** are server-side, stored as hashes of the token, last up to 30 days (7 without
   use), and are **bound to the credentials they were granted under**: a password change or
   a disable ends them, including one created by a sign-in that was mid-hash when the change
-  landed.
+  landed, and stops any agent run or workflow still running under them at its next step.
 - **Managing accounts** — **Manage accounts** in the settings popover (this computer only;
   every change asks your password again), or the same `python -m laptop_agent.accounts`
   command, which also resets passwords, so a forgotten one never locks the owner out.

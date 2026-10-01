@@ -84,6 +84,29 @@ class SignInTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         return headers["Set-Cookie"].split(";", 1)[0]
 
+    # --- work already running when its session ends
+    def test_work_already_running_stops_when_its_session_ends(self) -> None:
+        """Revoking ended the session but not what it had started. Every command a request
+        goes on to dispatch now asks again whether that request's own session stands."""
+        from laptop_agent import access
+
+        self.accounts.create("jeevan", "dev", GOOD)
+        cookie = self.sign_in()
+        seen: list[str] = []
+
+        async def handle(command, history=None, on_token=None, **kwargs):
+            seen.append(access.current().username)
+            access.ensure_signed_in()
+            self.sessions.revoke(cookie.split("=", 1)[1])   # signed out from another device
+            access.ensure_signed_in()
+            seen.append("a second command ran")
+
+        with patch.object(self.webui._orchestrator, "handle", handle):
+            status, body, _ = self.call("POST", "/api/command", {"command": "agent run tidy up"}, cookie=cookie)
+        self.assertEqual((status, body["ok"]), (401, False), body)
+        self.assertIn("session ended", body["message"])
+        self.assertEqual(seen, ["jeevan"])
+
     # --- no accounts: exactly as before
     def test_without_accounts_nothing_asks_for_a_sign_in(self) -> None:
         status, page, _ = self.call("GET", "/")

@@ -28,6 +28,7 @@ from laptop_agent.access import EVERYDAY_EXACT, EVERYDAY_PREFIX, acting_as, ever
 from laptop_agent.accounts import AccountStore, Principal
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.approvals import ApprovalBroker
+from laptop_agent.planner.core import Planner
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import SessionStore
 from laptop_agent.tools.base import ToolResult
@@ -223,6 +224,80 @@ class DispatchMirrorTests(unittest.TestCase):
                          "a dispatcher branch is chosen by a pattern or a parser: decide whether a "
                          "personal account may run it, refuse its forms in access if not, then "
                          "update OTHER_BRANCHES")
+
+
+class SignedOutTests(unittest.TestCase):
+    """Revoking a session ended the session but not the work it had started: an agent run
+    kept dispatching commands under the principal it began with until it finished."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.everyday = Everyday(Path(tmp.name), llm="none")
+
+    def facts(self) -> dict:
+        return self.everyday.orchestrator.context.memory.get_profile()
+
+    def test_a_command_after_the_session_ended_is_not_dispatched(self) -> None:
+        with acting_as(DEV, lambda: False):
+            with self.assertRaises(access.SignedOut):
+                self.everyday.say("remember colour = blue")
+        self.assertNotIn("colour", self.facts())
+
+    def test_nothing_changes_without_a_principal_or_while_the_session_stands(self) -> None:
+        with acting_as(None, lambda: False):     # the CLI and the ticker: no session to end
+            self.assertTrue(self.everyday.say("remember colour = blue")[0].ok)
+        with acting_as(DEV, lambda: True):
+            self.assertTrue(self.everyday.say("remember shape = round")[0].ok)
+        self.assertEqual((self.facts()["colour"], self.facts()["shape"]), ("blue", "round"))
+
+    def test_an_agent_run_stops_at_the_step_after_its_session_ends(self) -> None:
+        ended: list[bool] = []
+
+        class Brain:
+            calls = 0
+
+            def answer(self, text, memory_profile, model=None, history=None, **kwargs):
+                Brain.calls += 1
+                if Brain.calls == 2:
+                    ended.append(True)   # the owner disables the account while it thinks
+                return {1: "THOUGHT: one\nACTION: remember first_step = done",
+                        2: "THOUGHT: two\nACTION: remember second_step = done"}.get(
+                    Brain.calls, "THOUGHT: done\nFINAL: finished")
+
+        self.everyday.orchestrator.smart_planner = Planner(Brain())
+        with acting_as(DEV, lambda: not ended):
+            with self.assertRaises(access.SignedOut):
+                self.everyday.say("agent run note two things")
+        self.assertEqual(self.facts().get("first_step"), "done")
+        self.assertNotIn("second_step", self.facts())
+
+    def test_a_sentence_is_not_routed_after_the_session_ended(self) -> None:
+        # This reads as prose, so no command is claimed before the router would be asked:
+        # the session is checked where Stop is, ahead of everything a turn does.
+        orchestrator = self.everyday.orchestrator
+        with patch.object(orchestrator, "_route", wraps=orchestrator._route) as route:
+            with acting_as(DEV, lambda: False):
+                with self.assertRaises(access.SignedOut):
+                    self.everyday.say("schedule a meeting with bob")
+        route.assert_not_called()
+
+    def test_a_batch_stops_instead_of_reporting_failed_subtasks(self) -> None:
+        # gather(return_exceptions=True) turns a stopped subtask into a bare CancelledError,
+        # so without asking again the batch answered "0 succeeded" to a signed-out client.
+        ended: list[bool] = []
+        memory = self.everyday.orchestrator.context.memory
+        save = memory.set_profile_value
+
+        def save_then_end(*args, **kwargs):
+            ended.append(True)   # the owner disables the account while the batch runs
+            return save(*args, **kwargs)
+
+        with patch.object(memory, "set_profile_value", side_effect=save_then_end):
+            with acting_as(DEV, lambda: not ended):
+                with self.assertRaises(access.SignedOut):
+                    self.everyday.say("multi remember first = one ;; remember second = two")
+        self.assertTrue(ended, "no subtask ran, so this proved nothing")
 
 
 class ThroughTheAssistantTests(unittest.TestCase):

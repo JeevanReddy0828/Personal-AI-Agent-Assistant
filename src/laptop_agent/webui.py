@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
-from laptop_agent.access import acting_as
+from laptop_agent.access import SignedOut, acting_as
 from laptop_agent.accounts import MAX_PASSWORD, Account, AccountError, AccountStore, HashingBusy, Principal
 from laptop_agent.storage import StorageDamaged, file_lock
 from laptop_agent.google_oidc import GoogleError, GoogleFlows, PROOF_COOKIE, FLOW_COOKIE, cookie as google_cookie
@@ -146,6 +146,22 @@ _PERSONAL_ROUTES = frozenset({
     "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
 })
 
+
+
+def _account_for_session(token: str | None) -> Account | None:
+    """The account a session token belongs to, read as it is now, or None.
+
+    The one definition of "signed in": requests ask it on arrival, the Google routes need the
+    whole account rather than a principal (the copy of this check they first carried missed
+    the epoch), and work already running asks it again before every command it dispatches."""
+    session = SESSIONS.resolve(token)
+    account = ACCOUNTS.get(session.account_id) if session else None
+    # A session is good only for the credentials it was granted under: a new password or
+    # a disable moves the account's epoch on, and ends a session its revoke arrived too
+    # early to catch (a sign-in checked just before, still finishing its hash).
+    if account is None or account.disabled or session.epoch != account.epoch:
+        return None
+    return account
 
 def _session_cookie(token: str) -> str:
     # Max-Age keeps the desktop window signed in across restarts, HttpOnly keeps the token
@@ -681,18 +697,14 @@ class Handler(BaseHTTPRequestHandler):
     _who: Principal | None = None
 
     def _signed_in_account(self) -> Account | None:
-        """The account this request's session belongs to, read as it is now, or None.
+        """The account this request's session belongs to, read as it is now, or None."""
+        return _account_for_session(self._cookie(_SESSION_COOKIE))
 
-        The one definition of "signed in". The Google routes need the whole account rather
-        than a principal, and the copy of this check they first carried missed the epoch."""
-        session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
-        account = ACCOUNTS.get(session.account_id) if session else None
-        # A session is good only for the credentials it was granted under: a new password or
-        # a disable moves the account's epoch on, and ends a session its revoke arrived too
-        # early to catch (a sign-in checked just before, still finishing its hash).
-        if account is None or account.disabled or session.epoch != account.epoch:
-            return None
-        return account
+    def _still_signed_in(self) -> Callable[[], bool]:
+        """Whether this request's own session still stands, asked again before every command
+        the request dispatches: an agent run outlives many of them."""
+        token = self._cookie(_SESSION_COOKIE)
+        return lambda: _account_for_session(token) is not None
 
     def _principal(self) -> Principal | None:
         """Who is signed in on this request, read from the account as it is now, so a
@@ -1226,14 +1238,14 @@ class Handler(BaseHTTPRequestHandler):
         # Everything this request does, down to the approval gate, acts for whoever signed in.
         # Outside `acting_as`: finding out who that is reads the account store, which may be damaged.
         try:
-            with acting_as(self._principal()):
+            with acting_as(self._principal(), self._still_signed_in()):
                 self._do_get()
         except StorageDamaged as exc:
             self._storage_damaged(exc)
 
     def do_POST(self) -> None:
         try:
-            with acting_as(self._principal()):
+            with acting_as(self._principal(), self._still_signed_in()):
                 self._do_post()
         except StorageDamaged as exc:
             self._storage_damaged(exc)
@@ -1410,6 +1422,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._dispatch_post()
             else:
                 self._dispatch_post()
+        except SignedOut as exc:
+            # The session ended while this ran; a 401 sends the page back to sign-in.
+            self._json(401, {"ok": False, "message": str(exc)})
         except OperationCancelled:
             pass
         except (ValueError, TypeError, UnicodeError):
@@ -1538,6 +1553,9 @@ class Handler(BaseHTTPRequestHandler):
                     emit({"type": "tts", "text": tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
+        except SignedOut as exc:
+            _orchestrator.control_room.finish(agent_id, "Stopped: the session ended", ok=False)
+            emit({"type": "done", "ok": False, "message": str(exc), "data": {}})
         except OperationCancelled:
             _orchestrator.control_room.finish(agent_id, "Stopped by user", ok=False)
         except ApprovalDenied as exc:
@@ -1602,6 +1620,8 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
+        except SignedOut as exc:
+            emit({"type": "done", "ok": False, "message": str(exc), "data": {}})
         except OperationCancelled:
             return
         except ApprovalDenied as exc:
@@ -2093,6 +2113,12 @@ class Handler(BaseHTTPRequestHandler):
             result = asyncio.run(_orchestrator.handle(command, history=history))
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             body = {"ok": result.ok, "message": result.message, "data": _json_safe(result.data)}
+        except OperationCancelled as exc:
+            # Stop, or the session ending: the caller answers, but the specialist must not
+            # be left showing as working.
+            _orchestrator.control_room.finish(agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut)
+                                              else "Stopped by user", ok=False)
+            raise
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
             body = {"ok": False, "message": f"Not approved — {exc}", "data": {}}

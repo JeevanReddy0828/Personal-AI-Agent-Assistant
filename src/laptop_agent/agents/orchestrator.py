@@ -52,7 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.access import everyday_form, is_personal, refused_command
+from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -2060,6 +2060,7 @@ class AgentOrchestrator:
         _whole: bool = True,
     ) -> ToolResult:
         check_cancelled()
+        ensure_signed_in()
         command = text.strip()
         lowered = command.lower()
         history_turns = history or []
@@ -3430,8 +3431,9 @@ class AgentOrchestrator:
         context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
             result = await agent.run(goal, on_step=on_step, context=context)
-        except OperationCancelled:
-            self.control_room.finish(agent_id, "Stopped by user", ok=False)
+        except OperationCancelled as exc:
+            self.control_room.finish(agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut)
+                                     else "Stopped by user", ok=False)
             raise
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
@@ -4553,7 +4555,9 @@ class AgentOrchestrator:
                 check_cancelled()
                 return await asyncio.to_thread(lambda: asyncio.run(self._run_tracked_subtask(command)))
         results = await asyncio.gather(*(run(command) for command in commands), return_exceptions=True)
+        # gather keeps a stopped subtask as a bare CancelledError, so ask again before reporting.
         check_cancelled()
+        ensure_signed_in()
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
