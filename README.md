@@ -344,6 +344,11 @@ tool activity, scheduled jobs, agent runs, **Map** and **Trip planner** · setti
 (compact layout, orb focus, always on top, transparency, voice cut-in level) · incognito
 chats that are never saved.
 
+On Windows, GPU usage works without an administrator launch: if NVIDIA's utility cannot
+answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
+refreshes in the background; the first read may show unavailable values briefly. A card
+Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
+
 ---
 
 ## Voice

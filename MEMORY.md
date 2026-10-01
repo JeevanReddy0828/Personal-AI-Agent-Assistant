@@ -210,3 +210,23 @@ separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this bra
 - Google errors displayed by the app are fixed safe messages. Codes and token replies must
   never enter failure logs, chats, account JSON or browser storage. Account email is an
   optional verified display label, never the lookup key.
+
+
+## 2026-10-01 — GPU-01, non-elevated telemetry
+
+- Owner Codex, reviewer Claude; codex/gpu-counters starts at main ec6a079. Scope is
+  metrics.py, test_metrics.py and existing docs; health/setup/UI ownership is unchanged.
+- NVIDIA stays first. The Windows fallback runs both Get-Counter paths in one hidden,
+  six-second-bounded PowerShell call, using an injectable runner and captured samples.
+  Sum processes on each physical 3D engine, then use the busiest engine per adapter LUID
+  (clamped to 100%). Sum adapter-level dedicated usage, not per-process memory.
+- Names/capacity use stdlib ctypes and DXGI EnumAdapters1/GetDesc1 with exact LUID matching.
+  Release every COM interface. Do not zip WMI names against counter order. Unknown stays
+  None; a real zero stays zero. No new dependency and no elevation request.
+- Normal Windows metrics requests return immediately with the prior snapshot; only a
+  daemon worker collects. First read is unknown, force=True remains synchronous for
+  diagnostics, and other platforms retain the synchronous cache. TTL starts at completion.
+- Design references: [DXGI enumeration](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgifactory1-enumadapters1),
+  [adapter LUID/description](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1),
+  [independent GPU engines](https://devblogs.microsoft.com/directx/gpus-in-the-task-manager/).
+  Our fallback deliberately covers only the requested 3D counters, not all Task Manager engines.

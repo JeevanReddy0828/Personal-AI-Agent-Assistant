@@ -1325,7 +1325,14 @@ Both Claude and Codex edit this repo. To avoid collisions:
 
 - **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
   they live only in gitignored `.env`).
-- GPU metrics need an elevated launch on this laptop (Optimus dGPU).
+- GPU metrics now fall back from `nvidia-smi` to non-elevated Windows counters (GPU-01).
+  Counters report the busiest **3D** engine per adapter LUID and dedicated memory usage;
+  they do not measure compute/copy/video engines. DXGI names/capacity are matched by LUID;
+  a powered-down or unmatched card keeps a generic name and unknown capacity. A cold
+  Windows metrics read has unknown fields until the background refresh completes; stale
+  reads keep the prior snapshot. Missing/localized counters degrade gracefully and log
+  each cause once per process. Do not recommend running the whole app as administrator
+  just to show GPU usage.
 - `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
   "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
