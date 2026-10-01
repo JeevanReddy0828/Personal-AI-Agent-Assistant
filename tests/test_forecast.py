@@ -105,7 +105,7 @@ class ForecastTests(unittest.TestCase):
         selection=[call for call in errors.call_args_list if max(call.args[2])<120]
         calibration=[call for call in errors.call_args_list if min(call.args[2])>=120]
         self.assertTrue(selection)
-        self.assertEqual(len(calibration),1)
+        self.assertEqual(len(calibration),2)
         self.assertTrue(all(max(call.args[2])+6<=120 for call in selection))
         changed=values[:120]+[v+50 for v in values[120:]]
         b=f.forecast(changed,6)
@@ -149,6 +149,39 @@ class ForecastTests(unittest.TestCase):
         self.assertTrue(all(value is None for value in result.lower+result.upper))
         self.assertIn("calibration origins",result.interval_reason)
         self.assertTrue(all(v is None for v in f.forecast(list(range(120)),level=.99).lower))
+
+    def test_thin_selection_requires_margin_and_does_not_disable_clear_winners(self):
+        values=list(range(12))  # four selection origins, four calibration origins
+        for candidate, expected in ((9.5,"naive"),(8.0,"ses")):
+            with patch.object(f,"_scores",side_effect=[(10.,10.),(candidate,candidate),(11.,11.)]):
+                result=f.forecast(values,season=0)
+            self.assertEqual(result.method,expected)
+            self.assertIn("10% improvement",result.reason)
+        with patch.object(f,"_scores",side_effect=[(10.,10.),(9.5,9.5),(11.,11.)]):
+            result=f.forecast(list(range(30)),season=0)
+        self.assertEqual(result.method,"ses")  # at least eight selection origins
+
+    def test_holdout_scores_are_later_errors_and_cannot_reselect_the_model(self):
+        values=series("trend",71,120)
+        original=f._errors
+        seen=[]
+        def errors(y,spec,origins,horizon):
+            if min(origins)>=80:
+                seen.append(spec.method)
+                # Make the selected model LOSE on holdout. It must stay chosen and
+                # expose that loss, not choose again or report its selection score.
+                error=1. if spec.method=="naive" else 100.
+                return tuple((error,)*len(origins) for _ in range(horizon))
+            return original(y,spec,origins,horizon)
+        with patch.object(f,"_errors",side_effect=errors):
+            result=f.forecast(values,3,season=0)
+        self.assertEqual(result.method,"holt")
+        self.assertEqual(result.holdout_mae,100.)
+        self.assertEqual(result.holdout_baseline_mae,1.)
+        self.assertEqual(seen,["holt","naive"])
+        sparse=f.forecast(list(range(8)),season=0)
+        self.assertIsNone(sparse.holdout_mae)
+        self.assertIsNone(sparse.holdout_baseline_mae)
 
     def test_units_do_not_change_season_or_selection(self):
         values=series("season",88,150)
