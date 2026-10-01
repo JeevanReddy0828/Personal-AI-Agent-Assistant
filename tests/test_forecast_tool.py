@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.access import acting_as
+from laptop_agent.analytics.forecast import forecast
 from laptop_agent.accounts import Principal
 from laptop_agent.tools.forecast import SeriesError, forecast_request, load_series, run_forecast
 from test_everyday_requests import Everyday
@@ -51,6 +54,17 @@ class LoadSeriesTests(unittest.TestCase):
                 series = load_series(self.csv("When,Count\n" + rows), "Count", "When")
                 self.assertEqual(series.period, period)
                 self.assertEqual(series.next_labels(1), after)
+
+    def test_quarters_and_years_are_counted_on_the_calendar_the_labels_use(self) -> None:
+        # Codex's review of #159: counting from the first date's month accepted these as
+        # consecutive periods while labelling them Q1, Q2, Q4, Q4 and 2024, 2025, 2027.
+        ends = load_series(self.csv("Date,Sales\n2025-03-31,1\n2025-06-30,2\n2025-09-30,3\n2025-12-31,4\n"),
+                           "Sales", "Date")
+        self.assertEqual((ends.labels, ends.next_labels(1)), (["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"], ["2026-Q1"]))
+        skipped = self.csv("Date,Sales\n2025-03-31,1\n2025-06-30,2\n2025-10-01,3\n2025-12-31,4\n", name="q.csv")
+        self.assertIn("Two rows fall in the quarter of 2025-Q4", self.refused(skipped, "Sales", "Date"))
+        years = self.csv("Date,Sales\n2024-12-31,1\n2025-12-31,2\n2027-01-01,3\n", name="y.csv")
+        self.assertIn("1 year is missing: 2026", self.refused(years, "Sales", "Date"))
 
     def test_without_a_date_column_the_rows_are_taken_in_file_order(self) -> None:
         series = load_series(self.csv("Steps\n10\n12\n11\n"), "steps")
@@ -136,8 +150,32 @@ class RunForecastTests(unittest.TestCase):
         self.assertEqual([line.split(" | ")[0] for line in result.message.splitlines() if line.startswith("| 6")],
                          ["| 61", "| 62", "| 63"])
         self.assertIn("Range: the middle 80% of its own errors", result.message)
+        # Accuracy is stated only from stretches that played no part in choosing the method.
+        self.assertIn("later stretches that played no part in choosing it, its average miss was", result.message)
         self.assertEqual(result.data["labels"], ["61", "62", "63"])
         self.assertTrue(result.data["forecast"]["enough_data"])
+
+    def test_a_band_needs_both_bounds_at_every_step(self) -> None:
+        # Codex's review of #159: only the lower bounds were checked, so one null upper
+        # bound raised TypeError instead of giving the point table.
+        values = [1000 + 12 * month + (month * 37) % 11 - 5 for month in range(60)]
+        real = forecast(values, 3)
+        with patch("laptop_agent.tools.forecast.forecast", return_value=replace(real, upper=(None, *real.upper[1:]))):
+            result = self.run_on(values)
+        self.assertTrue(result.ok)
+        self.assertNotIn("range |", result.message)
+        self.assertIn("No range yet", result.message)
+        self.assertEqual(len([line for line in result.message.splitlines() if line.startswith("| 6")]), 3)
+
+    def test_a_kept_baseline_is_not_said_to_be_unbeaten(self) -> None:
+        # With few tests a smoother must win by a margin, so a small raw win keeps the baseline.
+        values = [1000 + 12 * month + (month * 37) % 11 - 5 for month in range(60)]
+        real = forecast(values, 3)
+        kept = replace(real, method="naive", baseline_method="naive", holdout_baseline_mae=real.holdout_mae)
+        with patch("laptop_agent.tools.forecast.forecast", return_value=kept):
+            message = self.run_on(values).message
+        self.assertIn("No smoother improved on it by enough to replace it", message)
+        self.assertNotIn("Nothing smoother beat it", message)
 
     def test_a_supported_forecast_without_a_range_draws_none(self) -> None:
         result = self.run_on([100 + 3 * index for index in range(24)])

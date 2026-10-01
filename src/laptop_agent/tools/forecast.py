@@ -95,10 +95,20 @@ def _date(cell: str) -> date | None:
     return None
 
 
+def _calendar(day: date, period: str) -> int:
+    """The calendar month, quarter or year holding `day`, by the boundaries `_label` uses."""
+    months = day.year * 12 + day.month - 1
+    return months // _MONTHS_PER[period]
+
+
 def _index(day: date, period: str, first: date) -> int | None:
-    """Which period after `first` holds `day`; None when it falls between two."""
+    """Which period after `first` holds `day`; None when it falls between two.
+
+    Counted on the calendar, as the labels are (Codex's review of #159): flooring months
+    since the FIRST date accepted Mar 31, Jun 30, Oct 1, Dec 31 as four quarters in a row
+    and labelled them Q1, Q2, Q4, Q4."""
     if period in _MONTHS_PER:
-        return ((day.year - first.year) * 12 + day.month - first.month) // _MONTHS_PER[period]
+        return _calendar(day, period) - _calendar(first, period)
     days, step = (day - first).days, 7 if period == "week" else 1
     return days // step if days % step == 0 else None
 
@@ -253,7 +263,8 @@ def run_forecast(request: Request) -> ToolResult:
                                   forecast=asdict(result))
 
     labels = series.next_labels(request.horizon)
-    banded = all(low is not None for low in result.lower)
+    # Both bounds at every step, or no band at all: the contract allows a null anywhere.
+    banded = all(low is not None and high is not None for low, high in zip(result.lower, result.upper))
     lines = [f"**{request.column}: the next {_many(request.horizon, noun)}** "
              f"(from {name}, {_many(count, noun)} of history)", ""]
     if series.period == "row":
@@ -264,16 +275,23 @@ def run_forecast(request: Request) -> ToolResult:
     lines += [f"| {label} | {_shown(point)} |" + (f" {_shown(low)} to {_shown(high)} |" if banded else "")
               for label, point, low, high in zip(labels, result.points, result.lower, result.upper)]
     how = _HOW[result.method].format(season=result.season, unit=noun)
+    baseline = _HOW[result.baseline_method].format(season=result.season, unit=noun)
     tested = f"tested on {result.backtest_origins} earlier stretches of your own history"
     if result.method == result.baseline_method:
-        lines += ["", f"How: {how}. Nothing smoother beat it when each was {tested}."]
+        # Not "nothing beat it": on few tests a smoother must win by a margin, so a small
+        # raw win can still keep the baseline.
+        lines += ["", f"How: {how}. No smoother improved on it by enough to replace it when each was {tested}."]
     else:
-        baseline = _HOW[result.baseline_method].format(season=result.season, unit=noun)
         lines += ["", f"How: {how}, chosen because it beat {baseline} when each was {tested}."]
+    if result.holdout_mae is not None:
+        # Scored where nothing was chosen, so this one is evidence; the selection scores are not.
+        kept = result.method == result.baseline_method
+        lines.append(f"On {result.calibration_origins} later stretches that played no part in choosing it, "
+                     f"its average miss was {_shown(result.holdout_mae)}"
+                     + ("." if kept else f", against {_shown(result.holdout_baseline_mae)} for {baseline}."))
     if banded:
-        lines.append(f"Range: the middle {result.level:.0%} of its own errors at each step ahead, measured on "
-                     f"{result.calibration_origins} later stretches it was not chosen on. Not a guarantee: a "
-                     "change in whatever drives these numbers would not be in it.")
+        lines.append(f"Range: the middle {result.level:.0%} of its own errors at each step ahead on those later "
+                     "stretches. Not a guarantee: a change in whatever drives these numbers would not be in it.")
     else:
         lines.append(f"No range yet ({result.interval_reason}).")
     return ToolResult.success("\n".join(lines), forecast=asdict(result), labels=labels,

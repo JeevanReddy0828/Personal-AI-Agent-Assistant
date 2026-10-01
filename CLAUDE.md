@@ -258,11 +258,17 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             and odd cells, each refused with a reason rather than guessed - a missing month is
             named, two rows in one period are not added up, "1,5" is not fifteen. The period
             comes from the **smallest** gap between dates: the median gap of Jan, Feb, Jun is
-            75.5 days and named no period at all. The answer says what the core established
-            and nothing more: **no number** when it could not test a forecast (its points are
-            then the last value repeated), **no band** when it could not measure one, and never
-            the selection-block MASE as accuracy - the winner is chosen on that block, so
-            beating the baseline there is guaranteed. Only a `.csv`/`.tsv` makes it a data
+            75.5 days and named no period at all. Quarters and years are counted on the
+            calendar the labels use (Codex's review): counting from the first date's month
+            took Mar 31, Jun 30, Oct 1, Dec 31 as four quarters in a row, labelled Q1, Q2,
+            Q4, Q4. The answer says what the core established and nothing more: **no number**
+            when it could not test a forecast (its points are then the last value repeated),
+            **no band** unless every lower *and* upper bound exists, and accuracy only from
+            the later stretches that played no part in choosing the method (`holdout_mae`) -
+            never the selection-block MASE, since the winner is chosen on that block and
+            beating the baseline there is guaranteed. A kept baseline is "not improved on by
+            enough", never "unbeaten": on few tests a smoother must win by a margin. Only a
+            `.csv`/`.tsv` makes it a data
             forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
             weather. Developer-only by default-deny, since it reads a file),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
