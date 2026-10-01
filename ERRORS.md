@@ -3,6 +3,18 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-09-30 — a broken model reported as busy by the keep-warm ping
+
+- **A caller that drops the reason undoes the split the reason exists for.**
+  `classify_failure` tells a misconfigured tier (broken: retried after 900s, kept across a
+  restart) from a loaded one (busy: 60s), but `ping()` swallowed its exception and the
+  keep-warm loop called `record("fast", False)` with no reason, which reads as busy. So
+  every 200s the ping demoted a fast tier a chat turn had found broken: retried after 60s
+  instead of 900, and dropped from `model_status.json`, so a restart forgot it. Found in
+  the review of #144; `ping` now takes the same optional `on_failure` sink as `answer`.
+  **Rule: whoever records a failure passes the reason it was given, or it overwrites one
+  it was not.**
+
 ## Session 2026-09-30 — a sign-in that outlived the reset it raced
 
 - **Revoking sessions cannot end one created after the revoke.** A sign-in checks the

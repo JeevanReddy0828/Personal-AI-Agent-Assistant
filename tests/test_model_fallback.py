@@ -111,6 +111,15 @@ class ProviderReportsWhyTests(unittest.TestCase):
                     provider.answer("hi", {}, on_failure=lambda k, d: seen.append((k, d))))
                 self.assertEqual(seen[0][0], expected)
 
+    def test_ping_reports_the_reason(self) -> None:
+        for code, expected in ((410, BROKEN), (503, DEGRADED)):
+            with self.subTest(code):
+                seen: list[tuple[str, str]] = []
+                provider = OpenAICompatiblePlannerProvider(
+                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c)))
+                self.assertFalse(provider.ping(on_failure=lambda k, d: seen.append((k, d))))
+                self.assertEqual(seen[0][0], expected)
+
     def test_a_caller_that_passes_no_sink_is_unaffected(self) -> None:
         """Every existing caller — the advisor, the document tool, the copilot — calls
         answer() with no sink and must behave exactly as before."""

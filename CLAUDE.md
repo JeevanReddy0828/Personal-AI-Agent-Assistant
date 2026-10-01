@@ -644,7 +644,10 @@ app runs and a tier never retried can never be seen to recover; and the state st
 information rather than a rename. The provider reports why through an optional
 `on_failure` **callback argument**, never a field on the provider: one provider serves
 every request thread. A caller that passes no sink behaves exactly as before, which is why
-the advisor, the document tool and the copilot needed no change.
+the advisor, the document tool and the copilot needed no change. A caller that **records**
+the outcome must pass one: the keep-warm `ping` did not, so every failed ping was recorded
+as busy and demoted a tier a chat turn had found broken. Known gap: `plan()` has no sink,
+so a non-streaming turn whose route failed still records the fast tier as busy.
 
 **Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
 `data_dir/model_status.json`, so a retired model id or a rejected key is still known at

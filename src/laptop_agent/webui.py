@@ -491,9 +491,14 @@ def _refresh_llm_status() -> None:
     if ping is None:
         _LLM_STATUS["reachable"] = None  # heuristic planner — not applicable
         return
-    reachable = _probe_llm(ping)
+    # Recorded without its reason, a failed ping counted as "busy" and overwrote a tier
+    # already known to be broken - retried after 60s instead of 900, and forgotten on
+    # restart.
+    why: list[tuple[str, str]] = []
+    reachable = _probe_llm(lambda: ping(on_failure=lambda *reason: why.append(reason)))
     _LLM_STATUS["reachable"] = reachable
-    _orchestrator.model_status.record("fast", reachable)
+    reason, detail = why[-1] if why and not reachable else ("", "")
+    _orchestrator.model_status.record("fast", reachable, reason=reason, detail=detail)
 
 
 def _warmup() -> None:
