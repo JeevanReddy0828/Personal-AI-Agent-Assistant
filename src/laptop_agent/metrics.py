@@ -1,33 +1,84 @@
 from __future__ import annotations
 
 import copy
+import json
+import math
+import re
+import sys
 import shutil
 import subprocess
 import threading
 import time
 
+from laptop_agent.failures import record_failure
+
 _CACHE_TTL_SECONDS = 2.0
 _cache_lock = threading.Lock()
 _cached_metrics: dict[str, object] | None = None
 _cached_at = 0.0
+_refresh_thread: threading.Thread | None = None
+_collect_lock = threading.Lock()
+_failure_lock = threading.Lock()
+_reported_failures: set[tuple[str, str]] = set()
+
+
+def _failure_once(probe: str, cause: str) -> None:
+    with _failure_lock:
+        key = (probe, cause)
+        if key in _reported_failures:
+            return
+        _reported_failures.add(key)
+    record_failure("metrics/" + probe, cause)
+
+
+def _empty_metrics() -> dict[str, object]:
+    return {"cpu_percent": None, "ram_used_mb": None, "ram_total_mb": None,
+            "ram_percent": None, "gpus": []}
+
+
+def _refresh_metrics(force: bool = False) -> None:
+    global _cached_at, _cached_metrics
+    with _collect_lock:
+        with _cache_lock:
+            if not force and _cached_metrics is not None and time.monotonic() - _cached_at < _CACHE_TTL_SECONDS:
+                return
+        try:
+            fresh = _collect_system_metrics()
+        except Exception as exc:
+            _failure_once("refresh", type(exc).__name__)
+            fresh = None
+        with _cache_lock:
+            if fresh is not None:
+                _cached_metrics = fresh
+            elif _cached_metrics is None:
+                _cached_metrics = _empty_metrics()
+            _cached_at = time.monotonic()
 
 
 def system_metrics(*, force: bool = False) -> dict[str, object]:
-    """Return a short-lived, independent metrics snapshot.
+    """Independent snapshots; Windows subprocess probes never block a normal caller.
 
-    Several UI panels request metrics at once. Caching avoids repeating process
-    probes and GPU subprocesses while returning a copy so callers cannot mutate
-    the shared snapshot.
+    First Windows read returns unknown fields while one worker samples the counters.
+    Later reads return the last snapshot during refresh. `force` is a synchronous
+    diagnostic refresh, never used by the HTTP endpoint. Other platforms keep their
+    synchronous cache behavior.
     """
-    global _cached_at, _cached_metrics
+    global _refresh_thread
+    if force or sys.platform != "win32":
+        with _cache_lock:
+            fresh = _cached_metrics is not None and time.monotonic() - _cached_at < _CACHE_TTL_SECONDS
+            if fresh and not force:
+                return copy.deepcopy(_cached_metrics)
+        _refresh_metrics(force=force)
+    else:
+        with _cache_lock:
+            expired = time.monotonic() - _cached_at >= _CACHE_TTL_SECONDS
+            if (_cached_metrics is None or expired) and (_refresh_thread is None or not _refresh_thread.is_alive()):
+                _refresh_thread = threading.Thread(target=_refresh_metrics, name="metrics-refresh", daemon=True)
+                _refresh_thread.start()
+            return copy.deepcopy(_cached_metrics) if _cached_metrics is not None else _empty_metrics()
     with _cache_lock:
-        now = time.monotonic()
-        if not force and _cached_metrics is not None and now - _cached_at < _CACHE_TTL_SECONDS:
-            return copy.deepcopy(_cached_metrics)
-        fresh = _collect_system_metrics()
-        _cached_metrics = fresh
-        _cached_at = now
-        return copy.deepcopy(fresh)
+        return copy.deepcopy(_cached_metrics) if _cached_metrics is not None else _empty_metrics()
 
 
 def _collect_system_metrics() -> dict[str, object]:
@@ -87,34 +138,163 @@ def _windows_cpu_ram() -> tuple[float | None, int | None, int | None]:
     return cpu, ram_used, ram_total
 
 
-def _gpu() -> list[dict[str, object]]:
+# Both counters share one sampling interval. Only compact samples leave PowerShell;
+# process paths and command lines are never requested.
+_GPU_COUNTER_SCRIPT = r"""
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
+$errorsSeen=@()
+$samples=@((Get-Counter -Counter '\GPU Engine(*engtype_3D)\Utilization Percentage','\GPU Adapter Memory(*)\Dedicated Usage' -ErrorAction SilentlyContinue -ErrorVariable errorsSeen).CounterSamples)
+[pscustomobject]@{samples=@($samples | Select-Object InstanceName,CookedValue,Status);failed=($errorsSeen.Count -gt 0)} | ConvertTo-Json -Depth 4 -Compress
+"""
+_LUID = r"luid_(0x[0-9a-f]+)_(0x[0-9a-f]+)_phys_(\d+)"
+_ENGINE = re.compile(r"pid_\d+_" + _LUID + r"_eng_(\d+)_engtype_3d", re.I)
+_MEMORY = re.compile(_LUID, re.I)
+
+
+def _dxgi_adapters() -> dict[tuple[int, int], tuple[str, int]]:
+    """Match names/capacity by LUID, never WMI order (Optimus may hide one card).
+
+    DXGI 1.1's factory/adapter COM ABI, using only stdlib ctypes. Both acquired
+    interfaces are released even when enumeration fails.
+    """
+    import ctypes as c
+    import uuid
+
+    class Luid(c.Structure):
+        _fields_ = [("low", c.c_uint32), ("high", c.c_int32)]
+
+    class Description(c.Structure):
+        _fields_ = [("name", c.c_wchar * 128), ("vendor", c.c_uint32),
+                    ("device", c.c_uint32), ("subsystem", c.c_uint32), ("revision", c.c_uint32),
+                    ("video", c.c_size_t), ("system", c.c_size_t), ("shared", c.c_size_t),
+                    ("luid", Luid), ("flags", c.c_uint32)]
+
+    def method(pointer, index, result, *arguments):
+        table = c.cast(pointer, c.POINTER(c.POINTER(c.c_void_p))).contents
+        return c.WINFUNCTYPE(result, c.c_void_p, *arguments)(table[index])
+
+    factory = c.c_void_p()
+    adapters = {}
+    try:
+        # IDXGIFactory1 IID; IUnknown::Release=2, EnumAdapters1=12, GetDesc1=10.
+        iid = (c.c_ubyte * 16).from_buffer_copy(uuid.UUID("770aae78-f26f-4dba-a829-253c83d1b387").bytes_le)
+        create = c.WinDLL("dxgi").CreateDXGIFactory1
+        create.argtypes, create.restype = [c.c_void_p, c.POINTER(c.c_void_p)], c.c_int32
+        if create(c.byref(iid), c.byref(factory)) < 0:
+            raise OSError("CreateDXGIFactory1 failed")
+        for index in range(64):
+            adapter = c.c_void_p()
+            code = method(factory, 12, c.c_int32, c.c_uint32, c.POINTER(c.c_void_p))(factory, index, c.byref(adapter))
+            if code & 0xffffffff == 0x887a0002:  # DXGI_ERROR_NOT_FOUND: enumeration complete
+                break
+            if code < 0:
+                raise OSError("EnumAdapters1 failed")
+            try:
+                desc = Description()
+                if method(adapter, 10, c.c_int32, c.POINTER(Description))(adapter, c.byref(desc)) < 0:
+                    raise OSError("GetDesc1 failed")
+                if not desc.flags & 2:  # software rendering is not a physical adapter
+                    adapters[(desc.luid.high & 0xffffffff, desc.luid.low)] = (desc.name, desc.video)
+            finally:
+                method(adapter, 2, c.c_uint32)(adapter)
+    except (OSError, AttributeError, c.ArgumentError) as exc:
+        _failure_once("gpu-dxgi", type(exc).__name__)
+    finally:
+        if factory:
+            method(factory, 2, c.c_uint32)(factory)
+    return adapters
+
+
+def _counter_gpus(output: str, adapters: dict) -> list[dict[str, object]]:
+    data = json.loads(output)
+    if not isinstance(data, dict) or not isinstance(data.get("samples"), list):
+        raise ValueError("counter response shape")
+    if data.get("failed"):
+        _failure_once("gpu-counters", "counter read failed")
+    engines, memory, seen = {}, {}, set()
+    for sample in data["samples"]:
+        try:
+            instance = sample["InstanceName"].lower()
+            engine, adapter = _ENGINE.fullmatch(instance), _MEMORY.fullmatch(instance)
+            match = engine or adapter
+            if not match or instance in seen:
+                continue
+            seen.add(instance)
+            status = sample["Status"]
+            if type(status) is not int or status not in (0, 1):
+                _failure_once("gpu-counters", "invalid counter status")
+                continue
+            value = float(sample["CookedValue"])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("invalid counter value")
+            luid = (int(match[1], 16), int(match[2], 16))
+            if engine:
+                groups = engines.setdefault(luid, {})
+                physical_engine = (int(match[3]), int(match[4]))
+                groups[physical_engine] = groups.get(physical_engine, 0.0) + value
+            else:
+                memory[luid] = memory.get(luid, 0.0) + value
+        except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+            _failure_once("gpu-counters", "invalid counter sample")
+    result = []
+    for index, luid in enumerate(sorted(engines.keys() | memory.keys()), 1):
+        name, capacity = adapters.get(luid, (f"GPU {index}", 0))
+        busy = max(engines[luid].values()) if luid in engines else None
+        result.append({"name": name or f"GPU {index}",
+                       "util_percent": round(min(100.0, busy), 1) if busy is not None else None,
+                       "util_kind": "3D",
+                       "mem_used_mb": round(memory[luid] / 1_048_576, 1) if luid in memory else None,
+                       "mem_total_mb": round(capacity / 1_048_576) if capacity else None})
+    if not result:
+        _failure_once("gpu-counters", "no valid adapter samples")
+    return result
+
+
+def _gpu(*, runner=None, adapter_reader=None) -> list[dict[str, object]]:
+    runner = runner or subprocess.run
+    options = dict(capture_output=True, text=True, timeout=6)
+    if sys.platform == "win32":
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     smi = shutil.which("nvidia-smi")
-    if not smi:
+    if smi:
+        try:
+            completed = runner([smi, "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                                "--format=csv,noheader,nounits"], **options)
+            if completed.returncode:
+                _failure_once("gpu-nvidia", f"exit {completed.returncode}")
+            else:
+                gpus = []
+                for line in completed.stdout.strip().splitlines():
+                    try:
+                        name, util, used, total = [part.strip() for part in line.split(",")]
+                        util, used, total = float(util), int(used), int(total)
+                        if not name or not math.isfinite(util) or not 0 <= util <= 100 or used < 0 or total < 0:
+                            raise ValueError("invalid NVIDIA sample")
+                        gpus.append({"name": name, "util_percent": util, "mem_used_mb": used, "mem_total_mb": total})
+                    except ValueError:
+                        _failure_once("gpu-nvidia", "invalid sample")
+                if gpus:
+                    return gpus
+                _failure_once("gpu-nvidia", "no valid samples")
+        except (OSError, subprocess.SubprocessError) as exc:
+            _failure_once("gpu-nvidia", type(exc).__name__)
+    if sys.platform != "win32":
+        return []
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        _failure_once("gpu-counters", "PowerShell missing")
         return []
     try:
-        out = subprocess.run(
-            [smi, "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=6,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+        completed = runner([powershell, "-NoProfile", "-NonInteractive", "-Command", _GPU_COUNTER_SCRIPT],
+                           **options, encoding="utf-8")
+        if completed.returncode:
+            _failure_once("gpu-counters", f"exit {completed.returncode}")
+            return []
+        return _counter_gpus(completed.stdout, (adapter_reader or _dxgi_adapters)())
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:
+        _failure_once("gpu-counters", type(exc).__name__)
         return []
-    gpus: list[dict[str, object]] = []
-    for line in out.splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 4:
-            continue
-        try:
-            gpus.append(
-                {
-                    "name": parts[0],
-                    "util_percent": float(parts[1]),
-                    "mem_used_mb": int(parts[2]),
-                    "mem_total_mb": int(parts[3]),
-                }
-            )
-        except ValueError:
-            continue
-    return gpus
 
 
 def battery_status() -> dict[str, object] | None:

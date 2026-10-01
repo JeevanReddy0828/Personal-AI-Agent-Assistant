@@ -344,6 +344,11 @@ tool activity, scheduled jobs, agent runs, **Map** and **Trip planner** · setti
 (compact layout, orb focus, always on top, transparency, voice cut-in level) · incognito
 chats that are never saved.
 
+On Windows, GPU usage works without an administrator launch: if NVIDIA's utility cannot
+answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
+refreshes in the background; the first read may show unavailable values briefly. A card
+Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
+
 ---
 
 ## Voice
@@ -716,3 +721,10 @@ remediation evidence and remaining limits.
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
+keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
+VRAM usage displays n/a rather than zero.

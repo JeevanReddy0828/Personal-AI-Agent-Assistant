@@ -257,3 +257,44 @@ No live Google account or Gmail grant was used. Packaged native-window/system-br
 behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
 credentials and permissions are deliberately pending; health/setup remains Claude's area.
 The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
+
+
+## GPU-01 review — 2026-10-01
+
+Windows GPU telemetry now falls back to performance counters when NVIDIA is unavailable,
+errors, times out or has no valid samples. Offline fixtures capture two laptop adapter
+LUIDs; tests cover process/engine aggregation, memory conversion, exact name matching,
+unknown versus zero, invalid/partial samples, NVIDIA priority, other platforms, safe
+failure deduplication and cache concurrency. Existing docs remain intact.
+
+Validation: the full isolated unit suite passes (1,615 tests, 78 optional skips), including
+all 16 metrics tests. Thirteen in-memory undo-and-fail mutations were
+caught (priority, fallback, process sum, busiest engine, LUID names, memory units, status,
+finite values, nonblocking refresh, snapshot copies, failure deduplication, deadline and
+hidden launch). No mutated implementation was written to disk.
+
+Live isolated localhost HTTP check on the laptop: IsUserAnAdmin=False; cold /api/metrics
+66.88 ms, warm 6.42 ms, stale 6.58 ms, refreshed 6.65 ms. The full first collection took
+3569.61 ms in the worker. AMD reported 24.2% 3D / 438.4 MiB dedicated (496 MiB capacity),
+then 4.5% / 440.3 MiB; the unmatched powered-down adapter reported 0% / 0 MiB with unknown
+capacity. NVIDIA exit 4 was recorded once across repeated collections. These are sample
+measurements, not a latency guarantee. No app elevation, real account data or provider
+calls were used. Native DXGI enumeration was exercised on this machine.
+
+The first Windows response may contain unknown metrics. Localized/disabled counters
+can be unavailable; failures remain graceful. Packaged-executable validation is still a
+release check. Claude reviews; Jeevan controls merging. No health.py, app.js, auth,
+routing or packaging-script changes are part of GPU-01.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review follow-up: fresh one-shot status/briefing, n/a GPU/VRAM formatting, a 3D
+label and optional DXGI ArgumentError isolation are fixed. All 18 metrics tests and the
+new focused Chromium drawer check pass. Removing force refresh from either consumer, or
+removing the DXGI catch, is caught independently. This follow-up adds orchestrator.py,
+app.js and test_browser_regressions.py to the original scope; health.py stays untouched.
+
+GPU review test portability: the cold-status regression now mocks the unrelated battery
+probe. Its simulated win32 platform otherwise calls windll on a Linux CI host without
+psutil. Production metrics behavior is unchanged by this test-harness correction.
