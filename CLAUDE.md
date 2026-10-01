@@ -270,7 +270,17 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             enough", never "unbeaten": on few tests a smoother must win by a margin. Only a
             `.csv`/`.tsv` makes it a data
             forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
-            weather. Developer-only by default-deny, since it reads a file),
+            weather. The reverse holds too (review of #159): "forecast Revenue in sales.csv."
+            missed the grammar and got the weather at a place called sales.csv, so a sentence
+            that starts with "forecast" and names a table is answered with the usage when it
+            cannot be followed (`forecast_command`), and the weather heuristic declines any
+            sentence naming a `.csv`/`.tsv`. The clauses after the file come in either order,
+            a sentence may end in "." or "please", and `season N` states a cycle the user knows
+            - never inferred from the calendar, which the contract rules out; the reply suggests
+            it when none was found and the history holds two cycles. Numbers under 1 show three
+            significant figures: two decimals called an error rate's average miss 0. One reader
+            and one number parser serve this and `analyze spreadsheet` (`tools.files.read_rows`,
+            `parse_number`). Developer-only by default-deny, since it reads a file),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
             "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
             bottom, the four corners, thirds, centre, full. `parse_placements` finds the

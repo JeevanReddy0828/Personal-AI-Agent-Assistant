@@ -72,7 +72,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
-from laptop_agent.tools.forecast import forecast_request, run_forecast
+from laptop_agent.tools.forecast import USAGE as FORECAST_USAGE, forecast_command
 from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
@@ -1112,8 +1112,8 @@ class AgentOrchestrator:
         if lowered.startswith("ocr "):
             return self.context.transcribe.ocr_image(command[len("ocr ") :].strip())
 
-        if (request := forecast_request(command)) is not None:
-            return run_forecast(request)
+        if (result := forecast_command(command)) is not None:
+            return result
         if lowered == "record" or re.fullmatch(r"record -?\d+(?:\.\d+)?", lowered):
             from laptop_agent.recordings import MAX_SECONDS, recording_seconds
             seconds = recording_seconds(command)
@@ -2579,7 +2579,7 @@ class AgentOrchestrator:
                 "  file info <path>",
                 "  extract tables <path>",
                 "  analyze spreadsheet <path>  (per-column stats for CSV/TSV)",
-                "  forecast <column> in <file.csv> [by <date column>] [for N]  (computed, with a range from its own past errors)",
+                f"  {FORECAST_USAGE}  (computed, with a range from its own past errors)",
                 "  process file <path> [as <operation>]  (auto-detects type, picks the best action)",
                 "  convert file <source> to <destination>",
                 "  organize folder <path> [apply]",
