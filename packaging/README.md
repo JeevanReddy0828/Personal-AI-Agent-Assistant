@@ -98,3 +98,10 @@ opens the system browser and polls with its own HttpOnly proof cookie. Only that
 window receives the app session. Test real consent and a return to the packaged window
 before distribution; automated checks use two independent Chromium cookie jars and a fake
 provider. Google sign-in grants no Gmail access in this slice.
+
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+analytics/forecast.py uses only the standard library and needs no optional extra or
+bundled data. It is a core API, not a new packaged command or chart yet. Preserve null
+intervals and the enough_data flag when a later UI integrates its result.

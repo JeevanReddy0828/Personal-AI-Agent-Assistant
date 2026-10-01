@@ -257,3 +257,17 @@ No live Google account or Gmail grant was used. Packaged native-window/system-br
 behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
 credentials and permissions are deliberately pending; health/setup remains Claude's area.
 The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
+
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+The forecasting core includes 16 synthetic-only tests and 17 caught in-memory mutations.
+A second 300-series evaluation used unseen seeds and untouched future values: 80% interval
+coverage 77.0% trend, 78.3% seasonal, 79.3% noisy level. Mean future error improved over
+baseline in every family; backtest comparison passed 300/300. See docs/forecasting.md for
+exact generation, limitations, schema and counts. No real app data, CSV command, UI,
+routing or dependency changes belong to this feature. Claude reviews; Jeevan merges.
+
+The full isolated suite passed 1,617 tests (78 optional skips). After adding the
+unit-scale invariance regression, the final focused forecast suite passes all 16 tests;
+CI runs the expanded complete suite on both supported operating systems.
