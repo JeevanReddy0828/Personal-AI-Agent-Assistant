@@ -1,12 +1,14 @@
 """Run the unit suite without reading .env, contacting services, or using personal data."""
 from __future__ import annotations
 
+import ctypes
 import os
 from pathlib import Path
 import socket
 import sys
 import tempfile
 import unittest
+import webbrowser
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
@@ -65,6 +67,19 @@ def main() -> int:
         return connect(sock, address)
 
     socket.socket.connect = local_only
+
+    # Nothing a test does may reach the desktop. A URL handed to the OS is fetched by the
+    # browser, not by this process, so the guard above never sees it: the routing contract
+    # played a real YouTube video on every run, and pressed the real volume keys, which left
+    # the laptop at 50%. Each of these now succeeds and does nothing, as a fake would.
+    def inert(*args: object, **kwargs: object) -> bool:
+        return True
+
+    webbrowser.open = inert
+    if hasattr(os, "startfile"):
+        os.startfile = inert
+    if hasattr(ctypes, "windll"):
+        ctypes.windll.user32.keybd_event = inert
     with tempfile.TemporaryDirectory(prefix="jarvis_tests_") as scratch:
         try:
             os.chdir(scratch)
