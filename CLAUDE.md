@@ -1009,6 +1009,9 @@ owner. Decisions that each exist for a reason:
   its 0.6s hash after `revoke_account` has run, then creates its session, which also came
   back after disable-then-enable. `create()` defaults to epoch 0, so a caller that leaves it
   out fails closed; changing your own password rebinds only the session that proved it.
+  Every route reads the signed-in account through one check, `_signed_in_account()`: the
+  Google routes (#145) were written before the epoch and carried their own copy, which
+  merged cleanly and treated a session `/api/me` refused as signed in.
   Known limit: revoking ends sessions, not work already running - an agent run or stream in
   flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
@@ -1382,6 +1385,13 @@ checks before sign-in. Only launch/callback GETs accept cross-site navigation, o
 canonical loopback host, with one-time tickets or state plus browser binding. Existing
 API token checks stay in place. Link/unlink require a password step-up under
 `_SIGNIN_LIMIT`; account-only Google recovery uses the documented local CLI password reset.
+Failures are recorded, never the request (Claude, landing #145): the token request carries
+the authorization code and the client secret, and a reply can carry tokens, so
+`google/token` keeps only the HTTP status and the OAuth `error` code, `google/id-token` the
+name of the claim check that refused (`time` is a wrong laptop clock), and
+`google/callback` / `google/browser` an exception's type, never its text. A refused client
+(`invalid_client`, `unauthorized_client`, `redirect_uri_mismatch`) names the settings to
+check; "Start again" would be advice to retry something that cannot work.
 No Gmail policy is widened. Phase 2b must add account-scoped encrypted credentials,
 fail-closed revocation and narrow mailbox approvals before exposing personal mail.
 

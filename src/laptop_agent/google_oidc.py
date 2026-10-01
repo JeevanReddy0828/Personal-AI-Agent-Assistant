@@ -6,11 +6,14 @@ import hashlib
 import http.client
 import json
 import math
+import re
 import secrets
 import threading
 import time
 from dataclasses import dataclass
 from urllib.parse import urlencode
+
+from laptop_agent.failures import record_failure
 
 TTL = 600
 PROOF_COOKIE = "jarvis_google_proof"
@@ -29,6 +32,21 @@ def cookie(name: str, value: str, *, lax: bool = False) -> str:
     return f"{name}={value}; Path=/auth/google; HttpOnly; SameSite={'Lax' if lax else 'Strict'}; Max-Age={TTL if value else 0}"
 
 
+# Token endpoint errors that no retry can fix: the client settings themselves are wrong.
+_CLIENT_ERRORS = frozenset({"invalid_client", "unauthorized_client", "redirect_uri_mismatch"})
+
+
+def _oauth_error(body: bytes) -> str:
+    """The token endpoint's `error` code, when it is a plain code. It is the only part of a
+    reply that is ever recorded: a reply can carry tokens, and the request carried the
+    authorization code and the client secret."""
+    try:
+        code = json.loads(body).get("error")
+    except (ValueError, AttributeError):
+        return ""
+    return code if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,64}", code) else ""
+
+
 def exchange(fields: dict) -> dict:
     connection = http.client.HTTPSConnection("oauth2.googleapis.com", timeout=10)
     try:
@@ -40,6 +58,7 @@ def exchange(fields: dict) -> dict:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                record_failure("google/token", "no complete reply within 20s")
                 raise GoogleError("Google did not answer in time. Try again.")
             if connection.sock:
                 connection.sock.settimeout(min(10, remaining))
@@ -49,8 +68,15 @@ def exchange(fields: dict) -> dict:
             chunks.append(chunk)
             length += len(chunk)
             if length > 65536:
+                record_failure("google/token", "reply over 64 KiB")
                 raise GoogleError("Google returned an invalid sign-in response. Try again.")
         if response.status != 200:
+            code = _oauth_error(b"".join(chunks))
+            record_failure("google/token", f"HTTP {response.status} {code or 'without an error code'}")
+            if code in _CLIENT_ERRORS:
+                # "Start again" would be advice to retry something that cannot work.
+                raise GoogleError("Google refused this app's client settings. Check GOOGLE_CLIENT_ID "
+                                  "and GOOGLE_CLIENT_SECRET (a Desktop client).")
             raise GoogleError("Google could not finish sign-in. Start again.")
         result = json.loads(b"".join(chunks))
         if not isinstance(result, dict):
@@ -59,6 +85,9 @@ def exchange(fields: dict) -> dict:
     except (OSError, http.client.HTTPException, ValueError) as exc:
         if isinstance(exc, GoogleError):
             raise
+        # The type alone: an exception's text is not ours to vouch for.
+        errno = getattr(exc, "errno", None)
+        record_failure("google/token", type(exc).__name__ + (f" errno {errno}" if isinstance(errno, int) else ""))
         raise GoogleError("Could not complete Google sign-in. Check your connection and client settings.") from None
     finally:
         connection.close()
@@ -71,38 +100,45 @@ class Identity:
     expires: float
 
 
+# Which check refused an ID token: recorded in place of the token, whose claims are the
+# user's identity. "time" is the one a wrong laptop clock produces.
+_CLAIM_CHECKS = frozenset({"shape", "aud", "azp", "iss", "nonce", "time", "sub"})
+
+
 def identity(token: str, client_id: str, nonce: str, now: float) -> Identity:
     # Only called on our own TLS token endpoint response, never a browser-supplied JWT.
     try:
         if not isinstance(token, str) or len(token) > 16384:
-            raise ValueError()
+            raise ValueError("shape")
         header, body, signature = token.split(".")
         if not header or not signature:
-            raise ValueError()
+            raise ValueError("shape")
         claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
         aud = claims.get("aud")
         audiences = aud if isinstance(aud, list) else [aud]
         if client_id not in audiences or (len(audiences) > 1 and "azp" not in claims):
-            raise ValueError()
+            raise ValueError("aud")
         if claims.get("azp", client_id) != client_id:
-            raise ValueError()
+            raise ValueError("azp")
         if claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
-            raise ValueError()
+            raise ValueError("iss")
         if claims.get("nonce") != nonce:
-            raise ValueError()
+            raise ValueError("nonce")
         exp, iat = claims.get("exp"), claims.get("iat")
         if any(type(v) not in (int, float) or not math.isfinite(v) for v in (exp, iat)):
-            raise ValueError()
+            raise ValueError("time")
         if exp <= now or iat > now + 60 or iat > exp:
-            raise ValueError()
+            raise ValueError("time")
         sub = claims.get("sub")
         if not isinstance(sub, str) or not sub.strip() or len(sub) > 255:
-            raise ValueError()
+            raise ValueError("sub")
         email = claims.get("email")
         if claims.get("email_verified") is not True or not isinstance(email, str) or len(email) > 320:
             email = None
         return Identity(sub, email, exp)
-    except (ValueError, TypeError, AttributeError, KeyError):
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
+        reason = str(exc) if str(exc) in _CLAIM_CHECKS else type(exc).__name__
+        record_failure("google/id-token", f"rejected at {reason}")
         raise GoogleError("Google's identity could not be verified. Start again.") from None
 
 
@@ -194,6 +230,9 @@ class GoogleFlows:
             with self._lock:
                 flow.result, flow.status = result, "ready"
         except Exception as exc:
+            if not isinstance(exc, GoogleError):
+                # By type only: the exchange this wraps held the code and the client secret.
+                record_failure("google/callback", f"unexpected {type(exc).__name__}")
             with self._lock:
                 flow.error = str(exc) if isinstance(exc, GoogleError) else "Google sign-in failed. Start again."
                 flow.status = "failed"

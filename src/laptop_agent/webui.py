@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Callable
 
 from laptop_agent.access import acting_as
-from laptop_agent.accounts import MAX_PASSWORD, AccountError, AccountStore, HashingBusy, Principal
+from laptop_agent.accounts import MAX_PASSWORD, Account, AccountError, AccountStore, HashingBusy, Principal
 from laptop_agent.storage import StorageDamaged, file_lock
 from laptop_agent.google_oidc import GoogleError, GoogleFlows, PROOF_COOKIE, FLOW_COOKIE, cookie as google_cookie
 from urllib.parse import parse_qs, urlsplit
@@ -680,19 +680,27 @@ class Handler(BaseHTTPRequestHandler):
     _who_checked = False
     _who: Principal | None = None
 
+    def _signed_in_account(self) -> Account | None:
+        """The account this request's session belongs to, read as it is now, or None.
+
+        The one definition of "signed in". The Google routes need the whole account rather
+        than a principal, and the copy of this check they first carried missed the epoch."""
+        session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
+        account = ACCOUNTS.get(session.account_id) if session else None
+        # A session is good only for the credentials it was granted under: a new password or
+        # a disable moves the account's epoch on, and ends a session its revoke arrived too
+        # early to catch (a sign-in checked just before, still finishing its hash).
+        if account is None or account.disabled or session.epoch != account.epoch:
+            return None
+        return account
+
     def _principal(self) -> Principal | None:
         """Who is signed in on this request, read from the account as it is now, so a
         disabled account or a changed role applies to the very next request."""
         if not self._who_checked:
             self._who_checked = True
-            session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
-            account = ACCOUNTS.get(session.account_id) if session else None
-            # A session is good only for the credentials it was granted under: a new password or
-            # a disable moves the account's epoch on, and ends a session its revoke arrived too
-            # early to catch (a sign-in checked just before, still finishing its hash).
-            self._who = (Principal(account.id, account.username, account.role)
-                         if account is not None and not account.disabled and session.epoch == account.epoch
-                         else None)
+            account = self._signed_in_account()
+            self._who = Principal(account.id, account.username, account.role) if account else None
         return self._who
 
     def _authorized(self) -> bool:
@@ -786,17 +794,12 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _google_account(self):
-        session = SESSIONS.resolve(self._cookie(_SESSION_COOKIE))
-        account = ACCOUNTS.get(session.account_id) if session else None
-        return account if account is not None and not account.disabled else None
-
     def _google_get(self, path: str) -> None:
         if not self._google_local(canonical=path != "/auth/google/status"):
             return
         try:
             if path == "/auth/google/status":
-                account = self._google_account()
+                account = self._signed_in_account()
                 self._json(200, {"ok": True, "configured": _GOOGLE.configured,
                                 "accounts": ACCOUNTS.exists(), "linked": bool(account and account.google_sub),
                                 "email": account.google_email if account else None,
@@ -857,7 +860,7 @@ class Handler(BaseHTTPRequestHandler):
             session = self._cookie(_SESSION_COOKIE)
             proof = self._cookie(PROOF_COOKIE)
             flow_id = str(payload.get("flow") or "")
-            account = self._google_account()
+            account = self._signed_in_account()
             if path in {"/auth/google/start", "/auth/google/unlink"}:
                 purpose = payload.get("purpose", "signin")
                 if purpose not in {"signin", "link"}:
@@ -868,7 +871,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif account is not None:
                     raise GoogleError("Sign out before signing in as another account.")
                 with file_lock(ACCOUNTS.path):
-                    if self._google_account() != account:
+                    if self._signed_in_account() != account:
                         raise GoogleError("Your signed-in account changed. Start again.")
                     if path.endswith("unlink"):
                         account = ACCOUNTS.unlink_google(account.id)
@@ -885,7 +888,9 @@ class Handler(BaseHTTPRequestHandler):
                 if native:
                     try:
                         opened = webbrowser.open(launch_url)
-                    except Exception:
+                    except Exception as exc:
+                        # By type only: the launch URL carries a one-time ticket.
+                        record_failure("google/browser", f"system browser did not open: {type(exc).__name__}")
                         opened = False
                     if not opened:
                         _GOOGLE.cancel(flow.id, new_proof)
@@ -899,7 +904,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True}, headers=headers)
                 return
             with file_lock(ACCOUNTS.path):
-                account = self._google_account()
+                account = self._signed_in_account()
                 flow = _GOOGLE.complete(flow_id, proof, session, account)
                 if flow is None:
                     self._json(202, {"ok": True, "pending": True})

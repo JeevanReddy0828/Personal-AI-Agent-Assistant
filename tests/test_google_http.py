@@ -6,10 +6,11 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlsplit, urlencode
 from unittest.mock import patch
+from laptop_agent.failures import FAILURES
 from laptop_agent.google_oidc import GoogleFlows
 import test_webui_auth as auth_tests
 from test_webui_auth import GOOD
-from test_google_oidc import jwt
+from test_google_oidc import google_failures, jwt
 
 
 class GoogleHTTPTests(unittest.TestCase):
@@ -216,3 +217,30 @@ class GoogleHTTPTests(unittest.TestCase):
             else:self.accounts.delete(account.id)
             self.assertEqual(self.finish(body,proof)[0],400)
             if action=="disabled":self.accounts.delete(account.id)
+
+    def test_a_session_from_older_credentials_is_signed_out_here_too(self):
+        # Every other route refuses a session granted before a password change (#148); the
+        # Google routes kept their own copy of "signed in", without the epoch.
+        owner=self.owner();self.accounts.link_google(owner.id,self.sub,"owner@example.test")
+        stale=self.sessions.create(owner.id,"password",epoch=owner.epoch)
+        self.accounts.set_password(owner.id,"another good password")
+        cookie="jarvis_session="+stale
+        self.assertEqual(self.call("GET","/api/me",cookie=cookie)[0],401)
+        status=self.call("GET","/auth/google/status",cookie=cookie,token=False)
+        self.assertEqual((status[0],status[1]["linked"],status[1]["email"]),(200,False,None))
+        body,proof=self.start_google(cookie)
+        self.callback(self.launch(body["launch"]))
+        done=self.finish(body,proof,cookie)
+        self.assertEqual(done[0],200,done[1])
+        self.assertIsNone(self.sessions.resolve(stale))
+        self.assertEqual(self.call("GET","/api/me",cookie=done[2]["Set-Cookie"].split(";",1)[0])[0],200)
+
+    def test_a_browser_that_will_not_open_is_recorded(self):
+        self.owner();FAILURES.clear()
+        with patch.object(self.webui,"_DESKTOP_MODE",True), patch.object(self.webui.webbrowser,"open",side_effect=OSError("ticket=private")):
+            result=self.call("POST","/auth/google/start",{"native":True},token=False)
+        self.assertEqual(result[0],400)
+        recorded=google_failures()
+        self.assertEqual([entry["where"] for entry in recorded],["google/browser"])
+        self.assertNotIn("private",json.dumps(recorded))
+        self.assertFalse(self.google._flows)

@@ -5,7 +5,12 @@ import json
 import threading
 import unittest
 from urllib.parse import parse_qs, urlsplit
+from laptop_agent.failures import FAILURES
 from laptop_agent.google_oidc import GoogleError, GoogleFlows, identity, TTL
+
+
+def google_failures():
+    return [entry for entry in FAILURES.recent() if entry["where"].startswith("google/")]
 
 
 def jwt(expected_nonce, **changes):
@@ -139,6 +144,30 @@ class GoogleFlowsTests(unittest.TestCase):
             self.complete()
         self.assertNotIn("private", str(error.exception))
 
+    def test_an_unexpected_provider_failure_is_recorded_by_type_only(self):
+        self.launched()
+        def broken(fields):
+            raise RuntimeError("private-token-and-code")
+        self.flows.transport = broken
+        FAILURES.clear()
+        self.callback()
+        recorded = google_failures()
+        self.assertEqual([entry["where"] for entry in recorded], ["google/callback"])
+        self.assertIn("RuntimeError", recorded[0]["message"])
+        self.assertNotIn("private", json.dumps(recorded))
+
+    def test_a_refused_identity_is_recorded_by_check_never_by_token(self):
+        for changes, check in ((dict(aud="other"), "aud"), (dict(iss="https://evil.test"), "iss"),
+                               (dict(nonce="different"), "nonce"), (dict(exp=1000), "time")):
+            with self.subTest(check=check):
+                FAILURES.clear()
+                token = jwt("nonce", **changes)
+                with self.assertRaises(GoogleError):
+                    identity(token, "client", "nonce", 1000)
+                recorded = google_failures()
+                self.assertEqual([entry["message"] for entry in recorded], [f"rejected at {check}"])
+                self.assertNotIn(token.split(".")[1], json.dumps(recorded))
+
     def test_claims_fail_closed(self):
         cases = [dict(iss="https://evil.test"), dict(aud="other"), dict(aud=["client","other"]),
                  dict(azp="other"), dict(exp=1000), dict(exp=True), dict(exp=float("inf")),
@@ -188,6 +217,35 @@ class GoogleTransportTests(unittest.TestCase):
             with self.subTest(arguments=list(arguments)),self.assertRaises(GoogleError) as error:
                 self.call(**arguments)
             self.assertNotIn("private",str(error.exception))
+
+    def test_a_refused_client_names_the_settings_and_is_recorded(self):
+        cases = ((401, b'{"error":"invalid_client","error_description":"private-secret"}',
+                  "GOOGLE_CLIENT_SECRET", "HTTP 401 invalid_client"),
+                 (400, b'{"error":"invalid_grant"}', "Start again", "HTTP 400 invalid_grant"),
+                 (502, b'<html>private-code</html>', "Start again", "HTTP 502 without an error code"))
+        for status, body, shown, recorded in cases:
+            with self.subTest(status=status):
+                FAILURES.clear()
+                with self.assertRaisesRegex(GoogleError, shown):
+                    self.call(status=status, chunks=[body, b''])
+                self.assertEqual([entry["message"] for entry in google_failures()], [recorded])
+                self.assertNotIn("private", json.dumps(google_failures()))
+
+    def test_every_transport_failure_is_recorded_without_the_request(self):
+        from unittest.mock import patch
+        for arguments in ({"chunks":[b'not json',b'']}, {"chunks":[b'x'*8192]*9},
+                          {"error":OSError("private-code private-secret")}):
+            with self.subTest(arguments=list(arguments)):
+                FAILURES.clear()
+                with self.assertRaises(GoogleError):
+                    self.call(**arguments)
+                recorded = google_failures()
+                self.assertEqual([entry["where"] for entry in recorded], ["google/token"])
+                self.assertNotIn("private", json.dumps(recorded))
+        FAILURES.clear()
+        with patch("laptop_agent.google_oidc.time.monotonic", side_effect=[0, 21]), self.assertRaises(GoogleError):
+            self.call()
+        self.assertEqual([entry["message"] for entry in google_failures()], ["no complete reply within 20s"])
 
     def test_trickling_body_stops_at_read_deadline(self):
         from unittest.mock import patch
