@@ -1371,6 +1371,17 @@ Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates
 This is independent of VOICE-02's broader grpc exception fallback and does not import
 those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+Forecasting (ANALYTICS-01) lives in analytics/forecast.py: pure stdlib, no app data or IO.
+Read docs/forecasting.md before integrating. Default season detection and parameter tuning
+use only an initial prefix; separate chronological blocks select against both baselines
+and calibrate horizon-specific empirical intervals. Unsupported data/intervals must be
+shown as such, not narrated as a confident prediction. Calendar frequency is not a season.
+CSV commands, charts, OLS/MAD and job/tier predictions remain separate work.
+
+
 ### AUTH-01 phase 2a — Google identity handoff (Codex, 2026-09-28)
 
 Branch `codex/google-signin` starts at auth-admin `1327dea`; it is intentionally stacked
@@ -1403,13 +1414,3 @@ existing CSP nonce. Provider opener isolation can sever a popup reference; `popu
 is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
 The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
 new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
-
-
-## ANALYTICS-01 forecasting core — 2026-10-01
-
-Forecasting (ANALYTICS-01) lives in analytics/forecast.py: pure stdlib, no app data or IO.
-Read docs/forecasting.md before integrating. Default season detection and parameter tuning
-use only an initial prefix; separate chronological blocks select against both baselines
-and calibrate horizon-specific empirical intervals. Unsupported data/intervals must be
-shown as such, not narrated as a confident prediction. Calendar frequency is not a season.
-CSV commands, charts, OLS/MAD and job/tier predictions remain separate work.
