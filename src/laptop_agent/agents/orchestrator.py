@@ -3229,6 +3229,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command, _allow_planner=False)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))
@@ -4621,6 +4624,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))

@@ -299,6 +299,35 @@ class SignedOutTests(unittest.TestCase):
                     self.everyday.say("multi remember first = one ;; remember second = two")
         self.assertTrue(ended, "no subtask ran, so this proved nothing")
 
+    def test_a_stopped_step_does_not_stay_working(self) -> None:
+        # The workflow and autopilot loops caught only Exception, and a cancellation is not
+        # one, so the step that never ran stayed `working` in the control room for good
+        # (Codex's review of #156).
+        orchestrator = self.everyday.orchestrator
+        memory = orchestrator.context.memory
+        save = memory.set_profile_value
+        steps = ["remember first = one", "remember second = two"]
+        runs = {
+            "workflow": lambda: self.everyday.say("workflow " + " ;; ".join(steps)),
+            "autopilot": lambda: asyncio.run(orchestrator._run_autopilot("note two things", steps)),
+        }
+        for name, run in runs.items():
+            with self.subTest(name):
+                ended: list[bool] = []
+
+                def save_then_end(*args, **kwargs):
+                    result = save(*args, **kwargs)
+                    ended.append(True)
+                    return result
+
+                with patch.object(memory, "set_profile_value", side_effect=save_then_end),                         patch.object(orchestrator.autopilot_planner, "is_safe_command", return_value=True):
+                    with acting_as(DEV, lambda: not ended):
+                        with self.assertRaises(access.SignedOut):
+                            run()
+                self.assertNotIn("second", self.facts())
+                self.assertEqual(orchestrator.control_room.snapshot()["summary"]["working"], 0)
+                memory.forget_profile_value("first")
+
 
 class ThroughTheAssistantTests(unittest.TestCase):
     def setUp(self) -> None:

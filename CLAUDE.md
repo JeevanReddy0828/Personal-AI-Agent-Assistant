@@ -1021,8 +1021,11 @@ owner. Decisions that each exist for a reason:
   request answers 401. Not in `_account_limits`: prose never reaches it, so a workflow step
   that reads as prose was still routed and answered. `_run_many` asks again after its
   `gather`, which turns a stopped subtask into a bare `CancelledError('')` (3.11 to 3.14),
-  or a batch answers "0 succeeded" instead of stopping. Known limits: a command already
-  inside a tool finishes, and scheduled jobs have no owner to check.
+  or a batch answers "0 succeeded" instead of stopping. A loop that marks its steps in the
+  control room finishes the step on `OperationCancelled` before re-raising: the workflow and
+  autopilot loops caught only `Exception`, so a step that never ran stayed `working` for good
+  (Codex's review). Known limits: a command already inside a tool finishes, and scheduled
+  jobs have no owner to check.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from
