@@ -2109,26 +2109,7 @@ class AgentOrchestrator:
             if planned.is_chat and planned.response and planned.explanation == _VERBATIM:
                 return ToolResult.success(planned.response)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
-                # _allow_planner=False stops a planned command from re-triggering
-                # the planner, which would let an LLM loop or double-call itself.
-                # Light up the specialist the planner delegated to, so the control
-                # room reflects the resolved tool, not just the Planner.
-                resolved_agent = self.control_room.start(planned.command)
-                trace = current_trace()
-                if trace is not None:
-                    trace.kind = "command"
-                    trace.verb = planned.command.strip().split(" ", 1)[0].lower()
-                    trace.tool_started()
-                try:
-                    result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
-                except BaseException as exc:
-                    # handle() turns every Exception into a result; what still escapes - Stop,
-                    # a session that ended, a refused approval - left this specialist working.
-                    self.control_room.finish(resolved_agent, str(exc) or "Stopped", ok=False)
-                    raise
-                if trace is not None:
-                    trace.tool_done()
-                self.control_room.finish(resolved_agent, result.message, ok=result.ok)
+                result = await self._run_routed(planned.command, history_turns)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
                 result.message = self._humanize(result)
@@ -2315,6 +2296,29 @@ class AgentOrchestrator:
         r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
         re.IGNORECASE,
     )
+
+    async def _run_routed(self, command: str, history_turns: list[dict[str, str]]) -> ToolResult:
+        """Run the command the planner resolved, lighting up the specialist it delegated to so
+        the control room reflects the resolved tool, not just the Planner."""
+        agent_id = self.control_room.start(command)
+        trace = current_trace()
+        if trace is not None:
+            trace.kind = "command"
+            trace.verb = command.strip().split(" ", 1)[0].lower()
+            trace.tool_started()
+        try:
+            # _allow_planner=False stops a planned command from re-triggering the planner,
+            # which would let an LLM loop or double-call itself.
+            result = await self.handle(command, _allow_planner=False, history=history_turns)
+        except BaseException as exc:
+            # handle() turns every Exception into a result; what still escapes - Stop, a session
+            # that ended, a refused approval - left this specialist working.
+            self.control_room.finish(agent_id, str(exc) or "Stopped", ok=False)
+            raise
+        if trace is not None:
+            trace.tool_done()
+        self.control_room.finish(agent_id, result.message, ok=result.ok)
+        return result
 
     def _needs_fresh_info(self, text: str) -> bool:
         if self.context.websearch is None:
