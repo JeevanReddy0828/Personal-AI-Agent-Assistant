@@ -3,6 +3,23 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
+## Session 2026-10-01 — a clean merge that was still wrong (#145 after #148)
+
+- **A merge without a conflict can still drop a rule.** #148 taught `_principal` that a
+  session is good only for the epoch it was granted under. #145, written before it, read
+  the session cookie itself for its Google routes and checked only `disabled`. The two
+  merged with no conflict, and a session `/api/me` refused was still signed in to the
+  Google routes: it read the linked email and blocked Google sign-in in its browser. In the
+  pair log I had told Codex #145 needed no change, having checked where sessions are
+  *created* (`SESSIONS.create`) and not where they are *read* (`SESSIONS.resolve`). **Rule:
+  when a check gains a rule, find every copy of the check by what it reads, not only by what
+  it writes, and leave one definition.**
+- **Google sign-in recorded no failure at all.** A wrong client secret (HTTP 401
+  `invalid_client`) said "Start again", forever, with nothing in `failures`. The records are
+  now strings this code builds — status, OAuth error code, the claim check's name, an
+  exception's type — because the token request holds the code and the client secret.
+  **Rule: where a path handles secrets, record what you constructed, not what you caught.**
+
 ## Session 2026-09-30 — a broken model reported as busy by the keep-warm ping
 
 - **A caller that drops the reason undoes the split the reason exists for.**
@@ -722,3 +739,20 @@ mode and configuration. A real nvidia-riva-client/grpc call using synthetic sile
 a dummy key to a silent localhost TCP listener saw a TLS ClientHello, returned a timeout
 in 0.680 seconds for a 0.5-second budget (including SDK import), and closed the socket.
 This tests a stalled transport, not hosted model quality or hardware microphone capture.
+
+## 2026-09-28 — OAuth popup isolation and redirect tests
+
+A popup's `closed` property can become true when a provider isolates its opener, even
+though its sign-in flow continues. Cancelling the server flow on that signal stranded
+Google sign-in. The original window now waits on its proof-bound completion, with an
+explicit Cancel button and ten-minute expiry. The Chromium fake provider deliberately
+sets Cross-Origin-Opener-Policy: same-origin to preserve this regression check.
+
+Playwright route handlers only intercept the first request in a redirect chain. The
+fake-Google browser fixture reads the local launch 303 without following it, preserves
+its Set-Cookie, and performs a new navigation so the provider can be intercepted fully.
+HTTP tests independently assert the production 303; browser tests exercise real cross-site
+cookie handling. Plain HTTP tests alone did not expose this lifecycle issue.
+
+An old flow's cancellation must not clear a newer flow's proof cookie in another tab.
+Cancel now clears that cookie only after a matching flow/proof was actually cancelled.

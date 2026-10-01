@@ -84,3 +84,17 @@ from 10 to 120 seconds; `RIVA_ASR_TIMEOUT_SECONDS` overrides it with a finite va
 (0,600]. Auto mode then tries its local engine; an explicit Riva selection reports failure.
 This does not bound local-model loading or offline transcription. Rebuild the app after
 runtime changes; test a real configured provider separately from the synthetic SDK checks.
+
+### Google identity in a packaged app
+
+AUTH-01 phase 2a adds `webui_assets/google_auth.js`; keep packaging the whole asset directory
+(the existing wildcard already includes it). The helper is inlined into the sign-in and
+main documents with the existing CSP nonce. No extra Python runtime dependency is added.
+
+Configure the owner's Google OAuth Desktop client with GOOGLE_CLIENT_ID and
+GOOGLE_CLIENT_SECRET. Sign-in derives its 127.0.0.1 callback from the app's listening port;
+GOOGLE_REDIRECT_URI is still only the older email command's setting. The native window
+opens the system browser and polls with its own HttpOnly proof cookie. Only that original
+window receives the app session. Test real consent and a return to the packaged window
+before distribution; automated checks use two independent Chromium cookie jars and a fake
+provider. Google sign-in grants no Gmail access in this slice.

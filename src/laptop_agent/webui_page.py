@@ -68,11 +68,11 @@ def build_page() -> str:
     return (
         _read("app.html")
         .replace("{{STYLE}}", _read("app.css"))
-        .replace("{{SCRIPT}}", _read("app.js"))
+        .replace("{{SCRIPT}}", _read("google_auth.js") + "\n" + _read("app.js"))
     )
 
 
 PAGE = build_page()
 # Served instead of the page once accounts exist and a request is not signed in. A separate
 # document, so the API token inside PAGE never reaches anyone who has not signed in.
-SIGNIN_PAGE = _read("signin.html")
+SIGNIN_PAGE = _read("signin.html").replace("{{GOOGLE_SCRIPT}}", _read("google_auth.js"))
