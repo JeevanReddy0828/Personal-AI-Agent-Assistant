@@ -646,8 +646,10 @@ information rather than a rename. The provider reports why through an optional
 every request thread. A caller that passes no sink behaves exactly as before, which is why
 the advisor, the document tool and the copilot needed no change. A caller that **records**
 the outcome must pass one: the keep-warm `ping` did not, so every failed ping was recorded
-as busy and demoted a tier a chat turn had found broken. Known gap: `plan()` has no sink,
-so a non-streaming turn whose route failed still records the fast tier as busy.
+as busy and demoted a tier a chat turn had found broken. `plan()` reports why on the
+decision it returns (`PlanDecision.failure`; a decision belongs to one call, so this is
+safe where a provider field is not), and the non-streaming fallback records it: that
+branch runs only when the route failed, and it marked a retired model id busy.
 
 **Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
 `data_dir/model_status.json`, so a retired model id or a rejected key is still known at

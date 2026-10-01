@@ -2195,7 +2195,11 @@ class AgentOrchestrator:
                         model_used, answered = "fast", True
                         self.model_status.record("fast", True)
                     elif real_fast and fast_available:
-                        self.model_status.record("fast", False)
+                        # The failed routing call is all this turn learned about the fast
+                        # tier. Recorded without its reason it reads as busy, which demoted
+                        # a retired model id or a rejected key from broken.
+                        reason, detail = planned.failure or ("", "")
+                        self.model_status.record("fast", False, reason=reason, detail=detail)
                 if not answered:
                     # A failed fast tier should promote this turn to any healthy
                     # primary tier that has not already been tried.

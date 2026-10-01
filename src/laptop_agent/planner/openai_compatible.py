@@ -320,6 +320,7 @@ class OpenAICompatiblePlannerProvider:
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
             # Swallowing without recording is what let two outages look like congestion.
             record_failure("planner/route", exc, model=self.model)
+            failure = classify_failure(exc, self.model)
             if _is_timeout(exc):
                 # Slow, not unreachable. Answering "I could not reach my language model"
                 # here would replace a working answer with an error, because only the
@@ -329,12 +330,14 @@ class OpenAICompatiblePlannerProvider:
                     action="chat",
                     confidence=0.0,
                     explanation=f"Routing exceeded {self.route_timeout:g}s; answering directly.",
+                    failure=failure,
                 )
             return PlanDecision(
                 action="chat",
                 confidence=0.0,
                 explanation=f"Language model request failed: {exc}",
                 response="I could not reach my language model just now. Try again, or use 'help' for direct commands.",
+                failure=failure,
             )
         return self._interpret(content)
 
