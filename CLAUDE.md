@@ -251,6 +251,20 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             still reaches the advisor, and `solve` hands a sum straight to the calculator.
             Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
             inside power gave 4),
+        forecast (`forecast <column> in <file.csv> [by <date column>] [for N]` - a column of
+            the user's own CSV projected forward by `analytics/forecast.py` (Codex's
+            ANALYTICS-01, contract in `docs/forecasting.md`), never by a model.
+            `tools/forecast.py` owns what the core leaves to the tool: dates, spacing, gaps
+            and odd cells, each refused with a reason rather than guessed - a missing month is
+            named, two rows in one period are not added up, "1,5" is not fifteen. The period
+            comes from the **smallest** gap between dates: the median gap of Jan, Feb, Jun is
+            75.5 days and named no period at all. The answer says what the core established
+            and nothing more: **no number** when it could not test a forecast (its points are
+            then the last value repeated), **no band** when it could not measure one, and never
+            the selection-block MASE as accuracy - the winner is chosen on that block, so
+            beating the baseline there is guaranteed. Only a `.csv`/`.tsv` makes it a data
+            forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
+            weather. Developer-only by default-deny, since it reads a file),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
             "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
             bottom, the four corners, thirds, centre, full. `parse_placements` finds the

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 
-from laptop_agent.tools.forecast import SeriesError, load_series
+from laptop_agent.access import acting_as
+from laptop_agent.accounts import Principal
+from laptop_agent.tools.forecast import SeriesError, forecast_request, load_series, run_forecast
+from test_everyday_requests import Everyday
 
 
 class LoadSeriesTests(unittest.TestCase):
@@ -93,6 +97,96 @@ class LoadSeriesTests(unittest.TestCase):
         self.assertIn("There is no file at", self.refused(self.dir / "absent.csv", "Sales"))
         self.assertIn("has no rows under its header", self.refused(self.csv("Sales\n"), "Sales"))
         self.assertIn("One dated row", self.refused(self.csv("Day,Sales\n2025-01-01,5\n"), "Sales", "Day"))
+
+
+class ForecastRequestTests(unittest.TestCase):
+    def test_the_request_names_a_column_a_file_and_optionally_dates_and_a_horizon(self) -> None:
+        request = forecast_request(r'forecast Revenue in "C:\my data\sales.csv" by Month for the next 6 months')
+        self.assertEqual((request.column, request.path, request.date_column, request.horizon),
+                         ("Revenue", r"C:\my data\sales.csv", "Month", 6))
+        bare = forecast_request(r"forecast steps from E:\logs\walks.tsv")
+        self.assertEqual((bare.column, bare.date_column, bare.horizon), ("steps", None, 3))
+
+    def test_the_weather_is_left_alone(self) -> None:
+        # Without a .csv or .tsv this is not a data forecast, and the weather routes stay whole.
+        for text in ("forecast", "forecast for tomorrow", "boston forecast", "forecast in boston",
+                     "what's the forecast", "forecast revenue in sales.xlsx"):
+            with self.subTest(text):
+                self.assertIsNone(forecast_request(text))
+
+
+class RunForecastTests(unittest.TestCase):
+    """What the core established is what the answer says, in its three states."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def run_on(self, values: list[float], tail: str = "") -> object:
+        path = self.dir / "sales.csv"
+        path.write_text("Revenue\n" + "".join(f"{value}\n" for value in values), encoding="utf-8")
+        return run_forecast(forecast_request(f"forecast Revenue in {path}{tail}"))
+
+    def test_a_supported_forecast_with_a_measured_range(self) -> None:
+        values = [1000 + 12 * month + (month * 37) % 11 - 5 for month in range(60)]
+        result = self.run_on(values)
+        self.assertTrue(result.ok)
+        self.assertIn("| Row | Forecast | 80% range |", result.message)
+        self.assertEqual([line.split(" | ")[0] for line in result.message.splitlines() if line.startswith("| 6")],
+                         ["| 61", "| 62", "| 63"])
+        self.assertIn("Range: the middle 80% of its own errors", result.message)
+        self.assertEqual(result.data["labels"], ["61", "62", "63"])
+        self.assertTrue(result.data["forecast"]["enough_data"])
+
+    def test_a_supported_forecast_without_a_range_draws_none(self) -> None:
+        result = self.run_on([100 + 3 * index for index in range(24)])
+        self.assertTrue(result.ok)
+        self.assertIn("| Row | Forecast |\n", result.message)
+        self.assertNotIn("range |", result.message)
+        self.assertIn("No range yet (", result.message)
+
+    def test_too_little_history_shows_no_number_at_all(self) -> None:
+        # The core's points are then the last value repeated, explicitly not a forecast.
+        result = self.run_on([41, 42, 43])
+        self.assertFalse(result.ok)
+        self.assertIn("I can't forecast Revenue from sales.csv yet", result.message)
+        self.assertNotIn("43", result.message)
+        self.assertFalse(result.data["forecast"]["enough_data"])
+
+    def test_a_horizon_past_the_limit_is_refused_not_shortened(self) -> None:
+        result = self.run_on(list(range(60)), " for 49 months")
+        self.assertFalse(result.ok)
+        self.assertIn("1 to 48 periods ahead, not 49", result.message)
+
+    def test_the_cores_own_limits_are_said_not_raised(self) -> None:
+        result = self.run_on([1.0] * 5000)
+        self.assertFalse(result.ok)
+        self.assertIn("4096", result.message)
+
+
+class ThroughTheAssistantTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.everyday = Everyday(Path(tmp.name), llm="none")
+        self.path = Path(tmp.name) / "sales.csv"
+        self.path.write_text("Month,Revenue\n" + "".join(
+            f"{2020 + month // 12}-{month % 12 + 1:02d},{1000 + 12 * month + (month * 37) % 11 - 5}\n"
+            for month in range(60)), encoding="utf-8")
+
+    def test_a_developer_gets_the_forecast_and_a_personal_account_does_not(self) -> None:
+        command = f"forecast Revenue in {self.path} by Month"
+        result, ran = self.everyday.say(command)
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("**Revenue: the next 3 months**", result.message)
+        self.assertEqual(ran, command)
+        # It reads a file, so default-deny refuses it to a personal account, wherever it is reached.
+        with acting_as(Principal("p1", "family", "personal")):
+            refused, _ran = self.everyday.say(command)
+            self.assertNotIn("the next 3 months", refused.message)
+            direct = asyncio.run(self.everyday.orchestrator.handle(command, _allow_planner=False))
+        self.assertIn("isn't available to a personal account", direct.message)
 
 
 if __name__ == "__main__":
