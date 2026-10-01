@@ -498,6 +498,44 @@ class BrowserRegressions(unittest.TestCase):
         self.assertIsNone(outcome["threw"], "send() threw without crypto.randomUUID")
         self.assertIsNotNone(outcome["reachedTheServer"], "the message never left the page")
 
+    def test_a_forecast_is_drawn_with_its_band_only_when_measured(self):
+        """ANALYTICS-03's chart: a forecast result is drawn from its numbers, and the band
+        only when every lower and upper bound exists. Drives the real send() loop against a
+        synthetic stream, and asserts a box on screen rather than an attribute."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10);
+                const realFetch = window.fetch;
+                const done = (bounded) => ({type: 'done', ok: true, message: '**Revenue: the next 3 months**',
+                    data: {labels: ['2025-01', '2025-02', '2025-03'],
+                           series: {labels: ['2024-10', '2024-11', '2024-12'], values: [10, 12, 11], period: 'month'},
+                           forecast: {enough_data: true, points: [12, 13, 14],
+                                      lower: bounded ? [11, 11.5, 12] : [11, 11.5, 12],
+                                      upper: bounded ? [13, 14.5, 16] : [13, null, 16]}}});
+                const turn = async (bounded) => {
+                    window.fetch = (url, opts) => String(url).indexOf('/api/stream') >= 0
+                        ? Promise.resolve(new Response('data: ' + JSON.stringify(done(bounded)) + NL + NL, {status: 200}))
+                        : realFetch(url, opts);
+                    try { await send('forecast revenue in sales.csv'); } finally { window.fetch = realFetch; }
+                    const charts = document.querySelectorAll('.msg .fchart');
+                    const chart = charts[charts.length - 1];
+                    if (!chart) return null;
+                    const box = chart.getBoundingClientRect();
+                    return {height: box.height, width: box.width, band: !!chart.querySelector('.fband'),
+                            line: !!chart.querySelector('.fline'), history: !!chart.querySelector('.fhist')};
+                };
+                return {bounded: await turn(true), partial: await turn(false),
+                        charts: document.querySelectorAll('.msg .fchart').length};
+            }"""
+        )
+        self.assertIsNotNone(outcome["bounded"], "no chart was drawn for a forecast")
+        self.assertGreater(outcome["bounded"]["height"], 50)
+        self.assertTrue(outcome["bounded"]["band"] and outcome["bounded"]["line"] and outcome["bounded"]["history"])
+        self.assertIsNotNone(outcome["partial"])
+        self.assertFalse(outcome["partial"]["band"], "a band was drawn with an upper bound missing")
+        self.assertEqual(outcome["charts"], 2)
+        self.assertEqual(self.errors, [])
+
     def test_copying_works_without_a_secure_context(self):
         """navigator.clipboard is also absent outside a secure context. One Copy button
         used it unguarded and reported 'Blocked' on a phone."""
