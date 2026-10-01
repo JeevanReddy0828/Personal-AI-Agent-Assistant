@@ -1403,3 +1403,13 @@ existing CSP nonce. Provider opener isolation can sever a popup reference; `popu
 is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
 The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
 new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
+
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+Forecasting (ANALYTICS-01) lives in analytics/forecast.py: pure stdlib, no app data or IO.
+Read docs/forecasting.md before integrating. Default season detection and parameter tuning
+use only an initial prefix; separate chronological blocks select against both baselines
+and calibrate horizon-specific empirical intervals. Unsupported data/intervals must be
+shown as such, not narrated as a confident prediction. Calendar frequency is not a season.
+CSV commands, charts, OLS/MAD and job/tier predictions remain separate work.

@@ -210,3 +210,14 @@ separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this bra
 - Google errors displayed by the app are fixed safe messages. Codes and token replies must
   never enter failure logs, chats, account JSON or browser storage. Account email is an
   optional verified display label, never the lookup key.
+
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+Owner Codex, reviewer Claude: codex/analytics-forecast starts at main ec6a079. The core
+accepts finite, ordered, equally spaced numbers, never loads app data, and uses only stdlib.
+Model selection and interval calibration are separate chronological blocks, with season
+and settings frozen before either. Compare with the better naive baseline; ties retain
+it. Zero/unstable MASE scale gives null and consistent MAE comparison, never infinity.
+The API and tool integration decisions are in docs/forecasting.md. Date frequency alone
+must not force a seasonal period. Per-horizon empirical coverage is not a guarantee.
