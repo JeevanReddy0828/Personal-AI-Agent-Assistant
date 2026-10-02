@@ -3,17 +3,6 @@
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
-## Session 2026-10-01 — forecasting validation traps caught before integration
-
-- **Winning a selection backtest is not independent evidence.** A core that picks a
-  model only when it beats a baseline will pass that comparison by construction. Check
-  untouched future values too; tune and discover season on the prefix, never on the
-  full series before pretending to backtest it.
-- **Intervals need their own horizon errors.** One-step residuals pooled across horizons
-  can understate longer forecasts' uncertainty. Calibrate separately from selection,
-  return null when calibration is too sparse, and never invent an infinite MASE for a
-  constant/zero-scale series. Tests use deterministic synthetic data only.
-
 ## Session 2026-10-01 — a clean merge that was still wrong (#145 after #148)
 
 - **A merge without a conflict can still drop a rule.** #148 taught `_principal` that a
@@ -30,6 +19,17 @@ near-miss. Newest first.
   now strings this code builds — status, OAuth error code, the claim check's name, an
   exception's type — because the token request holds the code and the client secret.
   **Rule: where a path handles secrets, record what you constructed, not what you caught.**
+
+## Session 2026-10-01 — forecasting validation traps caught before integration
+
+- **Winning a selection backtest is not independent evidence.** A core that picks a
+  model only when it beats a baseline will pass that comparison by construction. Check
+  untouched future values too; tune and discover season on the prefix, never on the
+  full series before pretending to backtest it.
+- **Intervals need their own horizon errors.** One-step residuals pooled across horizons
+  can understate longer forecasts' uncertainty. Calibrate separately from selection,
+  return null when calibration is too sparse, and never invent an infinite MASE for a
+  constant/zero-scale series. Tests use deterministic synthetic data only.
 
 ## Session 2026-09-30 — a broken model reported as busy by the keep-warm ping
 
