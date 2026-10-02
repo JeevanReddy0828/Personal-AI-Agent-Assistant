@@ -240,24 +240,6 @@ VOICE-03 review follow-up: the fake future now rejects nonpositive or over-100ms
 Removing the production deadline check fails the silent-RPC test in 0.007 seconds rather
 than hanging. The unchanged implementation passes all eight deadline tests.
 
-## AUTH-01 phase 2a review — 2026-09-28
-
-Implemented on codex/google-signin from 1327dea: Google Desktop identity linking and
-sign-in, account password step-up, bounded PKCE/nonce/state flows, external-browser
-handoff and initiating-window completion. Existing docs were retained and extended.
-
-Validation: 24 new Google unit/live-HTTP tests pass; 73 opt-in Chromium checks pass,
-including five new Google UI/cookie tests. Existing auth 32, accounts/admin 29, access 30,
-page 27 and caching 7 tests pass. Tests cover callback races/replay, wrong/missing cookies,
-claim failures, provider errors/body limits/deadlines, cancelled/expired attempts,
-logout/password/role/link changes during consent, disabled/deleted/duplicate identities,
-no auto-registration, native cookie separation, and phone/missing-config fallback.
-
-No live Google account or Gmail grant was used. Packaged native-window/system-browser
-behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
-credentials and permissions are deliberately pending; health/setup remains Claude's area.
-The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
-
 
 ## ANALYTICS-01 forecasting core — 2026-10-01
 
@@ -281,3 +263,27 @@ origins (null below four), without letting them reselect the model. Fewer than e
 selection origins now require more than 10% improvement. All 18 forecast tests pass,
 including a model that loses on holdout and must report that loss. Four additional
 mutations were caught, bringing the feature total to 21.
+
+
+## AUTH-01 phase 2a review — 2026-09-28
+
+Implemented on codex/google-signin from 1327dea: Google Desktop identity linking and
+sign-in, account password step-up, bounded PKCE/nonce/state flows, external-browser
+handoff and initiating-window completion. Existing docs were retained and extended.
+
+Validation: 24 new Google unit/live-HTTP tests pass; 73 opt-in Chromium checks pass,
+including five new Google UI/cookie tests. Existing auth 32, accounts/admin 29, access 30,
+page 27 and caching 7 tests pass. Tests cover callback races/replay, wrong/missing cookies,
+claim failures, provider errors/body limits/deadlines, cancelled/expired attempts,
+logout/password/role/link changes during consent, disabled/deleted/duplicate identities,
+no auto-registration, native cookie separation, and phone/missing-config fallback.
+
+No live Google account or Gmail grant was used. Packaged native-window/system-browser
+behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
+credentials and permissions are deliberately pending; health/setup remains Claude's area.
+The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
+
+
+## Season peak review correction — 2026-10-02
+
+Season detector follow-up: Claude's monthly-sine repro failed at every n=99..107 before the fix. A strict two-sided peak now rejects those shoulders while retaining period 12 at n=108 and period 24 at the maximum candidate. All 19 forecast tests pass on Python 3.11 and 3.14.
