@@ -146,42 +146,6 @@ _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
-# "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
-# "what's taking up space in my downloads". The LLM router turned the first into a plain
-# `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
-# files in name order: a confident answer to a question nobody asked.
-_LARGEST_FILES = re.compile(
-    _POLITE + r"(?:(?:what|which)(?:'s|\s+is|\s+are)?\s+|(?:show|list|find|give|tell)(?:\s+me)?\s+)?"
-    r"(?:the\s+|my\s+)?(?:\d+\s+|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-    r"(?:largest|biggest|heaviest)\s+files?\s+(?:are\s+)?(?:(?:in|under|inside|on)\s+(?P<where>.+?)|(?P<here>here))"
-    r"(?:,?\s+and\s+(?:tell|show|give)\s+me\s+(?:their|the)\s+sizes?)?[\s?.!]*$"
-    r"|" + _POLITE + r"what(?:'s|\s+is)\s+(?:taking\s+up|using)\s+(?:the\s+most\s+|all\s+the\s+|so\s+much\s+)?"
-    r"(?:disk\s+)?space\s+(?:in|on)\s+(?P<space>.+?)[\s?.!]*$",
-    re.IGNORECASE,
-)
-_HOME_FOLDERS = {
-    "downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
-    "photos": "Pictures", "music": "Music", "videos": "Videos",
-}
-
-
-def _folder_path(where: str) -> str | None:
-    """'my downloads folder' -> ~/Downloads, 'here' -> '.', a path as written; else None.
-
-    None for anything that does not name a folder on this machine, so "the largest files in
-    a typical linux install" stays a question for the model rather than a scan of nothing.
-    """
-    place = where.strip().strip("'\"")
-    if re.search(r"[\\/]|^~|^[A-Za-z]:", place):
-        return place
-    name = re.sub(r"^(?:my|the|this)\s+", "", place, flags=re.IGNORECASE)
-    name = re.sub(r"\s+(?:folder|directory)$", "", name, flags=re.IGNORECASE).lower()
-    if name in {"here", "folder", "directory", "current folder", "current directory"}:
-        return "."
-    known = _HOME_FOLDERS.get(name)
-    return f"~/{known}" if known else None
-
-
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
 _DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
@@ -536,6 +500,42 @@ def strip_address(text: str) -> str:
     raw = (text or "").strip()
     trimmed = _ADDRESS.sub("", raw, count=1).strip()
     return trimmed or raw
+
+
+# "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
+# "what's taking up space in my downloads". The LLM router turned the first into a plain
+# `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
+# files in name order: a confident answer to a question nobody asked.
+_LARGEST_FILES = re.compile(
+    _POLITE + r"(?:(?:what|which)(?:'s|\s+is|\s+are)?\s+|(?:show|list|find|give|tell)(?:\s+me)?\s+)?"
+    r"(?:the\s+|my\s+)?(?:\d+\s+|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+    r"(?:largest|biggest|heaviest)\s+files?\s+(?:are\s+)?(?:(?:in|under|inside|on)\s+(?P<where>.+?)|(?P<here>here))"
+    r"(?:,?\s+and\s+(?:tell|show|give)\s+me\s+(?:their|the)\s+sizes?)?[\s?.!]*$"
+    r"|" + _POLITE + r"what(?:'s|\s+is)\s+(?:taking\s+up|using)\s+(?:the\s+most\s+|all\s+the\s+|so\s+much\s+)?"
+    r"(?:disk\s+)?space\s+(?:in|on)\s+(?P<space>.+?)[\s?.!]*$",
+    re.IGNORECASE,
+)
+_HOME_FOLDERS = {
+    "downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
+    "photos": "Pictures", "music": "Music", "videos": "Videos",
+}
+
+
+def _folder_path(where: str) -> str | None:
+    """'my downloads folder' -> ~/Downloads, 'here' -> '.', a path as written; else None.
+
+    None for anything that does not name a folder on this machine, so "the largest files in
+    a typical linux install" stays a question for the model rather than a scan of nothing.
+    """
+    place = where.strip().strip("'\"")
+    if re.search(r"[\\/]|^~|^[A-Za-z]:", place):
+        return place
+    name = re.sub(r"^(?:my|the|this)\s+", "", place, flags=re.IGNORECASE)
+    name = re.sub(r"\s+(?:folder|directory)$", "", name, flags=re.IGNORECASE).lower()
+    if name in {"here", "folder", "directory", "current folder", "current directory"}:
+        return "."
+    known = _HOME_FOLDERS.get(name)
+    return f"~/{known}" if known else None
 
 
 class HeuristicPlannerProvider:

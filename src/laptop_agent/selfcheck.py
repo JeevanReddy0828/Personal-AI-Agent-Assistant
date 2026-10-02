@@ -128,6 +128,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what is a reminder", "a definition, not a listing"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
+    ("what are the largest files in a typical linux install", "no folder on this machine"),
     ("turn left and then right", "two positions, no window"),
     ("should i put the legend on the right", "a decision belongs to the advisor"),
     ("how does tcp congestion control work", "a plain question"),
@@ -150,7 +151,6 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("half of my team is remote", "'half of' without a number"),
     ("i don't need the car anymore", "not a timer, alarm or reminder"),
     ("stop reminding me", "names nothing to stop"),
-    ("what are the largest files in a typical linux install", "no folder on this machine"),
 )
 
 
