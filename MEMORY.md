@@ -1,5 +1,10 @@
 # MEMORY.md — decision log
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04: codex/analytics-drivers starts at main 766b645; Codex implements and Claude reviews. drivers() fits only the prefix, and anomalies() is a whole-sample diagnostic. Immutable JSON-safe results and consumer rules are documented in docs/analytics.md. Runtime has no extra dependency or IO.
+
+
 Permanent architectural facts and decisions. Append when a choice is made that future
 sessions must respect. See `CLAUDE.md` for the operating principles and full architecture.
 
@@ -231,3 +236,30 @@ this conservative heuristic is not a statistical-confidence claim.
 - Google errors displayed by the app are fixed safe messages. Codes and token replies must
   never enter failure logs, chats, account JSON or browser storage. Account email is an
   optional verified display label, never the lookup key.
+
+
+## 2026-10-01 — GPU-01, non-elevated telemetry
+
+- Owner Codex, reviewer Claude; codex/gpu-counters starts at main ec6a079. Scope is
+  metrics.py, test_metrics.py and existing docs; health/setup/UI ownership is unchanged.
+- NVIDIA stays first. The Windows fallback runs both Get-Counter paths in one hidden,
+  six-second-bounded PowerShell call, using an injectable runner and captured samples.
+  Sum processes on each physical 3D engine, then use the busiest engine per adapter LUID
+  (clamped to 100%). Sum adapter-level dedicated usage, not per-process memory.
+- Names/capacity use stdlib ctypes and DXGI EnumAdapters1/GetDesc1 with exact LUID matching.
+  Release every COM interface. Do not zip WMI names against counter order. Unknown stays
+  None; a real zero stays zero. No new dependency and no elevation request.
+- Normal Windows metrics requests return immediately with the prior snapshot; only a
+  daemon worker collects. First read is unknown, force=True remains synchronous for
+  diagnostics, and other platforms retain the synchronous cache. TTL starts at completion.
+- Design references: [DXGI enumeration](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgifactory1-enumadapters1),
+  [adapter LUID/description](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1),
+  [independent GPU engines](https://devblogs.microsoft.com/directx/gpus-in-the-task-manager/).
+  Our fallback deliberately covers only the requested 3D counters, not all Task Manager engines.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+Claude found one-shot callers inheriting the async cache: system status/briefing now
+force a fresh sample. Only HTTP polling uses stale-while-refresh. Optional util_kind=3D
+labels counter data; unknown usage remains unknown through prose and UI formatting.

@@ -1,7 +1,26 @@
 # ERRORS.md — failure log
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 validation: negating a symmetric tail around its unchanged mean did not change its variance, so a target-standardization leakage mutation survived. Varying tail scale as well made the test fail when training preprocessing accidentally includes held-out targets. A passing test must distinguish the intended failure.
+
+
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
+
+## Session 2026-10-01 — GPU metrics depended on elevation; cache misses blocked requests
+
+- **A vendor utility is not the only source of GPU telemetry.** On this Optimus laptop,
+  `nvidia-smi` exits 4 without elevation, while Windows GPU performance counters return
+  both adapter LUIDs. GPU-01 keeps the vendor path first and falls back to those counters.
+  WMI names only the active AMD adapter, so matching names by list position would mislabel
+  cards; use DXGI's exact LUID and leave unmatched names/capacity generic/unknown.
+- **A TTL cache can still block every caller on a miss.** The former metrics cache ran
+  collection under its lock. Adding a roughly two-second GPU probe there would stall
+  `/api/metrics`, including concurrent readers. Windows now uses one background refresh
+  with independent snapshots and a two-second TTL measured after collection completes.
+  Failed refreshes are throttled too. Failure records contain fixed causes, not raw
+  process output, and each cause is recorded once per process.
 
 ## Session 2026-10-01 — a clean merge that was still wrong (#145 after #148)
 
@@ -767,3 +786,10 @@ cookie handling. Plain HTTP tests alone did not expose this lifecycle issue.
 
 An old flow's cancellation must not clear a newer flow's proof cookie in another tab.
 Cancel now clears that cookie only after a matching flow/proof was actually cancelled.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review caught a cache-consumer regression: one-shot status reported old values as
+current or omitted a cold CPU sample. Both callers now refresh synchronously. JavaScript
+null arithmetic also converted unknown VRAM into zero; test the rendered n/a state.

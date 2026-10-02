@@ -1,5 +1,10 @@
 # J.A.R.V.I.S — Local-First Personal Agent
 
+## ANALYTICS-04 update — 2026-10-01
+
+Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
+
+
 [![Tests](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
@@ -343,6 +348,11 @@ a **System status** drawer with models, usage, **Setup**, **Accounts**, the vaul
 tool activity, scheduled jobs, agent runs, **Map** and **Trip planner** · settings popover
 (compact layout, orb focus, always on top, transparency, voice cut-in level) · incognito
 chats that are never saved.
+
+On Windows, GPU usage works without an administrator launch: if NVIDIA's utility cannot
+answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
+refreshes in the background; the first read may show unavailable values briefly. A card
+Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
 
 ---
 
@@ -726,3 +736,10 @@ CSV commands and forecast charts are a separate integration; this change adds th
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
+keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
+VRAM usage displays n/a rather than zero.

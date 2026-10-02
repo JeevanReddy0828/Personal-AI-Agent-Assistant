@@ -64,6 +64,17 @@ class BrowserRegressions(unittest.TestCase):
         self.context.close()
         self.assertEqual(self.errors, [])
 
+    def test_gpu_unknown_usage_is_not_zero_and_fallback_is_labelled_3d(self):
+        self.page.route("**/api/metrics", lambda route: route.fulfill(json={
+            "cpu_percent": 12, "ram_percent": 30, "gpus": [
+                {"name": "GPU 2", "util_kind": "3D", "util_percent": None,
+                 "mem_used_mb": None, "mem_total_mb": 4096}]}))
+        self.page.locator("#railStatus").click()
+        self.wait_js("document.getElementById('metrics').textContent.includes('GPU (3D)')")
+        rendered = self.page.locator("#metrics").inner_text()
+        self.assertIn("GPU (3D)", rendered)
+        self.assertEqual(rendered.count("n/a"), 2)
+
     def test_four_views_at_mobile_tablet_and_desktop_widths(self):
         for width in (390, 700, 1100, 1440):
             self.page.set_viewport_size({"width": width, "height": 950})

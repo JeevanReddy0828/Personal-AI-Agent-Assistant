@@ -1772,7 +1772,7 @@ class AgentOrchestrator:
         """Battery, CPU, memory and disk, read from this machine rather than guessed."""
         import shutil
 
-        metrics = system_metrics()
+        metrics = system_metrics(force=True)
         battery = battery_status()
         lines = []
         if battery is not None:
@@ -1787,7 +1787,12 @@ class AgentOrchestrator:
         except OSError as exc:
             record_failure("orchestrator.system_status", exc)
         for gpu in metrics.get("gpus") or []:
-            lines.append(f"- GPU {gpu.get('name')}: {gpu.get('util_percent')}%")
+            name = gpu.get("name") or "GPU"
+            label = name if name.startswith("GPU") else f"GPU · {name}"
+            if gpu.get("util_kind") == "3D":
+                label += " (3D)"
+            usage = gpu.get("util_percent")
+            lines.append(f"- {label}: {str(usage) + '%' if usage is not None else 'n/a'}")
         if battery is None:
             lines.append("- Battery: none reported (a desktop, or the reading is unavailable)")
         return ToolResult.success("**This computer right now**\n" + "\n".join(lines), battery=battery, **metrics)
@@ -3153,7 +3158,7 @@ class AgentOrchestrator:
         latest_tasks = self.context.tasks.latest()
         knowledge_stats = self.context.knowledge.stats()
         agents = self.control_room.snapshot()
-        metrics = system_metrics()
+        metrics = system_metrics(force=True)
 
         lines = ["## Briefing", ""]
         if due_reminders:
