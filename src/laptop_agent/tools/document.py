@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
@@ -67,6 +68,37 @@ _DECK_PROMPT = (
     "no sub-bullets, no speaker notes.\n"
     "- Between 6 and 10 slides. Be specific and concrete; no placeholders like [insert X]."
 )
+
+# "a one page brief", "2 pages", "a one-pager", read wherever the router left it in the request.
+_PAGE_TARGET = re.compile(
+    r"\b(?:(?P<count>\d{1,2}|one|two|three|four|five|single)[\s-]+pages?(?:\s+long)?|one[\s-]pager)\b",
+    re.IGNORECASE,
+)
+_PAGE_WORDS = {"one": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+# Measured through the print stylesheet below: a first page held 206 words of headings,
+# paragraphs and bullets, and 177 when it was nearly all one-line bullets. Asked for "one
+# page" without a number, the model wrote 322 words and the PDF ran to two.
+WORDS_PER_PAGE = 180
+
+
+def page_target(request: str) -> int | None:
+    """1 for 'a one page brief on X'; None when no length is named for what to write.
+
+    A length after 'the', 'my' and the like describes something else - 'a summary of the
+    10 page report' - so it is not a target.
+    """
+    for match in _PAGE_TARGET.finditer(request or ""):
+        if re.search(r"\b(?:the|this|that|these|those|my|your|our|their|his|her|its)\s*$",
+                     request[: match.start()], re.IGNORECASE):
+            continue
+        count = (match.group("count") or "one").lower()
+        pages = int(count) if count.isdigit() else _PAGE_WORDS[count]
+        return pages if pages >= 1 else None
+    return None
+
+
+def _pages(count: int) -> str:
+    return f"{count} page" if count == 1 else f"{count} pages"
 
 # A print stylesheet, not the app's: this is read on paper, so serif body text, real
 # margins and headings that stay with their section.
@@ -374,6 +406,9 @@ class DocumentTool:
 
     def create(self, spec: str, fmt: str = "pdf") -> ToolResult:
         request, chosen = split_format(spec, fmt)
+        pages = page_target(request)
+        if chosen == "pptx":
+            pages = None  # a deck is counted in slides, not pages
         if not request:
             return ToolResult.failure(
                 "What should the document say? Try 'document a one-page brief on our API rate limits as a pdf'."
@@ -392,7 +427,8 @@ class DocumentTool:
             )
         try:
             template = _DECK_PROMPT if chosen == "pptx" else _PROMPT
-            body = (self._writer or (lambda _: ""))(template.format(spec=request)) or ""
+            prompt = template.format(spec=request)
+            body = (self._writer or (lambda _: ""))(prompt + _length_rule(pages, (pages or 0) * WORDS_PER_PAGE)) or ""
         except Exception as exc:  # a model outage must not raise out of a tool
             return ToolResult.failure(f"The model could not write that document: {exc}")
         body = body.strip()
@@ -411,32 +447,25 @@ class DocumentTool:
         elif chosen == "pptx":
             result = _write_pptx(body, out_path)
         else:
-            from laptop_agent.tools.resume_pdf import render_html_to_pdf
-
-            html = markdown_to_html(body, title)
-
-            def render() -> ToolResult:
-                return asyncio.run(render_html_to_pdf(html, out_path, single_page=False))
-
-            # Check for a running loop before building the coroutine: catching the
-            # RuntimeError from asyncio.run() instead would orphan one, which Python
-            # reports as "coroutine was never awaited".
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                result = render()
-            else:  # inside the web app's loop — render on a worker thread
-                import concurrent.futures
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    result = pool.submit(render).result()
+            result = _render_pdf(body, title, out_path)
+            printed = result.data.get("pages", 0) if result.ok else 0
+            if pages and printed > pages:
+                # The page count is only known once it is printed, so check it and redraft once.
+                shorter = self._redraft(prompt, len(body.split()), pages, printed)
+                retried = _render_pdf(shorter, title, out_path) if shorter else None
+                if retried is not None and retried.ok:
+                    body, result = shorter, retried
         if not result.ok:
             # The name was claimed with an empty file before rendering; do not leave it behind.
             out_path.unlink(missing_ok=True)
             return result
         url = f"/api/document?name={name}"
+        printed = result.data.get("pages", 0)
+        long_note = (
+            f" It runs to {_pages(printed)}, not the {_pages(pages)} asked for." if pages and printed > pages else ""
+        )
         return ToolResult.success(
-            f"[{title}]({url}) — {chosen.upper()} ready.\n\n{body[:600]}"
+            f"[{title}]({url}) — {chosen.upper()} ready.{long_note}\n\n{body[:600]}"
             + ("\n\n…" if len(body) > 600 else ""),
             document=str(out_path),
             name=name,
@@ -446,4 +475,47 @@ class DocumentTool:
             request=request,
             **({"pages": result.data["pages"]} if "pages" in result.data else {}),
             **({"slides": result.data["slides"]} if "slides" in result.data else {}),
+            **({"target_pages": pages} if pages else {}),
         )
+
+    def _redraft(self, prompt: str, written: int, pages: int, printed: int) -> str:
+        """The same request written again to a budget scaled by how far the first ran over.
+
+        A fresh draft, not an edit: handed its own long draft and told to cut it to at most
+        142 words, the model went from 335 to 319, while a budget given before writing held
+        to one page five times in five.
+        """
+        budget = max(60, int(written * pages / printed * 0.85))
+        try:
+            return ((self._writer or (lambda _: ""))(prompt + _length_rule(pages, budget)) or "").strip()
+        except Exception as exc:  # the first version is still a document; keep it
+            record_failure("document/redraft", exc)
+            return ""
+
+
+def _length_rule(pages: int | None, words: int) -> str:
+    if not pages:
+        return ""
+    return (f"\n- Length: it must fit on {_pages(pages)} when printed, so at most about {words} words in "
+            "total, headings included. Cover less rather than run long.")
+
+
+def _render_pdf(body: str, title: str, out_path: Path) -> ToolResult:
+    from laptop_agent.tools.resume_pdf import render_html_to_pdf
+
+    html = markdown_to_html(body, title)
+
+    def render() -> ToolResult:
+        return asyncio.run(render_html_to_pdf(html, out_path, single_page=False))
+
+    # Check for a running loop before building the coroutine: catching the
+    # RuntimeError from asyncio.run() instead would orphan one, which Python
+    # reports as "coroutine was never awaited".
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return render()
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:  # inside the web app's loop
+        return pool.submit(render).result()

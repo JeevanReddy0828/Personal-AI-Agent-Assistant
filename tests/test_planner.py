@@ -679,6 +679,27 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class DocumentLengthRoutingTests(unittest.TestCase):
+    """"write a one page pdf on how vaccines work" missed the instant route (a word between
+    "a" and "pdf") and the LLM router dropped "one page"."""
+
+    def setUp(self) -> None:
+        self.planner = HeuristicPlannerProvider()
+
+    def command(self, text: str) -> str:
+        return self.planner.plan(text, "", {}).command or ""
+
+    def test_a_length_named_before_the_format_is_kept(self) -> None:
+        cases = {
+            "write a one page pdf on how vaccines work": "document one page: how vaccines work as pdf",
+            "create a 2-page word document about tcp": "document 2-page: tcp as word",
+            "write me a one-pager pdf on our API": "document one-pager: our API as pdf",
+            "make a pdf about healthy eating": "document healthy eating as pdf",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+
 class AddressStrippingTests(unittest.TestCase):
     """Every heuristic route matches from the start of the message, so addressing the
     assistant by name defeated all of them: "Hey Jarvis, draw me a fox" fell through to

@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
+
+
 Guidance for AI coding agents (Claude Code, Codex) working in this repo.
 
 > **Read [Agent Operating Principles](#agent-operating-principles) first — it governs
@@ -469,7 +474,11 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             token-checked mutation, and a **timeout denies** - silence is never consent.
             With no listener attached it denies immediately rather than waiting: nobody
             could answer, and waiting once took the test suite from 18s to 138s),
-        memory.py, token_vault.py (DPAPI), config.py,
+        memory.py, token_vault.py (DPAPI. Like accounts and sessions it keeps no `.bak` and is
+            read strictly: `forget` left the token in the backup, and a damaged vault was read
+            back from it - the token the user removed, returned (Codex's review of #160). A
+            damaged vault is recorded and gives way to the next store or forget, so it cannot
+            refuse a reconnect for good), config.py,
         terms.py (the one word splitter the retrieval paths share — `knowledge`, `context`,
             `tools.obsidian`, `tools.files`. Four near-identical tokenizers meant a fix
             applied to one never reached the others: `knowledge` learned to keep
@@ -594,6 +603,13 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   unit-tested offline; in `orchestrator._build_agent_brain` it's backed by
   `provider.answer` on the smart (or fast) tier. Persisted via the `agent_runs`
   AgentContext field.
+- **The agent trusts a reply only up to its first runnable ACTION** (`parse_agent_decision`).
+  The model writes ACTION, an OBSERVATION it made up and a FINAL built on it, all in one
+  reply, and FINAL used to win: runs ended on a README summary of a file that does not
+  exist, or on "[the content would be provided here after the action runs]". An
+  upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
+  and a reply with neither header is asked again once (`_ask_again`). Known limit: a
+  well-formed FINAL can still be wrong, which parsing cannot see.
 
 ## LLM brain — tiered models
 

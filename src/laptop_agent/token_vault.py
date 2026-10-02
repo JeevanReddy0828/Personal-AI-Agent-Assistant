@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 
 import base64
 import ctypes
@@ -38,11 +39,10 @@ class TokenVault:
         if not self.is_available():
             raise TokenVaultError("Encrypted token storage is currently implemented with Windows DPAPI only.")
         normalized = self._normalize_provider(provider)
-        data = self._load()
+        data, _damaged = self._readable()
         encrypted = self._encrypt(json.dumps(token_payload, sort_keys=True).encode("utf-8"))
         data[normalized] = base64.b64encode(encrypted).decode("ascii")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps(data, indent=2, sort_keys=True))
+        self._save(data)
         return self._info(normalized, token_payload)
 
     @synchronized
@@ -63,31 +63,52 @@ class TokenVault:
     @synchronized
     def forget(self, provider: str) -> bool:
         normalized = self._normalize_provider(provider)
-        data = self._load()
-        existed = normalized in data
+        data, damaged = self._readable()
+        # A vault that cannot be read may still hold the token, so it is cleared, not kept.
+        existed = damaged or normalized in data
         if existed:
-            data.pop(normalized)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(self.path, json.dumps(data, indent=2, sort_keys=True))
+            data.pop(normalized, None)
+            self._save(data)
+        # Even when the vault no longer holds it: an older version kept copies beside the vault -
+        # a .bak on every write, a .corrupt-<hash> of a damaged one - and either may (Codex's review).
+        for copy in [Path(str(self.path) + ".bak"), *self.path.parent.glob(self.path.name + ".corrupt-*")]:
+            copy.unlink(missing_ok=True)
         return existed
 
     @synchronized
     def status(self) -> dict[str, Any]:
-        data = self._load()
+        data, damaged = self._readable()
         return {
             "available": self.is_available(),
             "path": str(self.path),
             "providers": sorted(data.keys()),
+            "damaged": damaged,
         }
 
     @synchronized
     def _load(self) -> dict[str, str]:
-        if not self.path.exists():
-            return {}
-        loaded = read_json(self.path, {})
-        if not isinstance(loaded, dict):
-            raise TokenVaultError("Token vault file was not a JSON object.")
+        # Strict, and never from a backup: like accounts and sessions, an older copy of a
+        # credential store can bring back a token the user removed (Codex's review of #160).
+        try:
+            loaded = read_json_strict(self.path, {})
+        except StorageDamaged as exc:
+            raise TokenVaultError("The token vault cannot be read. Reconnect the account to store a fresh "
+                                  "token.") from exc
         return {str(key): str(value) for key, value in loaded.items()}
+
+    def _readable(self) -> tuple[dict[str, str], bool]:
+        """The vault, or an empty one and True when it cannot be read: storing a fresh token
+        or forgetting one then replaces it, instead of being refused for good."""
+        try:
+            return self._load(), False
+        except TokenVaultError as exc:
+            record_failure("vault/damaged", exc)
+            return {}, True
+
+    def _save(self, data: dict[str, str]) -> None:
+        # No backup: a .bak of this file is the token the user just forgot or replaced.
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(self.path, json.dumps(data, indent=2, sort_keys=True), backup=False)
 
     @staticmethod
     def _info(provider: str, token_payload: dict[str, Any]) -> StoredTokenInfo:
