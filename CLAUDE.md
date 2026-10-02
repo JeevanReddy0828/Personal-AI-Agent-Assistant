@@ -469,7 +469,11 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             token-checked mutation, and a **timeout denies** - silence is never consent.
             With no listener attached it denies immediately rather than waiting: nobody
             could answer, and waiting once took the test suite from 18s to 138s),
-        memory.py, token_vault.py (DPAPI), config.py,
+        memory.py, token_vault.py (DPAPI. Like accounts and sessions it keeps no `.bak` and is
+            read strictly: `forget` left the token in the backup, and a damaged vault was read
+            back from it - the token the user removed, returned (Codex's review of #160). A
+            damaged vault is recorded and gives way to the next store or forget, so it cannot
+            refuse a reconnect for good), config.py,
         terms.py (the one word splitter the retrieval paths share — `knowledge`, `context`,
             `tools.obsidian`, `tools.files`. Four near-identical tokenizers meant a fix
             applied to one never reached the others: `knowledge` learned to keep
