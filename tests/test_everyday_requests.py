@@ -404,6 +404,18 @@ class HonestAnswerTests(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertIn("name=Austin", asked[0])
 
+    def test_news_you_share_is_not_searched_for(self) -> None:
+        # "good news, i got the job" was searched for on the web, and the reply explained that
+        # the results did not mention the user's job.
+        for text in ("good news, i got the job", "that's great news", "i've got news for you"):
+            self.everyday.searches.clear()
+            _result, ran = self.everyday.say(text)
+            self.assertEqual(self.everyday.searches, [], text)
+            self.assertIsNone(ran, text)
+        self.everyday.searches.clear()
+        self.everyday.say("any good news today?")
+        self.assertEqual(len(self.everyday.searches), 1)
+
     def test_a_news_topic_loses_its_preposition(self) -> None:
         result, _ran = self.everyday.say("news about nvidia")
         self.assertNotIn("about about", result.message)
