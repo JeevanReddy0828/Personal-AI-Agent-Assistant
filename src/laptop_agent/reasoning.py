@@ -120,7 +120,13 @@ def _drop_invented_observation(raw: str) -> str:
 
 
 def parse_agent_decision(text: str) -> AgentDecision:
-    """Parse a reasoning turn. FINAL wins over ACTION; bare text is treated as a final answer."""
+    """Parse a reasoning turn: the first of a real ACTION and FINAL wins; bare text is a final answer.
+
+    A FINAL written after an ACTION was written before that action ran, so the action runs
+    and the FINAL goes, as an invented OBSERVATION does. FINAL used to win outright, and
+    live a run ended on "[The full content of README.md would be provided here after the
+    action runs...]", another on an answer the model had just said it could not give yet.
+    """
     raw = _drop_invented_observation((text or "").strip())
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
@@ -130,6 +136,13 @@ def parse_agent_decision(text: str) -> AgentDecision:
     fenced = _fenced_spans(raw)
     heads = [head for head in _FINAL_HEAD_RE.finditer(raw) if not any(start <= head.start() < end for start, end in fenced)]
     final_match = next((head for head in heads if head.group(1).isupper()), heads[0] if heads else None)
+    action_match = next(
+        (action for action in _ACTION_RE.finditer(raw)
+         if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)),
+        None,
+    )
+    if action_match and (final_match is None or action_match.start() < final_match.start()):
+        return AgentDecision(thought=thought, command=_runnable(action_match), final_answer="", is_final=False)
     if final_match:
         answer = raw[final_match.end():].strip().strip("`").strip()
         # The model sometimes writes the deliverable (a diagram, code, a table) and then a
@@ -138,12 +151,6 @@ def parse_agent_decision(text: str) -> AgentDecision:
         if body and _DELIVERABLE_RE.search("\n" + body):
             answer = f"{body}\n\n{answer}".strip()
         return AgentDecision(thought=thought, command="", final_answer=answer, is_final=True)
-
-    action_match = _ACTION_RE.search(raw)
-    if action_match:
-        command = _strip_command(action_match.group(1))
-        if command and command.lower() not in {"none", "n/a", "stop", "done"}:
-            return AgentDecision(thought=thought, command=command, final_answer="", is_final=False)
 
     # No structured headers: the model just answered. Treat the whole thing as the
     # final answer so the loop ends gracefully instead of spinning. Strip a THOUGHT:
@@ -155,8 +162,14 @@ def parse_agent_decision(text: str) -> AgentDecision:
     else:
         answer = raw
     return AgentDecision(
-        thought=thought, command="", final_answer=answer or raw, is_final=True, structured=bool(action_match)
+        thought=thought, command="", final_answer=answer or raw, is_final=True, structured=bool(_ACTION_RE.search(raw))
     )
+
+
+def _runnable(action: re.Match[str]) -> str:
+    """The command an ACTION line names, or '' for 'none', 'stop' and the like."""
+    command = _strip_command(action.group(1))
+    return "" if command.lower() in {"none", "n/a", "stop", "done"} else command
 
 
 def _describe_datum(key: str, value: object) -> str:

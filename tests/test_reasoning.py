@@ -41,10 +41,25 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(d.command, "scan files .")
         self.assertEqual(d.thought, "look first")
 
-    def test_final_wins_over_action(self) -> None:
-        d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
+    def test_a_final_written_before_any_action_ends_the_run(self) -> None:
+        d = parse_agent_decision("THOUGHT: done\nFINAL: all set\nACTION: scan files .")
         self.assertTrue(d.is_final)
-        self.assertEqual(d.final_answer, "all set")
+        self.assertTrue(d.final_answer.startswith("all set"))
+
+    def test_an_action_runs_before_a_final_written_after_it(self) -> None:
+        # The live reply: the FINAL was written before the read it depends on had run.
+        d = parse_agent_decision(
+            "THOUGHT: I need to read it.\nACTION: read file E:/project/README.md\n"
+            "FINAL: [The full content of README.md would be provided here after the action runs, "
+            "but since I cannot simulate the observation, I will wait for the actual output.]"
+        )
+        self.assertFalse(d.is_final)
+        self.assertEqual(d.command, "read file E:/project/README.md")
+
+    def test_an_action_inside_a_deliverable_is_not_run(self) -> None:
+        d = parse_agent_decision("THOUGHT: easy\n```\nACTION: run command deploy\n```\nFINAL: The format is above.")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.command, "")
 
     def test_strips_code_fences_and_quotes(self) -> None:
         d = parse_agent_decision('ACTION: `"read file README.md"`')
@@ -67,7 +82,7 @@ class ParseTests(unittest.TestCase):
         self.assertIn("flowchart TD", d.final_answer)
         self.assertTrue(d.final_answer.endswith("The chart is above."))
         self.assertNotIn("THOUGHT", d.final_answer)
-        d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
+        d = parse_agent_decision("THOUGHT: done\nACTION: none\nFINAL: all set")
         self.assertEqual(d.final_answer, "all set")
         # Leftover reasoning prose (even a wrapped multi-line THOUGHT) is not a deliverable.
         d = parse_agent_decision(
