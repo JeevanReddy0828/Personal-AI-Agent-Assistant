@@ -296,6 +296,30 @@ def _say_seconds(seconds: int) -> str:
     return " ".join(parts) or "0 seconds"
 
 
+def _job_line(job: dict) -> str:
+    """What a scheduled job does, as said: a repeating reminder is its words, not its command."""
+    spec = str(job.get("spec", ""))
+    if spec.lower().startswith("reminder add now "):
+        text = f"reminder: {spec[len('reminder add now '):]}"
+    elif job.get("kind") == "agent":
+        text = f"agent: {spec}"
+    else:
+        text = spec
+    return text if job.get("enabled", True) else f"{text} (paused)"
+
+
+# Words that end a phrasal verb: the last word of "stand up" names nothing on its own, and
+# matched as a substring it would also cancel "eat supper".
+_PARTICLES = frozenset({"up", "down", "in", "out", "on", "off", "over", "away", "back", "around", "through"})
+
+
+def _reminder_name(message: str) -> str:
+    words = message.split()
+    if len(words) > 1 and words[-1].lower().strip(".,!?") in _PARTICLES:
+        return " ".join(words[-2:])
+    return words[-1] if words else message
+
+
 def _reminder_line(item: dict, now: datetime) -> str:
     """"- #3 today at 6:22 AM — check the oven", instead of a raw UTC timestamp."""
     try:
@@ -2913,7 +2937,7 @@ class AgentOrchestrator:
                                       job=job.to_dict())
         return ToolResult.success(
             f"Repeating reminder set — {job.schedule.describe()}: {message}. "
-            f"Say \"cancel the {message.split()[-1]} reminder\" to stop it.",
+            f"Say \"cancel the {_reminder_name(message)} reminder\" to stop it.",
             job=job.to_dict(),
         )
 
@@ -3525,7 +3549,12 @@ class AgentOrchestrator:
         jobs = [job.to_dict() for job in self.context.scheduler.list_jobs()]
         if not jobs:
             return ToolResult.success("No scheduled jobs. Add one with 'schedule <when> :: <command>'.", jobs=[])
-        return ToolResult.success(f"{len(jobs)} scheduled job(s).", jobs=jobs)
+        # "1 scheduled job(s)." named nothing: what was scheduled was only in the data.
+        lines = [f"- #{job['id']} {job['schedule_text']} — {_job_line(job)}" for job in jobs[:20]]
+        if len(jobs) > 20:
+            lines.append(f"- … and {len(jobs) - 20} more")
+        noun = "job" if len(jobs) == 1 else "jobs"
+        return ToolResult.success(f"{len(jobs)} scheduled {noun}:\n" + "\n".join(lines), jobs=jobs)
 
     async def run_due_schedules(self, now: datetime | None = None) -> ToolResult:
         """Run every job whose schedule is due. Called by the background ticker and the

@@ -146,6 +146,16 @@ _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
+# router, which matched "jobs" and answered from the job-application tracker.
+_SCHEDULE_ASK = re.compile(
+    r"(?:" + _POLITE + r"(?:(?:what(?:'s|s|\s+is|\s+are)|show(?:\s+me)?|list|see|view|check|give\s+me|tell\s+me"
+    r"|do\s+i\s+have(?:\s+any)?)\s+)?(?:all\s+)?(?:(?:my|the)\s+)?"
+    r"(?:scheduled\s+(?:jobs?|tasks?|commands?)|schedules|recurring\s+(?:jobs?|tasks?))"
+    r"|" + _POLITE + r"what(?:'s|s|\s+is)\s+scheduled"
+    r"|" + _POLITE + r"what\s+(?:jobs?|tasks?)\s+(?:are|do\s+i\s+have)\s+scheduled)\s*[?.!]*",
+    re.IGNORECASE,
+)
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
 _DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
@@ -842,6 +852,8 @@ class HeuristicPlannerProvider:
             return self._command("reminders", "User wants to list active reminders.", 0.86)
         if _REMINDER_BARE.fullmatch(lowered):
             return self._command("reminders", "User wants to list active reminders.", 0.86)
+        if _SCHEDULE_ASK.fullmatch(lowered):
+            return self._command("schedule list", "User wants the scheduled jobs.", 0.86)
         upcoming = _NEXT_ASK.match(lowered)
         if upcoming:
             kind = next((group for group in upcoming.groups() if group), "reminder")

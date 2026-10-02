@@ -98,6 +98,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("wake me up at 7", "alarm", "an alarm said as speech"),
     ("snooze for 5 minutes", "reminder snooze", "minutes, never a reminder id"),
     ("what's my next reminder", "reminders next", "read as a date nobody gave, once"),
+    ("what are my scheduled jobs", "schedule list", "the router heard 'jobs' and opened the job tracker"),
     ("never mind the timer", "reminder delete", "letting go of one"),
     ("i don't need the alarm anymore", "reminder delete", "same"),
     ("stop reminding me about the oven", "reminder delete", "same"),
