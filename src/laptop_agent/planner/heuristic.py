@@ -1130,6 +1130,11 @@ class HeuristicPlannerProvider:
             return None
         query = match.group(1).strip().strip("'\"")
         root = match.group(2).strip().strip("'\"")
+        # A size is never something to look for inside files: "find the largest files in the
+        # linux kernel" searched a folder called "the linux kernel" for the words "the largest
+        # files". `_largest_files` takes the ones that name a folder here; the rest are questions.
+        if re.search(r"\b(?:largest|biggest|heaviest|smallest)\b", query, re.IGNORECASE):
+            return None
         # Only treat this as a FILE search when there's an explicit file/folder cue or
         # the root is clearly a path. Otherwise a request like "find Indian restaurants
         # in Kyle, TX" must NOT become a file scan — let it fall through to web search /

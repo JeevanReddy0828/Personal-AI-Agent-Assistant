@@ -914,6 +914,12 @@ class LargestFilesRoutingTests(unittest.TestCase):
                      "the largest file in my downloads is a video"):
             self.assertNotIn("by size", self.command(text), text)
 
+    def test_a_size_is_never_searched_for_inside_files(self) -> None:
+        # It searched a folder called "the linux kernel" for the words "the largest files".
+        for text in ("find the largest files in the linux kernel", "look for the biggest files in a typical install"):
+            self.assertFalse(self.command(text).startswith("search files"), text)
+        self.assertEqual(self.command("find the three largest files in my downloads folder"), "scan files ~/Downloads by size")
+
     def test_a_text_search_names_the_folder_people_mean(self) -> None:
         self.assertEqual(self.command("find report in my documents folder"), "search files report ~/Documents")
         self.assertEqual(self.command("find TODO in src/app"), "search files TODO src/app")
