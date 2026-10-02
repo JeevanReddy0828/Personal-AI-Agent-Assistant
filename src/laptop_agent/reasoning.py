@@ -20,6 +20,13 @@ from laptop_agent.tools.base import ToolResult
 _ACTION_RE = re.compile(r"^\s*(?:ACTION|COMMAND|NEXT)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 _FINAL_HEAD_RE = re.compile(r"^[ \t]*(FINAL|ANSWER|DONE)[ \t]*:[ \t]*", re.IGNORECASE | re.MULTILINE)
 _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# The loop's own label for a tool result. Upper case only, as the prompt spells it, so an
+# answer may still say "Observation: ..." in its prose.
+_OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
+_FORMAT_REMINDER = (
+    "\n\nYour last reply had no ACTION: line and no FINAL: line, so nothing could run. "
+    "Reply again in exactly the format above: THOUGHT then ACTION, or THOUGHT then FINAL."
+)
 # What a deliverable written before FINAL looks like (code, headings, tables, lists,
 # Mermaid), as opposed to leftover reasoning prose.
 _DELIVERABLE_RE = re.compile(
@@ -35,6 +42,8 @@ class AgentDecision:
     command: str
     final_answer: str
     is_final: bool
+    # False when the reply had neither an ACTION nor a FINAL line and was taken whole.
+    structured: bool = True
 
 
 @dataclass(frozen=True)
@@ -88,9 +97,31 @@ def _strip_command(raw: str) -> str:
     return command
 
 
+def _drop_invented_observation(raw: str) -> str:
+    """Cut a reply at an OBSERVATION it wrote itself, unless a FINAL answer came first.
+
+    Only the loop writes observations, after running an ACTION. Asked to summarise a README,
+    a model wrote "OBSERVATION: [ok] ... # Codex Project ..." for a file that says nothing of
+    the kind, summarised that, and the run reported it as the answer. Whatever follows an
+    invented result rests on it, so it goes too; an ACTION written before it still runs.
+    """
+    fenced = _fenced_spans(raw)
+
+    def outside(match: re.Match[str]) -> bool:
+        return not any(start <= match.start() < end for start, end in fenced)
+
+    observation = next((match for match in _OBSERVATION_RE.finditer(raw) if outside(match)), None)
+    if observation is None:
+        return raw
+    final = next((match for match in _FINAL_HEAD_RE.finditer(raw) if outside(match)), None)
+    if final is not None and final.start() < observation.start():
+        return raw
+    return raw[: observation.start()].rstrip()
+
+
 def parse_agent_decision(text: str) -> AgentDecision:
     """Parse a reasoning turn. FINAL wins over ACTION; bare text is treated as a final answer."""
-    raw = (text or "").strip()
+    raw = _drop_invented_observation((text or "").strip())
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
 
@@ -123,7 +154,9 @@ def parse_agent_decision(text: str) -> AgentDecision:
         answer = stripped or thought
     else:
         answer = raw
-    return AgentDecision(thought=thought, command="", final_answer=answer or raw, is_final=True)
+    return AgentDecision(
+        thought=thought, command="", final_answer=answer or raw, is_final=True, structured=bool(action_match)
+    )
 
 
 def _describe_datum(key: str, value: object) -> str:
@@ -210,7 +243,8 @@ class AutonomousAgent:
             "THOUGHT: <why you are stopping>",
             "FINAL: <the complete answer for the user — everything they should see goes after FINAL:, "
             "including any diagram, code or table; it may span many lines>",
-            "Rules: one command per turn, no prose outside the format, never invent commands.",
+            "Rules: one command per turn, no prose outside the format, never invent commands, and never "
+            "write OBSERVATION yourself: it is added after your ACTION runs.",
             "",
             f"GOAL: {goal}",
         ]
@@ -284,6 +318,15 @@ class AutonomousAgent:
 
             check_cancelled()
             decision = parse_agent_decision(reply)
+            if not decision.structured:
+                decision = self._ask_again(prompt, decision)
+            if decision.is_final and not decision.structured and not decision.final_answer:
+                return AgentRunResult(
+                    goal=goal,
+                    final_answer="The reasoning model did not reply with a step or an answer.",
+                    status="failed",
+                    steps=steps,
+                )
             if decision.is_final:
                 return AgentRunResult(
                     goal=goal,
@@ -312,6 +355,21 @@ class AutonomousAgent:
         check_cancelled()
         summary = self._summarize(goal, steps, context)
         return AgentRunResult(goal=goal, final_answer=summary, status="stopped", steps=steps)
+
+    def _ask_again(self, prompt: str, decision: AgentDecision) -> AgentDecision:
+        """Ask once more when a reply had neither an ACTION nor a FINAL line.
+
+        Such a reply was taken as the answer, so a run ended "ok" on the model's own
+        deliberation ("Actually, looking at the AVAILABLE COMMANDS... But wait..."). A second
+        reply without them is still accepted, so a model that simply answered is not refused.
+        """
+        try:
+            retried = parse_agent_decision(self._decide(prompt + _FORMAT_REMINDER) or "")
+        except Exception as exc:
+            record_failure("agent/ask-again", exc)
+            return decision
+        check_cancelled()
+        return retried if retried.structured or not decision.final_answer else decision
 
     def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
         prompt = self._build_prompt(goal, steps, context) + (
