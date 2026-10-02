@@ -136,6 +136,63 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         self.page.wait_for_function("() => !document.querySelector('.apcard')", timeout=6000)
         self.assertEqual(len(self.store.list()), 2, "denied, so nothing is removed")
 
+    def add_due(self, *messages):
+        for minutes, message in enumerate(messages, start=1):
+            self.store.add((datetime.now(UTC) - timedelta(minutes=minutes)).isoformat(), message)
+
+    def shown(self) -> int:
+        # A box, not a class: a card is on screen only if it has a height.
+        return self.page.evaluate(
+            "() => [...document.querySelectorAll('#remtray [data-rem]')]"
+            ".filter(card => card.getBoundingClientRect().height > 0).length")
+
+    def test_many_due_reminders_show_a_few_and_count_the_rest(self):
+        # Five due at once covered the screen, settings included, and each was dismissed alone.
+        self.add_due(*[f"reminder {n}" for n in range(8)])
+        self.page.goto(self.url)
+        self.page.wait_for_selector("[data-rem-more]")
+        self.assertEqual(self.shown(), 3)
+        more = self.page.locator("[data-rem-more]")
+        self.assertIn("+5 more reminders", more.inner_text())
+        more.get_by_role("button", name="Show all").click()
+        self.assertEqual(self.shown(), 8)
+        tray = self.page.locator("#remtray").bounding_box()
+        self.assertLessEqual(tray["y"] + tray["height"], self.page.viewport_size["height"], "runs off the screen")
+        more.get_by_role("button", name="Dismiss all").click()
+        self.assertEqual(self.page.locator("#remtray [data-rem], [data-rem-more]").count(), 0)
+        self.assertEqual(len(self.store.due()), 8, "dismissing must not complete them")
+
+    def test_dismissing_one_brings_the_next_into_view(self):
+        self.add_due("one", "two", "three", "four")
+        self.page.goto(self.url)
+        self.page.wait_for_selector("[data-rem-more]")
+        self.assertEqual(self.shown(), 3)
+        self.page.locator("#remtray [data-rem]").first.get_by_role("button", name="Dismiss").click()
+        self.assertEqual(self.shown(), 3)
+        self.assertEqual(self.page.locator("[data-rem-more]").count(), 0, "a summary of nothing hidden")
+
+    def test_on_a_phone_one_shows(self):
+        self.add_due("one", "two", "three")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.goto(self.url)
+        self.page.wait_for_selector("[data-rem-more]")
+        self.assertEqual(self.shown(), 1)
+        self.assertIn("+2 more reminders", self.page.locator("[data-rem-more]").inner_text())
+
+    def test_the_settings_popover_is_above_the_reminders(self):
+        self.add_due("one", "two", "three")
+        self.page.goto(self.url)
+        self.assertIsNotNone(self.card_box())
+        self.page.click("#hudBtn")
+        self.page.wait_for_function("() => document.querySelector('#hudPop').getBoundingClientRect().height > 0")
+        on_top = self.page.evaluate("""() => {
+            const pop = document.querySelector('#hudPop').getBoundingClientRect();
+            const tray = document.querySelector('#remtray').getBoundingClientRect();
+            const x = Math.max(pop.left, tray.left) + 10, y = Math.max(pop.top, tray.top) + 10;
+            return !!document.elementFromPoint(x, y).closest('#hudPop');
+        }""")
+        self.assertTrue(on_top, "a reminder covers the settings the user just opened")
+
     def test_reminder_text_is_text_not_markup(self):
         self.store.add((datetime.now(UTC) - timedelta(minutes=1)).isoformat(), "<img src=x onerror=alert(1)>")
         self.page.goto(self.url)
