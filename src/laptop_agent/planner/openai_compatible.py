@@ -474,6 +474,7 @@ class OpenAICompatiblePlannerProvider:
                 on_failure(*classify_failure(exc, self.model))
             return
         cut_off = False
+        emitted: list[str] = []
         with response, interruptible_response(response):
             for raw in response:
                 check_cancelled()
@@ -493,11 +494,16 @@ class OpenAICompatiblePlannerProvider:
                 # the chain-of-thought internal and surface only the final answer tokens.
                 content = delta.get("content") if isinstance(delta, dict) else None
                 if content:
+                    emitted.append(content)
                     yield content
-        if cut_off:
+        answer = "".join(emitted)
+        if cut_off and answer.strip():
             # It stopped because it ran out of room, not because it was done; say so rather
-            # than leave a reply ending mid-word.
-            yield _CUT_OFF_NOTE
+            # than leave a reply ending mid-word. Only after a real answer: a reply that was all
+            # hidden reasoning stays empty, so the orchestrator still falls back to a healthy
+            # tier (Codex's review). And cut inside a code block, the block is closed first, or
+            # the note would render as code.
+            yield ("\n```" if answer.count("```") % 2 else "") + _CUT_OFF_NOTE
 
     def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
         """Send an image to a vision model and return a plain-language description."""
@@ -549,7 +555,8 @@ class OpenAICompatiblePlannerProvider:
 
     def _deadline(self, payload: dict) -> float:
         """Long enough to write what this call is allowed to: at 66 tokens a second a 4,096-token
-        reply takes about a minute, past the fast tier's 45 s, and a timeout reads as busy."""
+        reply takes about a minute, past the fast tier's 45 s, and a timeout reads as busy. The
+        socket timeout of one attempt, not a total wall-clock deadline."""
         allowed = int(payload.get("max_tokens") or 0)
         return max(self.timeout, min(300.0, 15 + allowed / 40))
 

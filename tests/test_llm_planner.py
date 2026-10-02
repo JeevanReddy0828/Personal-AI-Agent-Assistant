@@ -420,9 +420,10 @@ class RoutingDeadlineTests(unittest.TestCase):
 class _FakeStream:
     """An SSE response for stream_answer, recording the request it answered."""
 
-    def __init__(self, request, finish: str) -> None:
+    def __init__(self, request, finish: str, pieces=("Step one", ", step two"), reasoning_only: bool = False) -> None:
         self.payload = json.loads(request.data)
-        chunks = [{"choices": [{"delta": {"content": piece}, "finish_reason": None}]} for piece in ("Step one", ", step two")]
+        field = "reasoning_content" if reasoning_only else "content"
+        chunks = [{"choices": [{"delta": {field: piece}, "finish_reason": None}]} for piece in pieces]
         chunks.append({"choices": [{"delta": {}, "finish_reason": finish}]})
         self.lines = [f"data: {json.dumps(chunk)}\n".encode() for chunk in chunks] + [b"data: [DONE]\n"]
 
@@ -441,12 +442,12 @@ class OutputLimitTests(unittest.TestCase):
     tokens and a long answer stopped after 701 words, mid-table, with no word that it had
     been cut; every NVIDIA model here accepts 65,536."""
 
-    def stream(self, provider, finish: str = "stop"):
+    def stream(self, provider, finish: str = "stop", **stream):
         seen = {}
         real = urllib.request.urlopen
 
         def fake(request, timeout=None, **kwargs):
-            seen["response"] = _FakeStream(request, finish)
+            seen["response"] = _FakeStream(request, finish, **stream)
             return seen["response"]
 
         urllib.request.urlopen = fake
@@ -484,6 +485,22 @@ class OutputLimitTests(unittest.TestCase):
         self.assertIn("reached the length limit", cut)
         whole, _ = self.stream(provider, finish="stop")
         self.assertEqual(whole, "Step one, step two")
+
+    def test_a_reply_that_was_all_hidden_reasoning_stays_empty(self) -> None:
+        # Codex's review of #177: the note alone read as an answer, so the orchestrator took
+        # the tier as healthy and never tried the next one.
+        provider = OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=16384)
+        text, _ = self.stream(provider, finish="length", pieces=("Let me think about it",), reasoning_only=True)
+        self.assertEqual(text, "")
+
+    def test_a_reply_cut_inside_a_code_block_closes_it_before_the_note(self) -> None:
+        provider = OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=16384)
+        text, _ = self.stream(provider, finish="length", pieces=("Here it is:\n``", "`python\nprint(1)",))
+        before, note = text.split("\n\n_(", 1)
+        self.assertEqual(before.count("```") % 2, 0, before)
+        self.assertIn("reached the length limit", note)
+        whole, _ = self.stream(provider, finish="length", pieces=("```python\nprint(1)\n```\nDone",))
+        self.assertEqual(whole.split("\n\n_(", 1)[0], "```python\nprint(1)\n```\nDone")
 
     def test_a_long_reply_is_given_the_time_to_be_written(self) -> None:
         provider = OpenAICompatiblePlannerProvider("k", "m", timeout=45, max_output_tokens=16384)
