@@ -777,3 +777,8 @@ Cancel now clears that cookie only after a matching flow/proof was actually canc
 GPU-01 review caught a cache-consumer regression: one-shot status reported old values as
 current or omitted a cold CPU sample. Both callers now refresh synchronously. JavaScript
 null arithmetic also converted unknown VRAM into zero; test the rendered n/a state.
+
+
+## GPU adapter labels — 2026-10-02
+
+Indistinguishable GPU rows -> Overview discarded each adapter name -> share escaped adapter-name labels with the drawer, adding distinct indexed fallbacks and the 3D qualifier.

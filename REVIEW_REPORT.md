@@ -298,3 +298,8 @@ app.js and test_browser_regressions.py to the original scope; health.py stays un
 GPU review test portability: the cold-status regression now mocks the unrelated battery
 probe. Its simulated win32 platform otherwise calls windll on a Linux CI host without
 psutil. Production metrics behavior is unchanged by this test-harness correction.
+
+
+## GPU adapter labels — 2026-10-02
+
+GPU labels: a two-adapter Chromium repro failed before the fix. It checks AMD/NVIDIA names, distinct missing-name fallbacks, zero versus unknown utilization, and HTML escaping in Overview and drawer.
