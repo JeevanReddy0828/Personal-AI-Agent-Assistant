@@ -12,7 +12,7 @@ import re
 import tempfile
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -81,7 +81,7 @@ from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, Tr
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
-from laptop_agent.tools.document import DocumentTool
+from laptop_agent.tools.document import DocumentTool, page_target
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.weather import WeatherTool, clean_place
@@ -522,6 +522,7 @@ class AgentOrchestrator:
             decision = self._repair_image_command(command, decision, history)
             decision = self._repair_target_command(command, decision, history)
             decision = self._repair_diagram_command(command, decision, history)
+            decision = self._repair_document_length(command, decision, history)
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -668,6 +669,21 @@ class AgentOrchestrator:
             confidence=0.55,
             explanation="A diagram belongs in the reply as Mermaid, not in a generated file.",
         )
+
+    def _repair_document_length(self, text, planned, history):
+        """A length the user asked for survives routing.
+
+        "write a one page pdf on how vaccines work" reached the LLM router, which answered
+        `document how vaccines work as pdf`: "one page" was gone, and the PDF ran to two.
+        """
+        command = (planned.command or "") if planned.is_command else ""
+        if not command.lower().startswith("document "):
+            return planned
+        asked = page_target(text)
+        if asked is None or page_target(command) is not None:
+            return planned
+        length = "one page" if asked == 1 else f"{asked} pages"
+        return replace(planned, command=f"document {length}: {command[len('document '):].strip()}")
 
     def _repair_image_command(self, text, planned, history):
         """The router invents image subjects, and sends diagrams to a diffusion model.
@@ -2607,7 +2623,7 @@ class AgentOrchestrator:
                 "  web search <query>",
                 "  news [topic]  (real headlines from free feeds, with article text)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
-                "  document <request> [as pdf|word|markdown]  (write and render a real file)",
+                "  document <request> [as pdf|word|markdown]  (write and render a real file; keep any length asked for, such as 'one page')",
                 "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",

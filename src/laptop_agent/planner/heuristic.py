@@ -86,7 +86,8 @@ _DECK_ASK = re.compile(
 
 _DOC_HEAD = re.compile(
     r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
-    r"(?:me\s+)?(?:an?\s+)?(?P<kind>pdf|word\s+doc(?:ument)?|docx|doc|markdown\s+(?:file|doc)|md\s+file)"
+    r"(?:me\s+)?(?:an?\s+)?(?P<length>(?:(?:\d{1,2}|one|two|three|four|five|single)[\s-]+pages?|one[\s-]pager)\s+)?"
+    r"(?P<kind>pdf|word\s+doc(?:ument)?|docx|doc|markdown\s+(?:file|doc)|md\s+file)"
     r"(?:\s+(?:file|document))?\s+(?:about|on|for|of|covering|regarding|summari[sz]ing)\s+(?P<topic>\S.*?)\s*[.!]*$",
     re.IGNORECASE,
 )
@@ -1226,7 +1227,9 @@ class HeuristicPlannerProvider:
             if head:
                 kind = head.group("kind").lower()
                 fmt = "word" if kind.startswith(("word", "doc")) else "markdown" if kind.startswith(("markdown", "md")) else "pdf"
-                return self._command(f"document {head.group('topic').strip()} as {fmt}", "User wants a document file.", 0.85)
+                # The length rides along: "a one page pdf on X" lost it and printed on two.
+                length = f"{head.group('length').strip()}: " if head.group("length") else ""
+                return self._command(f"document {length}{head.group('topic').strip()} as {fmt}", "User wants a document file.", 0.85)
             return None
         match = re.match(
             r"^\s*(?:can you |could you |please )?"

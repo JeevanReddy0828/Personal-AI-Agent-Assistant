@@ -1297,6 +1297,43 @@ class OrchestratorTests(unittest.TestCase):
                 )
                 self.assertTrue(o._repair_diagram_command(text, planned, []).is_command, text)
 
+    def test_a_length_the_router_dropped_is_put_back(self) -> None:
+        # Live: "write a one page pdf on how vaccines work" was routed to
+        # `document how vaccines work as pdf`, and the PDF ran to two pages.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+
+            def repaired(text: str, command: str) -> str:
+                planned = PlanDecision(action="command", confidence=0.8, explanation="", command=command)
+                return o._repair_document_length(text, planned, []).command
+
+            self.assertEqual(
+                repaired("i need a one-page summary of the french revolution, pdf please",
+                         "document the french revolution as pdf"),
+                "document one page: the french revolution as pdf",
+            )
+            self.assertEqual(repaired("a 3 page report on tcp as word", "document tcp as word"),
+                             "document 3 pages: tcp as word")
+            for text, command in (
+                ("a one page brief on rust as pdf", "document a one page brief on rust as pdf"),
+                ("write a report on rust as pdf", "document rust as pdf"),
+                ("summarize the 10 page report as a pdf", "document the report summary as pdf"),
+                ("a one page summary of rust", "web search rust"),
+            ):
+                self.assertEqual(repaired(text, command), command, text)
+
+    def test_routing_puts_a_dropped_length_back(self) -> None:
+        class DroppingRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="command", confidence=0.8, explanation="",
+                                    command="document the french revolution as pdf")
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(DroppingRouter())
+            decision = o._route("i need a one-page summary of the french revolution, pdf please", {}, [])
+            self.assertEqual(decision.command, "document one page: the french revolution as pdf")
+
     def test_an_ordinary_document_is_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
