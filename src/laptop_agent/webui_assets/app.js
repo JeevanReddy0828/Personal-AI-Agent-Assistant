@@ -1105,8 +1105,9 @@
 
   /* metrics */
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
-  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar((g.util_kind==='3D'?'GPU (3D) · ':'GPU · ')+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_used_mb!=null&&g.mem_total_mb>0?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
-    if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
+  function gpuAdapterName(g,index){return (typeof g.name==='string'&&g.name.trim())||('GPU '+(index+1));}
+  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach((g,i)=>{h+=bar((g.util_kind==='3D'?'GPU (3D) · ':'GPU · ')+esc(gpuAdapterName(g,i)),g.util_percent,'%','g');h+=bar('VRAM · '+esc(gpuAdapterName(g,i)),g.mem_used_mb!=null&&g.mem_total_mb>0?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
+    if(m.gpus&&m.gpus.length){conn.gpu=['ok',gpuAdapterName(m.gpus[0],0)];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
 
   /* setup: each capability, whether it is ready, and the next step if not (developers only) */
