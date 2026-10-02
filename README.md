@@ -723,6 +723,16 @@ remediation evidence and remaining limits.
 
 ---
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+The developer API `laptop_agent.analytics.forecast.forecast(values, horizon=3)` supplies
+naive/seasonal baselines and guarded smoothing forecasts without extra packages. It uses
+chronological backtests and empirical uncertainty bands, with explicit reasons when data
+or calibration is insufficient. See [the contract and validation](docs/forecasting.md).
+CSV commands and forecast charts are a separate integration; this change adds the core.
+
+
 ## License
 
 Released under the [MIT License](LICENSE).
