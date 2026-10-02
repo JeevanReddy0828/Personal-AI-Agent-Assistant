@@ -569,6 +569,37 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(outcome["ticks"], ["0.0029", "0.00315", "0.0034"])
         self.assertEqual(self.errors, [])
 
+    def test_a_reopened_chat_draws_its_forecast_again(self):
+        """A saved message kept only the tool digest, cut at 2,000 characters, so reopening a
+        chat lost every forecast chart. It now keeps the chart's own small payload."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10), realFetch = window.fetch;
+                const values = Array.from({length: 200}, (_, i) => 100 + i + (i % 7));
+                const done = {type: 'done', ok: true, message: '**Revenue: the next 3 months**',
+                    data: {labels: ['n1', 'n2', 'n3'],
+                           series: {labels: values.map((_, i) => 'p' + i), values, period: 'month'},
+                           forecast: {enough_data: true, points: [301, 302, 303],
+                                      lower: [290, 291, 292], upper: [310, 312, 314]}}};
+                window.fetch = (url, opts) => String(url).indexOf('/api/stream') >= 0
+                    ? Promise.resolve(new Response('data: ' + JSON.stringify(done) + NL + NL, {status: 200}))
+                    : realFetch(url, opts);
+                try { await send('forecast Revenue in sales.csv'); } finally { window.fetch = realFetch; }
+                const drawn = () => { const charts = document.querySelectorAll('.msg .fchart');
+                    return charts.length ? charts[charts.length - 1].textContent : null; };
+                const live = drawn();
+                const saved = curSession().msgs.filter(m => m.chart).pop();
+                loadSession(current);
+                return {live, reopened: drawn(), kept: saved ? saved.chart.series.values.length : null,
+                        size: saved ? JSON.stringify(saved.chart).length : null};
+            }"""
+        )
+        self.assertIn("last 24 of 200", outcome["live"])
+        self.assertEqual(outcome["reopened"], outcome["live"], "the reopened chat drew a different chart, or none")
+        self.assertEqual(outcome["kept"], 48)
+        self.assertLess(outcome["size"], 4000)
+        self.assertEqual(self.errors, [])
+
     def test_copying_works_without_a_secure_context(self):
         """navigator.clipboard is also absent outside a secure context. One Copy button
         used it unguarded and reported 'Blocked' on a phone."""
