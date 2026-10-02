@@ -150,6 +150,12 @@ class ForecastRequestTests(unittest.TestCase):
             "forecast Revenue in sales.csv by Month for the next 6 months.": ("Month", 6, None),
             "forecast Revenue in sales.csv by Month season 12": ("Month", 3, 12),
             "forecast Revenue in sales.csv with a season of 4 for 2 quarters by Quarter": ("Quarter", 2, 4),
+            # Codex's review: the horizon's optional unit took the word "season", so the first
+            # was not a request at all and the second read the date column as "Month 12".
+            "forecast Revenue in sales.csv for 3 season 12": (None, 3, 12),
+            "forecast Revenue in sales.csv by Month for 3 season 12": ("Month", 3, 12),
+            "forecast Revenue in sales.csv for 3 with a season of 12": (None, 3, 12),
+            "forecast Revenue in sales.csv for 3 months season 12 by Month": ("Month", 3, 12),
         }
         for text, expected in cases.items():
             with self.subTest(text):

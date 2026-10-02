@@ -140,3 +140,8 @@ Method references: [rolling-origin evaluation](https://otexts.com/fpp3/tscv.html
 [prediction intervals](https://otexts.com/fpp3/prediction-intervals.html).
 Implementation choices such as the fixed grid, thresholds and chronology are project
 policies, not prescriptions from those references.
+
+
+## Season peak review correction — 2026-10-02
+
+Automatic detection now requires a strict autocorrelation peak against both neighbouring lags. Candidate periods still require three cycles in the training prefix; one extra right-hand lag only checks the boundary. The n=99..107 monthly-sine repro returns no season, and n=108 confirms 12. A boundary shoulder is not a period.
