@@ -107,16 +107,23 @@ def atomic_write_text(path: Path, text: str, backup: bool = True) -> None:
         if not backup:
             Path(str(path) + ".bak").unlink(missing_ok=True)
         elif path.exists():
-            previous = path.read_text(encoding="utf-8")
-            if path.suffix == ".json":
-                try:
-                    json.loads(previous)
-                except ValueError:
-                    _preserve_corrupt(path)
+            try:
+                previous = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                # Damage like JSON that does not parse: the bytes are kept aside before anything
+                # is replaced, the good backup is left alone, and this write goes ahead. Decoded
+                # strictly, one bad byte made every later write to the store raise, for good.
+                _preserve_corrupt(path)
+            else:
+                if path.suffix == ".json":
+                    try:
+                        json.loads(previous)
+                    except ValueError:
+                        _preserve_corrupt(path)
+                    else:
+                        _replace_text(Path(str(path) + ".bak"), previous)
                 else:
                     _replace_text(Path(str(path) + ".bak"), previous)
-            else:
-                _replace_text(Path(str(path) + ".bak"), previous)
         _replace_text(path, text)
 
 

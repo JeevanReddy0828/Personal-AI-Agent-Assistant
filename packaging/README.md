@@ -1,5 +1,10 @@
 # Packaging J.A.R.V.I.S as a desktop app
 
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 uses only stdlib in analytics/diagnostics.py. No new bundled asset, provider, DLL or optional dependency is needed. Preserve null diagnostics and warnings in later consumers; this slice adds no packaged command.
+
+
 This turns the agent into a **standalone Windows application** the user can
 download and double-click — no Python install, no terminal, no browser tab. It
 opens the frameless desktop window directly.
@@ -106,3 +111,24 @@ opens the system browser and polls with its own HttpOnly proof cookie. Only that
 window receives the app session. Test real consent and a return to the packaged window
 before distribution; automated checks use two independent Chromium cookie jars and a fake
 provider. Google sign-in grants no Gmail access in this slice.
+
+
+### GPU counters without administrator rights (GPU-01)
+
+Rebuild the executable after the metrics runtime change. No new Python package or bundled
+DLL is needed: Windows supplies PowerShell performance counters and DXGI. NVIDIA's utility
+remains preferred when it works; counters are the non-elevated fallback. The subprocess
+has no console window and runs behind the metrics cache, so the status drawer can return
+its previous values while sampling. The first read can be temporarily unavailable.
+
+The fallback reports 3D utilization and dedicated memory usage; an unmatched or powered-down
+adapter may have a generic name and unknown memory capacity. Missing or localized counter
+sets degrade to unavailable metrics with one failure record per cause. Check a rebuilt
+native window without elevation before distribution; the source HTTP endpoint and DXGI
+path were verified non-elevated on the laptop on 2026-10-01.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU review follow-up also updates app.js: rebuild to get the explicit 3D label and
+unknown VRAM display. One-shot status/briefing calls wait for a fresh measurement.

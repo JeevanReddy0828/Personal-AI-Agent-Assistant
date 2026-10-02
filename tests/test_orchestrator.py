@@ -1297,6 +1297,43 @@ class OrchestratorTests(unittest.TestCase):
                 )
                 self.assertTrue(o._repair_diagram_command(text, planned, []).is_command, text)
 
+    def test_a_length_the_router_dropped_is_put_back(self) -> None:
+        # Live: "write a one page pdf on how vaccines work" was routed to
+        # `document how vaccines work as pdf`, and the PDF ran to two pages.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+
+            def repaired(text: str, command: str) -> str:
+                planned = PlanDecision(action="command", confidence=0.8, explanation="", command=command)
+                return o._repair_document_length(text, planned, []).command
+
+            self.assertEqual(
+                repaired("i need a one-page summary of the french revolution, pdf please",
+                         "document the french revolution as pdf"),
+                "document one page: the french revolution as pdf",
+            )
+            self.assertEqual(repaired("a 3 page report on tcp as word", "document tcp as word"),
+                             "document 3 pages: tcp as word")
+            for text, command in (
+                ("a one page brief on rust as pdf", "document a one page brief on rust as pdf"),
+                ("write a report on rust as pdf", "document rust as pdf"),
+                ("summarize the 10 page report as a pdf", "document the report summary as pdf"),
+                ("a one page summary of rust", "web search rust"),
+            ):
+                self.assertEqual(repaired(text, command), command, text)
+
+    def test_routing_puts_a_dropped_length_back(self) -> None:
+        class DroppingRouter:
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="command", confidence=0.8, explanation="",
+                                    command="document the french revolution as pdf")
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            o.planner = Planner(DroppingRouter())
+            decision = o._route("i need a one-page summary of the french revolution, pdf please", {}, [])
+            self.assertEqual(decision.command, "document one page: the french revolution as pdf")
+
     def test_an_ordinary_document_is_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
@@ -1966,6 +2003,50 @@ class HonestScanTests(unittest.TestCase):
             observation = _observe(self.scan(self.tree(tmp), limit=2))
             self.assertIn("total_files=10", observation)
             self.assertIn("complete=False", observation)
+
+
+class LargestFilesScanTests(unittest.TestCase):
+    """"What are the largest files in my downloads" listed the first 200 of 1214 in name
+    order, and the agent, shown only a count, spent six steps without finding one size."""
+
+    config = OrchestratorTests.config
+    build = OrchestratorTests.build
+
+    def tree(self, tmp: str) -> Path:
+        base = Path(tmp) / "tree"
+        (base / "deep").mkdir(parents=True)
+        for index in range(8):
+            (base / f"a{index}.txt").write_bytes(b"x" * (index + 1))
+        (base / "deep" / "zz-movie.mkv").write_bytes(b"x" * 5000)
+        (base / "deep" / "zz-backup.zip").write_bytes(b"x" * 3000)
+        return base
+
+    def test_the_largest_come_from_the_whole_tree_largest_first(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = FileTool().scan(str(self.tree(tmp)), limit=3, by_size=True)
+            names = [Path(entry["path"]).name for entry in result.data["files"]]
+            self.assertEqual(names, ["zz-movie.mkv", "zz-backup.zip", "a7.txt"])
+            self.assertEqual(result.data["total_files"], 10)
+            self.assertEqual(result.data["order"], "size")
+            # The agent sees only the message, so it must name them.
+            self.assertIn("zz-movie.mkv (4.9 KB)", result.message)
+            self.assertLess(result.message.index("zz-movie"), result.message.index("zz-backup"))
+
+    def test_the_reply_says_largest_and_lists_them_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            root = self.tree(raw)
+            result = asyncio.run(o.handle(f"scan files {root} by size"))
+            self.assertEqual(result.data["order"], "size")
+            reply = AgentOrchestrator._humanize(result)
+            self.assertIn("**Largest of 10 file(s)", reply)
+            self.assertLess(reply.index("zz-movie.mkv"), reply.index("zz-backup.zip"))
+            self.assertNotIn("By type", reply)
+            plain = asyncio.run(o.handle(f"scan files {root}"))
+            self.assertNotIn("order", plain.data)
+            self.assertNotIn("Largest", AgentOrchestrator._humanize(plain))
 
 
 class SubtaskReportTests(unittest.TestCase):

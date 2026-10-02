@@ -841,8 +841,36 @@
   async function remAct(r,action,card){
     card.querySelectorAll('button').forEach(b=>b.disabled=true);
     try{await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:r.id,minutes:10})});}catch(e){}
-    card.remove();checkReminders();
+    card.remove();remLayout();checkReminders();
   }
+  // Every due reminder had its own card and nothing limited the stack: five due at once, as a
+  // phone opened after a while away gets them, covered the whole chat - and the settings
+  // popover - and each had to be dismissed alone. A few show; the rest are counted on one card
+  // that can show them all or dismiss them all. Dismissing stays what it was: the card only.
+  const REM_SHOWN = 3, REM_SHOWN_NARROW = 1, remNarrow = matchMedia('(max-width: 700px)');
+  function remLayout(){
+    const host=document.getElementById('remtray'); if(!host)return;
+    const cards=[...host.querySelectorAll('[data-rem]')], all=host.classList.contains('remall');
+    const cap=remNarrow.matches?REM_SHOWN_NARROW:REM_SHOWN;
+    cards.forEach((card,i)=>card.classList.toggle('remhide',!all&&i>=cap));
+    let more=host.querySelector('[data-rem-more]');
+    if(cards.length<=cap){if(more)more.remove();host.classList.remove('remall');return;}
+    if(!more){
+      more=document.createElement('div');more.className='remcard';more.setAttribute('data-rem-more','');
+      const msg=document.createElement('div');msg.className='remmsg';
+      const row=document.createElement('div');row.className='aprow';
+      const toggle=document.createElement('button');toggle.className='apbtn';
+      const clear=document.createElement('button');clear.className='apbtn';clear.textContent='Dismiss all';
+      toggle.onclick=()=>{host.classList.toggle('remall');remLayout();};
+      clear.onclick=()=>{host.querySelectorAll('[data-rem]').forEach(c=>c.remove());remLayout();};
+      row.append(toggle,clear);more.append(msg,row);
+    }
+    host.appendChild(more);
+    const hidden=cards.length-cap;
+    more.querySelector('.remmsg').textContent=all?cards.length+' reminders':'+'+hidden+' more reminder'+(hidden===1?'':'s');
+    more.querySelector('.apbtn').textContent=all?'Show fewer':'Show all';
+  }
+  try{remNarrow.addEventListener('change',remLayout);}catch(e){}
   function remTray(){
     let host=document.getElementById('remtray');
     if(!host){host=document.createElement('div');host.id='remtray';document.body.appendChild(host);}
@@ -876,8 +904,8 @@
     const dismiss=document.createElement('button');dismiss.className='apbtn';dismiss.textContent='Dismiss';
     const snooze=document.createElement('button');snooze.className='apbtn';snooze.textContent='Snooze 10 min';
     const done=document.createElement('button');done.className='apbtn remdone';done.textContent='Done';
-    dismiss.onclick=()=>card.remove(); snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
-    row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);
+    dismiss.onclick=()=>{card.remove();remLayout();}; snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
+    row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);remLayout();
     chime();
     try{if('Notification' in window&&Notification.permission==='granted')new Notification('J.A.R.V.I.S reminder',{body:r.message||'',tag:'jarvis-rem-'+r.id});}catch(e){}
     if(voiceActive)enqueueTTS('Reminder: '+(r.message||''));
@@ -1077,7 +1105,7 @@
 
   /* metrics */
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
-  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar('GPU · '+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_total_mb?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
+  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar((g.util_kind==='3D'?'GPU (3D) · ':'GPU · ')+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_used_mb!=null&&g.mem_total_mb>0?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
 
@@ -1708,7 +1736,7 @@
         (personal?'':statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers'))+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
-      let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar('GPU',g.util_percent,'%','g');});
+      let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar(g.util_kind==='3D'?'GPU (3D)':'GPU',g.util_percent,'%','g');});
       document.getElementById('ovMetrics').innerHTML=mh;
       document.getElementById('ovFunnel').innerHTML=svgFunnel((j.stats&&j.stats.funnel)||[]);
     }catch(e){document.getElementById('ovSub').textContent='Overview could not load. Check the local server and retry.';}

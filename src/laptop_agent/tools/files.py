@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import heapq
 import math
 import mimetypes
 import re
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
-from laptop_agent.terms import collapse_acronyms
+from laptop_agent.terms import collapse_acronyms, sentences as prose_sentences
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
@@ -46,6 +47,29 @@ def read_rows(path: Path, max_rows: int) -> list[list[str]]:
     with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle, delimiter="\t" if Path(path).suffix.lower() == ".tsv" else ",")
         return [row for _, row in zip(range(max_rows + 1), reader)]
+
+# `read file` shows what it read: the tool's message used to name the file and nothing else.
+PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
+_FENCE_LANGUAGE = {".py": "python", ".js": "javascript", ".ts": "typescript", ".json": "json", ".md": "markdown",
+                   ".html": "html", ".css": "css", ".sh": "bash", ".ps1": "powershell", ".yml": "yaml",
+                   ".yaml": "yaml", ".toml": "toml", ".sql": "sql", ".xml": "xml", ".ini": "ini"}
+
+
+def _preview(text: str, suffix: str) -> str:
+    """The start of a file as a fenced block. The fence is longer than any run of backticks in
+    the text, so a README's own code blocks cannot close it early."""
+    if not text.strip():
+        return "_The file is empty._"
+    lines = text.splitlines()
+    head = NL.join(lines[:PREVIEW_LINES])
+    shown = head[:PREVIEW_CHARS]
+    fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", shown)), default=0) + 1)
+    rest = len(lines) - len(shown.splitlines())
+    if rest > 0:
+        tail = f"{NL}{NL}_{rest} more line(s) not shown._"
+    else:  # one long line cut short leaves no further lines to count (Codex's review)
+        tail = f"{NL}{NL}_Cut at {PREVIEW_CHARS} characters._" if len(head) > PREVIEW_CHARS else ""
+    return f"{fence}{_FENCE_LANGUAGE.get(suffix.lower(), '')}{NL}{shown}{NL}{fence}{tail}"
 
 
 TEXT_EXTENSIONS = {
@@ -133,7 +157,7 @@ class FileTool:
     def __init__(self, approval_gate: ApprovalGate | None = None) -> None:
         self.approval_gate = approval_gate or ApprovalGate()
 
-    def scan(self, root: str, limit: int = 200) -> ToolResult:
+    def scan(self, root: str, limit: int = 200, by_size: bool = False) -> ToolResult:
         base = Path(root).expanduser().resolve()
         if not base.exists():
             return ToolResult.failure(f"Path does not exist: {base}")
@@ -147,6 +171,10 @@ class FileTool:
         # counting the handful of names that survived truncation. The agent answered that
         # one 27, then 6, against a true 65.
         files: list[dict[str, object]] = []
+        # (size, path) for every file when listing largest first: the first `limit` found
+        # are not the largest, and "what are the largest files in my downloads" was answered
+        # with the first 200 of 1214 in name order.
+        sized: list[tuple[int, str]] = []
         by_extension: dict[str, int] = {}
         total = 0
         walked_all = True
@@ -163,10 +191,25 @@ class FileTool:
             total += 1
             suffix = path.suffix.lower() or "(no extension)"
             by_extension[suffix] = by_extension.get(suffix, 0) + 1
-            if len(files) < limit:
+            if by_size:
+                try:
+                    sized.append((path.stat().st_size, str(path)))
+                except OSError as exc:
+                    record_failure("files/scan", exc, path=str(path)[:120])
+            elif len(files) < limit:
                 files.append(self._summarize(path).__dict__)
+        if by_size:
+            files = [
+                FileSummary(path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__
+                for size, name in heapq.nlargest(limit, sized)
+            ]
         shown = len(files)
-        if not walked_all:
+        if by_size:
+            # The agent reads only this message, so it names the largest rather than counting them.
+            top = ", ".join(f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5])
+            counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
+            message = f"Scanned {counted}, largest first: {top}." if top else f"Scanned {counted}."
+        elif not walked_all:
             message = f"Scanned {shown} files; stopped counting at {total} (the tree is very large)."
         elif shown < total:
             message = f"Scanned {total} files, listing the first {shown}."
@@ -180,6 +223,7 @@ class FileTool:
             listed=shown,
             complete=walked_all and shown == total,
             by_extension=dict(sorted(by_extension.items(), key=lambda item: -item[1])),
+            **({"order": "size"} if by_size else {}),
         )
 
     def read_text(self, path: str, max_chars: int = 12000) -> ToolResult:
@@ -188,7 +232,7 @@ class FileTool:
         if error is not None:
             return error
         return ToolResult.success(
-            f"Read {meta.get('kind', 'text')}: {target}",
+            f"Read {meta.get('kind', 'text')}: {target}\n\n{_preview(text, target.suffix)}",
             text=text[:max_chars],
             truncated=len(text) > max_chars,
             **{key: value for key, value in meta.items() if key != "kind"},
@@ -240,7 +284,7 @@ class FileTool:
         return self.summarize_text(text, source=str(target), sentences=sentences)
 
     def summarize_text(self, text: str, source: str | None = None, sentences: int = 5) -> ToolResult:
-        sentence_list = self._split_sentences(text)
+        sentence_list = prose_sentences(text)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to summarize{f' in: {source}' if source else '.'}",
@@ -248,9 +292,15 @@ class FileTool:
             )
 
         wanted = max(1, min(sentences, 15))
-        selected = self._rank_sentences(sentence_list, wanted)
+        if wanted > 1 and len(sentence_list) > wanted and self._content_words(sentence_list[0]):
+            # The opening sentence is how most documents describe themselves, so it is kept, as
+            # extractive summarizers do, and the ranking chooses the rest.
+            selected = [0] + [index + 1 for index in self._rank_sentences(sentence_list[1:], wanted - 1)]
+        else:
+            selected = self._rank_sentences(sentence_list, wanted)
         summary = " ".join(sentence_list[index] for index in selected)
-        words = self._content_words(text)
+        # Counted over the prose, not the raw text: link targets would make "https" a keyword.
+        words = self._content_words(" ".join(sentence_list))
         keywords = [word for word, _ in Counter(words).most_common(8)]
         label = source or "text"
         return ToolResult.success(
@@ -274,7 +324,7 @@ class FileTool:
         cleaned_question = question.strip()
         if not cleaned_question:
             return ToolResult.failure("Ask a question to answer from the text.")
-        sentence_list = self._split_sentences(text)
+        sentence_list = prose_sentences(text, structure=True)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to answer from{f' in: {source}' if source else '.'}",
@@ -618,14 +668,6 @@ class FileTool:
         document = Document(str(target))
         text = "\n".join(paragraph.text for paragraph in document.paragraphs)
         return text, None, {"kind": "DOCX"}
-
-    @staticmethod
-    def _split_sentences(text: str) -> list[str]:
-        cleaned = re.sub(r"\s+", " ", text).strip()
-        if not cleaned:
-            return []
-        parts = re.split(r"(?<=[.!?])\s+", cleaned)
-        return [part.strip() for part in parts if len(part.strip()) > 1]
 
     @staticmethod
     def _content_words(text: str) -> list[str]:

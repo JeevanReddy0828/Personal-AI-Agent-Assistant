@@ -31,6 +31,11 @@ Transport = Callable[[dict], str]
 # answered the next question with "Here is a diagram..." plus an image link to the previous
 # turn's file and a fabricated JSON block — the user saw a broken image and a Save control
 # with nothing behind it. Only tools produce files; a chat reply is text.
+# The rule against asking leave to act is stated, never illustrated. It used to quote the
+# failures it forbids ('May I resize and reposition...', 'May I record your voice?') and
+# the model copied them: measured on the fast tier over five tempting prompts x 5 trials,
+# 17/25 replies asked leave to act with the quotes, several nearly word for word, against
+# 1/25 with the rule alone. The failures themselves are recorded in test_llm_planner.
 _NO_TOOL_CLAIMS = (
     " Your own reply is text. Files - pictures, documents - are produced by this assistant's "
     "tools on their own turn, and their results are shown to the user directly. So never say "
@@ -45,12 +50,13 @@ _NO_TOOL_CLAIMS = (
     "app, recording from the microphone, setting a reminder, sending mail, downloading a "
     "file. Those run on a tool's own "
     "turn, and this assistant raises its own approval card when one is needed. So never ask "
-    "the user for permission, never say you will act once they approve, and never report an "
-    "action as done, started or initiated. Asked to put two windows side by side it replied "
-    "'May I resize and reposition...', then 'Approved. [Window arrangement initiated]', and "
-    "nothing whatsoever had happened. Asked to record a voice note it asked 'May I record "
-    "your voice?' after every 'yes'. Say what to ask for instead, such as 'put WhatsApp on "
-    "the left and Chrome on the right' or 'record my voice for 20 seconds'. "
+    "the user for permission or confirmation in any form, never offer to do it, never say you "
+    "will act once they agree, and never report an action as done, started or initiated: a "
+    "question asking leave to act leads nowhere, because no answer to it can run anything. "
+    "When the request is unclear, ask what they mean; when it is clear, give the exact words "
+    "to send as a plain instruction, such as 'put WhatsApp on the left and Chrome on the "
+    "right' or 'record my voice for 20 seconds'. Finish with that instruction, never with "
+    "an offer: a reply that ends by asking whether to go ahead is the same dead end. "
     r"Write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. "
     "A DIAGRAM is the exception to all of the above: you draw it yourself, in this reply. "
     "When the user asks for a diagram, flowchart, ERD, sequence or state machine, write a "
@@ -60,6 +66,9 @@ _NO_TOOL_CLAIMS = (
     "the syntax so they can request it, and never repeat their own request back at them: "
     "they already asked, so draw it now."
 )
+
+
+_CUT_OFF_NOTE = "\n\n_(This reply reached the length limit and stops here. Say \"continue\" for the rest.)_"
 
 
 # A reply that is the model thinking out loud, not answering. Reported: the assistant
@@ -239,6 +248,7 @@ class OpenAICompatiblePlannerProvider:
         reasoning: bool = False,
         reasoning_budget: int = 16384,
         top_p: float = 0.95,
+        max_output_tokens: int | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
@@ -257,6 +267,13 @@ class OpenAICompatiblePlannerProvider:
         self.reasoning = reasoning
         self.reasoning_budget = reasoning_budget
         self.top_p = top_p
+        # How long a reply may run. Measured: streamed at 2,048 tokens, a long answer stopped
+        # after 701 words, mid-table and without a word; every NVIDIA model here accepts
+        # 65,536. Set only for a host where that was measured: a cap the endpoint rejects is a
+        # 400, which marks the tier broken, so a provider built without it keeps the old caps.
+        self.max_output_tokens = max_output_tokens
+        self._stream_tokens = max_output_tokens or 2048
+        self._answer_tokens = min(4096, max_output_tokens) if max_output_tokens else 900
         self._transport = transport or self._http_transport
         # An injected transport takes the payload alone (tests pass `lambda payload: ...`),
         # so a per-call deadline can only be applied to the one we own.
@@ -383,7 +400,7 @@ class OpenAICompatiblePlannerProvider:
         memory_profile: dict[str, object],
         model: str | None = None,
         history: list[dict[str, str]] | None = None,
-        max_tokens: int = 900,
+        max_tokens: int | None = None,
         context_query: str | None = None,
         on_failure: Callable[[str, str], None] | None = None,
     ) -> str | None:
@@ -396,7 +413,7 @@ class OpenAICompatiblePlannerProvider:
         payload: dict[str, object] = {
             "model": model or self.model,
             "temperature": 0.6,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens or self._answer_tokens,
             "messages": [
                 {
                     "role": "system",
@@ -432,9 +449,8 @@ class OpenAICompatiblePlannerProvider:
         payload: dict[str, object] = {
             "model": model or self.model,
             "temperature": 0.6,
-            # Roomy enough that a thorough comparison or design answer isn't cut off
-            # mid-sentence; short replies still stop early on their own.
-            "max_tokens": 2048,
+            # A cap, not a target: short replies still stop early on their own.
+            "max_tokens": self._stream_tokens,
             "stream": True,
             "messages": [
                 {
@@ -463,6 +479,8 @@ class OpenAICompatiblePlannerProvider:
             if on_failure is not None:
                 on_failure(*classify_failure(exc, self.model))
             return
+        cut_off = False
+        emitted: list[str] = []
         with response, interruptible_response(response):
             for raw in response:
                 check_cancelled()
@@ -473,14 +491,25 @@ class OpenAICompatiblePlannerProvider:
                 if chunk == "[DONE]":
                     break
                 try:
-                    delta = json.loads(chunk)["choices"][0]["delta"]
+                    choice = json.loads(chunk)["choices"][0]
+                    delta = choice["delta"]
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                     continue
+                cut_off = cut_off or choice.get("finish_reason") == "length"
                 # Reasoning models emit a separate `reasoning_content` stream first; we keep
                 # the chain-of-thought internal and surface only the final answer tokens.
                 content = delta.get("content") if isinstance(delta, dict) else None
                 if content:
+                    emitted.append(content)
                     yield content
+        answer = "".join(emitted)
+        if cut_off and answer.strip():
+            # It stopped because it ran out of room, not because it was done; say so rather
+            # than leave a reply ending mid-word. Only after a real answer: a reply that was all
+            # hidden reasoning stays empty, so the orchestrator still falls back to a healthy
+            # tier (Codex's review). And cut inside a code block, the block is closed first, or
+            # the note would render as code.
+            yield ("\n```" if answer.count("```") % 2 else "") + _CUT_OFF_NOTE
 
     def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
         """Send an image to a vision model and return a plain-language description."""
@@ -493,7 +522,7 @@ class OpenAICompatiblePlannerProvider:
             return None
         payload: dict[str, object] = {
             "model": model or self.model,
-            "max_tokens": 700,
+            "max_tokens": min(2048, self.max_output_tokens) if self.max_output_tokens else 700,
             "messages": [
                 {
                     "role": "user",
@@ -530,6 +559,13 @@ class OpenAICompatiblePlannerProvider:
                 on_failure(*classify_failure(exc, self.model))
             return False
 
+    def _deadline(self, payload: dict) -> float:
+        """Long enough to write what this call is allowed to: at 66 tokens a second a 4,096-token
+        reply takes about a minute, past the fast tier's 45 s, and a timeout reads as busy. The
+        socket timeout of one attempt, not a total wall-clock deadline."""
+        allowed = int(payload.get("max_tokens") or 0)
+        return max(self.timeout, min(300.0, 15 + allowed / 40))
+
     def _send(self, payload: dict, timeout: float | None = None) -> str:
         """One completion, with an optional deadline for this call only.
 
@@ -561,7 +597,7 @@ class OpenAICompatiblePlannerProvider:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
+                with urllib.request.urlopen(request, timeout=timeout or self._deadline(payload)) as response:
                     data = json.loads(response.read().decode("utf-8"))
                 choice = (data.get("choices") or [{}])[0]
                 content = str((choice.get("message") or {}).get("content") or "")

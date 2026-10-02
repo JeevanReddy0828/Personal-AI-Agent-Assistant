@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from laptop_agent.embeddings import Embedder
 from laptop_agent.knowledge import GENERATED_CAPS, KnowledgeBase, document_kind
 
 
@@ -241,6 +242,82 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertIn("# Knowledge Base Export", exported)
             self.assertIn("notes.md", exported)
             self.assertIn("research: asyncio", exported)
+
+
+GUIDE = """# Orbit — a tiny planner
+
+[![Tests](https://example.com/badge.svg)](https://example.com/ci) ![Screenshot](docs/home.png)
+
+[Install](#install) · [Usage](#usage) · [Start](#start) · [Design](#design)
+
+Orbit is a small, local planner for weekly goals that keeps every plan on your own disk.
+
+## Start
+
+| Mode | Command |
+|---|---|
+| Browser tab | `orbit serve`, then open port 8080 in a browser tab |
+| Terminal | `orbit shell` gives a prompt in the terminal instead |
+
+## Design
+
+```mermaid
+flowchart LR
+  APP[App start] --> TAB[Browser tab]
+```
+"""
+
+
+class ReadableAnswerTests(unittest.TestCase):
+    """Asked how to start the app, the knowledge base quoted 16,000 characters of the README:
+    it flattened every line break and then split at full stops, and badges, a table of
+    contents, tables and diagrams have none, so a "sentence" ran across all of them."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_the_row_that_answers_is_quoted_and_the_markup_is_not(self) -> None:
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:README.md", GUIDE)
+        answer = str(base.answer("how do i start the app in a browser tab")["answer"])
+        self.assertIn("Browser tab: `orbit serve`, then open port 8080 in a browser tab", answer)
+        for markup in ("](", "![", "|---", "-->", "Install · Usage"):
+            self.assertNotIn(markup, answer)
+
+    def test_the_opening_it_falls_back_to_is_prose(self) -> None:
+        # Found by meaning alone, with no word in common, it quotes the opening: that was the
+        # first 400 characters as stored, which in a README are the title and its badges.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json",
+                             embedder=Embedder(backend=lambda texts, kind: [[1.0, 0.0] for _ in texts]))
+        base.add("file:README.md", GUIDE)
+        out = base.answer("does it nag me")
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(str(out["answer"]).startswith("Orbit is a small, local planner"), out["answer"])
+
+    def test_with_one_document_a_short_word_does_not_outweigh_the_subject(self) -> None:
+        # "do" and "in" weighed as much as "browser". With one document every term weighs the
+        # same, so live, windows of the README densest in "in" answered "how do i start the app
+        # in a browser tab", and the row that answers it was never quoted. Neutral sentences
+        # keep the two apart here, so no window holds both.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:notes.md", "Do it in order: do the setup in a terminal, do the import in the shell, and "
+                                  "do the review in a week.\n\nPlans are plain text files.\n\n"
+                                  "Each plan has a title and a list of goals.\n\n"
+                                  "Goals can be marked done at any time.\n\n"
+                                  "| Browser tab | `orbit serve` opens port 8080 |\n")
+        best = str(base.answer("how do i start the app in a browser tab", limit=1)["answer"])
+        self.assertTrue(best.startswith("Browser tab"), best)
+
+    def test_a_dotted_name_is_found_where_it_is_written_with_dots(self) -> None:
+        # The check before tokenizing read the raw text, where "jarvis" is not a substring of
+        # "J.A.R.V.I.S", so the app's own name never reached the scoring.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:about.md", "Plans live on your disk. Nothing leaves it. Backups are yours to keep.\n\n"
+                                  "J.A.R.V.I.S is a local-first assistant that runs on your laptop.\n")
+        # The name alone: with any other term in the question, that term lets the window through.
+        answer = str(base.answer("jarvis")["answer"])
+        self.assertIn("J.A.R.V.I.S is a local-first assistant", answer)
 
 
 if __name__ == "__main__":

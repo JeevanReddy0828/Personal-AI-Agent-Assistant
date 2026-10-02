@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
 from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.terms import content_terms, words
+from laptop_agent.terms import collapse_acronyms, content_terms, sentences as prose_sentences, words
 
 import json
 import math
@@ -21,6 +21,16 @@ _STOPWORDS = {
     "about", "which", "their", "there", "them", "then", "than", "what", "when", "where",
     "who", "how", "why", "some", "such", "only", "more", "most", "over", "also", "been",
 }
+# Terms start at two letters, but the stopwords above stop at three, so "how do i start the
+# app" weighed "do" and "in" like "browser" - with one document indexed every term weighs the
+# same, and the window densest in "in" answered. They still count, faintly: dropped outright,
+# a follow-up's own document had no passage left that matched, and the answer came out of
+# an unrelated scrape (`test_the_referent_picks_the_document`). Swept over twelve questions
+# on the README alone, first passage right: 1.0 4/12, 0.5 6, 0.3 8, 0.2 9, 0.1 8, 0.05 7,
+# and 0 broke the follow-up; with three documents 7/12 at every weight below 1.0 (6 at 1.0).
+_FUNCTION_WORDS = frozenset({"is", "it", "do", "in", "of", "to", "on", "at", "an", "as", "be", "by",
+                             "or", "if", "so", "up", "me", "my", "we", "us", "no", "am", "he", "go"})
+FUNCTION_WEIGHT = 0.2
 
 
 def _tokenize(text: str) -> list[str]:
@@ -326,7 +336,7 @@ class KnowledgeBase:
             when the question shares no word with it. Quote the opening instead."""
             excerpts = [
                 {"id": d.get("id"), "source": d.get("source"),
-                 "sentence": " ".join(str(d.get("text", "")).split())[:400], "score": 0.0}
+                 "sentence": " ".join(prose_sentences(str(d.get("text", "")))[:3])[:400], "score": 0.0}
                 for d in pool[:2]
             ]
             return {
@@ -349,6 +359,7 @@ class KnowledgeBase:
         total_docs = len(pool) or 1
         weights = {
             term: math.log((total_docs + 1) / (sum(1 for c in pool_counts if term in c) + 0.5))
+            * (FUNCTION_WEIGHT if term in _FUNCTION_WORDS else 1.0)
             for term in terms
         }
 
@@ -371,8 +382,10 @@ class KnowledgeBase:
                 # Every window was tokenized and then thrown away if no query term was in
                 # it, which is most of them. A term can only match as a token if it is
                 # present as a substring, so this skips the same windows the overlap test
-                # would have — without paying to tokenize them first.
-                lowered = passage.lower()
+                # would have — without paying to tokenize them first. Of the text as the
+                # tokenizer reads it: "jarvis" is not a substring of "J.A.R.V.I.S" until the
+                # acronym is collapsed, and the app's own name was skipped.
+                lowered = collapse_acronyms(passage).lower()
                 if not any(term in lowered for term in terms):
                     continue
                 counts = self._term_counts(passage)
@@ -528,11 +541,10 @@ class KnowledgeBase:
 
     @staticmethod
     def _split_sentences(text: str) -> list[str]:
-        compact = re.sub(r"\s+", " ", text).strip()
-        if not compact:
-            return []
-        parts = re.split(r"(?<=[.!?])\s+", compact)
-        return [part.strip() for part in parts if len(part.split()) >= 4]
+        # Read as lines, not flattened first: flattened, the README answered "how do i start
+        # the app" with 16,000 characters of badges, image links and a table of contents. A
+        # table row and a line of code stay, because the answer is often one of them.
+        return [part for part in prose_sentences(text, structure=True) if len(part.split()) >= 4]
 
     @staticmethod
     def _document_frequencies_from_counts(counts_by_document: list[dict[str, int]], terms: set[str]) -> dict[str, int]:
