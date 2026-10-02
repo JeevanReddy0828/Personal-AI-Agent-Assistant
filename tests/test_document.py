@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.document import DocumentTool, deck_outline, markdown_to_html, split_format
+from laptop_agent.tools.document import DocumentTool, deck_outline, markdown_to_html, page_target, split_format
 
 DECK = """# The Sun and the Planets
 
@@ -187,6 +188,97 @@ class DocumentToolTests(unittest.TestCase):
         with self.assertRaises(ApprovalDenied):
             tool.create("a brief as markdown")
         self.assertEqual(calls, [])
+
+
+class PageLengthTests(unittest.TestCase):
+    """"write a one page pdf on how vaccines work" lost "one page" in routing, and nothing
+    downstream knew a length anyway: the PDF ran to two pages."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        from laptop_agent.tools import resume_pdf
+
+        self.rendered: list[str] = []
+
+        async def fake_render(html, out_path, single_page=True):
+            # Stands in for Chromium: a document with LONG in it prints on two pages.
+            self.rendered.append(html)
+            return ToolResult.success("rendered", path=str(out_path), pages=2 if "LONG" in html else 1)
+
+        original = resume_pdf.render_html_to_pdf
+        resume_pdf.render_html_to_pdf = fake_render
+        self.addCleanup(setattr, resume_pdf, "render_html_to_pdf", original)
+
+    def tool(self, replies) -> tuple[DocumentTool, list[str]]:
+        prompts: list[str] = []
+
+        def writer(prompt: str) -> str:
+            prompts.append(prompt)
+            reply = replies[min(len(prompts), len(replies)) - 1]
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        return DocumentTool(data_dir=self.data_dir, writer=writer), prompts
+
+    def test_the_length_is_read_for_what_to_write(self) -> None:
+        cases = {
+            "a one page brief on rate limits": 1, "one-page summary of rust": 1, "a 2 page report on tcp": 2,
+            "three pages long essay on art": 3, "a one-pager about our API": 1, "a single page overview of git": 1,
+            "how vaccines work": None, "the 404 page explainer": None,
+            # A length after "the" or "my" describes the source, not the output.
+            "summary of the 10 page report": None, "summary of my 3 page essay in one page": 1,
+        }
+        for text, pages in cases.items():
+            self.assertEqual(page_target(text), pages, text)
+
+    def test_the_prompt_carries_a_word_budget_for_the_length(self) -> None:
+        tool, prompts = self.tool([SAMPLE])
+        self.assertTrue(tool.create("one page: how vaccines work as markdown").ok)
+        self.assertIn("fit on 1 page when printed", prompts[0])
+        self.assertIn("about 180 words", prompts[0])
+        tool, prompts = self.tool([SAMPLE])
+        tool.create("how vaccines work as markdown")
+        self.assertNotIn("Length:", prompts[0])
+        tool, prompts = self.tool([DECK])
+        tool.create("one page: the planets as a ppt")
+        self.assertNotIn("Length:", prompts[0])
+
+    def test_a_pdf_that_prints_long_is_shortened_once(self) -> None:
+        tool, prompts = self.tool([SAMPLE + "\nLONG\n", SAMPLE])
+        result = tool.create("one page: how vaccines work as pdf")
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(len(prompts), 2)
+        # A fresh draft of the same request to a tighter budget, not an edit of the long one.
+        budgets = [int(re.search(r"at most about (\d+) words", prompt).group(1)) for prompt in prompts]
+        self.assertLess(budgets[1], budgets[0])
+        self.assertIn("how vaccines work", prompts[1])
+        self.assertNotIn("LONG", prompts[1])
+        self.assertEqual((result.data["pages"], result.data["target_pages"]), (1, 1))
+        self.assertNotIn("runs to", result.message)
+
+    def test_still_too_long_says_so(self) -> None:
+        tool, prompts = self.tool([SAMPLE + "\nLONG\n"])
+        result = tool.create("one page: how vaccines work as pdf")
+        self.assertTrue(result.ok)
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("It runs to 2 pages, not the 1 page asked for.", result.message)
+
+    def test_a_failed_rewrite_keeps_the_first_document(self) -> None:
+        tool, prompts = self.tool([SAMPLE + "\nLONG\n", RuntimeError("model went away")])
+        result = tool.create("one page: how vaccines work as pdf")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.data["pages"], 2)
+        self.assertIn("runs to 2 pages", result.message)
+
+    def test_without_a_length_nothing_is_rewritten(self) -> None:
+        tool, prompts = self.tool([SAMPLE + "\nLONG\n"])
+        result = tool.create("how vaccines work as pdf")
+        self.assertEqual(len(prompts), 1)
+        self.assertNotIn("runs to", result.message)
+        self.assertNotIn("target_pages", result.data)
 
 
 class DeckOutlineTests(unittest.TestCase):
