@@ -1,0 +1,55 @@
+[
+  {
+    "check": "image routing, file serving, display and timeout (fixture backend)",
+    "ok": true,
+    "detail": {
+      "prompts_received": [
+        "a brass compass on a desk",
+        "a green kite"
+      ],
+      "displayed": 2,
+      "backend_timeout_visible": true,
+      "medium_risk_uses_existing_auto_approval_policy": true
+    }
+  },
+  {
+    "check": "Jobs add, stage, reload and empty tailoring validation",
+    "ok": true,
+    "detail": {
+      "saved_stage": "interview",
+      "persisted_after_reload": true,
+      "company_escaped": true
+    }
+  },
+  {
+    "check": "Pipeline resume/profile persistence, mobile layout, clear leads, Jobs removal",
+    "ok": true,
+    "detail": {
+      "resume_and_profile_persisted": true,
+      "clear_leads_keeps_application": true,
+      "widths_without_document_overflow": [
+        390,
+        1440
+      ],
+      "job_removed": true
+    }
+  },
+  {
+    "check": "LAN passcode through non-loopback address with independent clients",
+    "ok": true,
+    "detail": {
+      "unpaired_api": 401,
+      "wrong_passcode_denied": true,
+      "paired_api": 200,
+      "independent_third_client_denied": true,
+      "server_saw_non_loopback": true,
+      "physical_second_device": false,
+      "plain_http_secure_context": false
+    }
+  },
+  {
+    "check": "page JavaScript errors",
+    "ok": true,
+    "detail": []
+  }
+]
