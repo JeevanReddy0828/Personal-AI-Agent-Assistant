@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 import urllib.error
 import urllib.request
@@ -414,6 +415,146 @@ class RoutingDeadlineTests(unittest.TestCase):
             "k", "m", transport=lambda payload: calls.append(payload) or '{"action":"chat"}')
         provider.plan("hello", "help", {})
         self.assertEqual(len(calls), 1)
+
+
+class _FakeStream:
+    """An SSE response for stream_answer, recording the request it answered."""
+
+    def __init__(self, request, finish: str) -> None:
+        self.payload = json.loads(request.data)
+        chunks = [{"choices": [{"delta": {"content": piece}, "finish_reason": None}]} for piece in ("Step one", ", step two")]
+        chunks.append({"choices": [{"delta": {}, "finish_reason": finish}]})
+        self.lines = [f"data: {json.dumps(chunk)}\n".encode() for chunk in chunks] + [b"data: [DONE]\n"]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        return iter(self.lines)
+
+
+class OutputLimitTests(unittest.TestCase):
+    """Jeevan: replies are "way too limited". Measured: streamed chat was capped at 2,048
+    tokens and a long answer stopped after 701 words, mid-table, with no word that it had
+    been cut; every NVIDIA model here accepts 65,536."""
+
+    def stream(self, provider, finish: str = "stop"):
+        seen = {}
+        real = urllib.request.urlopen
+
+        def fake(request, timeout=None, **kwargs):
+            seen["response"] = _FakeStream(request, finish)
+            return seen["response"]
+
+        urllib.request.urlopen = fake
+        try:
+            text = "".join(provider.stream_answer("write a long guide", {}))
+        finally:
+            urllib.request.urlopen = real
+        return text, seen["response"].payload
+
+    def test_a_measured_host_gets_the_long_caps(self) -> None:
+        provider = OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=16384)
+        _text, payload = self.stream(provider)
+        self.assertEqual(payload["max_tokens"], 16384)
+        sent = []
+        provider._transport = lambda payload: sent.append(payload) or "fine"
+        provider._owns_transport = False
+        provider.answer("hello", {})
+        provider.answer("a resume", {}, max_tokens=8000)
+        self.assertEqual([payload["max_tokens"] for payload in sent], [4096, 8000])
+
+    def test_an_unmeasured_host_keeps_the_old_caps(self) -> None:
+        provider = OpenAICompatiblePlannerProvider("k", "m")
+        _text, payload = self.stream(provider)
+        self.assertEqual(payload["max_tokens"], 2048)
+        sent = []
+        provider._transport = lambda payload: sent.append(payload) or "fine"
+        provider._owns_transport = False
+        provider.answer("hello", {})
+        self.assertEqual(sent[0]["max_tokens"], 900)
+
+    def test_a_reply_cut_off_at_the_cap_says_so(self) -> None:
+        provider = OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=16384)
+        cut, _ = self.stream(provider, finish="length")
+        self.assertTrue(cut.startswith("Step one, step two"))
+        self.assertIn("reached the length limit", cut)
+        whole, _ = self.stream(provider, finish="stop")
+        self.assertEqual(whole, "Step one, step two")
+
+    def test_a_long_reply_is_given_the_time_to_be_written(self) -> None:
+        provider = OpenAICompatiblePlannerProvider("k", "m", timeout=45, max_output_tokens=16384)
+        self.assertEqual(provider._deadline({"max_tokens": 900}), 45)
+        self.assertGreater(provider._deadline({"max_tokens": 4096}), 100)
+        self.assertEqual(provider._deadline({"max_tokens": 65536}), 300)
+        self.assertEqual(OpenAICompatiblePlannerProvider("k", "m", timeout=420)._deadline({"max_tokens": 20480}), 420)
+
+    def test_the_request_itself_waits_that_long(self) -> None:
+        seen = {}
+        real = urllib.request.urlopen
+
+        def spy(request, timeout=None, **kwargs):
+            seen.setdefault("timeouts", []).append(timeout)
+            raise urllib.error.HTTPError(request.full_url, 400, "bad", {}, None)
+
+        urllib.request.urlopen = spy
+        try:
+            OpenAICompatiblePlannerProvider("k", "m", timeout=45, max_output_tokens=16384).answer("hello", {})
+        finally:
+            urllib.request.urlopen = real
+        self.assertGreater(seen["timeouts"][0], 100)
+
+    def test_an_image_description_gets_room_too(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        sent = {}
+        real = urllib.request.urlopen
+
+        def spy(request, timeout=None, **kwargs):
+            sent["payload"] = json.loads(request.data)
+            raise urllib.error.HTTPError(request.full_url, 400, "bad", {}, None)
+
+        with tempfile.TemporaryDirectory() as raw:
+            image = Path(raw) / "screen.png"
+            image.write_bytes(b"\x89PNG")
+            urllib.request.urlopen = spy
+            try:
+                for cap, expected in ((16384, 2048), (None, 700)):
+                    OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=cap).describe_image(str(image), "what is this")
+                    self.assertEqual(sent["payload"]["max_tokens"], expected)
+            finally:
+                urllib.request.urlopen = real
+
+    def test_the_cap_is_configured_and_bounded(self) -> None:
+        from laptop_agent.config import _output_tokens
+
+        self.assertEqual([_output_tokens(raw) for raw in ("8000", "", None, "lots", "10", "999999")],
+                         [8000, None, None, None, 256, 65536])
+
+    def test_only_the_measured_host_gets_the_default(self) -> None:
+        from dataclasses import replace
+
+        from laptop_agent.app import _build_openrouter_planner, _output_tokens
+        from laptop_agent.config import load_config
+
+        config = load_config()
+        nvidia = replace(config, llm_base_url="https://integrate.api.nvidia.com/v1", llm_max_output_tokens=None)
+        self.assertEqual(_output_tokens(nvidia), 16384)
+        self.assertIsNone(_output_tokens(replace(nvidia, llm_base_url="https://api.openai.com/v1")))
+        self.assertEqual(_output_tokens(replace(nvidia, llm_base_url="https://api.openai.com/v1",
+                                                llm_max_output_tokens=12000)), 12000)
+        router = _build_openrouter_planner(replace(nvidia, openrouter_api_key="k", openrouter_model="m"))
+        self.assertIsNone(router.provider.max_output_tokens)
+        from laptop_agent.app import _build_planner, _build_smart_planner, _build_ultra_planner, _build_vision_planner
+
+        tiers = replace(nvidia, llm_provider="openai-compatible", llm_api_key="k", llm_model="fast",
+                        llm_smart_model="smart", llm_ultra_model="ultra", llm_vision_model="vision")
+        for build in (_build_planner, _build_smart_planner, _build_ultra_planner, _build_vision_planner):
+            self.assertEqual(build(tiers).provider.max_output_tokens, 16384, build.__name__)
 
 
 if __name__ == "__main__":

@@ -589,8 +589,17 @@ The ultra tier is treated as an NVIDIA **reasoning** model: its provider is buil
 `reasoning=True` so `answer()`/`stream_answer()` send `chat_template_kwargs.enable_thinking`
 and read the separate streamed `reasoning_content` (kept internal — only the final answer is
 surfaced). Routing and narration stay thinking-OFF for speed/clean JSON. `answer()` takes a
-`max_tokens` param so long outputs (a full resume, 8000) aren't truncated at the 900-token
-chat default.
+`max_tokens` param so long outputs (a full resume, 8000) aren't truncated at the chat default.
+
+**How long a reply may run** (`OPENAI_MAX_OUTPUT_TOKENS`, `max_output_tokens` on the provider).
+Streamed chat was capped at 2,048 tokens: a long answer stopped after 701 words, mid-table, and
+the stream never read `finish_reason`, so nothing said it had been cut. Every NVIDIA model here
+accepts `max_tokens` up to 65,536 (measured on super, ultra and vision), so on NVIDIA's host the
+cap is 16,384 for streamed chat and 4,096 for `answer()` and agent turns, and a reply that still
+ends on `length` says so. Elsewhere, including the OpenRouter fallback, the old caps stay unless
+the variable is set: a cap the endpoint rejects is a 400, which marks the tier broken. A
+non-streamed call waits `max(timeout, 15 + max_tokens/40)` s, capped at 300: at 66 tokens a
+second a 4,096-token reply outlasts the fast tier's 45 s, and a timeout reads as busy.
 
 **Never send `reasoning_budget`.** NVIDIA's endpoint moved to the V2 model runner and
 rejects it — `HTTP 400 ValueError: thinking_token_budget is not yet supported by the V2
