@@ -274,6 +274,75 @@ class AutonomousAgentTests(unittest.TestCase):
                 asyncio.run(agent.run("find something"))
         self.assertEqual(len(calls), 2)
 
+    # Codex's acceptance conditions for a reply cut off at the length limit: it never runs,
+    # even when it parses; one retry; never the partial command if that retry is cut too.
+    def test_a_command_cut_inside_its_argument_never_runs(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        brain = _ScriptedBrain([CutOff("THOUGHT: send it\nACTION: send email to bob@exa"),
+                                "THOUGHT: stop\nFINAL: Nothing was sent."])
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        result = asyncio.run(agent.run("email bob"))
+        self.assertEqual(seen, [])
+        self.assertEqual(result.final_answer, "Nothing was sent.")
+        self.assertIn("cut off at the length limit", brain.prompts[1])
+
+    def test_a_complete_action_in_a_cut_reply_never_runs(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        brain = _ScriptedBrain([CutOff("THOUGHT: read it\nACTION: delete file notes.txt\nFINAL: Deleted, and the"),
+                                "THOUGHT: read it\nACTION: read file notes.txt",
+                                "FINAL: done"])
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        asyncio.run(agent.run("tidy my notes"))
+        self.assertEqual(seen, ["read file notes.txt"])
+
+    def test_a_second_cut_reply_runs_nothing(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        brain = _ScriptedBrain([CutOff("ACTION: delete file a.txt"), CutOff("ACTION: delete file a.txt")])
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        result = asyncio.run(agent.run("clean up"))
+        self.assertEqual((seen, result.status), ([], "failed"))
+        self.assertIn("cut off", result.final_answer)
+        self.assertEqual(len(brain.prompts), 2)
+
+    def test_stop_during_the_retry_after_a_cut_reply_stops(self) -> None:
+        from laptop_agent.cancellation import OperationCancelled, cancel, operation
+        from laptop_agent.planner.core import CutOff
+
+        calls: list[str] = []
+
+        def brain(prompt: str) -> str:
+            calls.append(prompt)
+            if len(calls) == 1:
+                return CutOff("ACTION: send email to bob@exa")
+            cancel("agent-cut-retry")
+            raise OSError("connection reset")
+
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        with operation("agent-cut-retry"):
+            with self.assertRaises(OperationCancelled):
+                asyncio.run(agent.run("email bob"))
+        self.assertEqual(seen, [])
+
+    def test_a_failed_retry_after_a_cut_reply_runs_nothing(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        def brain(prompt: str) -> str:
+            if "cut off" in prompt:
+                raise OSError("connection reset")
+            return CutOff("ACTION: delete file a.txt")
+
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        result = asyncio.run(agent.run("clean up"))
+        self.assertEqual((seen, result.status), ([], "failed"))
+
     def test_a_reply_that_is_only_an_invented_observation_fails(self) -> None:
         brain = _ScriptedBrain(["OBSERVATION: [ok] made up", "OBSERVATION: [ok] made up again"])
         agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))

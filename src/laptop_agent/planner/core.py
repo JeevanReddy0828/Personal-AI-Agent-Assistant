@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+class CutOff(str):
+    """A reply the model stopped because it reached `max_tokens` (finish_reason "length").
+
+    A `str` in every other respect, so a caller that does not care reads it as text. One that
+    acts on a reply checks it: a command cut short is a different command ("ACTION: send email
+    to bob@exa"), so the agent never runs one.
+    """
+
+
 @dataclass(frozen=True)
 class PlanDecision:
     action: str
