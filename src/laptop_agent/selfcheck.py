@@ -89,6 +89,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what time is it in california", "time", "a state, refused as a zone once"),
     ("could you please tell me what time it is", "time", "both halves of a polite prefix"),
     ("tech news", "news", "a topic first"),
+    ("latest tech news", "news tech", "a describing word first: lost the topic once"),
     ("set a timer for five minutes", "timer", "spoken numbers"),
     ("can you please set a timer for five minutes", "timer", "'can you' and 'please' together"),
     ("count down 10 minutes", "timer", "another word for it"),
@@ -97,6 +98,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("wake me up at 7", "alarm", "an alarm said as speech"),
     ("snooze for 5 minutes", "reminder snooze", "minutes, never a reminder id"),
     ("what's my next reminder", "reminders next", "read as a date nobody gave, once"),
+    ("what are my scheduled jobs", "schedule list", "the router heard 'jobs' and opened the job tracker"),
     ("never mind the timer", "reminder delete", "letting go of one"),
     ("i don't need the alarm anymore", "reminder delete", "same"),
     ("stop reminding me about the oven", "reminder delete", "same"),
@@ -128,6 +130,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what is a reminder", "a definition, not a listing"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
+    ("what are the largest files in a typical linux install", "no folder on this machine"),
     ("turn left and then right", "two positions, no window"),
     ("should i put the legend on the right", "a decision belongs to the advisor"),
     ("how does tcp congestion control work", "a plain question"),
@@ -150,6 +153,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("half of my team is remote", "'half of' without a number"),
     ("i don't need the car anymore", "not a timer, alarm or reminder"),
     ("stop reminding me", "names nothing to stop"),
+    ("good news, i got the job", "sharing news, not asking for it: got the day's top stories"),
+    ("fake news is a problem", "was a headline search for 'is a problem'"),
 )
 
 

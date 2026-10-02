@@ -291,6 +291,8 @@ credentials and permissions are deliberately pending; health/setup remains Claud
 The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
 
 
+Integration check (2026-10-02): main ead0937 is included, preserving both documentation histories and the reviewed detector. The final tracked suite passes 1,731 tests (83 optional skips). Only live GPU sampling inside the unrelated prefix-fuzz test is stubbed locally; saved untracked review probes are excluded. CI runs the unmodified tracked suite on Linux and Windows.
+
 ## GPU-01 review — 2026-10-01
 
 Windows GPU telemetry now falls back to performance counters when NVIDIA is unavailable,

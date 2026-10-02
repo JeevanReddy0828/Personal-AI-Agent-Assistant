@@ -841,8 +841,36 @@
   async function remAct(r,action,card){
     card.querySelectorAll('button').forEach(b=>b.disabled=true);
     try{await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:r.id,minutes:10})});}catch(e){}
-    card.remove();checkReminders();
+    card.remove();remLayout();checkReminders();
   }
+  // Every due reminder had its own card and nothing limited the stack: five due at once, as a
+  // phone opened after a while away gets them, covered the whole chat - and the settings
+  // popover - and each had to be dismissed alone. A few show; the rest are counted on one card
+  // that can show them all or dismiss them all. Dismissing stays what it was: the card only.
+  const REM_SHOWN = 3, REM_SHOWN_NARROW = 1, remNarrow = matchMedia('(max-width: 700px)');
+  function remLayout(){
+    const host=document.getElementById('remtray'); if(!host)return;
+    const cards=[...host.querySelectorAll('[data-rem]')], all=host.classList.contains('remall');
+    const cap=remNarrow.matches?REM_SHOWN_NARROW:REM_SHOWN;
+    cards.forEach((card,i)=>card.classList.toggle('remhide',!all&&i>=cap));
+    let more=host.querySelector('[data-rem-more]');
+    if(cards.length<=cap){if(more)more.remove();host.classList.remove('remall');return;}
+    if(!more){
+      more=document.createElement('div');more.className='remcard';more.setAttribute('data-rem-more','');
+      const msg=document.createElement('div');msg.className='remmsg';
+      const row=document.createElement('div');row.className='aprow';
+      const toggle=document.createElement('button');toggle.className='apbtn';
+      const clear=document.createElement('button');clear.className='apbtn';clear.textContent='Dismiss all';
+      toggle.onclick=()=>{host.classList.toggle('remall');remLayout();};
+      clear.onclick=()=>{host.querySelectorAll('[data-rem]').forEach(c=>c.remove());remLayout();};
+      row.append(toggle,clear);more.append(msg,row);
+    }
+    host.appendChild(more);
+    const hidden=cards.length-cap;
+    more.querySelector('.remmsg').textContent=all?cards.length+' reminders':'+'+hidden+' more reminder'+(hidden===1?'':'s');
+    more.querySelector('.apbtn').textContent=all?'Show fewer':'Show all';
+  }
+  try{remNarrow.addEventListener('change',remLayout);}catch(e){}
   function remTray(){
     let host=document.getElementById('remtray');
     if(!host){host=document.createElement('div');host.id='remtray';document.body.appendChild(host);}
@@ -876,8 +904,8 @@
     const dismiss=document.createElement('button');dismiss.className='apbtn';dismiss.textContent='Dismiss';
     const snooze=document.createElement('button');snooze.className='apbtn';snooze.textContent='Snooze 10 min';
     const done=document.createElement('button');done.className='apbtn remdone';done.textContent='Done';
-    dismiss.onclick=()=>card.remove(); snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
-    row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);
+    dismiss.onclick=()=>{card.remove();remLayout();}; snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
+    row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);remLayout();
     chime();
     try{if('Notification' in window&&Notification.permission==='granted')new Notification('J.A.R.V.I.S reminder',{body:r.message||'',tag:'jarvis-rem-'+r.id});}catch(e){}
     if(voiceActive)enqueueTTS('Reminder: '+(r.message||''));

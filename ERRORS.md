@@ -1,7 +1,225 @@
 # ERRORS.md — failure log
 
-Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
-near-miss. Newest first.
+Mistakes and their root cause + fix, so they don't recur. **Start at the symptom index:
+search it for what you are seeing** — an error text, a wrong behaviour, a test that lies —
+before debugging. Each line gives the cause and the guard that now holds it; the dated
+sessions below carry the detail, newest first.
+
+**After any real bug or near-miss:** add one index line under its area (symptom → cause →
+guard, with the date), and a session entry only when the line cannot carry the lesson.
+
+## Symptom index
+
+### Tests and verification
+- **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
+  hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
+  watch the test fail before believing it. (09-12, 09-17)
+- **A revert "proves" the code is dead** → the revert was wrong: a later CSS declaration won,
+  or a scripted edit hit the wrong line → anchor edits on the line that names the thing. (09-19, 09-20)
+- **"Visible" in the test, not on screen** → `hidden` is false inside a `display:none`
+  parent → assert `getBoundingClientRect().height > 0`; compare pixels for clipping. (09-19, 09-17)
+- **A layering bug in a screenshot** → a 250ms fade-in → check computed opacity and
+  `elementFromPoint` before touching z-index. (09-26)
+- **`FAILED (errors=1)` with no test name** → `| tail` cut it → read `test-failures.log`. (09-22)
+- **A targeted run said OK, CI went red** → `run_tests.py` reads only its FIRST argument, and
+  structural guards live elsewhere (`_handle` < 220 lines, `OTHER_BRANCHES`, page scans) →
+  one file per invocation; full suite for orchestrator, dispatch, `access.py` or page changes. (10-01)
+- **CI red for one obvious reason** → fail-fast marks the other jobs `cancelled`, not
+  failed → read every job; read a branch's CI after its first push. (09-17, 09-26)
+- **Browser test passes here, fails on CI** → the page re-derives state from its own polls
+  (`/api/health` every 12s), or the test counts frames tuned to this laptop → hold state
+  against the polls; assert shape, never a frame count or duration. (09-26, 09-17)
+- **A test fails at certain hours** → a time with no date, or a day word counted from now
+  near midnight → give every time a day; stop the clock (`StoppedClock`); reproduce with
+  `TZ=XXX-04:39:10`. (09-26, 09-27)
+- **Unit tests green, the page does nothing** → the fixture used a remembered shape
+  (`content`) where the client sends `{"role", "text"}` → copy fixtures from the client's
+  code; use the feature through the page. (09-26)
+- **A test that cannot tell the fix from the bug** → the fixture put the distractor next to
+  the answer, unlike the live failure → build fixtures in the live failure's shape. (10-01)
+- **A docs edit fails `test_planner`** → the repo-prose corpus test routed a doc
+  sentence to a tool ("split at full stops": `full` is a window position) → reword the doc. (10-01)
+- **A corpus or harness gives a confident number** → wrong register (docs, not conversation),
+  ids that moved, a wrong check → read raw output; resolve documents by source substring. (09-20, 09-12, 09-26)
+- **An offline eval disagrees with the live app** → a different document pool changes IDF →
+  reproduce on the live store's contents (`data_dir/knowledge.json`). (10-01)
+- **Running the suite opened YouTube / changed the volume** → OS handoffs escape the socket
+  guard → the runner stubs `os.startfile`, `webbrowser.open`, `keybd_event`. (09-27)
+- **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
+
+### Routing and the chat model
+- **A request answered by a model that cannot see the data** → a hand-written word list
+  missed plurals (`_TOOL_SIGNALS`) → enumerate lists against real inputs; add a noun as users
+  say it. (09-20)
+- **One phrasing routes, fourteen do not** → an exact-string route → match the shape, polite
+  prefix included; reproduce a backlog item's scope first. (09-20)
+- **Ordinary talk triggers a tool** ("good news, i got the job" → headlines) → a keyword
+  anywhere in the sentence → whole-sentence grammar; refuse words only talk uses. (10-01)
+- **"I don't know how to do that yet" for an answerable question** → the router echoed the
+  input as a command nothing runs → answer it as conversation (`_DECLINED`). (10-01)
+- **The model asks "May I…?" and never acts** → the prompt quoted the forbidden replies
+  (17/25 → 1/25 reworded) → state the rule, never the bad example. (10-01)
+- **The model says it cannot do something it can** → the prompt said only what it cannot →
+  `_CAPABILITIES`; a new tool goes there and into the routing contract, in the model's own
+  phrasings. (09-28)
+- **The model reports a file, image or action that never happened** → `_NO_TOOL_CLAIMS`;
+  widen the guard to the class, not the instance. (09-12)
+- **A list in a pattern drifted from its owner** (`_POSITION_WORD`) → derive it from the
+  owning module, or test that the two lists match. (09-20)
+- **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
+  action → the safe reading wins and says how to ask for the other. (09-26)
+- **"it's" saved as a name; `1e309` read as 309** → filler accepted; no left boundary on a
+  number → `_meaningful`; `(?<![\w.])`. (09-26)
+- **A validator rejects the common phrasing** → it rejected a shape → look for the wanted
+  thing. (09-11)
+- **Follow-ups lose the conversation** → a model-facing path without `history` → every one
+  takes `history` and `context_block`; rank on the user's words (`context_query=`). (09-10)
+- **Confident wrong counts from the agent** → it got a sample → hand it quantities
+  (`total_files`, `by_extension`) and say when text was clipped. (09-11)
+- **A count instead of an answer** ("1 scheduled job(s).") → the content was only in `data`
+  → name what is counted. (10-01, 09-11)
+
+### Models and providers
+- **A tier "busy" for hours** → a 400/401/404/410 misconfiguration read as congestion →
+  `classify_failure`; send one request by hand and read the HTTP body. (09-11, 09-09)
+- **`HTTP 400 thinking_token_budget is not yet supported`** → never send `reasoning_budget`. (09-11)
+- **A listed model returns 404** → `/v1/models` is a catalog → call a model before wiring it. (09-11)
+- **Benchmark numbers make no sense** → unpaced turns tripped the 60s cooldown → pace ~12s. (09-11)
+- **A broken tier keeps being marked busy** → a caller recorded without the reason →
+  pass `on_failure`; every swallowing `except` records (`failures.py`). (09-30, 09-17)
+- **"Could not reach my language model" on a slow router** → routing shared the answer's
+  45s → `route_timeout` 2.5s, timeout falls through to chat. (09-17)
+- **Fast tier always "busy"; replies cut mid-sentence** → a slow reasoning model on the fast
+  tier; 900-token caps. (09-09)
+- **Invented captions from `nemotron-parse`; dead env names** → drop `Caption` regions; every
+  env name gets a `config.py` field. (09-11)
+
+### Retrieval: knowledge, files, context
+- **A summary or answer that is a wall of Markdown** → a splitter flattened lines → one
+  splitter, `terms.sentences` (`structure=True` keeps rows and code for Q&A). (10-01)
+- **"do"/"in" outrank the subject with one document indexed** → equal IDF → function words
+  weigh `FUNCTION_WEIGHT` 0.2; zero broke follow-ups. (10-01)
+- **"J.A.R.V.I.S" never matches "jarvis"** → a step read raw text where the tokenizer
+  collapses acronyms → every pre-check reads what the tokenizer reads. (10-01, `terms.py`)
+- **`TypeError: 'int'/'list' object is not callable` after an import** → a parameter or local
+  of the same name shadows it → import a common word under an alias. (10-01)
+- **Answers from an unrelated scrape** → passage score re-decided the document → the referent
+  picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
+
+### Time and dates
+- **A reminder an hour off across DST** → `astimezone()` is a fixed offset → `local=True`;
+  count calendar days. (09-28)
+- **A job fired twice in the repeated hour** → target rebuilt from each tick's offset → the
+  zone's first occurrence; keep `fold`. (09-28)
+- **"Reminder date/time must look like YYYY-MM-DD"** → no natural-time parser → `timeparse.py`;
+  one-right-answer values are parsed, never inferred. (09-17)
+- **`ValueError: Invalid format string` on Windows** → `%-I` → strip zeros by hand. (09-17)
+
+### Web server, sessions, security
+- **Client sees a connection reset, not the 4xx** → the body was not read →
+  `_drain_request_body` (bytes, not a flag). (09-17)
+- **Flaky phone pairing; two apps answering** → a second process bound the port →
+  `_refuse_if_running`. (09-12)
+- **ETag/304 never used; a token cacheable** → duplicate `no-store`; a directive that starts
+  working is new behaviour → measure the real client; everything opted out says `private`. (09-19)
+- **A session outlives a reset or disable** → no credential epoch → sessions bind to it. (09-30)
+- **A clean merge dropped a rule** → a second copy of a check → find copies by what they read. (10-01)
+- **Secrets in failure records** → recorded what was caught → record what you constructed. (10-01)
+- **A fallback states a wrong cause** ("Wrong passcode." on a 429) → never assert a cause you
+  have not established. (09-12)
+- **OAuth: popup `closed`, redirects, Riva hangs** → bound completion + Cancel + expiry;
+  re-navigate after the first redirect; future + deadline + cancel. (09-28)
+
+### Page and UI
+- **A feature shipped but never on screen** → it lived in a `display:none` panel → assert
+  boxes; deleting the code that shows a thing leaves its styles looking healthy. (09-19)
+- **A popover under another layer despite a higher z-index** → an ancestor makes a stacking
+  context (`position` + `z-index`, `backdrop-filter`) → compare at the root;
+  `body:has(...)` to swap. (10-01)
+- **Notifications cover the screen** → an unbounded stack → cap + "+N more"; Dismiss all. (10-01)
+- **A CSS rule silently gone** → a stray `*/`. **A grid collapsed** → a 0-width track. (09-17, 09-09)
+- **Advice in the UI that does nothing** → check the control can deliver it. (09-17)
+- **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
+- **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
+
+### Data and state
+- **Test data in the user's real store** → a throwaway instance changed only the port →
+  set `LAPTOP_AGENT_DATA_DIR` too; stop it when done. (09-17, 09-12, 09-28)
+- **State leaks between tests or runs** → persistence read the process-wide config → take the
+  location from the caller (`data_dir`). (09-17)
+- **A TTL cache blocks every caller on a miss** → collection under the lock → background
+  refresh. (10-01)
+- **Vault links "broken"** → audited the subfolder → the root holds `.obsidian`. (09-09, 09-12)
+
+### Shell, git and editing
+- **A file mangled by escapes** → a heredoc collapsed `\\` → exact-match edits or the Write
+  tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
+- **A scripted edit broke another line or file** → anchored on part of a line → anchor on the
+  whole line, newline included. (09-12)
+- **`sed -i` rewrote CRLF as LF** → harmless under autocrlf → check `git diff --stat` for
+  whole-file churn. (10-01)
+- **`pkill -f` killed its own shell** → write the pattern as `m laptop_agent[.]webui`. (09-26)
+- **Import error on Python 3.11 only** → a backslash inside an f-string expression. (09-26)
+- **Committed to `main`; committed `docs/review/*.png`** → check the branch before the first
+  commit; discard noisy paths before `git add`. (09-11, 09-22)
+- **Nearly rebuilt an existing feature** → `git grep` before building. (09-09)
+
+## Session 2026-10-01/02 — driving the app found nine user-visible bugs
+
+Exploratory testing through the live page (throwaway instance, own port and data dir) and
+real-viewport screenshots. Fixes: #164 (chat), #165 (files), #166 (news), #167 (routing),
+#168 (schedules), #169 (knowledge), and the reminder-stack PR.
+
+- **A keyword anywhere in the sentence is not a request.** The news route fired on "news"
+  anywhere: "good news, i got the job" fetched the day's top stories, "fake news is a
+  problem" searched for "is a problem", and "latest tech news" lost "tech" because a topic
+  counted only with nothing before it. **Rule: a route that keys on a noun reads the whole
+  sentence around it; when the words beside the noun are ones only talk uses, refuse and
+  let the router decide.**
+- **The router can hand the sentence back.** It echoed "convert 100 usd to eur" as a
+  command the dispatch had already declined, so the turn ended in "I don't know how to do
+  that yet" - while "how much is 100 dollars in euros" got a live rate with sources.
+  **Rule: a command equal to the input that nothing dispatched is conversation.**
+- **A prompt that quotes the failure teaches it.** The chat prompt illustrated its
+  no-permission rule with the forbidden replies, and the model copied them: 17/25 replies
+  asked leave to act, 1/25 once the rule was stated without quotes and told to end with
+  the instruction. **Rule: state the rule, never the bad example.**
+- **A second copy of a fixed function kept the bug.** The knowledge base had its own
+  sentence splitter - the one just fixed in the file tool - and answered "how do I start the
+  app" with 16,170 characters of badges, image links and a table of contents. The
+  `terms.py` rule again: **one splitter, shared, or the fix reaches one caller.**
+- **Zero was the wrong weight, and a guard test said so.** Making two-letter words
+  stopwords fixed passage choice with one document indexed, and broke
+  `test_the_referent_picks_the_document`: a follow-up's own document had no matching
+  passage left. A sweep found 0.2 (README alone 4/12 -> 9/12, no follow-up broken). **Rule:
+  when a tuning change breaks a guard test, the change is too big - sweep, do not delete
+  the guard.**
+- **A pre-check must read what the tokenizer reads.** The substring check before tokenizing
+  read raw text, where "jarvis" is not in "J.A.R.V.I.S"; asked for the name alone, the
+  window that says it was skipped.
+- **An import shadowed by a parameter of the same name.** `from terms import sentences` met
+  `summarize_text(..., sentences: int)`, and a local `sentences = [...]` in `answer()`:
+  `TypeError: 'int' object is not callable`. **Rule: import a common word under an alias.**
+- **`run_tests.py a.py b.py` runs `a.py` alone and prints OK** - it reads its first argument
+  as a discover pattern. Four "targeted" files once ran 124 tests in 1.3s.
+- **The first fixture modelled the wrong failure.** It put the distractor next to the
+  answer, so one window held both and the test could not tell a good weight from a bad
+  one; live, the distractor was elsewhere in the README. **Rule: build the fixture in the
+  live failure's shape, and assert the property that failed live.**
+- **Docs are test input.** `test_no_sentence_in_this_repos_own_prose_routes_to_the_window_tool`
+  reads CLAUDE.md, README and ERRORS.md, and a new line beginning "split at full stops"
+  routed to the window tool (`full` is a position). The doc was reworded; that narrow
+  router class is accepted, as for window placements.
+- **An offline eval disagreed with the live app.** Offline indexed three documents, live
+  had one, and IDF changes with the pool: the browser-tab row led offline and was absent
+  live. **Rule: reproduce on the live store's exact contents (`data_dir/knowledge.json`)
+  before believing an offline number.**
+- **A z-index inside a stacking context counts only there.** The settings popover (70) sat
+  under the reminder tray because it lives inside the header, `position:relative;
+  z-index:60; backdrop-filter`. And five fired reminders covered a phone's whole screen:
+  **a notification stack needs a cap and a summary.**
+- **A count is not an answer, again.** `schedule list` said "1 scheduled job(s)." and named
+  none - the same lesson as the file listing in `_humanize`.
 
 ## Session 2026-10-01 — GPU metrics depended on elevation; cache misses blocked requests
 

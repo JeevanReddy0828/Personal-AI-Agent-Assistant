@@ -12,7 +12,7 @@ import re
 import tempfile
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -52,7 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.access import everyday_form, is_personal, refused_command
+from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -83,7 +83,7 @@ from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, Tr
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
-from laptop_agent.tools.document import DocumentTool
+from laptop_agent.tools.document import DocumentTool, page_target
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.weather import WeatherTool, clean_place
@@ -126,6 +126,11 @@ class AgentContext:
 # replace it. The model, asked to answer this itself, claimed the app cannot generate
 # images at all — which is wrong, and worse than the nonsense it replaced.
 _VERBATIM = "verbatim-reply"
+# The router handed the sentence back as a command, and no tool runs it. Answered "I don't know
+# how to do that yet" until it was answered as conversation instead: "convert 100 usd to eur"
+# never reached the live rate the same question gets phrased as "how much is 100 dollars in
+# euros", and "translate hello to french" never reached a model that knows French.
+_DECLINED = "The router named the sentence itself as a command; answered as conversation."
 
 
 def _short_topic(text: str, words: int = 8) -> str:
@@ -291,6 +296,30 @@ def _say_seconds(seconds: int) -> str:
         if count:
             parts.append(f"{count} {unit}{'s' if count != 1 else ''}")
     return " ".join(parts) or "0 seconds"
+
+
+def _job_line(job: dict) -> str:
+    """What a scheduled job does, as said: a repeating reminder is its words, not its command."""
+    spec = str(job.get("spec", ""))
+    if spec.lower().startswith("reminder add now "):
+        text = f"reminder: {spec[len('reminder add now '):]}"
+    elif job.get("kind") == "agent":
+        text = f"agent: {spec}"
+    else:
+        text = spec
+    return text if job.get("enabled", True) else f"{text} (paused)"
+
+
+# Words that end a phrasal verb: the last word of "stand up" names nothing on its own, and
+# matched as a substring it would also cancel "eat supper".
+_PARTICLES = frozenset({"up", "down", "in", "out", "on", "off", "over", "away", "back", "around", "through"})
+
+
+def _reminder_name(message: str) -> str:
+    words = message.split()
+    if len(words) > 1 and words[-1].lower().strip(".,!?") in _PARTICLES:
+        return " ".join(words[-2:])
+    return words[-1] if words else message
 
 
 def _reminder_line(item: dict, now: datetime) -> str:
@@ -524,6 +553,7 @@ class AgentOrchestrator:
             decision = self._repair_image_command(command, decision, history)
             decision = self._repair_target_command(command, decision, history)
             decision = self._repair_diagram_command(command, decision, history)
+            decision = self._repair_document_length(command, decision, history)
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -670,6 +700,21 @@ class AgentOrchestrator:
             confidence=0.55,
             explanation="A diagram belongs in the reply as Mermaid, not in a generated file.",
         )
+
+    def _repair_document_length(self, text, planned, history):
+        """A length the user asked for survives routing.
+
+        "write a one page pdf on how vaccines work" reached the LLM router, which answered
+        `document how vaccines work as pdf`: "one page" was gone, and the PDF ran to two.
+        """
+        command = (planned.command or "") if planned.is_command else ""
+        if not command.lower().startswith("document "):
+            return planned
+        asked = page_target(text)
+        if asked is None or page_target(command) is not None:
+            return planned
+        length = "one page" if asked == 1 else f"{asked} pages"
+        return replace(planned, command=f"document {length}: {command[len('document '):].strip()}")
 
     def _repair_image_command(self, text, planned, history):
         """The router invents image subjects, and sends diagrams to a diffusion model.
@@ -981,7 +1026,10 @@ class AgentOrchestrator:
     async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, scanning and indexing files."""
         if lowered.startswith("scan files "):
-            return self.context.files.scan(command[len("scan files ") :].strip() or ".")
+            root = command[len("scan files ") :].strip()
+            by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
+            root = root[: by_size.start()].strip() if by_size else root
+            return self.context.files.scan(root or ".", by_size=bool(by_size))
 
         if lowered.startswith("read file "):
             return self.context.files.read_text(command[len("read file ") :].strip())
@@ -2071,6 +2119,7 @@ class AgentOrchestrator:
         _whole: bool = True,
     ) -> ToolResult:
         check_cancelled()
+        ensure_signed_in()
         command = text.strip()
         lowered = command.lower()
         history_turns = history or []
@@ -2119,20 +2168,7 @@ class AgentOrchestrator:
             if planned.is_chat and planned.response and planned.explanation == _VERBATIM:
                 return ToolResult.success(planned.response)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
-                # _allow_planner=False stops a planned command from re-triggering
-                # the planner, which would let an LLM loop or double-call itself.
-                # Light up the specialist the planner delegated to, so the control
-                # room reflects the resolved tool, not just the Planner.
-                resolved_agent = self.control_room.start(planned.command)
-                trace = current_trace()
-                if trace is not None:
-                    trace.kind = "command"
-                    trace.verb = planned.command.strip().split(" ", 1)[0].lower()
-                    trace.tool_started()
-                result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
-                if trace is not None:
-                    trace.tool_done()
-                self.control_room.finish(resolved_agent, result.message, ok=result.ok)
+                result = await self._run_routed(planned.command, history_turns)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
                 result.message = self._humanize(result)
@@ -2146,6 +2182,8 @@ class AgentOrchestrator:
                     }
                 )
                 return result
+            if planned.is_command:  # handed back unchanged: the dispatch above already declined it
+                planned = PlanDecision(action="chat", confidence=planned.confidence, explanation=_DECLINED)
             if planned.is_chat:
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
@@ -2316,9 +2354,37 @@ class AgentOrchestrator:
         r"|\bwho\s+(?:are|r)\s+(?:you|u)\b|\bwho\s+(?:made|created|built|designed)\s+you\b"
         r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
         r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
-        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
+        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b"
+        # News the user is sharing, not asking for. "good news, i got the job" was searched for
+        # on the web, and the reply explained that the results did not mention the user's job.
+        r"|^\s*(?:(?:that'?s|this\s+is|what|such)\s+)?(?:some\s+|(?:really\s+)?(?:good|great|bad|sad|terrible"
+        r"|awful|wonderful|amazing|exciting|big|happy|fantastic|horrible)\s+)news\b\s*(?:$|[,.!:;—–-]|is\b|for\s+you\b)"
+        r"|^\s*i(?:'ve|\s+have|\s+got)?(?:\s+got)?\s+(?:some\s+)?(?:big\s+|good\s+|bad\s+|great\s+|exciting\s+)?news\b",
         re.IGNORECASE,
     )
+
+    async def _run_routed(self, command: str, history_turns: list[dict[str, str]]) -> ToolResult:
+        """Run the command the planner resolved, lighting up the specialist it delegated to so
+        the control room reflects the resolved tool, not just the Planner."""
+        agent_id = self.control_room.start(command)
+        trace = current_trace()
+        if trace is not None:
+            trace.kind = "command"
+            trace.verb = command.strip().split(" ", 1)[0].lower()
+            trace.tool_started()
+        try:
+            # _allow_planner=False stops a planned command from re-triggering the planner,
+            # which would let an LLM loop or double-call itself.
+            result = await self.handle(command, _allow_planner=False, history=history_turns)
+        except BaseException as exc:
+            # handle() turns every Exception into a result; what still escapes - Stop, a session
+            # that ended, a refused approval - left this specialist working.
+            self.control_room.finish(agent_id, str(exc) or "Stopped", ok=False)
+            raise
+        if trace is not None:
+            trace.tool_done()
+        self.control_room.finish(agent_id, result.message, ok=result.ok)
+        return result
 
     def _needs_fresh_info(self, text: str) -> bool:
         if self.context.websearch is None:
@@ -2580,6 +2646,7 @@ class AgentOrchestrator:
                 "  screenshot",
                 "  agents | agent <id>",
                 "  scan files <path>",
+                "  scan files <path> by size  (largest files first)",
                 "  read file <path>",
                 "  ask file <path> about <question>",
                 "  summarize file <path>  (text, PDF, DOCX, images, audio, video)",
@@ -2616,7 +2683,7 @@ class AgentOrchestrator:
                 "  web search <query>",
                 "  news [topic]  (real headlines from free feeds, with article text)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
-                "  document <request> [as pdf|word|markdown]  (write and render a real file)",
+                "  document <request> [as pdf|word|markdown]  (write and render a real file; keep any length asked for, such as 'one page')",
                 "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",
@@ -2899,7 +2966,7 @@ class AgentOrchestrator:
                                       job=job.to_dict())
         return ToolResult.success(
             f"Repeating reminder set — {job.schedule.describe()}: {message}. "
-            f"Say \"cancel the {message.split()[-1]} reminder\" to stop it.",
+            f"Say \"cancel the {_reminder_name(message)} reminder\" to stop it.",
             job=job.to_dict(),
         )
 
@@ -3242,6 +3309,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command, _allow_planner=False)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))
@@ -3292,6 +3362,7 @@ class AgentOrchestrator:
     _AGENT_COMMANDS = (
         # files & documents
         "scan files <path>",
+        "scan files <path> by size",
         "read file <path>",
         "ask file <path> about <question>",
         "summarize file <path>",
@@ -3373,7 +3444,7 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
 
-    def _build_agent_brain(self, planners=None, answer_max_tokens: int = 900):
+    def _build_agent_brain(self, planners=None, answer_max_tokens: int | None = None):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
         By default tries the smart tier, then the fast planner, then the cross-provider
@@ -3444,8 +3515,9 @@ class AgentOrchestrator:
         context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
             result = await agent.run(goal, on_step=on_step, context=context)
-        except OperationCancelled:
-            self.control_room.finish(agent_id, "Stopped by user", ok=False)
+        except OperationCancelled as exc:
+            self.control_room.finish(agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut)
+                                     else "Stopped by user", ok=False)
             raise
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
@@ -3507,7 +3579,12 @@ class AgentOrchestrator:
         jobs = [job.to_dict() for job in self.context.scheduler.list_jobs()]
         if not jobs:
             return ToolResult.success("No scheduled jobs. Add one with 'schedule <when> :: <command>'.", jobs=[])
-        return ToolResult.success(f"{len(jobs)} scheduled job(s).", jobs=jobs)
+        # "1 scheduled job(s)." named nothing: what was scheduled was only in the data.
+        lines = [f"- #{job['id']} {job['schedule_text']} — {_job_line(job)}" for job in jobs[:20]]
+        if len(jobs) > 20:
+            lines.append(f"- … and {len(jobs) - 20} more")
+        noun = "job" if len(jobs) == 1 else "jobs"
+        return ToolResult.success(f"{len(jobs)} scheduled {noun}:\n" + "\n".join(lines), jobs=jobs)
 
     async def run_due_schedules(self, now: datetime | None = None) -> ToolResult:
         """Run every job whose schedule is due. Called by the background ticker and the
@@ -4245,8 +4322,11 @@ class AgentOrchestrator:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
             total = data.get("total_files")
+            by_size = data.get("order") == "size"
             headline = (
-                f"**{total} file(s) in {data['root']}**"
+                f"**Largest of {total} file(s) in {data['root']}**"
+                if by_size
+                else f"**{total} file(s) in {data['root']}**"
                 if isinstance(total, int) and total != len(files)
                 else f"**{len(files)} file(s) in {data['root']}**"
             )
@@ -4254,7 +4334,7 @@ class AgentOrchestrator:
             # The breakdown is the answer to "how many python files are here", and
             # counting names out of a truncated listing is how that got answered wrong.
             breakdown = data.get("by_extension")
-            if isinstance(breakdown, dict) and len(breakdown) > 1:
+            if isinstance(breakdown, dict) and len(breakdown) > 1 and not by_size:
                 top = list(breakdown.items())[:6]
                 summary = " · ".join(f"`{ext}` {count}" for ext, count in top)
                 if len(breakdown) > len(top):
@@ -4567,7 +4647,9 @@ class AgentOrchestrator:
                 check_cancelled()
                 return await asyncio.to_thread(lambda: asyncio.run(self._run_tracked_subtask(command)))
         results = await asyncio.gather(*(run(command) for command in commands), return_exceptions=True)
+        # gather keeps a stopped subtask as a bare CancelledError, so ask again before reporting.
         check_cancelled()
+        ensure_signed_in()
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
@@ -4631,6 +4713,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))

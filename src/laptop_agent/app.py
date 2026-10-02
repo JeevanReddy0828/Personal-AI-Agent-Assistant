@@ -126,9 +126,18 @@ def _has_llm(config: AppConfig) -> bool:
     return config.llm_provider in {"openai", "openai-compatible"} and bool(config.llm_api_key) and bool(config.llm_model)
 
 
+def _output_tokens(config: AppConfig) -> int | None:
+    """The reply-length cap for the primary host: the configured one, else 16,384 on NVIDIA's,
+    where every model was measured to accept 65,536, else None (the provider's old caps)."""
+    if config.llm_max_output_tokens:
+        return config.llm_max_output_tokens
+    return 16384 if "nvidia.com" in (config.llm_base_url or "") else None
+
+
 def _build_planner(config: AppConfig) -> Planner:
     if _has_llm(config):
-        return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_model, config.llm_base_url))
+        return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_model, config.llm_base_url,
+                                                       max_output_tokens=_output_tokens(config)))
     return Planner(HeuristicPlannerProvider())
 
 
@@ -137,7 +146,8 @@ def _build_smart_planner(config: AppConfig) -> Planner | None:
     if not _has_llm(config):
         return None
     smart_model = config.llm_smart_model or config.llm_model
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url, timeout=90))
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url, timeout=90,
+                                                   max_output_tokens=_output_tokens(config)))
 
 
 def _build_ultra_planner(config: AppConfig) -> Planner | None:
@@ -150,7 +160,7 @@ def _build_ultra_planner(config: AppConfig) -> Planner | None:
     return Planner(
         OpenAICompatiblePlannerProvider(
             config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=420,
-            reasoning=True, reasoning_budget=config.llm_reasoning_budget,
+            reasoning=True, reasoning_budget=config.llm_reasoning_budget, max_output_tokens=_output_tokens(config),
         )
     )
 
@@ -159,7 +169,8 @@ def _build_vision_planner(config: AppConfig) -> Planner | None:
     # The vision model reads images/screens. Requires an explicit vision model.
     if not _has_llm(config) or not config.llm_vision_model:
         return None
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url))
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url,
+                                                   max_output_tokens=_output_tokens(config)))
 
 
 def _build_openrouter_planner(config: AppConfig) -> Planner | None:
