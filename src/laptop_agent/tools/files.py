@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import heapq
+import math
 import mimetypes
 import re
 import shutil
@@ -15,6 +16,37 @@ from laptop_agent.terms import collapse_acronyms, sentences as prose_sentences
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
+
+# One reading of a table and of its cells, shared by `analyze spreadsheet` and `forecast`. Two
+# copies had drifted apart: one summed "1,5" as fifteen while the other refused it, and only
+# one kept an Excel byte-order mark out of the first column's name.
+_NO_SYMBOLS = str.maketrans("", "", "$€£¥ ")
+# A comma only as a thousands separator: "1,234.5" is a number, "1,5" is a question.
+_THOUSANDS = re.compile(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+
+
+def parse_number(cell: str) -> float | None:
+    """A cell as a finite number, or None. Currency symbols, spaces and a trailing % are
+    dropped; a comma counts only as a thousands separator."""
+    text = cell.strip().translate(_NO_SYMBOLS).removesuffix("%")
+    if "," in text:
+        if not _THOUSANDS.fullmatch(text):
+            return None
+        text = text.replace(",", "")
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def read_rows(path: Path, max_rows: int) -> list[list[str]]:
+    """The header and up to `max_rows` rows of a CSV or TSV. utf-8-sig: a file saved by Excel
+    starts with a byte-order mark, which would otherwise become part of the first column's
+    name and stop it from matching."""
+    with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        reader = csv.reader(handle, delimiter="\t" if Path(path).suffix.lower() == ".tsv" else ",")
+        return [row for _, row in zip(range(max_rows + 1), reader)]
 
 # `read file` shows what it read: the tool's message used to name the file and nothing else.
 PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
@@ -410,11 +442,8 @@ class FileTool:
                 hint="Convert .xlsx to .csv first, or use 'file info' for metadata.",
             )
 
-        delimiter = "\t" if suffix == ".tsv" else ","
         try:
-            with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
-                reader = csv.reader(handle, delimiter=delimiter)
-                rows = [row for _, row in zip(range(max_rows + 1), reader)]
+            rows = read_rows(target, max_rows)
         except OSError as exc:
             return ToolResult.failure(f"Could not read spreadsheet: {exc}")
         if not rows:
@@ -437,12 +466,7 @@ class FileTool:
     def _column_stats(name: str, index: int, body: list[list[str]]) -> dict[str, object]:
         values = [row[index].strip() for row in body if index < len(row)]
         non_empty = [value for value in values if value]
-        numbers: list[float] = []
-        for value in non_empty:
-            try:
-                numbers.append(float(value.replace(",", "")))
-            except ValueError:
-                continue
+        numbers = [number for number in map(parse_number, non_empty) if number is not None]
         is_numeric = bool(non_empty) and len(numbers) == len(non_empty)
         stats: dict[str, object] = {
             "name": name,
