@@ -76,6 +76,13 @@ cross-session forgetting; architectural constraints that always apply live there
 permanent facts. The tech stack is locked (see the architecture map below and the
 non-negotiable conventions); flag any mismatch before proceeding.
 
+**One place per kind of knowledge, so nothing is re-derived:**
+- Something broken or odd → search the **symptom index** at the top of `ERRORS.md` first.
+- A decision future sessions must respect → `MEMORY.md`, dated.
+- How a subsystem works and why → this file. Agent hand-offs → `CHANGES_MADE.md` on
+  `claude/pair-log`.
+- After any fix, add one index line to `ERRORS.md` (symptom → cause → guard).
+
 ## Part 8 — Operational Modes
 Activate the mode matching the task (Production Feature Developer; Full App from Scratch;
 Codebase Understanding/Refactor; Senior Debugging; System Design + Implementation;

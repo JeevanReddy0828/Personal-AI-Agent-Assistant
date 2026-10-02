@@ -14,10 +14,30 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   **never** the `openai` SDK. Chat escalates fast→smart→ultra→OpenRouter with graceful fallback.
 - Persistence is JSON files under `data_dir` (no DB). Web app is one stdlib-served page,
   binds loopback, with per-process browser mutation tokens and origin checks.
-- `AgentContext` is a frozen dataclass; adding a field means updating `app.build_orchestrator`
-  AND the test builder in `tests/test_orchestrator.py`.
+- `AgentContext` is a frozen dataclass wired in one place, `app.build_context`; the test
+  builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-02: **Docs: one place per kind of knowledge (Claude, at Jeevan's request).**
+  Something broken → `ERRORS.md`'s symptom index first (one line per lesson: symptom → cause
+  → guard), detail in its dated sessions; a decision → here; how a subsystem works →
+  CLAUDE.md; agent hand-offs → `CHANGES_MADE.md` on `claude/pair-log`. After any fix, add
+  the index line. CLAUDE.md is re-read whole by every new session and worktree (108 KB), so
+  slimming it to an index with topic files is proposed, after the open PRs that edit it merge.
+- 2026-10-01: **Retrieval reads documents as lines (#165, #169; Claude).** `terms.sentences`
+  is the one sentence splitter: file summaries skip tables and code, knowledge answers keep
+  headings, table rows (`cell: cell`) and code lines but never a mermaid source. Two-letter
+  function words weigh `FUNCTION_WEIGHT` 0.2 in passage scoring only (swept; 0 broke
+  follow-up document choice); document search is unchanged.
+- 2026-10-01: **Routing (#166-#168; Claude).** A router command equal to the input that no
+  dispatcher ran is answered as conversation. News requests are whole-sentence grammar, and
+  news the user shares is not a freshness search. Scheduled-jobs phrasings route instantly
+  to `schedule list`, which names each job.
+- 2026-10-01: **The chat prompt states rules without quoting the replies it forbids (#164)**:
+  quoted, the model copied them (17/25 → 1/25).
+- 2026-10-01: **Reminder cards: at most three show (one at ≤700px) plus a "+N more" card
+  (reminder-stack PR).** The tray sits under approval cards (69 < 70) and under the header
+  while the settings popover is open.
 - 2026-09-28: **AUTH-01 phase 1 (accounts, sessions, sign-in; Claude).** Accounts switch
   sign-in on (none = unchanged; any = every request, loopback included); first account is
   loopback-only and `dev`; stdlib scrypt N=2^17; server-side sessions persisted as token
