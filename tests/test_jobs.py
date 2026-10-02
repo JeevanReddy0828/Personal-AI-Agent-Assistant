@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
-from laptop_agent.jobs import JobTracker, normalize_stage
+from laptop_agent.jobs import MAX_EVENTS, JobTracker, normalize_stage
 
 
 class JobTrackerTests(unittest.TestCase):
@@ -20,6 +22,41 @@ class JobTrackerTests(unittest.TestCase):
             self.assertEqual(a["stage"], "interview")
             self.assertEqual(b["id"], 2)
             self.assertEqual(b["stage"], "applied")
+
+    def test_every_stage_change_is_recorded_with_its_time(self) -> None:
+        # `reached` keeps only the furthest stage; the time to a reply needs every step.
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            job = jt.add("Stripe", stage="lead")
+            jt.update(job["id"], stage="applied")
+            jt.update(job["id"], stage="applied")      # not a change, so nothing is recorded
+            jt.update(job["id"], stage="screen")
+            saved = self._tracker(raw).get(job["id"])  # and it survives a reload
+        self.assertEqual([event["stage"] for event in saved["events"]], ["lead", "applied", "screen"])
+        stamps = [datetime.fromisoformat(event["at"]) for event in saved["events"]]
+        self.assertEqual(stamps, sorted(stamps))
+        self.assertEqual(saved["events"][-1]["at"], saved["updated_at"])
+
+    def test_events_are_bounded_and_start_on_a_record_saved_before_them(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            jt = self._tracker(raw)
+            job = jt.add("Datadog")
+            for index in range(MAX_EVENTS + 10):
+                jt.update(job["id"], stage="screen" if index % 2 == 0 else "interview")
+            events = jt.get(job["id"])["events"]
+            self.assertEqual(len(events), MAX_EVENTS)
+            self.assertEqual(events[-1]["stage"], jt.get(job["id"])["stage"])
+            # A record saved before 0.40.0 has neither events nor applied_at: its history,
+            # unknown until now, starts at its next change rather than being made up.
+            path = Path(raw) / "jobs.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["jobs"].append({"id": 99, "company": "Old", "stage": "applied", "reached": "applied",
+                                 "created_at": "2026-06-22T00:00:00+00:00",
+                                 "updated_at": "2026-06-22T00:00:00+00:00"})
+            path.write_text(json.dumps(data), encoding="utf-8")
+            jt = self._tracker(raw)
+            jt.update(99, stage="screen")
+            self.assertEqual([event["stage"] for event in jt.get(99)["events"]], ["screen"])
 
     def test_add_requires_company(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
