@@ -10,23 +10,10 @@ from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
-from laptop_agent.terms import collapse_acronyms
+from laptop_agent.terms import collapse_acronyms, sentences as prose_sentences
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
-
-# What the sentence splitter drops or treats as structure before it looks for prose.
-_CODE_FENCE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.MULTILINE | re.DOTALL)
-_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-# Real HTML only: a placeholder such as `127.0.0.1:<port>` is text and must survive.
-_TAG = re.compile(r"</?(?:a|b|i|u|s|em|strong|br|hr|p|div|span|img|sub|sup|small|kbd|code|pre|table|thead|"
-                  r"tbody|tr|td|th|details|summary|picture|source|video|ul|ol|li|h[1-6]|center|del|ins)\b[^<>]*>",
-                  re.IGNORECASE)
-_QUOTE = re.compile(r"^\s*>\s?")
-_NOT_PROSE = re.compile(r"(#{1,6}\s|\||(-{3,}|={3,}|\*{3,})$)")
-_LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
-MAX_SENTENCE = 400
 
 # `read file` shows what it read: the tool's message used to name the file and nothing else.
 PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
@@ -240,7 +227,7 @@ class FileTool:
         return self.summarize_text(text, source=str(target), sentences=sentences)
 
     def summarize_text(self, text: str, source: str | None = None, sentences: int = 5) -> ToolResult:
-        sentence_list = self._split_sentences(text)
+        sentence_list = prose_sentences(text)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to summarize{f' in: {source}' if source else '.'}",
@@ -280,7 +267,7 @@ class FileTool:
         cleaned_question = question.strip()
         if not cleaned_question:
             return ToolResult.failure("Ask a question to answer from the text.")
-        sentence_list = self._split_sentences(text)
+        sentence_list = prose_sentences(text)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to answer from{f' in: {source}' if source else '.'}",
@@ -632,38 +619,6 @@ class FileTool:
         document = Document(str(target))
         text = "\n".join(paragraph.text for paragraph in document.paragraphs)
         return text, None, {"kind": "DOCX"}
-
-    @staticmethod
-    def _split_sentences(text: str) -> list[str]:
-        """Prose sentences. Markup goes first; a heading, table row or rule is not prose and a
-        list item is a sentence of its own; plain lines run together into paragraphs, so a
-        wrapped sentence still joins up but never across a heading or a blank line. Markdown
-        has no sentence punctuation in its badges, code and tables, so splitting only at full
-        stops answered "summarize the readme" with 15 KB of README as one paragraph."""
-        text = _TAG.sub(" ", _LINK.sub(r"\1", _IMAGE.sub(" ", _CODE_FENCE.sub("\n", text))))
-        units: list[str] = []
-        paragraph: list[str] = []
-        for raw in text.splitlines():
-            line = _QUOTE.sub("", raw).strip()
-            if line and not _NOT_PROSE.match(line) and not _LIST_ITEM.match(line):
-                paragraph.append(line)
-                continue
-            if paragraph:
-                units.append(" ".join(paragraph))
-                paragraph = []
-            if _LIST_ITEM.match(line):
-                units.append(_LIST_ITEM.sub("", line))
-        if paragraph:
-            units.append(" ".join(paragraph))
-        sentences = []
-        for unit in units:
-            for part in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", unit).strip()):
-                part = part.strip()
-                if len(part) > MAX_SENTENCE:
-                    part = part[:MAX_SENTENCE].rsplit(" ", 1)[0] + "…"
-                if len(part) > 1:
-                    sentences.append(part)
-        return sentences
 
     @staticmethod
     def _content_words(text: str) -> list[str]:

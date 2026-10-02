@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from laptop_agent.embeddings import Embedder
 from laptop_agent.knowledge import GENERATED_CAPS, KnowledgeBase, document_kind
 
 
@@ -241,6 +242,58 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertIn("# Knowledge Base Export", exported)
             self.assertIn("notes.md", exported)
             self.assertIn("research: asyncio", exported)
+
+
+GUIDE = """# Orbit — a tiny planner
+
+[![Tests](https://example.com/badge.svg)](https://example.com/ci) ![Screenshot](docs/home.png)
+
+[Install](#install) · [Usage](#usage) · [Start](#start) · [Design](#design)
+
+Orbit is a small, local planner for weekly goals that keeps every plan on your own disk.
+
+## Start
+
+| Mode | Command |
+|---|---|
+| Browser tab | `orbit serve`, then open port 8080 in a browser tab |
+| Terminal | `orbit shell` gives a prompt in the terminal instead |
+
+## Design
+
+```mermaid
+flowchart LR
+  APP[App start] --> TAB[Browser tab]
+```
+"""
+
+
+class ReadableAnswerTests(unittest.TestCase):
+    """Asked how to start the app, the knowledge base quoted 16,000 characters of the README:
+    it flattened every line break and then split at full stops, and badges, a table of
+    contents, tables and diagrams have none, so a "sentence" ran across all of them."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_the_row_that_answers_is_quoted_and_the_markup_is_not(self) -> None:
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:README.md", GUIDE)
+        answer = str(base.answer("how do i start the app in a browser tab")["answer"])
+        self.assertIn("Browser tab: `orbit serve`, then open port 8080 in a browser tab", answer)
+        for markup in ("](", "![", "|---", "-->", "Install · Usage"):
+            self.assertNotIn(markup, answer)
+
+    def test_the_opening_it_falls_back_to_is_prose(self) -> None:
+        # Found by meaning alone, with no word in common, it quotes the opening: that was the
+        # first 400 characters as stored, which in a README are the title and its badges.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json",
+                             embedder=Embedder(backend=lambda texts, kind: [[1.0, 0.0] for _ in texts]))
+        base.add("file:README.md", GUIDE)
+        out = base.answer("does it nag me")
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(str(out["answer"]).startswith("Orbit is a small, local planner"), out["answer"])
 
 
 if __name__ == "__main__":

@@ -115,18 +115,6 @@ class MarkdownSummaryTests(unittest.TestCase):
             self.assertNotIn(markup, summary)
         self.assertLess(len(summary), 500)
 
-    def test_a_list_item_keeps_its_own_emphasis_and_text_placeholders(self) -> None:
-        sentences = FileTool._split_sentences(README)
-        self.assertIn("**Sync** — copies plans to a folder you choose, such as `http://127.0.0.1:<port>/sync`.",
-                      sentences)
-
-    def test_wrapped_prose_still_joins_but_never_across_a_heading(self) -> None:
-        sentences = FileTool._split_sentences("Plans are kept\non your disk.\n# Usage\nRun it daily.")
-        self.assertEqual(sentences, ["Plans are kept on your disk.", "Run it daily."])
-
-    def test_a_run_on_line_is_cut_short(self) -> None:
-        sentences = FileTool._split_sentences("word " * 400)
-        self.assertLessEqual(max(map(len, sentences)), 401)
 
 
 class ReadPreviewTests(unittest.TestCase):

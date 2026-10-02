@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
 from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.terms import content_terms, words
+from laptop_agent.terms import content_terms, sentences as prose_sentences, words
 
 import json
 import math
@@ -326,7 +326,7 @@ class KnowledgeBase:
             when the question shares no word with it. Quote the opening instead."""
             excerpts = [
                 {"id": d.get("id"), "source": d.get("source"),
-                 "sentence": " ".join(str(d.get("text", "")).split())[:400], "score": 0.0}
+                 "sentence": " ".join(prose_sentences(str(d.get("text", "")))[:3])[:400], "score": 0.0}
                 for d in pool[:2]
             ]
             return {
@@ -528,11 +528,10 @@ class KnowledgeBase:
 
     @staticmethod
     def _split_sentences(text: str) -> list[str]:
-        compact = re.sub(r"\s+", " ", text).strip()
-        if not compact:
-            return []
-        parts = re.split(r"(?<=[.!?])\s+", compact)
-        return [part.strip() for part in parts if len(part.split()) >= 4]
+        # Read as lines, not flattened first: flattened, the README answered "how do i start
+        # the app" with 16,000 characters of badges, image links and a table of contents. A
+        # table row and a line of code stay, because the answer is often one of them.
+        return [part for part in prose_sentences(text, structure=True) if len(part.split()) >= 4]
 
     @staticmethod
     def _document_frequencies_from_counts(counts_by_document: list[dict[str, int]], terms: set[str]) -> dict[str, int]:
