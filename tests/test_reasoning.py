@@ -62,6 +62,14 @@ class ParseTests(unittest.TestCase):
         self.assertIn("## Setup", d.final_answer)
         self.assertFalse(parse_agent_decision("THOUGHT: go\nNEXT: scan files .").is_final)
 
+    def test_a_prose_next_line_does_not_hide_a_real_action(self) -> None:
+        # Codex's repro: the first match was the prose "Next:", so FINAL won over a real ACTION.
+        d = parse_agent_decision(
+            "THOUGHT: inspect it\nNext: inspect the file\nACTION: read file README.md\nFINAL: It contains the answer."
+        )
+        self.assertFalse(d.is_final)
+        self.assertEqual(d.command, "read file README.md")
+
     def test_an_action_inside_a_deliverable_is_not_run(self) -> None:
         d = parse_agent_decision("THOUGHT: easy\n```\nACTION: run command deploy\n```\nFINAL: The format is above.")
         self.assertTrue(d.is_final)
@@ -245,6 +253,26 @@ class AutonomousAgentTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual(result.final_answer, "The capital of France is Paris.")
         self.assertEqual(len(brain.prompts), 2)
+
+    def test_a_stop_during_the_second_ask_stops_the_run(self) -> None:
+        # Codex's repro: Stop lands during the retry and the transport then raises; the run
+        # returned "ok" with the earlier unstructured reply.
+        from laptop_agent.cancellation import OperationCancelled, cancel, operation
+
+        calls: list[str] = []
+
+        def brain(prompt: str) -> str:
+            calls.append(prompt)
+            if len(calls) == 1:
+                return "Let me think about which command fits best here."
+            cancel("agent-ask-again")
+            raise OSError("connection reset")
+
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        with operation("agent-ask-again"):
+            with self.assertRaises(OperationCancelled):
+                asyncio.run(agent.run("find something"))
+        self.assertEqual(len(calls), 2)
 
     def test_a_reply_that_is_only_an_invented_observation_fails(self) -> None:
         brain = _ScriptedBrain(["OBSERVATION: [ok] made up", "OBSERVATION: [ok] made up again"])

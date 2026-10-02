@@ -137,15 +137,17 @@ def parse_agent_decision(text: str) -> AgentDecision:
     fenced = _fenced_spans(raw)
     heads = [head for head in _FINAL_HEAD_RE.finditer(raw) if not any(start <= head.start() < end for start, end in fenced)]
     final_match = next((head for head in heads if head.group(1).isupper()), heads[0] if heads else None)
-    action_match = next(
-        (action for action in _ACTION_RE.finditer(raw)
-         if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)),
-        None,
-    )
+    actions = [action for action in _ACTION_RE.finditer(raw)
+               if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)]
     # Ahead of a FINAL only in the format's own spelling: a deliverable written before FINAL
-    # may hold a prose line such as "Next: run the installer", which is not a step.
-    if action_match and (final_match is None or (_FORMAT_ACTION_RE.match(action_match.group(0))
-                                                 and action_match.start() < final_match.start())):
+    # may hold a prose line such as "Next: run the installer", which is not a step - and must
+    # not hide a real ACTION after it either (Codex's review of #172).
+    if final_match is None:
+        action_match = actions[0] if actions else None
+    else:
+        action_match = next((action for action in actions if _FORMAT_ACTION_RE.match(action.group(0))
+                             and action.start() < final_match.start()), None)
+    if action_match:
         return AgentDecision(thought=thought, command=_runnable(action_match), final_answer="", is_final=False)
     if final_match:
         answer = raw[final_match.end():].strip().strip("`").strip()
@@ -383,6 +385,9 @@ class AutonomousAgent:
         try:
             retried = parse_agent_decision(self._decide(prompt + _FORMAT_REMINDER) or "")
         except Exception as exc:
+            # A Stop that lands during this call can surface as a transport error; it must still
+            # stop the run rather than return the earlier answer as a success (Codex's review).
+            check_cancelled()
             record_failure("agent/ask-again", exc)
             return decision
         check_cancelled()
