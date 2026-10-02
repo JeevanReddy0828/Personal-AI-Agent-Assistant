@@ -779,6 +779,10 @@ current or omitted a cold CPU sample. Both callers now refresh synchronously. Ja
 null arithmetic also converted unknown VRAM into zero; test the rendered n/a state.
 
 
+## GPU adapter labels — 2026-10-02
+
+Indistinguishable GPU rows -> Overview discarded each adapter name -> share escaped adapter-name labels with the drawer, adding distinct indexed fallbacks and the 3D qualifier.
+
 ## Diagnostics reference correction — 2026-10-02
 
 Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.

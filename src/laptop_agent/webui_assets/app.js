@@ -1105,7 +1105,8 @@
 
   /* metrics */
   function bar(label,val,unit,cls){return '<div class="metric"><div class="top"><span>'+label+'</span><b>'+(val==null?'n/a':val+unit)+'</b></div><div class="bar '+(cls||'')+'"><i style="width:'+(val==null?0:Math.min(val,100))+'%"></i></div></div>';}
-  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{h+=bar((g.util_kind==='3D'?'GPU (3D) · ':'GPU · ')+g.name.replace(/NVIDIA |GeForce /g,''),g.util_percent,'%','g');h+=bar('VRAM',g.mem_used_mb!=null&&g.mem_total_mb>0?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
+  function gpuLabel(g,index){const name=typeof g.name==='string'&&g.name.trim()?g.name.trim():'GPU '+index;return esc(name)+(g.util_kind==='3D'?' (3D)':'');}
+  async function loadMetrics(){try{const m=await (await fetch('/api/metrics')).json();let h=bar('CPU',m.cpu_percent,'%');h+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach((g,index)=>{h+=bar(gpuLabel(g,index),g.util_percent,'%','g');h+=bar('VRAM',g.mem_used_mb!=null&&g.mem_total_mb>0?Math.round(g.mem_used_mb/g.mem_total_mb*100):null,'%','g');});document.getElementById('metrics').innerHTML=h;
     if(m.gpus&&m.gpus.length){conn.gpu=['ok',m.gpus[0].name.replace(/NVIDIA |GeForce /g,'')];}else{conn.gpu=['off','metrics unavailable'];}renderConn();}catch(e){}}
   const pollWhenVisible=(fn,ms)=>setInterval(()=>{if(!document.hidden)fn();},ms);
 
@@ -1736,7 +1737,7 @@
         (personal?'':statCard('Applications',(j.stats&&j.stats.applications)||0,((j.stats&&j.stats.offers)||0)+' offers'))+
         statCard('CPU',Math.round(m.cpu_percent||0)+'%')+
         statCard('Memory',Math.round(m.ram_percent||0)+'%');
-      let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach(g=>{mh+=bar(g.util_kind==='3D'?'GPU (3D)':'GPU',g.util_percent,'%','g');});
+      let mh='';mh+=bar('CPU',m.cpu_percent,'%');mh+=bar('Memory',m.ram_percent,'%');(m.gpus||[]).forEach((g,index)=>{mh+=bar(gpuLabel(g,index),g.util_percent,'%','g');});
       document.getElementById('ovMetrics').innerHTML=mh;
       document.getElementById('ovFunnel').innerHTML=svgFunnel((j.stats&&j.stats.funnel)||[]);
     }catch(e){document.getElementById('ovSub').textContent='Overview could not load. Check the local server and retry.';}

@@ -1475,3 +1475,8 @@ new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
 GPU-01 review: one-shot system status and briefing use force=True for fresh data; the
 polled HTTP path alone serves stale snapshots. Fallback bars are explicitly labelled 3D.
 Unknown dedicated usage is n/a, even when capacity is known.
+
+
+## GPU adapter labels — 2026-10-02
+
+GPU labels follow-up: Overview and status drawer share gpuLabel. Keep the full matched adapter name, preserve existing generic names, use GPU <index> for missing/blank names, and append (3D) only for the counter source. Escape names before HTML assembly.
