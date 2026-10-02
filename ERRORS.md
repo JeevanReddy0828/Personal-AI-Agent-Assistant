@@ -787,5 +787,3 @@ Unclear R2 beside baseline MAE -> two different reference predictors -> both now
 ## ANALYTICS-04 update — 2026-10-01
 
 ANALYTICS-04 validation: negating a symmetric tail around its unchanged mean did not change its variance, so a target-standardization leakage mutation survived. Varying tail scale as well made the test fail when training preprocessing accidentally includes held-out targets. A passing test must distinguish the intended failure.
-
-
