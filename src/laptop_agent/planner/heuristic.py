@@ -445,6 +445,38 @@ _TARGETY = re.compile(
     r"|\b\w+\.(?:py|md|txt|csv|pdf|docx|json|ya?ml|png|jpe?g|mp4|wav|log|ini|toml)\b",
     re.IGNORECASE,
 )
+# Asking for the news is the whole sentence: a frame, describing words, an optional topic
+# before the noun and an optional "about X" after it. Finding the word anywhere sent "good
+# news, i got the job" to the headlines and "fake news is a problem" to a search for "is a
+# problem"; and a topic counted only with nothing before it, so "latest tech news" lost
+# "tech" and got the day's top stories.
+_NEWS_WHEN = r"(?:\s+(?:today|tonight|now|right\s+now|please|this\s+(?:morning|afternoon|evening|week)))*"
+_NEWS_ASK = re.compile(
+    _POLITE
+    + r"(?:(?:what(?:'s|s|\s+is)\s+(?:new|(?:the\s+)?latest)\s+in"
+    r"|what(?:'s|s|\s+is|\s+are)?(?:\s+(?:happening|going\s+on))?(?:\s+in)?"
+    r"|(?:give|show|tell|get|read|fetch|bring|find|check|pull\s+up)(?:\s+(?:me|us))?"
+    r"|(?:is|are)\s+there|(?:have\s+you\s+)?got|i(?:'d|\s+would)\s+like|i\s+want)\s+)?"
+    r"(?:(?:the|latest|newest|today'?s|top|breaking|recent|current|daily|morning|evening|big|biggest"
+    r"|main|major|any|some|more|local|new|news|headline)\s+)*"
+    r"(?:(?P<lead>[a-z][\w&+.-]*(?:\s+[a-z][\w&+.-]*){0,2})\s+)?(?:news|headlines?)" + _NEWS_WHEN
+    + r"(?:\s+(?:about|on|regarding|concerning|for|from|in|re|of|around)\s+(?P<about>[^?!]+?))?"
+    + _NEWS_WHEN + r"\s*[?.!]*",
+    re.IGNORECASE,
+)
+# "news india": the topic straight after the noun, said as a command.
+_NEWS_BARE = re.compile(r"\s*(?:news|headlines?)\s+(?P<bare>[a-z0-9][^?!]*?)\s*[?.!]*", re.IGNORECASE)
+# What talk about the news says and a request for it does not: "good news", "i watched the
+# news", "news is fake". Checked against the words around the noun, never the "about" part.
+_NOT_A_TOPIC = frozenset({
+    "i", "you", "we", "they", "he", "she", "it", "me", "us", "him", "them", "my", "your", "our",
+    "their", "his", "her", "its", "this", "that", "these", "those", "a", "an", "is", "are", "was",
+    "were", "be", "been", "am", "do", "does", "did", "has", "have", "had", "can", "could", "will",
+    "would", "should", "may", "might", "must", "not", "no", "so", "such", "what", "which", "who",
+    "how", "why", "when", "where", "good", "bad", "fake", "great", "sad", "terrible", "awful",
+    "wonderful", "amazing", "horrible", "love", "hate", "like", "watch", "watched", "saw", "heard",
+    "the", "in", "on", "of", "for", "to", "at", "from", "with", "about", "something", "anything",
+})
 
 
 # A diffusion model cannot draw an accurate technical diagram. Asked for one it returns
@@ -1137,35 +1169,23 @@ class HeuristicPlannerProvider:
     def _news(self, text: str) -> PlanDecision | None:
         """'what is the latest news' -> real headlines. A generic web search for this
         returns the homepages of CNN and Fox with their taglines, not the news."""
-        if not re.search(r"\b(?:news|headlines?)\b", text, re.IGNORECASE):
-            return None
         # "read the news article file.txt" names a target, so it belongs to the file path.
         if _TARGETY.search(text):
             return None
+        asked = _NEWS_ASK.fullmatch(text) or _NEWS_BARE.fullmatch(text)
+        if not asked:
+            return None
+        named = asked.groupdict()
+        lead, bare = named.get("lead") or "", named.get("bare") or ""
+        if any(word in _NOT_A_TOPIC for word in f"{lead} {bare}".lower().split()):
+            return None
         # "in" and "from" belong to the phrasing, not the topic: "news in india" was
         # answered "Top stories about in india".
-        about = re.search(
-            r"\b(?:news|headlines?)\b(?:\s+(?:about|on|regarding|for|from|in|re))?\s+(.+)$|"
-            r"(?:about|on|regarding|in)\s+(.+?)\s+\b(?:news|headlines?)\b",
-            text, re.IGNORECASE,
-        )
-        topic = ""
-        if about:
-            topic = (about.group(1) or about.group(2) or "").strip(" ?.!,'\"")
-        # "tech news", "sports headlines": the topic comes first, with no preposition.
-        leading = re.match(r"^\s*(?P<topic>[a-z][\w&.-]*(?:\s+[a-z][\w&.-]*)?)\s+(?:news|headlines)\s*[?.!]*$",
-                           text, re.IGNORECASE)
-        if not topic and leading and leading.group("topic").lower().split()[0] not in {
-                "the", "latest", "today's", "todays", "any", "some", "top", "breaking", "recent", "new",
-                "current", "daily", "morning", "evening", "good", "bad", "fake", "what's", "whats", "show",
-                "give", "get", "read", "tell", "check", "local", "more"}:
-            topic = leading.group("topic")
-        topic = re.sub(r"^(?:in|from|about|on|of|for|the|a)\b\s*", "", topic, flags=re.IGNORECASE).strip()
-        topic = re.sub(
-            r"^(?:today|now|right now|this (?:morning|afternoon|evening|week)|headlines?|stories)\b\s*",
-            "", topic, flags=re.IGNORECASE,
-        ).strip(" ?.!,")
-        if topic.lower() in {"", "today", "now", "please", "headlines", "stories", "update", "updates"}:
+        about = re.sub(r"^(?:the|a|an)\s+", "", (named.get("about") or bare).strip(" ,'\""), flags=re.IGNORECASE)
+        if about.lower() in {"today", "now", "please", "day", "the day", "week", "update", "updates"}:
+            about = ""
+        topic = " ".join(part for part in (lead, about) if part)
+        if not topic:
             return self._command("news", "User wants the latest headlines.", 0.85)
         return self._command(f"news {topic}", "User wants headlines on a topic.", 0.85)
 
