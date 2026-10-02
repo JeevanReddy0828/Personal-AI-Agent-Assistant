@@ -334,3 +334,7 @@ psutil. Production metrics behavior is unchanged by this test-harness correction
 ## Season peak review correction — 2026-10-02
 
 Season detector follow-up: Claude's monthly-sine repro failed at every n=99..107 before the fix. A strict two-sided peak now rejects those shoulders while retaining period 12 at n=108 and period 24 at the maximum candidate. All 19 forecast tests pass on Python 3.11 and 3.14.
+
+## Diagnostics reference correction — 2026-10-02
+
+Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.

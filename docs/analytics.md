@@ -39,7 +39,7 @@ not an invitation to forecast unseen future covariates.
 | vif | Variance inflation factors from the training design, same feature order; null on refusal. |
 | train_rows, test_rows | Exact chronological partition. |
 | predictions | Prefix-fit predictions for the tail; empty on refusal. |
-| out_of_sample_r2 | `1 - sum((actual - prediction)^2) / sum((actual - tail_mean)^2)` on the tail only. Negative values remain negative. |
+| out_of_sample_r2 | `1 - sum((actual - prediction)^2) / sum((actual - train_mean)^2)` on the tail only. Negative values remain negative. |
 | mae | Average absolute error on the tail, in target units. |
 | baseline_mae | Tail MAE of the fixed training-target mean, in identical units. |
 | enough_data, reason | Explicit support/refusal and explanation. |
@@ -49,14 +49,16 @@ Warnings fire below **10 training rows per feature** (intercept excluded) and wh
 **VIF >= 10**, including joint dependencies invisible to a pairwise correlation check.
 These thresholds are caution heuristics, not significance tests. Rank deficiency or
 numerical inseparability (QR residual norm <= 1e-10 times sqrt(training rows)) refuses
-coefficients instead of choosing an arbitrary solution. Constant training features or
-targets also refuse standardized associations. The caller should remove redundant
+coefficients instead of choosing an arbitrary solution. Numerically constant training features or
+targets also refuse standardized associations (deviation <= 1e-12 after magnitude
+normalization). Fewer than 10 held-out rows also triggers a small-tail warning. The caller should remove redundant
 features deliberately, not silently drop them or interpret a singular fit.
 
 Too few rows or an unfit design returns `enough_data=False`, null scores/coefficients and
 empty predictions. Malformed inputs raise ValueError. An unrepresentable extrapolation
-also returns an explicit refusal. Constant or numerically unresolved test targets return
-null R2, while finite errors/predictions remain available. Never relabel null as zero or
+also returns an explicit refusal. Zero or numerically unresolved squared error from the fixed training-mean baseline
+returns null R2, while finite errors/predictions remain available. A constant tail
+different from that training mean can still have a defined R2. Never relabel null as zero or
 clamp a negative R2. No in-sample R2, p-value, confidence interval, causal ranking or
 promised predictive accuracy is exposed. Compare held-out errors with the baseline and
 show sample counts and warnings, especially before calling anything a useful predictor.
@@ -126,3 +128,20 @@ seeds X4=X1+X2+0.1*X4; Y=4+2*X1-X2+0.5*X3+0.75*X4 plus normal noise SD 0.3. Fit 
 96 rows and score the final 24. Against numpy.linalg.lstsq on training-standardized
 columns, maximum absolute errors were 5.33e-15 for coefficients, 5.64e-14 for predictions
 and 5.55e-16 for R2. Maximum relative VIF error against 96*diag(inv(Z.T@Z)) was 2.97e-13.
+
+
+## R2 review decision — 2026-10-02
+
+`out_of_sample_r2` now compares squared prediction error with the **fixed training mean**,
+matching the reference predictor in `baseline_mae`. This is the fixed-prefix version of
+[R2_OS relative to a historical-mean forecast](https://www.federalreserve.gov/pubs/ifdp/2008/932/ifdp932.htm).
+The earlier tail-mean R2 definition and its historical numerical checks above are superseded;
+consumers must say "R2 against the training-mean baseline", not "against their own average".
+The tail never estimates the reference predictor. R2 compares squared error; MAE compares
+absolute error, so they can still disagree on relative performance due to large misses.
+Do not equate a positive R2 with significance or guaranteed future skill.
+
+The shifted-tail fixture now expects 1-4/17 instead of 1-4/13. Added regressions for a
+constant tail away from the baseline, zero baseline error, numerically constant features
+and target, and fewer than ten held-out observations. The changed contract and new guards
+failed before implementation; 16 focused tests now pass on Python 3.11 and 3.14.

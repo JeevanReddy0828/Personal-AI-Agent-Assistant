@@ -1,10 +1,5 @@
 # ERRORS.md — failure log
 
-## ANALYTICS-04 update — 2026-10-01
-
-ANALYTICS-04 validation: negating a symmetric tail around its unchanged mean did not change its variance, so a target-standardization leakage mutation survived. Varying tail scale as well made the test fail when training preprocessing accidentally includes held-out targets. A passing test must distinguish the intended failure.
-
-
 Mistakes and their root cause + fix, so they don't recur. Append after any real bug or
 near-miss. Newest first.
 
@@ -797,3 +792,12 @@ null arithmetic also converted unknown VRAM into zero; test the rendered n/a sta
 ## Season peak review correction — 2026-10-02
 
 Wrong 11-month cycle for a 12-month signal -> the search stopped on a rising autocorrelation shoulder -> require both neighbours below the candidate; a boundary-check lag is never itself a candidate.
+
+## Diagnostics reference correction — 2026-10-02
+
+Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.
+
+
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 validation: negating a symmetric tail around its unchanged mean did not change its variance, so a target-standardization leakage mutation survived. Varying tail scale as well made the test fail when training preprocessing accidentally includes held-out targets. A passing test must distinguish the intended failure.
