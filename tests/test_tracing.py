@@ -1,10 +1,106 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
+
+
+class TraceRollupTests(unittest.TestCase):
+    """The ring keeps 300 turns, about three weeks here: too short to see an hour-of-week
+    pattern, so every turn is also folded into an hourly rollup kept for 90 days."""
+
+    def test_an_hour_counts_fallbacks_against_the_tier_asked_for(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json", max_traces=2)
+            store.add(TurnTrace(at="2026-10-01T05:10:00+00:00", model="smart", total_ms=900, ttft_ms=400))
+            store.add(TurnTrace(at="2026-10-01T05:40:00+00:00", model="fast", requested_model="smart",
+                                degraded=True, total_ms=3000, ttft_ms=1500))
+            store.add(TurnTrace(at="2026-10-01T05:50:00+00:00", model="smart", ok=False, total_ms=40000))
+            store.add(TurnTrace(at="2026-10-01T06:01:00+00:00", kind="command", total_ms=250))
+            rows = TraceStore(Path(raw) / "traces.json").hourly()   # outlives the ring and a reload
+        self.assertEqual(len(rows), 2)
+        smart, command = rows
+        self.assertEqual((smart["hour"], smart["kind"], smart["tier"]), ("2026-10-01T05", "chat", "smart"))
+        self.assertEqual((smart["turns"], smart["failed"], smart["degraded"]), (3, 1, 1))
+        # Buckets: <=250, <=500, <=1000, <=2000, <=4000, <=8000, <=16000, <=32000, slower.
+        self.assertEqual(smart["total_ms"], [0, 0, 1, 0, 1, 0, 0, 0, 1])
+        self.assertEqual(smart["ttft_ms"], [0, 1, 0, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(command["total_ms"][0], 1, "an upper bound is inclusive")
+
+    def test_an_hour_past_the_retention_is_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            store.add(TurnTrace(at="2026-07-01T05:00:00+00:00", total_ms=100))
+            store.add(TurnTrace(at="2026-09-28T05:00:00+00:00", total_ms=100))   # 89 days on
+            self.assertEqual(len(store.hourly()), 2)
+            store.add(TurnTrace(at="2026-09-30T06:00:00+00:00", total_ms=100))   # 91 days on
+            self.assertEqual([row["hour"] for row in store.hourly()], ["2026-09-28T05", "2026-09-30T06"])
+            self.assertNotIn("2026-07-01", store.timings_path.read_text(encoding="utf-8"))
+
+    def test_the_log_holds_timings_only(self) -> None:
+        # The record keeps a verb; the log and the hours keep the tier, kind and outcome.
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            store.add(TurnTrace(at="2026-10-01T05:00:00+00:00", kind="command", verb="image"))
+            line = json.loads(store.timings_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(set(line), {"at", "kind", "tier", "ok", "degraded", "total_ms", "ttft_ms"})
+            self.assertEqual(set(store.hourly()[0]),
+                             {"hour", "kind", "tier", "turns", "failed", "degraded", "total_ms", "ttft_ms"})
+
+    def test_a_line_that_cannot_be_read_is_skipped_rather_than_failing_a_turn(self) -> None:
+        # A torn last write or a hand edit; the caller guards only OSError, so anything this
+        # raised would end the user's turn.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            path.with_name("traces_timings.jsonl").write_text(
+                '{"at": "2026-10-01T05:01:00+00:00", "kind": "chat", "tier": "", "ok": true, "degr\n'
+                '{"at": "2026-10-01T05:02:00+00:00", "kind": "chat", "tier": "", "ok": "yes", '
+                '"degraded": false, "total_ms": 5, "ttft_ms": null}\n', encoding="utf-8")
+            store = TraceStore(path)
+            store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
+            self.assertEqual(store.hourly()[0]["turns"], 1)
+
+    def test_a_time_out_of_range_costs_one_line_not_the_turn(self) -> None:
+        # Review of #157: these parse, then raise from astimezone - OverflowError, and OSError on
+        # Windows - neither of them a ValueError, so one such line failed the first turn of
+        # every day and every call to hourly().
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            fields = '"kind": "chat", "tier": "", "ok": true, "degraded": false, "total_ms": 5, "ttft_ms": null'
+            path.with_name("traces_timings.jsonl").write_text(
+                '{"at": "9999-12-31T23:59:59-05:00", ' + fields + '}\n'
+                '{"at": "1969-06-01T00:00:00", ' + fields + '}\n', encoding="utf-8")
+            store = TraceStore(path)
+            store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
+            self.assertEqual([row["turns"] for row in store.hourly()], [1])
+
+    def test_bytes_that_are_not_utf8_cost_one_line_not_the_turn(self) -> None:
+        # Codex's review of #157: the whole log was decoded before any line was checked, so
+        # one bad byte raised UnicodeDecodeError, a ValueError the turn's OSError guard does
+        # not catch, from the first prune after a restart.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            TraceStore(path).add(TurnTrace(at="2026-10-01T05:00:00+00:00", total_ms=100))
+            with path.with_name("traces_timings.jsonl").open("ab") as log:
+                log.write(b"\xff\n")
+            reopened = TraceStore(path)
+            reopened.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=100))
+            self.assertEqual(reopened.hourly()[0]["turns"], 2)
+
+    def test_an_append_does_not_grow_with_the_history(self) -> None:
+        # Rewriting a 90-day rollup on every turn measured 122ms at its worst: the history
+        # is appended to, and only rewritten once a day to drop what has aged out.
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            store.add(TurnTrace(at="2026-10-01T05:00:00+00:00", total_ms=100))
+            with patch("laptop_agent.tracing.atomic_write_text") as rewrite:
+                store.add(TurnTrace(at="2026-10-01T05:01:00+00:00", total_ms=100))
+            self.assertEqual([call.args[0] for call in rewrite.call_args_list], [store.path])
+            self.assertEqual(store.hourly()[0]["turns"], 2)
 
 
 class TurnTraceTests(unittest.TestCase):

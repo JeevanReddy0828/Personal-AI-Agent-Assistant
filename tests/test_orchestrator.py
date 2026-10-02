@@ -1968,6 +1968,50 @@ class HonestScanTests(unittest.TestCase):
             self.assertIn("complete=False", observation)
 
 
+class LargestFilesScanTests(unittest.TestCase):
+    """"What are the largest files in my downloads" listed the first 200 of 1214 in name
+    order, and the agent, shown only a count, spent six steps without finding one size."""
+
+    config = OrchestratorTests.config
+    build = OrchestratorTests.build
+
+    def tree(self, tmp: str) -> Path:
+        base = Path(tmp) / "tree"
+        (base / "deep").mkdir(parents=True)
+        for index in range(8):
+            (base / f"a{index}.txt").write_bytes(b"x" * (index + 1))
+        (base / "deep" / "zz-movie.mkv").write_bytes(b"x" * 5000)
+        (base / "deep" / "zz-backup.zip").write_bytes(b"x" * 3000)
+        return base
+
+    def test_the_largest_come_from_the_whole_tree_largest_first(self) -> None:
+        from laptop_agent.tools.files import FileTool
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = FileTool().scan(str(self.tree(tmp)), limit=3, by_size=True)
+            names = [Path(entry["path"]).name for entry in result.data["files"]]
+            self.assertEqual(names, ["zz-movie.mkv", "zz-backup.zip", "a7.txt"])
+            self.assertEqual(result.data["total_files"], 10)
+            self.assertEqual(result.data["order"], "size")
+            # The agent sees only the message, so it must name them.
+            self.assertIn("zz-movie.mkv (4.9 KB)", result.message)
+            self.assertLess(result.message.index("zz-movie"), result.message.index("zz-backup"))
+
+    def test_the_reply_says_largest_and_lists_them_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            root = self.tree(raw)
+            result = asyncio.run(o.handle(f"scan files {root} by size"))
+            self.assertEqual(result.data["order"], "size")
+            reply = AgentOrchestrator._humanize(result)
+            self.assertIn("**Largest of 10 file(s)", reply)
+            self.assertLess(reply.index("zz-movie.mkv"), reply.index("zz-backup.zip"))
+            self.assertNotIn("By type", reply)
+            plain = asyncio.run(o.handle(f"scan files {root}"))
+            self.assertNotIn("order", plain.data)
+            self.assertNotIn("Largest", AgentOrchestrator._humanize(plain))
+
+
 class SubtaskReportTests(unittest.TestCase):
     """`multi weather X ;; news Y` answered "Ran 2 subtasks: 2 succeeded." — the results
     were in `data`, which the chat page never renders, so a batch told you a score."""

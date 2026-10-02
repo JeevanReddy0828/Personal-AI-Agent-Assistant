@@ -180,7 +180,9 @@ AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat
         |
 Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
         |
-Tools (tools/): files, file_processor (universal "process file" dispatcher),
+Tools (tools/): files (`scan files <path> by size` lists the largest across the whole tree; "largest
+            files in my downloads" routes there instantly, and a place that is not a folder on this
+            machine is left to the model), file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
         music, weather (Open-Meteo, real forecast — no key),
         news (`news [topic]` — real headlines, free and key-less. A generic web search for
@@ -190,7 +192,13 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             they carry real summaries and their article pages do fetch, and the top few are
             enriched with `research.fetch_page_text`. Measured: 8 headlines, 3 with article
             text, in ~0.7s. A topic search is Google-only, so it gives headline + source +
-            age without article text — still the story rather than a homepage),
+            age without article text — still the story rather than a homepage.
+            **Asking for the news is the whole sentence** (`heuristic._NEWS_ASK`, fullmatch):
+            matched anywhere, "good news, i got the job" got the day's top stories and "fake
+            news is a problem" a search for "is a problem"; and a topic counted only with
+            nothing before it, so "latest tech news" lost "tech". A word only talk puts beside
+            the noun (`_NOT_A_TOPIC`: pronouns, verbs, good/bad/fake, prepositions) sends the
+            sentence to the router instead, which is the direction to err in),
         document (`document <request> [as pdf|word|powerpoint|markdown]` — the model writes
             Markdown, we render it: PDF through the same offline Chromium path as the resume
             export (`render_html_to_pdf(..., single_page=False)`), Word through python-docx,
@@ -324,7 +332,19 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         fallback, ok — timings only, never prompts or replies; the only text kept is the
         resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
         `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the
-        right turn. Read it with `latency` or `/api/traces`),
+        right turn. Read it with `latency` or `/api/traces`. **History outlives the 300-turn
+        ring** (ANALYTICS-02): every turn also appends one line to `traces_timings.jsonl` -
+        when, kind, the tier *asked for* (so a fallback counts against the tier that failed
+        it), ok, fallback, total and first-token ms, no verb - pruned to 90 days once a day,
+        and `TraceStore.hourly()` folds it into hours with fixed latency buckets. An append,
+        not a rewrite: rewriting a 90-day rollup file on every turn measured 122ms at its
+        worst; the append is 0.4ms, against 19.8ms for the ring's own rewrite. A line that
+        cannot be read is skipped, since the log is read inside a turn whose caller guards
+        only `OSError`. That includes bytes that are not UTF-8 (Codex's review): the log is
+        read as bytes and decoded line by line, and the prune keeps no backup, because both
+        a whole-file decode and the backup's re-read raised `UnicodeDecodeError` - a
+        `ValueError` - for one bad byte anywhere. So is a time that parses but cannot be put
+        in UTC, which raises `OverflowError` or, on Windows, `OSError` instead),
         embeddings.py (semantic retrieval: `nvidia/nemotron-3-embed-1b` on the chat host and
             key — `OPENAI_EMBED_MODEL` / `OPENAI_EMBED_KEY` override. The model is
             **asymmetric**: a document embeds as `passage`, a question as `query`; using one
@@ -414,7 +434,11 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         stored profile, project links are grounded in the candidate's real GitHub repos),
         jobs.py (JobTracker: job pipeline — stages incl. a sourced `lead` stage,
         funnel/response-rate stats, base-resume + tailoring persistence, JSON-persisted;
-        `job add/list/stage/remove` + `/api/jobs`),
+        `job add/list/stage/remove` + `/api/jobs`. Every stage a job enters is kept as
+        `events` [{stage, at}], 50 per job, because `reached` keeps only the furthest stage
+        and the time to a reply cannot be read back from it. Records saved before 0.40.0
+        (2026-09-08) carry neither `events` nor `applied_at`: the fields did not exist when
+        they were made, so their history starts at their next change instead of being made up),
         tools/jobright.py (JobrightTool: Playwright scraper ported from job-agent--Jarvis,
         behind the `browser` extra — session-first login, API-interception + DOM-fallback
         scrape, JD enrichment, then filters to early-career fit: seniority/years/PhD/
@@ -494,6 +518,11 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A command handed back unchanged is conversation** (`_DECLINED`). The dispatch has
+    already declined that exact text, so a router naming the sentence itself as a command
+    used to end in "I don't know how to do that yet" - and "convert 100 usd to eur" never
+    reached the live rate that "how much is 100 dollars in euros" gets. A routed command
+    that *differs* and still matches nothing keeps the old reply (a known gap).
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
@@ -1014,8 +1043,21 @@ owner. Decisions that each exist for a reason:
   Every route reads the signed-in account through one check, `_signed_in_account()`: the
   Google routes (#145) were written before the epoch and carried their own copy, which
   merged cleanly and treated a session `/api/me` refused as signed in.
-  Known limit: revoking ends sessions, not work already running - an agent run or stream in
-  flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
+  Work already running stops too (REVOKE-01). `_handle` asks the request's own session again
+  beside `check_cancelled()` (`access.ensure_signed_in`, bound by the web server with the
+  principal), so every turn and every step of an agent run, a workflow or a `multi` is
+  checked where Stop is; one that has ended raises `SignedOut`, a cancellation, and a JSON
+  request answers 401. Not in `_account_limits`: prose never reaches it, so a workflow step
+  that reads as prose was still routed and answered. `_run_many` asks again after its
+  `gather`, which turns a stopped subtask into a bare `CancelledError('')` (3.11 to 3.14),
+  or a batch answers "0 succeeded" instead of stopping. A loop that marks its steps in the
+  control room finishes the step on `OperationCancelled` before re-raising: the workflow and
+  autopilot loops caught only `Exception`, so a step that never ran stayed `working` for good
+  (Codex's review); a routed command does the same, since a session that ends during the
+  routing call stops the routed turn. A GET that dispatches (`/api/schedule`,
+  `/api/agent-runs`, `/api/vault`) answers 401 like a POST: unhandled, `SignedOut` killed
+  the worker thread and the client got no answer. Known limits: a command already inside a
+  tool finishes, and scheduled jobs have no owner to check.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from
@@ -1325,7 +1367,14 @@ Both Claude and Codex edit this repo. To avoid collisions:
 
 - **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
   they live only in gitignored `.env`).
-- GPU metrics need an elevated launch on this laptop (Optimus dGPU).
+- GPU metrics now fall back from `nvidia-smi` to non-elevated Windows counters (GPU-01).
+  Counters report the busiest **3D** engine per adapter LUID and dedicated memory usage;
+  they do not measure compute/copy/video engines. DXGI names/capacity are matched by LUID;
+  a powered-down or unmatched card keeps a generic name and unknown capacity. A cold
+  Windows metrics read has unknown fields until the background refresh completes; stale
+  reads keep the prior snapshot. Missing/localized counters degrade gracefully and log
+  each cause once per process. Do not recommend running the whole app as administrator
+  just to show GPU usage.
 - `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
   "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
@@ -1414,3 +1463,10 @@ existing CSP nonce. Provider opener isolation can sever a popup reference; `popu
 is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
 The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
 new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+GPU-01 review: one-shot system status and briefing use force=True for fresh data; the
+polled HTTP path alone serves stale snapshots. Fallback bars are explicitly labelled 3D.
+Unknown dedicated usage is n/a, even when capacity is known.

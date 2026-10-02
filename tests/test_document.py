@@ -204,6 +204,18 @@ class DeckOutlineTests(unittest.TestCase):
         _title, slides = deck_outline("# T\n\n## Empty\n\n## Real\n- a point\n")
         self.assertEqual([head for head, _ in slides], ["Real"])
 
+    def test_a_slide_number_label_is_not_part_of_the_title(self) -> None:
+        # Live: every slide of a renewable-energy deck was titled "Slide N: ...".
+        _title, slides = deck_outline(
+            "# Energy\n\n## Slide 1: What is Renewable Energy?\n- a\n## Slide 2 - Solar\n- b\n"
+            "## SLIDE 3. Wind\n- c\n## Slide 4\n- d\n## Slide rules for the slide deck\n- e\n"
+            "## Slide 5:\n- f\n## Slide 6 Pro tips\n- g\n"
+        )
+        # A label with nothing after it, or no separator, is left as written rather than guessed at.
+        self.assertEqual([head for head, _ in slides],
+                         ["What is Renewable Energy?", "Solar", "Wind", "Slide 4", "Slide rules for the slide deck",
+                          "Slide 5:", "Slide 6 Pro tips"])
+
     def test_prose_under_a_heading_still_becomes_a_line(self) -> None:
         """The model does sometimes forget the dash. A heading with a paragraph under it is
         a worse slide than one with a prose line on it, but it is not an empty one."""

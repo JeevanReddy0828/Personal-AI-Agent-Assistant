@@ -146,6 +146,16 @@ _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
+# router, which matched "jobs" and answered from the job-application tracker.
+_SCHEDULE_ASK = re.compile(
+    r"(?:" + _POLITE + r"(?:(?:what(?:'s|s|\s+is|\s+are)|show(?:\s+me)?|list|see|view|check|give\s+me|tell\s+me"
+    r"|do\s+i\s+have(?:\s+any)?)\s+)?(?:all\s+)?(?:(?:my|the)\s+)?"
+    r"(?:scheduled\s+(?:jobs?|tasks?|commands?)|schedules|recurring\s+(?:jobs?|tasks?))"
+    r"|" + _POLITE + r"what(?:'s|s|\s+is)\s+scheduled"
+    r"|" + _POLITE + r"what\s+(?:jobs?|tasks?)\s+(?:are|do\s+i\s+have)\s+scheduled)\s*[?.!]*",
+    re.IGNORECASE,
+)
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
 _DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
@@ -445,6 +455,38 @@ _TARGETY = re.compile(
     r"|\b\w+\.(?:py|md|txt|csv|pdf|docx|json|ya?ml|png|jpe?g|mp4|wav|log|ini|toml)\b",
     re.IGNORECASE,
 )
+# Asking for the news is the whole sentence: a frame, describing words, an optional topic
+# before the noun and an optional "about X" after it. Finding the word anywhere sent "good
+# news, i got the job" to the headlines and "fake news is a problem" to a search for "is a
+# problem"; and a topic counted only with nothing before it, so "latest tech news" lost
+# "tech" and got the day's top stories.
+_NEWS_WHEN = r"(?:\s+(?:today|tonight|now|right\s+now|please|this\s+(?:morning|afternoon|evening|week)))*"
+_NEWS_ASK = re.compile(
+    _POLITE
+    + r"(?:(?:what(?:'s|s|\s+is)\s+(?:new|(?:the\s+)?latest)\s+in"
+    r"|what(?:'s|s|\s+is|\s+are)?(?:\s+(?:happening|going\s+on))?(?:\s+in)?"
+    r"|(?:give|show|tell|get|read|fetch|bring|find|check|pull\s+up)(?:\s+(?:me|us))?"
+    r"|(?:is|are)\s+there|(?:have\s+you\s+)?got|i(?:'d|\s+would)\s+like|i\s+want)\s+)?"
+    r"(?:(?:the|latest|newest|today'?s|top|breaking|recent|current|daily|morning|evening|big|biggest"
+    r"|main|major|any|some|more|local|new|news|headline)\s+)*"
+    r"(?:(?P<lead>[a-z][\w&+.-]*(?:\s+[a-z][\w&+.-]*){0,2})\s+)?(?:news|headlines?)" + _NEWS_WHEN
+    + r"(?:\s+(?:about|on|regarding|concerning|for|from|in|re|of|around)\s+(?P<about>[^?!]+?))?"
+    + _NEWS_WHEN + r"\s*[?.!]*",
+    re.IGNORECASE,
+)
+# "news india": the topic straight after the noun, said as a command.
+_NEWS_BARE = re.compile(r"\s*(?:news|headlines?)\s+(?P<bare>[a-z0-9][^?!]*?)\s*[?.!]*", re.IGNORECASE)
+# What talk about the news says and a request for it does not: "good news", "i watched the
+# news", "news is fake". Checked against the words around the noun, never the "about" part.
+_NOT_A_TOPIC = frozenset({
+    "i", "you", "we", "they", "he", "she", "it", "me", "us", "him", "them", "my", "your", "our",
+    "their", "his", "her", "its", "this", "that", "these", "those", "a", "an", "is", "are", "was",
+    "were", "be", "been", "am", "do", "does", "did", "has", "have", "had", "can", "could", "will",
+    "would", "should", "may", "might", "must", "not", "no", "so", "such", "what", "which", "who",
+    "how", "why", "when", "where", "good", "bad", "fake", "great", "sad", "terrible", "awful",
+    "wonderful", "amazing", "horrible", "love", "hate", "like", "watch", "watched", "saw", "heard",
+    "the", "in", "on", "of", "for", "to", "at", "from", "with", "about", "something", "anything",
+})
 
 
 # A diffusion model cannot draw an accurate technical diagram. Asked for one it returns
@@ -502,6 +544,42 @@ def strip_address(text: str) -> str:
     return trimmed or raw
 
 
+# "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
+# "what's taking up space in my downloads". The LLM router turned the first into a plain
+# `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
+# files in name order: a confident answer to a question nobody asked.
+_LARGEST_FILES = re.compile(
+    _POLITE + r"(?:(?:what|which)(?:'s|\s+is|\s+are)?\s+|(?:show|list|find|give|tell)(?:\s+me)?\s+)?"
+    r"(?:the\s+|my\s+)?(?:\d+\s+|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+    r"(?:largest|biggest|heaviest)\s+files?\s+(?:are\s+)?(?:(?:in|under|inside|on)\s+(?P<where>.+?)|(?P<here>here))"
+    r"(?:,?\s+and\s+(?:tell|show|give)\s+me\s+(?:their|the)\s+sizes?)?[\s?.!]*$"
+    r"|" + _POLITE + r"what(?:'s|\s+is)\s+(?:taking\s+up|using)\s+(?:the\s+most\s+|all\s+the\s+|so\s+much\s+)?"
+    r"(?:disk\s+)?space\s+(?:in|on)\s+(?P<space>.+?)[\s?.!]*$",
+    re.IGNORECASE,
+)
+_HOME_FOLDERS = {
+    "downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
+    "photos": "Pictures", "music": "Music", "videos": "Videos",
+}
+
+
+def _folder_path(where: str) -> str | None:
+    """'my downloads folder' -> ~/Downloads, 'here' -> '.', a path as written; else None.
+
+    None for anything that does not name a folder on this machine, so "the largest files in
+    a typical linux install" stays a question for the model rather than a scan of nothing.
+    """
+    place = where.strip().strip("'\"")
+    if re.search(r"[\\/]|^~|^[A-Za-z]:", place):
+        return place
+    name = re.sub(r"^(?:my|the|this)\s+", "", place, flags=re.IGNORECASE)
+    name = re.sub(r"\s+(?:folder|directory)$", "", name, flags=re.IGNORECASE).lower()
+    if name in {"here", "folder", "directory", "current folder", "current directory"}:
+        return "."
+    known = _HOME_FOLDERS.get(name)
+    return f"~/{known}" if known else None
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
@@ -538,6 +616,13 @@ class HeuristicPlannerProvider:
         agent = self._agent(raw)
         if agent:
             return agent
+
+        # Ahead of the "files here" listing and the text search, which both took these: "find
+        # the three largest files in my downloads" searched file CONTENTS for "the three
+        # largest files".
+        largest = self._largest_files(raw)
+        if largest:
+            return largest
 
         casual = self._casual(lowered)
         if casual:
@@ -810,6 +895,8 @@ class HeuristicPlannerProvider:
             return self._command("reminders", "User wants to list active reminders.", 0.86)
         if _REMINDER_BARE.fullmatch(lowered):
             return self._command("reminders", "User wants to list active reminders.", 0.86)
+        if _SCHEDULE_ASK.fullmatch(lowered):
+            return self._command("schedule list", "User wants the scheduled jobs.", 0.86)
         upcoming = _NEXT_ASK.match(lowered)
         if upcoming:
             kind = next((group for group in upcoming.groups() if group), "reminder")
@@ -1052,6 +1139,8 @@ class HeuristicPlannerProvider:
         if not has_file_cue and not path_like and not named_file:
             return None
         query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
+        # "in my documents folder" was searched for as a folder of that name under the app.
+        root = _folder_path(root) or root
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
 
     def _trip(self, text: str) -> PlanDecision | None:
@@ -1137,35 +1226,23 @@ class HeuristicPlannerProvider:
     def _news(self, text: str) -> PlanDecision | None:
         """'what is the latest news' -> real headlines. A generic web search for this
         returns the homepages of CNN and Fox with their taglines, not the news."""
-        if not re.search(r"\b(?:news|headlines?)\b", text, re.IGNORECASE):
-            return None
         # "read the news article file.txt" names a target, so it belongs to the file path.
         if _TARGETY.search(text):
             return None
+        asked = _NEWS_ASK.fullmatch(text) or _NEWS_BARE.fullmatch(text)
+        if not asked:
+            return None
+        named = asked.groupdict()
+        lead, bare = named.get("lead") or "", named.get("bare") or ""
+        if any(word in _NOT_A_TOPIC for word in f"{lead} {bare}".lower().split()):
+            return None
         # "in" and "from" belong to the phrasing, not the topic: "news in india" was
         # answered "Top stories about in india".
-        about = re.search(
-            r"\b(?:news|headlines?)\b(?:\s+(?:about|on|regarding|for|from|in|re))?\s+(.+)$|"
-            r"(?:about|on|regarding|in)\s+(.+?)\s+\b(?:news|headlines?)\b",
-            text, re.IGNORECASE,
-        )
-        topic = ""
-        if about:
-            topic = (about.group(1) or about.group(2) or "").strip(" ?.!,'\"")
-        # "tech news", "sports headlines": the topic comes first, with no preposition.
-        leading = re.match(r"^\s*(?P<topic>[a-z][\w&.-]*(?:\s+[a-z][\w&.-]*)?)\s+(?:news|headlines)\s*[?.!]*$",
-                           text, re.IGNORECASE)
-        if not topic and leading and leading.group("topic").lower().split()[0] not in {
-                "the", "latest", "today's", "todays", "any", "some", "top", "breaking", "recent", "new",
-                "current", "daily", "morning", "evening", "good", "bad", "fake", "what's", "whats", "show",
-                "give", "get", "read", "tell", "check", "local", "more"}:
-            topic = leading.group("topic")
-        topic = re.sub(r"^(?:in|from|about|on|of|for|the|a)\b\s*", "", topic, flags=re.IGNORECASE).strip()
-        topic = re.sub(
-            r"^(?:today|now|right now|this (?:morning|afternoon|evening|week)|headlines?|stories)\b\s*",
-            "", topic, flags=re.IGNORECASE,
-        ).strip(" ?.!,")
-        if topic.lower() in {"", "today", "now", "please", "headlines", "stories", "update", "updates"}:
+        about = re.sub(r"^(?:the|a|an)\s+", "", (named.get("about") or bare).strip(" ,'\""), flags=re.IGNORECASE)
+        if about.lower() in {"today", "now", "please", "day", "the day", "week", "update", "updates"}:
+            about = ""
+        topic = " ".join(part for part in (lead, about) if part)
+        if not topic:
             return self._command("news", "User wants the latest headlines.", 0.85)
         return self._command(f"news {topic}", "User wants headlines on a topic.", 0.85)
 
@@ -1320,6 +1397,13 @@ class HeuristicPlannerProvider:
         if not query:
             return None
         return self._command(f"web search {query}", "User wants local recommendations — search the web.", 0.8)
+
+    def _largest_files(self, text: str) -> PlanDecision | None:
+        match = _LARGEST_FILES.match(text.strip())
+        root = _folder_path(match.group("where") or match.group("space") or match.group("here")) if match else None
+        if root is None:
+            return None
+        return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)

@@ -344,6 +344,11 @@ tool activity, scheduled jobs, agent runs, **Map** and **Trip planner** · setti
 (compact layout, orb focus, always on top, transparency, voice cut-in level) · incognito
 chats that are never saved.
 
+On Windows, GPU usage works without an administrator launch: if NVIDIA's utility cannot
+answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
+refreshes in the background; the first read may show unavailable values briefly. A card
+Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
+
 ---
 
 ## Voice
@@ -433,7 +438,7 @@ python -m laptop_agent.accounts create family --role personal
 - **Sessions** are server-side, stored as hashes of the token, last up to 30 days (7 without
   use), and are **bound to the credentials they were granted under**: a password change or
   a disable ends them, including one created by a sign-in that was mid-hash when the change
-  landed.
+  landed, and stops any agent run or workflow still running under them at its next step.
 - **Managing accounts** — **Manage accounts** in the settings popover (this computer only;
   every change asks your password again), or the same `python -m laptop_agent.accounts`
   command, which also resets passwords, so a forgotten one never locks the owner out.
@@ -726,3 +731,10 @@ CSV commands and forecast charts are a separate integration; this change adds th
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
+keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
+VRAM usage displays n/a rather than zero.

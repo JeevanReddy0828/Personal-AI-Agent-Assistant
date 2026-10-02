@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -189,6 +190,26 @@ class ReminderConversationTests(unittest.TestCase):
         self.assertIn("take my vitamins", self.say("what are my reminders"))
         self.assertIn("Stopped the repeating reminder", self.say("cancel the vitamins reminder"))
         self.assertEqual(self.everyday.orchestrator.context.scheduler.list_jobs(), [])
+
+    def test_the_cancel_hint_names_a_phrasal_verb_whole(self) -> None:
+        # "stand up" was offered as "cancel the up reminder": the last word names nothing, and
+        # matched as a substring it cancels "eat supper" when that was set first.
+        self.say("remind me every day at 8pm to eat supper")
+        message = self.say("remind me every weekday at 9am to stand up")
+        hint = re.search(r'Say "(cancel the .+? reminder)"', message).group(1)
+        self.assertEqual(hint, "cancel the stand up reminder")
+        self.assertIn("Stopped the repeating reminder: stand up.", self.say(hint))
+        (left,) = self.everyday.orchestrator.context.scheduler.list_jobs()
+        self.assertEqual(left.spec, "reminder add now eat supper")
+
+    def test_the_schedule_list_names_what_is_scheduled(self) -> None:
+        # It said "2 scheduled job(s)." and nothing else: the jobs were only in the data.
+        self.say("remind me every weekday at 9am to stand up")
+        self.say("schedule every 30 minutes :: briefing")
+        message = self.say("what are my scheduled jobs")
+        self.assertIn("2 scheduled jobs:", message)
+        self.assertIn("weekdays at 09:00 — reminder: stand up", message)
+        self.assertIn("every 30 minutes — briefing", message)
 
     def test_the_scheduled_job_really_raises_a_reminder(self) -> None:
         # What the ticker runs at 8am: the reminder it creates is due at once.
