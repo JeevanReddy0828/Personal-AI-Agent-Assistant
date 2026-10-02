@@ -45,11 +45,11 @@ class DriversTests(unittest.TestCase):
         self.assertEqual(changed.vif,before.vif)
         self.assertNotEqual(changed.predictions,before.predictions)
 
-    def test_r2_is_measured_against_the_actual_tail_mean(self):
+    def test_r2_is_measured_against_the_fixed_training_mean(self):
         x,y=fixture()
         y[80:]=[v+2 for v in y[80:]]
         r=drivers(x,y)
-        self.assertAlmostEqual(r.out_of_sample_r2,1-4/13)
+        self.assertAlmostEqual(r.out_of_sample_r2,1-4/17)
         self.assertAlmostEqual(r.mae,2)
         self.assertAlmostEqual(r.baseline_mae,3.5)
 
@@ -94,15 +94,28 @@ class DriversTests(unittest.TestCase):
         self.assertTrue(all(v>100 for v in r.vif))
         self.assertTrue(any('collinearity' in w for w in r.warnings))
 
-    def test_constant_training_target_refuses_constant_tail_has_null_r2(self):
+    def test_constant_training_target_refuses_and_r2_needs_baseline_error(self):
         x,y=fixture()
         self.assertFalse(drivers(x,[3.]*100).enough_data)
         y[80:]=[3.]*20
         r=drivers(x,y)
         self.assertTrue(r.enough_data)
+        self.assertAlmostEqual(r.out_of_sample_r2,1-(49+13)/49)
+        y[80:]=[10.]*20  # fixed training-mean baseline has zero error
+        r=drivers(x,y)
         self.assertIsNone(r.out_of_sample_r2)
-        self.assertGreater(r.mae,0)
         self.assertTrue(any('R2 is undefined' in w for w in r.warnings))
+
+    def test_numerically_constant_columns_and_thin_tail_are_explicit(self):
+        x,y=fixture()
+        x=[[.3 if i%2 else .30000000000000004,b] for i,(a,b) in enumerate(x)]
+        self.assertFalse(drivers(x,y).enough_data)
+        x,y=fixture()
+        self.assertFalse(drivers(x,[.3 if i%2 else .30000000000000004 for i in range(100)]).enough_data)
+        r=drivers(x,y,holdout=.02)
+        self.assertTrue(r.enough_data)
+        self.assertTrue(any('10 held-out' in w for w in r.warnings))
+        self.assertFalse(any('10 held-out' in w for w in drivers(x,y).warnings))
 
     def test_invalid_inputs_are_refused(self):
         cases=[([],[]),([[1]],[]),([[1],[2,3]],[1,2]),([[True]],[1]),

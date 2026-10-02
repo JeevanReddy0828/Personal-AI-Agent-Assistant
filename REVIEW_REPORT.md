@@ -305,3 +305,8 @@ app.js and test_browser_regressions.py to the original scope; health.py stays un
 GPU review test portability: the cold-status regression now mocks the unrelated battery
 probe. Its simulated win32 platform otherwise calls windll on a Linux CI host without
 psutil. Production metrics behavior is unchanged by this test-harness correction.
+
+
+## Diagnostics reference correction — 2026-10-02
+
+Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.

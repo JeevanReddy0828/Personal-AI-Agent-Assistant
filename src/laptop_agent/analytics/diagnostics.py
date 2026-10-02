@@ -170,16 +170,18 @@ def drivers(features: Sequence[Sequence[float]], target: Sequence[float], *,
     warnings = ["Coefficients describe associations, not causal effects"]
     if train < 10*p:
         warnings.append("Fewer than 10 training rows per feature; coefficients may be unstable")
+    if test < 10:
+        warnings.append("Fewer than 10 held-out rows; predictive scores may be unstable")
     def refused(reason):
         return Drivers(names,(None,)*p,(None,)*p,train,test,(),None,None,None,False,reason,tuple(warnings))
     if train < max(4,p+2) or test < 2:
         return refused("Need at least max(4, features+2) training rows and two held-out rows")
     transforms = [_standardize([row[j] for row in rows[:train]]) for j in range(p)]
-    if any(sd == 0 for _,_,sd in transforms):
-        return refused("A training feature is constant; remove it before interpreting coefficients")
+    if any(sd <= 1e-12 for _,_,sd in transforms):
+        return refused("A training feature is numerically constant; remove it before interpreting coefficients")
     yu, ym, ys = _standardize(target[:train])
-    if ys == 0:
-        return refused("Training target is constant; standardized associations are undefined")
+    if ys <= 1e-12:
+        return refused("Training target is numerically constant; standardized associations are undefined")
     columns = [[(row[j]/unit-center)/sd for row in rows[:train]]
                for j,(unit,center,sd) in enumerate(transforms)]
     response = [(v/yu-ym)/ys for v in target[:train]]
@@ -195,20 +197,20 @@ def drivers(features: Sequence[Sequence[float]], target: Sequence[float], *,
         if not all(math.isfinite(v) for v in predictions):
             return refused("Held-out extrapolation exceeds numeric range")
         actual = target[train:]
-        baseline = yu*ym
+        baseline = fmean(target[:train])
         unit = max(*(abs(v) for v in actual+predictions),abs(baseline)) or 1.0
         errors = [a/unit-b/unit for a,b in zip(actual,predictions)]
         mae = fmean(abs(e) for e in errors)*unit
         baseline_mae = fmean(abs(a/unit-baseline/unit) for a in actual)*unit
-        center = fmean(v/unit for v in actual)
+        center = baseline/unit
         sst = math.fsum((v/unit-center)**2 for v in actual)
-        r2 = 1-math.fsum(e*e for e in errors)/sst if sst and min(actual) != max(actual) else None
+        r2 = 1-math.fsum(e*e for e in errors)/sst if sst else None
     except (OverflowError, ValueError):
         return refused("Held-out extrapolation exceeds numeric range")
     if r2 is not None and not math.isfinite(r2):
         r2 = None
     if r2 is None:
-        warnings.append("Held-out R2 is undefined for a constant or numerically unresolved tail")
+        warnings.append("Held-out R2 is undefined because the training-mean baseline has zero or numerically unresolved squared error")
     return Drivers(names,beta,vif,train,test,predictions,r2,mae,baseline_mae,True,
                    "Fit and standardization use only the prefix; scores use only the held-out tail",
                    tuple(warnings))
