@@ -793,3 +793,7 @@ Cancel now clears that cookie only after a matching flow/proof was actually canc
 GPU-01 review caught a cache-consumer regression: one-shot status reported old values as
 current or omitted a cold CPU sample. Both callers now refresh synchronously. JavaScript
 null arithmetic also converted unknown VRAM into zero; test the rendered n/a state.
+
+## Season peak review correction — 2026-10-02
+
+Wrong 11-month cycle for a 12-month signal -> the search stopped on a rising autocorrelation shoulder -> require both neighbours below the candidate; a boundary-check lag is never itself a candidate.

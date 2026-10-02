@@ -31,7 +31,9 @@ USAGE = "forecast <column> in <file.csv> [by <date column>] [for N] [season N]"
 _REQUEST = re.compile(
     r"forecast\s+(?P<column>.+?)\s+(?:in|from)\s+(?P<path>\"[^\"]+\.(?:csv|tsv)\"|\S.*?\.(?:csv|tsv))"
     r"(?P<rest>(?:\s.*)?)", re.IGNORECASE | re.DOTALL)
-_HORIZON = re.compile(r"\s+for\s+(?:the\s+)?(?:next\s+)?(?P<horizon>\d+)(?:\s+(?!by\b)[a-z]+)?(?=\s|$)",
+# The optional word after the number is a unit ("months"), never the start of another clause:
+# taking "season" lost the season and read "by Month for 3 season 12" as a column "Month 12".
+_HORIZON = re.compile(r"\s+for\s+(?:the\s+)?(?:next\s+)?(?P<horizon>\d+)(?:\s+(?!(?:by|season|with|a)\b)[a-z]+)?(?=\s|$)",
                       re.IGNORECASE)
 _SEASON = re.compile(r"\s+(?:with\s+)?(?:a\s+)?season(?:\s+of)?\s+(?P<season>\d+)(?:\s+(?!by\b|for\b)[a-z]+)?(?=\s|$)",
                      re.IGNORECASE)

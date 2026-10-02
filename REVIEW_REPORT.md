@@ -330,3 +330,7 @@ app.js and test_browser_regressions.py to the original scope; health.py stays un
 GPU review test portability: the cold-status regression now mocks the unrelated battery
 probe. Its simulated win32 platform otherwise calls windll on a Linux CI host without
 psutil. Production metrics behavior is unchanged by this test-harness correction.
+
+## Season peak review correction — 2026-10-02
+
+Season detector follow-up: Claude's monthly-sine repro failed at every n=99..107 before the fix. A strict two-sided peak now rejects those shoulders while retaining period 12 at n=108 and period 24 at the maximum candidate. All 19 forecast tests pass on Python 3.11 and 3.14.

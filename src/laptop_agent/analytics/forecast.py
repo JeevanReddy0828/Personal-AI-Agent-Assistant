@@ -85,13 +85,17 @@ def detect_season(values: Sequence[float]) -> int | None:
     if not variance or sum(v * v for v in residual) <= variance * 1e-12:
         return None
     scores = {}
-    for lag in range(2, min(24, len(y) // 3) + 1):
+    limit = min(24, len(y) // 3)
+    # Neighbours confirm a peak; only candidates themselves need three cycles.
+    for lag in range(1, limit + 2):
         a, b = residual[:-lag], residual[lag:]
         am, bm = fmean(a), fmean(b)
         denominator = math.sqrt(sum((v-am)**2 for v in a)) * math.sqrt(sum((v-bm)**2 for v in b))
         scores[lag] = sum((x-am)*(z-bm) for x,z in zip(a,b)) / denominator if denominator else 0
-    best = max(scores.values(), default=0)
-    return next((lag for lag, score in scores.items() if score >= max(0.6, best - 0.03)), None)
+    best = max(scores[lag] for lag in range(2, limit + 1))
+    return next((lag for lag in range(2, limit + 1)
+                 if scores[lag] >= max(0.6, best - 0.03)
+                 and scores[lag] > scores[lag-1] and scores[lag] > scores[lag+1]), None)
 
 
 def _predict(y: Sequence[float], horizon: int, spec: _Spec) -> tuple[float, ...]:

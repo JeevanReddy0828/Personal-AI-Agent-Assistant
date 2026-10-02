@@ -73,6 +73,19 @@ class ForecastTests(unittest.TestCase):
         self.assertIsNone(result.season)
         self.assertEqual(result.baseline_method,"naive")
 
+    def test_auto_season_does_not_choose_the_rising_edge_at_the_lag_limit(self):
+        # Claude's #158 repro: lag 11 looks strong while true period 12 is outside
+        # the prefix's three-cycle limit. A shoulder is not a confirmed peak.
+        for count in range(99,108):
+            values=[1200+5*i+300*math.sin(2*math.pi*i/12) for i in range(count)]
+            with self.subTest(count=count):
+                self.assertIsNone(f.forecast(values,3).season)
+        values=[1200+5*i+300*math.sin(2*math.pi*i/12) for i in range(108)]
+        self.assertEqual(f.forecast(values,3).season,12)
+        # The maximum supported candidate still has its right neighbour checked.
+        values=[1200+5*i+300*math.sin(2*math.pi*i/24) for i in range(72)]
+        self.assertEqual(f.detect_season(values),24)
+
     def test_seasonal_naive_is_a_competitor_not_only_last_value(self):
         values=[0,5,-4,2]*40
         result=f.forecast(values,6,season=4)
