@@ -1,0 +1,1440 @@
+{
+  "fixture": "Synthetic fixture of ordinary indexed notes plus generated research/advice/transcript records. This models store shapes, not sampled private user data or measured production traffic. Frozen before the first corpus-breakdown run.",
+  "fixture_sha256": "3a4ade65f18ff7f9db044c15960ae6dab424b9d99ef3cb6c06a3690dc307435e",
+  "runs": [
+    {
+      "commit": "0ce6847",
+      "corpus": "README_only",
+      "questions": 12,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "87124eff41dcee3cfacae3d81d8d882fb688972b99fca64d37901c0ab3d2ae74"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.1883
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.1883
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "cli.py gui.py dashboard.py webui.py Front ends: CLI, Tkinter, web and native webui_page.py webui_assets/ Page loader · app.html, app.css, app.js, signin.html, google_auth.js window_fx.py cancellation.py app.py Native window effects · Stop · the one place everything is wired",
+          "score": 0.7113
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Smart tier — complex questions: `nvidia/nemotron-3-super-120b-a12b`: `OPENAI_SMART_MODEL`: Optional Ultra tier — deepest work: `nvidia/nemotron-3-ultra-550b-a55b`: `OPENAI_ULTRA_MODEL`: A reasoning model: thinks first (kept internal), ~20 s Vision — screen and images: `meta/llama-3.2-11b-vision-instruct`: `OPENAI_VISION_MODEL`: Image attachments go vision-first, OCR as fallback",
+          "score": 1.1301
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Model tiers**: `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS`: Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. **Pictures**: `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY`: A different host from chat — never point `OPENAI_BASE_URL` at it. **Embeddings**: `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY`: Default to the chat host and key.",
+          "score": 1.0506
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "python -B tests/run_tests.py # the whole unit suite, offline python -B tests/run_tests.py test_planner.py # one file python -B tests/run_tests.py \"test_browser_*.py\" # Chromium suites (needs playwright + pypdf)",
+          "score": 1.5331
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.4708
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Link a Google identity to an existing local account in Settings (your password is asked again), then use **Sign in with Google** on this computer. It never creates an account or changes a role, uses `openid email profile` only, and does **not** connect Gmail. You need a Google OAuth **Desktop app** client in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`; the callback is `http://127.0.0.1:<app-port>/auth/google/callback`, derived from the port.",
+          "score": 1.0177
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Not an unrestricted autopilot. Anything that can leak data, send messages, run commands, move files, or download goes through an explicit approval gate — in the web app it puts an approval card in front of you and waits. No answer means no.",
+          "score": 0.2936
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Voice needs `localhost` or HTTPS: plain-HTTP LAN access cannot reach the microphone. Ask in the app or web page: \"record my voice for 10 seconds\", \"record a voice note\" (20 s), \"record audio up to 2 minutes\" (the maximum), \"can you record my voice for twenty seconds?\". A clip stays in `recordings/`; it is never swept as a temporary upload.",
+          "score": 1.2545
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. 👥 **Optional accounts** — `dev` and `personal` roles, scrypt passwords, server-side sessions bound to the credentials they were granted under, and Google sign-in. 🎙️ **Voice** — hands-free conversation that starts speaking the first sentence while the rest streams, barge-in that tells your voice from its own, hosted Parakeet speech-to-text (~1 s) with offline fallback, and voice notes.",
+          "score": 0.3407
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🧩 Knowledge & memory Local searchable index (TF-IDF + embeddings): `index file <path>` · `recall <q>` · `ask knowledge <q>` Obsidian vault as memory: `notes search <q>` · `read note <name>` · `save note <title> : <body>`",
+          "score": 0.3179
+        }
+      ],
+      "document_hit": 12,
+      "window_hit": 3,
+      "up_to_four_hit": 7
+    },
+    {
+      "commit": "0ce6847",
+      "corpus": "illustrative_user_mix",
+      "questions": 15,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "87124eff41dcee3cfacae3d81d8d882fb688972b99fca64d37901c0ab3d2ae74"
+        },
+        "docs/analytics.md": {
+          "chars": 9445,
+          "sha256": "b34a9671151bee796e79bc1bcb974092dd71208a3b98c5f1fc585ab9ab912126"
+        },
+        "notes/project-checklist.md": {
+          "chars": 420,
+          "sha256": "8507da87b0914082bfe7a920a060c2192c36f5e5abb3d833cd9b019a7c906760"
+        },
+        "research: vector retrieval overview": {
+          "chars": 725,
+          "sha256": "f009186aa58b014521e86ece23a5b159029d390fbe53ca4eca2b51781d8111a8"
+        },
+        "research: home network access": {
+          "chars": 630,
+          "sha256": "19ff4fb1b6d13cf86b11d6f622c411530a32a1b011c5f677a5f5033b8a25a3b3"
+        },
+        "advice: job search routine": {
+          "chars": 491,
+          "sha256": "eefaf4f4ce1a0679edaa2daccc6d7095f01498ce7b9b58b947651104041fe6d8"
+        },
+        "youtube: Python testing introduction": {
+          "chars": 553,
+          "sha256": "bb60945951cc955c588339d1cf57270e7a84382dc4bb0f467560e7271240cb96"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.6682
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.6682
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Backfill embeddings for older documents: `knowledge reindex` 🌍 Web, research, news & travel (free, no key) Web search (DuckDuckGo, or Brave / Serper / SerpApi): `web search <q>`",
+          "score": 1.1826
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Smart tier — complex questions: `nvidia/nemotron-3-super-120b-a12b`: `OPENAI_SMART_MODEL`: Optional Ultra tier — deepest work: `nvidia/nemotron-3-ultra-550b-a55b`: `OPENAI_ULTRA_MODEL`: A reasoning model: thinks first (kept internal), ~20 s Vision — screen and images: `meta/llama-3.2-11b-vision-instruct`: `OPENAI_VISION_MODEL`: Image attachments go vision-first, OCR as fallback",
+          "score": 2.5718
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Model tiers**: `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS`: Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. **Pictures**: `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY`: A different host from chat — never point `OPENAI_BASE_URL` at it. **Embeddings**: `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY`: Default to the chat host and key.",
+          "score": 0.8863
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "python -B tests/run_tests.py # the whole unit suite, offline python -B tests/run_tests.py test_planner.py # one file python -B tests/run_tests.py \"test_browser_*.py\" # Chromium suites (needs playwright + pypdf)",
+          "score": 1.0972
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Schedules run only while the app runs.** Due work is claimed durably before it runs; a crash leaves a `running` claim rather than risk a duplicate — after checking its effects, disable and re-enable the schedule. **Model health.** A busy tier is retried in 60 s; a broken one (bad key, retired model) is",
+          "score": 0.5998
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Link a Google identity to an existing local account in Settings (your password is asked again), then use **Sign in with Google** on this computer. It never creates an account or changes a role, uses `openid email profile` only, and does **not** connect Gmail. You need a Google OAuth **Desktop app** client in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`; the callback is `http://127.0.0.1:<app-port>/auth/google/callback`, derived from the port.",
+          "score": 4.0224
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Not an unrestricted autopilot. Anything that can leak data, send messages, run commands, move files, or download goes through an explicit approval gate — in the web app it puts an approval card in front of you and waits. No answer means no.",
+          "score": 0.7074
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Voice needs `localhost` or HTTPS: plain-HTTP LAN access cannot reach the microphone. Ask in the app or web page: \"record my voice for 10 seconds\", \"record a voice note\" (20 s), \"record audio up to 2 minutes\" (the maximum), \"can you record my voice for twenty seconds?\". A clip stays in `recordings/`; it is never swept as a temporary upload.",
+          "score": 3.0227
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. 👥 **Optional accounts** — `dev` and `personal` roles, scrypt passwords, server-side sessions bound to the credentials they were granted under, and Google sign-in. 🎙️ **Voice** — hands-free conversation that starts speaking the first sentence while the rest streams, barge-in that tells your voice from its own, hosted Parakeet speech-to-text (~1 s) with offline fallback, and voice notes.",
+          "score": 1.2861
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🧩 Knowledge & memory Local searchable index (TF-IDF + embeddings): `index file <path>` · `recall <q>` · `ask knowledge <q>` Obsidian vault as memory: `notes search <q>` · `read note <name>` · `save note <title> : <body>`",
+          "score": 0.2015
+        },
+        {
+          "question": "how is out of sample R2 computed",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "sum((actual - train_mean)^2)"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "`out_of_sample_r2` now compares squared prediction error with the **fixed training mean**, matching the reference predictor in `baseline_mae`. This is the fixed-prefix version of R2_OS relative to a historical-mean forecast. The earlier tail-mean R2 definition and its historical numerical checks above are superseded; consumers must say \"R2 against the training-mean baseline\", not \"against their own average\".",
+          "score": 2.691
+        },
+        {
+          "question": "what happens when MAD is zero",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "unscored_indices"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "Anomaly fixtures cover signs, original indices, strict thresholds, MAD zero, numeric overflow and seeded normal noise with two injected spikes. Tests pass on Python 3.11 and 3.14. Seventeen independent in-memory undo-and-fail mutations check target/feature chronology, negative R2, both baseline definitions, VIF/collinearity/sample/rank safeguards, coefficient signs, MAD definition, zero-MAD handling, two-sided strict flags, score signs and overflow.",
+          "score": 1.6394
+        },
+        {
+          "question": "when are VIF warnings shown",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "VIF >= 10"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "enough_data, reason: Explicit support/refusal and explanation. warnings: Association caveat, sample/collinearity warnings, or undefined R2 explanation. Warnings fire below **10 training rows per feature** (intercept excluded) and when any **VIF >= 10**, including joint dependencies invisible to a pairwise correlation check.",
+          "score": 1.421
+        }
+      ],
+      "document_hit": 15,
+      "window_hit": 4,
+      "up_to_four_hit": 9
+    },
+    {
+      "commit": "0ce6847",
+      "corpus": "developer_history_stress",
+      "questions": 15,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "87124eff41dcee3cfacae3d81d8d882fb688972b99fca64d37901c0ab3d2ae74"
+        },
+        "CLAUDE.md": {
+          "chars": 116862,
+          "sha256": "cc13b22a7db782babb168217246ca458816f4daa743dc238a747bbeb67189a48"
+        },
+        "MEMORY.md": {
+          "chars": 19686,
+          "sha256": "7e4e99fa12de9bd8c8ec9ec5d587b2930be1bb7fcb938cc532e24f96f7d74c9c"
+        },
+        "docs/analytics.md": {
+          "chars": 9445,
+          "sha256": "b34a9671151bee796e79bc1bcb974092dd71208a3b98c5f1fc585ab9ab912126"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "text, where \"jarvis\" is not in \"J.A.R.V.I.S\". Left alone, as ranking: \"what is jarvis\" finds the title's window, but a shorter one-mention window outscores it),",
+          "score": 0.6231
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "text, where \"jarvis\" is not in \"J.A.R.V.I.S\". Left alone, as ranking: \"what is jarvis\" finds the title's window, but a shorter one-mention window outscores it),",
+          "score": 0.6231
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "The desktop window prefers a true native **pywebview** window (`app` extra; no Edge browser, its own taskbar entry) and falls back to a frameless Chrome/Edge `--app` window when pywebview is absent. Because Edge WebView2 (pywebview's Windows backend) ships no Web Speech API, the native window does voice **server-side**: it sets `?app=1`, records the mic, transcribes via `/api/transcribe` (local `TranscribeTool`/Whisper), and plays sentences from `/api/tts` (offline pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.",
+          "score": 0.4667
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "`OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`) `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`) `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)",
+          "score": 0.5581
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing) the orchestrator falls back to the next tier down, tags the reply (`degraded=True` in data, plus `planner.requested_model` vs `planner.model`) with a short \"_my smart model was busy_\" note, and records the outcome in… `orchestrator.model_status` (`model_status.py`, thread-safe per-tier ok/degraded). `health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the web pill shows \"smart/ultra model busy\" while the fast tier stays healthy.",
+          "score": 0.278
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "`reduced_motion` takes the instant path by design, which is why the orb-focus tests build their own Playwright context: the shared one is `reduced_motion=\"reduce\"`. Real window effects (alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`, targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S — so a same-named third-party app is never touched; graceful no-op elsewhere) behind a desktop-gated `/api/window` POST (`_DESKTOP_MODE`, set only by `run_desktop`, so a normal browser is never touched). In a browser the slider still fades the app visually via CSS.",
+          "score": 0.4518
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_literal`): DNS rebinding needs a domain the attacker controls, so refusing names is what makes widening this safe. Loopback keeps its old behaviour and is never asked for a passcode. **Accounts switch sign-in on (`accounts.py`, `sessions.py`).** With no accounts nothing changes.",
+          "score": 0.5071
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Existing API token checks stay in place. Link/unlink require a password step-up under `_SIGNIN_LIMIT`; account-only Google recovery uses the documented local CLI password reset. Failures are recorded, never the request (Claude, landing #145): the token request carries the authorization code and the client secret, and a reply can carry tokens, so `google/token` keeps only the HTTP status and the OAuth `error` code, `google/id-token` the name of the claim check that refused (`time` is a wrong laptop clock), and `google/callback` / `google/browser` an exception's type,…",
+          "score": 0.8044
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Hashing happens outside the file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing does not say who exists. **At most two hash at once** (`HASH_SLOTS`).",
+          "score": 0.6044
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Note the threshold is a `max`, so raising the slider below the learned leak changes nothing — that is deliberate, a threshold under our own echo would fire on every sentence we speak. **And for three months it metered into a hidden element.** The meter shipped inside `#voice`, but `f6a145d` had already dropped the written overlay in June: it removed `voice.classList.add('on')` from `startVoice`/`endVoice` and left `.voice.on{display:flex}` behind, so **`#voice` has been `display:none` ever since** — along with `vstate`, `vtrans`, `vdbg` and the Interrupt / End voice buttons,… which are still in there and still dead.",
+          "score": 1.087
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "**Orb focus animates the sphere, not the layout.** The obvious implementation — transition `grid-template-columns` — does not work: measured in a real page, the stage jumped 374px to 1440px in a single frame with a 500ms transition sitting on it, and every sampled frame read the end value. So the layout snaps and the **canvas** does the animation. `focus` eases 0..1 over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot drift), and `drawSphere` interpolates the sphere's **centre and radius** from the docked rect to the window's.",
+          "score": 0.4968
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured analysis: framing, options w/ trade-offs, committed recommendation, action plan; injected decide+research, indexed for recall.",
+          "score": 0.2673
+        },
+        {
+          "question": "how is out of sample R2 computed",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "sum((actual - train_mean)^2)"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.",
+          "score": 0.4131
+        },
+        {
+          "question": "what happens when MAD is zero",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "unscored_indices"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Hashing happens outside the file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing does not say who exists. **At most two hash at once** (`HASH_SLOTS`).",
+          "score": 0.6044
+        },
+        {
+          "question": "when are VIF warnings shown",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "VIF >= 10"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "ANALYTICS-04 update — 2026-10-01 ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations.",
+          "score": 0.4776
+        }
+      ],
+      "document_hit": 0,
+      "window_hit": 0,
+      "up_to_four_hit": 0
+    },
+    {
+      "commit": "6ebd8e0",
+      "corpus": "README_only",
+      "questions": 12,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "0b2aaa99e9b330466790e0e81519a3d217e5441ee41c5cbc98bc2280817e13de"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.1883
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.1883
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "cli.py gui.py dashboard.py webui.py Front ends: CLI, Tkinter, web and native webui_page.py webui_assets/ Page loader · app.html, app.css, app.js, signin.html, google_auth.js window_fx.py cancellation.py app.py Native window effects · Stop · the one place everything is wired",
+          "score": 0.7113
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Smart tier — complex questions: `nvidia/nemotron-3-super-120b-a12b`: `OPENAI_SMART_MODEL`: Optional Ultra tier — deepest work: `nvidia/nemotron-3-ultra-550b-a55b`: `OPENAI_ULTRA_MODEL`: A reasoning model: thinks first (kept internal), ~20 s Vision — screen and images: `meta/llama-3.2-11b-vision-instruct`: `OPENAI_VISION_MODEL`: Image attachments go vision-first, OCR as fallback",
+          "score": 1.1301
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Model tiers**: `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS`: Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. **Pictures**: `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY`: A different host from chat — never point `OPENAI_BASE_URL` at it. **Embeddings**: `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY`: Default to the chat host and key.",
+          "score": 1.0506
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "python -B tests/run_tests.py # the whole unit suite, offline python -B tests/run_tests.py test_planner.py # one file python -B tests/run_tests.py \"test_browser_*.py\" # Chromium suites (needs playwright + pypdf)",
+          "score": 1.5331
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.4708
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Link a Google identity to an existing local account in Settings (your password is asked again), then use **Sign in with Google** on this computer. It never creates an account or changes a role, uses `openid email profile` only, and does **not** connect Gmail. You need a Google OAuth **Desktop app** client in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`; the callback is `http://127.0.0.1:<app-port>/auth/google/callback`, derived from the port.",
+          "score": 1.0177
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Not an unrestricted autopilot. Anything that can leak data, send messages, run commands, move files, or download goes through an explicit approval gate — in the web app it puts an approval card in front of you and waits. No answer means no.",
+          "score": 0.2936
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Voice needs `localhost` or HTTPS: plain-HTTP LAN access cannot reach the microphone. Ask in the app or web page: \"record my voice for 10 seconds\", \"record a voice note\" (20 s), \"record audio up to 2 minutes\" (the maximum), \"can you record my voice for twenty seconds?\". A clip stays in `recordings/`; it is never swept as a temporary upload.",
+          "score": 1.2545
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. 👥 **Optional accounts** — `dev` and `personal` roles, scrypt passwords, server-side sessions bound to the credentials they were granted under, and Google sign-in. 🎙️ **Voice** — hands-free conversation that starts speaking the first sentence while the rest streams, barge-in that tells your voice from its own, hosted Parakeet speech-to-text (~1 s) with offline fallback, and voice notes.",
+          "score": 0.3407
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🧩 Knowledge & memory Local searchable index (TF-IDF + embeddings): `index file <path>` · `recall <q>` · `ask knowledge <q>` Obsidian vault as memory: `notes search <q>` · `read note <name>` · `save note <title> : <body>`",
+          "score": 0.3179
+        }
+      ],
+      "document_hit": 12,
+      "window_hit": 3,
+      "up_to_four_hit": 7
+    },
+    {
+      "commit": "6ebd8e0",
+      "corpus": "illustrative_user_mix",
+      "questions": 15,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "0b2aaa99e9b330466790e0e81519a3d217e5441ee41c5cbc98bc2280817e13de"
+        },
+        "docs/analytics.md": {
+          "chars": 9445,
+          "sha256": "b34a9671151bee796e79bc1bcb974092dd71208a3b98c5f1fc585ab9ab912126"
+        },
+        "notes/project-checklist.md": {
+          "chars": 420,
+          "sha256": "8507da87b0914082bfe7a920a060c2192c36f5e5abb3d833cd9b019a7c906760"
+        },
+        "research: vector retrieval overview": {
+          "chars": 725,
+          "sha256": "f009186aa58b014521e86ece23a5b159029d390fbe53ca4eca2b51781d8111a8"
+        },
+        "research: home network access": {
+          "chars": 630,
+          "sha256": "19ff4fb1b6d13cf86b11d6f622c411530a32a1b011c5f677a5f5033b8a25a3b3"
+        },
+        "advice: job search routine": {
+          "chars": 491,
+          "sha256": "eefaf4f4ce1a0679edaa2daccc6d7095f01498ce7b9b58b947651104041fe6d8"
+        },
+        "youtube: Python testing introduction": {
+          "chars": 553,
+          "sha256": "bb60945951cc955c588339d1cf57270e7a84382dc4bb0f467560e7271240cb96"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.6682
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "New-NetFirewallRule -DisplayName \"J.A.R.V.I.S (LAN)\" -Direction Inbound -Action Allow ` -Protocol TCP -LocalPort 8770 -RemoteAddress LocalSubnet -Profile Any LAN mode is plain HTTP: use it only on a network you trust.",
+          "score": 0.6682
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Backfill embeddings for older documents: `knowledge reindex` 🌍 Web, research, news & travel (free, no key) Web search (DuckDuckGo, or Brave / Serper / SerpApi): `web search <q>`",
+          "score": 1.1826
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Smart tier — complex questions: `nvidia/nemotron-3-super-120b-a12b`: `OPENAI_SMART_MODEL`: Optional Ultra tier — deepest work: `nvidia/nemotron-3-ultra-550b-a55b`: `OPENAI_ULTRA_MODEL`: A reasoning model: thinks first (kept internal), ~20 s Vision — screen and images: `meta/llama-3.2-11b-vision-instruct`: `OPENAI_VISION_MODEL`: Image attachments go vision-first, OCR as fallback",
+          "score": 2.5718
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Model tiers**: `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS`: Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. **Pictures**: `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY`: A different host from chat — never point `OPENAI_BASE_URL` at it. **Embeddings**: `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY`: Default to the chat host and key.",
+          "score": 0.8863
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "python -B tests/run_tests.py # the whole unit suite, offline python -B tests/run_tests.py test_planner.py # one file python -B tests/run_tests.py \"test_browser_*.py\" # Chromium suites (needs playwright + pypdf)",
+          "score": 1.0972
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "README.md"
+          ],
+          "answer": "**Schedules run only while the app runs.** Due work is claimed durably before it runs; a crash leaves a `running` claim rather than risk a duplicate — after checking its effects, disable and re-enable the schedule. **Model health.** A busy tier is retried in 60 s; a broken one (bad key, retired model) is",
+          "score": 0.5998
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Link a Google identity to an existing local account in Settings (your password is asked again), then use **Sign in with Google** on this computer. It never creates an account or changes a role, uses `openid email profile` only, and does **not** connect Gmail. You need a Google OAuth **Desktop app** client in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`; the callback is `http://127.0.0.1:<app-port>/auth/google/callback`, derived from the port.",
+          "score": 4.0224
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Not an unrestricted autopilot. Anything that can leak data, send messages, run commands, move files, or download goes through an explicit approval gate — in the web app it puts an approval card in front of you and waits. No answer means no.",
+          "score": 0.7074
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "Voice needs `localhost` or HTTPS: plain-HTTP LAN access cannot reach the microphone. Ask in the app or web page: \"record my voice for 10 seconds\", \"record a voice note\" (20 s), \"record audio up to 2 minutes\" (the maximum), \"can you record my voice for twenty seconds?\". A clip stays in `recordings/`; it is never swept as a temporary upload.",
+          "score": 3.0227
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. 👥 **Optional accounts** — `dev` and `personal` roles, scrypt passwords, server-side sessions bound to the credentials they were granted under, and Google sign-in. 🎙️ **Voice** — hands-free conversation that starts speaking the first sentence while the rest streams, barge-in that tells your voice from its own, hosted Parakeet speech-to-text (~1 s) with offline fallback, and voice notes.",
+          "score": 1.2861
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "README.md"
+          ],
+          "answer": "🧩 Knowledge & memory Local searchable index (TF-IDF + embeddings): `index file <path>` · `recall <q>` · `ask knowledge <q>` Obsidian vault as memory: `notes search <q>` · `read note <name>` · `save note <title> : <body>`",
+          "score": 0.2015
+        },
+        {
+          "question": "how is out of sample R2 computed",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "sum((actual - train_mean)^2)"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "`out_of_sample_r2` now compares squared prediction error with the **fixed training mean**, matching the reference predictor in `baseline_mae`. This is the fixed-prefix version of R2_OS relative to a historical-mean forecast. The earlier tail-mean R2 definition and its historical numerical checks above are superseded; consumers must say \"R2 against the training-mean baseline\", not \"against their own average\".",
+          "score": 2.691
+        },
+        {
+          "question": "what happens when MAD is zero",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "unscored_indices"
+          ],
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "Anomaly fixtures cover signs, original indices, strict thresholds, MAD zero, numeric overflow and seeded normal noise with two injected spikes. Tests pass on Python 3.11 and 3.14. Seventeen independent in-memory undo-and-fail mutations check target/feature chronology, negative R2, both baseline definitions, VIF/collinearity/sample/rank safeguards, coefficient signs, MAD definition, zero-MAD handling, two-sided strict flags, score signs and overflow.",
+          "score": 1.6394
+        },
+        {
+          "question": "when are VIF warnings shown",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "VIF >= 10"
+          ],
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true,
+          "source": [
+            "docs/analytics.md"
+          ],
+          "answer": "enough_data, reason: Explicit support/refusal and explanation. warnings: Association caveat, sample/collinearity warnings, or undefined R2 explanation. Warnings fire below **10 training rows per feature** (intercept excluded) and when any **VIF >= 10**, including joint dependencies invisible to a pairwise correlation check.",
+          "score": 1.421
+        }
+      ],
+      "document_hit": 15,
+      "window_hit": 4,
+      "up_to_four_hit": 9
+    },
+    {
+      "commit": "6ebd8e0",
+      "corpus": "developer_history_stress",
+      "questions": 15,
+      "documents": {
+        "README.md": {
+          "chars": 42284,
+          "sha256": "0b2aaa99e9b330466790e0e81519a3d217e5441ee41c5cbc98bc2280817e13de"
+        },
+        "CLAUDE.md": {
+          "chars": 116861,
+          "sha256": "4bf974060d516c0ffa9092b25dc4531e67d43d7f994da1e76059f4c3a6d1aace"
+        },
+        "MEMORY.md": {
+          "chars": 19685,
+          "sha256": "db563e2ef51e5f2946f571ee6359e47457e3a3e09fc8105c1ef709d3c0351bb7"
+        },
+        "docs/analytics.md": {
+          "chars": 9445,
+          "sha256": "b34a9671151bee796e79bc1bcb974092dd71208a3b98c5f1fc585ab9ab912126"
+        }
+      },
+      "rows": [
+        {
+          "question": "what is jarvis",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "text, where \"jarvis\" is not in \"J.A.R.V.I.S\". Left alone, as ranking: \"what is jarvis\" finds the title's window, but a shorter one-mention window outscores it),",
+          "score": 0.6231
+        },
+        {
+          "question": "what is J.A.R.V.I.S",
+          "gold": "README.md",
+          "anchors": [
+            "local-first, voice-capable"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "text, where \"jarvis\" is not in \"J.A.R.V.I.S\". Left alone, as ranking: \"what is jarvis\" finds the title's window, but a shorter one-mention window outscores it),",
+          "score": 0.6231
+        },
+        {
+          "question": "how do I start the web app",
+          "gold": "README.md",
+          "anchors": [
+            "python -m laptop_agent.webui"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "The desktop window prefers a true native **pywebview** window (`app` extra; no Edge browser, its own taskbar entry) and falls back to a frameless Chrome/Edge `--app` window when pywebview is absent. Because Edge WebView2 (pywebview's Windows backend) ships no Web Speech API, the native window does voice **server-side**: it sets `?app=1`, records the mic, transcribes via `/api/transcribe` (local `TranscribeTool`/Whisper), and plays sentences from `/api/tts` (offline pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.",
+          "score": 0.4667
+        },
+        {
+          "question": "which model handles vision",
+          "gold": "README.md",
+          "anchors": [
+            "meta/llama-3.2-11b-vision-instruct"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "`OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`) `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`) `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)",
+          "score": 0.5581
+        },
+        {
+          "question": "which model generates pictures",
+          "gold": "README.md",
+          "anchors": [
+            "black-forest-labs/flux.2-klein-4b"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing) the orchestrator falls back to the next tier down, tags the reply (`degraded=True` in data, plus `planner.requested_model` vs `planner.model`) with a short \"_my smart model was busy_\" note, and records the outcome in… `orchestrator.model_status` (`model_status.py`, thread-safe per-tier ok/degraded). `health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the web pill shows \"smart/ultra model busy\" while the fast tier stays healthy.",
+          "score": 0.278
+        },
+        {
+          "question": "how do I run browser tests",
+          "gold": "README.md",
+          "anchors": [
+            "JARVIS_BROWSER_TESTS"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "`reduced_motion` takes the instant path by design, which is why the orb-focus tests build their own Playwright context: the shared one is `reduced_motion=\"reduce\"`. Real window effects (alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`, targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S — so a same-named third-party app is never touched; graceful no-op elsewhere) behind a desktop-gated `/api/window` POST (`_DESKTOP_MODE`, set only by `run_desktop`, so a normal browser is never touched). In a browser the slider still fades the app visually via CSS.",
+          "score": 0.4518
+        },
+        {
+          "question": "how do I enable LAN mode",
+          "gold": "README.md",
+          "anchors": [
+            "LAPTOP_AGENT_HOST",
+            "LAPTOP_AGENT_LAN_PASSCODE"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_literal`): DNS rebinding needs a domain the attacker controls, so refusing names is what makes widening this safe. Loopback keeps its old behaviour and is never asked for a passcode. **Accounts switch sign-in on (`accounts.py`, `sessions.py`).** With no accounts nothing changes.",
+          "score": 0.5071
+        },
+        {
+          "question": "how do I sign in with Google",
+          "gold": "README.md",
+          "anchors": [
+            "GOOGLE_CLIENT_ID"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Existing API token checks stay in place. Link/unlink require a password step-up under `_SIGNIN_LIMIT`; account-only Google recovery uses the documented local CLI password reset. Failures are recorded, never the request (Claude, landing #145): the token request carries the authorization code and the client secret, and a reply can carry tokens, so `google/token` keeps only the HTTP status and the OAuth `error` code, `google/id-token` the name of the claim check that refused (`time` is a wrong laptop clock), and `google/callback` / `google/browser` an exception's type,…",
+          "score": 0.8044
+        },
+        {
+          "question": "what happens when approval times out",
+          "gold": "README.md",
+          "anchors": [
+            "No answer means no"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Hashing happens outside the file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing does not say who exists. **At most two hash at once** (`HASH_SLOTS`).",
+          "score": 0.6044
+        },
+        {
+          "question": "how do I record a voice note",
+          "gold": "README.md",
+          "anchors": [
+            "record voice upto 20 seconds"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Note the threshold is a `max`, so raising the slider below the learned leak changes nothing — that is deliberate, a threshold under our own echo would fire on every sentence we speak. **And for three months it metered into a hidden element.** The meter shipped inside `#voice`, but `f6a145d` had already dropped the written overlay in June: it removed `voice.classList.add('on')` from `startVoice`/`endVoice` and left `.voice.on{display:flex}` behind, so **`#voice` has been `display:none` ever since** — along with `vstate`, `vtrans`, `vdbg` and the Interrupt / End voice buttons,… which are still in there and still dead.",
+          "score": 1.087
+        },
+        {
+          "question": "how does barge-in work",
+          "gold": "README.md",
+          "anchors": [
+            "three or more words"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "**Orb focus animates the sphere, not the layout.** The obvious implementation — transition `grid-template-columns` — does not work: measured in a real page, the stage jumped 374px to 1440px in a single frame with a 500ms transition sitting on it, and every sampled frame read the end value. So the layout snaps and the **canvas** does the animation. `focus` eases 0..1 over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot drift), and `drawSphere` interpolates the sphere's **centre and radius** from the docked rect to the window's.",
+          "score": 0.4968
+        },
+        {
+          "question": "how are embeddings used for recall",
+          "gold": "README.md",
+          "anchors": [
+            "Asymmetric: documents embed"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured analysis: framing, options w/ trade-offs, committed recommendation, action plan; injected decide+research, indexed for recall.",
+          "score": 0.2673
+        },
+        {
+          "question": "how is out of sample R2 computed",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "sum((actual - train_mean)^2)"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added. LLM brain — tiered models",
+          "score": 0.4219
+        },
+        {
+          "question": "what happens when MAD is zero",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "unscored_indices"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Hashing happens outside the file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing does not say who exists. **At most two hash at once** (`HASH_SLOTS`).",
+          "score": 0.6044
+        },
+        {
+          "question": "when are VIF warnings shown",
+          "gold": "docs/analytics.md",
+          "anchors": [
+            "VIF >= 10"
+          ],
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false,
+          "source": [
+            "CLAUDE.md"
+          ],
+          "answer": "Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added. LLM brain — tiered models",
+          "score": 0.4839
+        }
+      ],
+      "document_hit": 0,
+      "window_hit": 0,
+      "up_to_four_hit": 0
+    }
+  ]
+}
