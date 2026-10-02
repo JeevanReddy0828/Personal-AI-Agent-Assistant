@@ -668,8 +668,8 @@
     const keep=sessions.filter(s=>!s.ghost);
     try{localStorage.setItem(chatKey,JSON.stringify(keep));}
     catch(e){
-      // Over quota: the tool-data digests are the expendable part — drop them and retry once.
-      sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
+      // Over quota: the tool-data digests and saved charts are the expendable part — drop them and retry once.
+      sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;delete m.chart;}));
       try{localStorage.setItem(chatKey,JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
@@ -713,7 +713,7 @@
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);});}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);const chart=m.chart&&forecastChart(m.chart);if(chart)node.querySelector('.md').after(chart);});}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
@@ -1002,7 +1002,8 @@
       // Chat already revealed itself token-by-token; a local command result arrives
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
       if(streamed||(d.data&&d.data.record))setMd(md,reply); else typewriter(md,reply);
-      if(d.ok&&d.data&&d.data.forecast&&d.data.series){const chart=forecastChart(d.data);if(chart)md.after(chart);}
+      const chartable=d.ok?chartData(d.data):null;
+      if(chartable){const chart=forecastChart(chartable);if(chart)md.after(chart);}
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
@@ -1012,7 +1013,7 @@
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s, message={role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()};if(ss){ss.msgs.push(message);saveSessions();}
+      const ss=s, message={role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()};if(chartable)message.chart=chartable;if(ss){ss.msgs.push(message);saveSessions();}
       if(d.ok&&d.data&&d.data.record)startRecording(d.data.record.seconds,node,ss,message);
       loadVault();
     }catch(err){
@@ -1522,6 +1523,14 @@
   // tool's own rule). History is cut to eight times the steps ahead (12 to 48 points): with
   // all 48 behind three steps, the forecast and its band had 6% of the width. Built as DOM
   // nodes, so a column name or a label can never be read as markup.
+  // What a chart needs and nothing more, kept on the saved message so a reopened chat draws it
+  // again: the tool digest is cut at 2,000 characters, and a series can hold 4,096 values.
+  function chartData(data){
+    if(!(data&&data.forecast&&data.series))return null;
+    const f=data.forecast, s=data.series, values=s.values||[];
+    return {labels:data.labels||[],forecast:{enough_data:f.enough_data,points:f.points||[],lower:f.lower||[],upper:f.upper||[]},
+            series:{labels:(s.labels||[]).slice(-48),values:values.slice(-48),total:values.length}};
+  }
   function forecastChart(data){
     const f=data.forecast||{}, s=data.series||{}, next=data.labels||[], pts=f.points||[];
     const keep=Math.max(12,Math.min(48,8*pts.length));
@@ -1563,7 +1572,8 @@
     label(0,names[0]||'','start');
     if(x(n-1)-x(h0)>70&&x(h0)-x(0)>70)label(h0,names[h0]||'','middle');
     label(n-1,next[next.length-1]||'','end');
-    if(all.length>hist.length)add('text',{x:L+4,y:T+10,'font-size':10,style:'fill:var(--faint);font-family:var(--sans)'},'last '+hist.length+' of '+all.length);
+    const total=s.total||all.length;
+    if(total>hist.length)add('text',{x:L+4,y:T+10,'font-size':10,style:'fill:var(--faint);font-family:var(--sans)'},'last '+hist.length+' of '+total);
     return svg;
   }
   const STAGES=['lead','applied','screen','interview','final','offer','rejected'];
