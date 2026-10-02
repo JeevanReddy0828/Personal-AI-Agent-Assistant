@@ -334,6 +334,15 @@ class ChatPromptActionClaimsTests(unittest.TestCase):
                        "done, started or initiated", "approval card"):
             self.assertIn(phrase, lowered, f"the chat prompt no longer covers: {phrase}")
 
+    def test_the_rule_is_stated_without_quoting_the_failure(self) -> None:
+        # Quoting the forbidden replies primed the model to give them: on the fast tier, five
+        # tempting prompts x 5 trials, 17/25 replies asked leave to act ("May I open Chrome for
+        # you?", "May I resize and reposition your windows...") with the quotes, 1/25 without.
+        from laptop_agent.planner.openai_compatible import _CAPABILITIES, _NO_TOOL_CLAIMS
+
+        for text in (_NO_TOOL_CLAIMS, _CAPABILITIES):
+            self.assertNotRegex(text, r"(?i)\b(may i|shall i|should i)\b")
+
     def test_the_chat_knows_recording_is_a_tool_and_what_to_ask_for(self) -> None:
         # It answered "record voice upto 20 seconds" with "May I record your voice for up to
         # 20 seconds?", and asked again after every "yes": nothing told it recording is a

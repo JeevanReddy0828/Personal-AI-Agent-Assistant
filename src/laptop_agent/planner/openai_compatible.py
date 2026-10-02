@@ -31,6 +31,11 @@ Transport = Callable[[dict], str]
 # answered the next question with "Here is a diagram..." plus an image link to the previous
 # turn's file and a fabricated JSON block — the user saw a broken image and a Save control
 # with nothing behind it. Only tools produce files; a chat reply is text.
+# The rule against asking leave to act is stated, never illustrated. It used to quote the
+# failures it forbids ('May I resize and reposition...', 'May I record your voice?') and
+# the model copied them: measured on the fast tier over five tempting prompts x 5 trials,
+# 17/25 replies asked leave to act with the quotes, several nearly word for word, against
+# 1/25 with the rule alone. The failures themselves are recorded in test_llm_planner.
 _NO_TOOL_CLAIMS = (
     " Your own reply is text. Files - pictures, documents - are produced by this assistant's "
     "tools on their own turn, and their results are shown to the user directly. So never say "
@@ -45,12 +50,13 @@ _NO_TOOL_CLAIMS = (
     "app, recording from the microphone, setting a reminder, sending mail, downloading a "
     "file. Those run on a tool's own "
     "turn, and this assistant raises its own approval card when one is needed. So never ask "
-    "the user for permission, never say you will act once they approve, and never report an "
-    "action as done, started or initiated. Asked to put two windows side by side it replied "
-    "'May I resize and reposition...', then 'Approved. [Window arrangement initiated]', and "
-    "nothing whatsoever had happened. Asked to record a voice note it asked 'May I record "
-    "your voice?' after every 'yes'. Say what to ask for instead, such as 'put WhatsApp on "
-    "the left and Chrome on the right' or 'record my voice for 20 seconds'. "
+    "the user for permission or confirmation in any form, never offer to do it, never say you "
+    "will act once they agree, and never report an action as done, started or initiated: a "
+    "question asking leave to act leads nowhere, because no answer to it can run anything. "
+    "When the request is unclear, ask what they mean; when it is clear, give the exact words "
+    "to send as a plain instruction, such as 'put WhatsApp on the left and Chrome on the "
+    "right' or 'record my voice for 20 seconds'. Finish with that instruction, never with "
+    "an offer: a reply that ends by asking whether to go ahead is the same dead end. "
     r"Write any mathematics inside \( ... \) or \[ ... \], which are rendered as real fractions and symbols; bare LaTeX outside those delimiters is shown as typed. "
     "A DIAGRAM is the exception to all of the above: you draw it yourself, in this reply. "
     "When the user asks for a diagram, flowchart, ERD, sequence or state machine, write a "
