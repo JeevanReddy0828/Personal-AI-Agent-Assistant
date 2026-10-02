@@ -749,6 +749,41 @@ class NewsTopicTests(unittest.TestCase):
     def test_a_real_topic_survives(self) -> None:
         self.assertEqual(self.command("latest news on ukraine"), "news ukraine")
 
+    def test_a_describing_word_does_not_cost_the_topic(self) -> None:
+        # "latest tech news" lost "tech" and returned the day's top stories.
+        cases = {
+            "latest tech news": "news tech",
+            "the latest sports headlines": "news sports",
+            "today's tech news": "news tech",
+            "give me tech news": "news tech",
+            "show me the latest ai news": "news ai",
+            "can you get me the latest technology news": "news technology",
+            "recent science headlines": "news science",
+            "what's new in tech news": "news tech",
+            "headline news": "news",
+            "uk news about inflation": "news uk inflation",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_a_time_is_not_a_topic(self) -> None:
+        self.assertEqual(self.command("news for today"), "news")
+        self.assertEqual(self.command("tech news for today"), "news tech")
+
+    def test_talking_about_the_news_is_not_asking_for_it(self) -> None:
+        # "good news, i got the job" was answered with the day's top stories, and "fake news
+        # is a problem" with a search for "is a problem".
+        for text in ("good news, i got the job", "that's good news", "bad news, the build failed",
+                     "fake news is a problem", "is fox news reliable", "i watched the news yesterday",
+                     "i read the news", "how do news websites make money", "the news is depressing",
+                     "tech news is boring today"):
+            self.assertEqual(self.command(text), "", text)
+
+    def test_the_words_around_the_noun_are_not_the_topic(self) -> None:
+        # "any updates in the news about apple" became a search for "updates in the apple".
+        for text in ("any updates in the news about apple", "tell me something about the news"):
+            self.assertNotRegex(self.command(text), r"^news .*\b(?:in|the|about)\b", text)
+
 
 class EverydayRoutingTests(unittest.TestCase):
     """Routes found wrong by driving a conversational corpus through the real orchestrator.

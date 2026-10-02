@@ -89,6 +89,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what time is it in california", "time", "a state, refused as a zone once"),
     ("could you please tell me what time it is", "time", "both halves of a polite prefix"),
     ("tech news", "news", "a topic first"),
+    ("latest tech news", "news tech", "a describing word first: lost the topic once"),
     ("set a timer for five minutes", "timer", "spoken numbers"),
     ("can you please set a timer for five minutes", "timer", "'can you' and 'please' together"),
     ("count down 10 minutes", "timer", "another word for it"),
@@ -150,6 +151,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("half of my team is remote", "'half of' without a number"),
     ("i don't need the car anymore", "not a timer, alarm or reminder"),
     ("stop reminding me", "names nothing to stop"),
+    ("good news, i got the job", "sharing news, not asking for it: got the day's top stories"),
+    ("fake news is a problem", "was a headline search for 'is a problem'"),
 )
 
 

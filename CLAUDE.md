@@ -190,7 +190,13 @@ Tools (tools/): files, file_processor (universal "process file" dispatcher),
             they carry real summaries and their article pages do fetch, and the top few are
             enriched with `research.fetch_page_text`. Measured: 8 headlines, 3 with article
             text, in ~0.7s. A topic search is Google-only, so it gives headline + source +
-            age without article text — still the story rather than a homepage),
+            age without article text — still the story rather than a homepage.
+            **Asking for the news is the whole sentence** (`heuristic._NEWS_ASK`, fullmatch):
+            matched anywhere, "good news, i got the job" got the day's top stories and "fake
+            news is a problem" a search for "is a problem"; and a topic counted only with
+            nothing before it, so "latest tech news" lost "tech". A word only talk puts beside
+            the noun (`_NOT_A_TOPIC`: pronouns, verbs, good/bad/fake, prepositions) sends the
+            sentence to the router instead, which is the direction to err in),
         document (`document <request> [as pdf|word|powerpoint|markdown]` — the model writes
             Markdown, we render it: PDF through the same offline Chromium path as the resume
             export (`render_html_to_pdf(..., single_page=False)`), Word through python-docx,

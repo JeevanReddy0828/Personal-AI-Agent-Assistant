@@ -2298,7 +2298,12 @@ class AgentOrchestrator:
         r"|\bwho\s+(?:are|r)\s+(?:you|u)\b|\bwho\s+(?:made|created|built|designed)\s+you\b"
         r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
         r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
-        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
+        r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b"
+        # News the user is sharing, not asking for. "good news, i got the job" was searched for
+        # on the web, and the reply explained that the results did not mention the user's job.
+        r"|^\s*(?:(?:that'?s|this\s+is|what|such)\s+)?(?:some\s+|(?:really\s+)?(?:good|great|bad|sad|terrible"
+        r"|awful|wonderful|amazing|exciting|big|happy|fantastic|horrible)\s+)news\b\s*(?:$|[,.!:;—–-]|is\b|for\s+you\b)"
+        r"|^\s*i(?:'ve|\s+have|\s+got)?(?:\s+got)?\s+(?:some\s+)?(?:big\s+|good\s+|bad\s+|great\s+|exciting\s+)?news\b",
         re.IGNORECASE,
     )
 
