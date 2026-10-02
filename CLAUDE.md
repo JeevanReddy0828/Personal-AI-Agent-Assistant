@@ -565,6 +565,13 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   unit-tested offline; in `orchestrator._build_agent_brain` it's backed by
   `provider.answer` on the smart (or fast) tier. Persisted via the `agent_runs`
   AgentContext field.
+- **The agent trusts a reply only up to its first runnable ACTION** (`parse_agent_decision`).
+  The model writes ACTION, an OBSERVATION it made up and a FINAL built on it, all in one
+  reply, and FINAL used to win: runs ended on a README summary of a file that does not
+  exist, or on "[the content would be provided here after the action runs]". An
+  upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
+  and a reply with neither header is asked again once (`_ask_again`). Known limit: a
+  well-formed FINAL can still be wrong, which parsing cannot see.
 
 ## LLM brain — tiered models
 
