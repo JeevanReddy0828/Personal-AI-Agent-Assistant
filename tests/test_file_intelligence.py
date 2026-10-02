@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate
+from laptop_agent.terms import sentences
 from laptop_agent.tools.files import FileTool
 
 
@@ -115,18 +116,6 @@ class MarkdownSummaryTests(unittest.TestCase):
             self.assertNotIn(markup, summary)
         self.assertLess(len(summary), 500)
 
-    def test_a_list_item_keeps_its_own_emphasis_and_text_placeholders(self) -> None:
-        sentences = FileTool._split_sentences(README)
-        self.assertIn("**Sync** — copies plans to a folder you choose, such as `http://127.0.0.1:<port>/sync`.",
-                      sentences)
-
-    def test_wrapped_prose_still_joins_but_never_across_a_heading(self) -> None:
-        sentences = FileTool._split_sentences("Plans are kept\non your disk.\n# Usage\nRun it daily.")
-        self.assertEqual(sentences, ["Plans are kept on your disk.", "Run it daily."])
-
-    def test_a_run_on_line_is_cut_short(self) -> None:
-        sentences = FileTool._split_sentences("word " * 400)
-        self.assertLessEqual(max(map(len, sentences)), 401)
 
 
 class FileQuestionStructureTests(unittest.TestCase):
@@ -144,7 +133,7 @@ class FileQuestionStructureTests(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertIn("orbit serve: starts the server", result.data["answer"])
         self.assertNotIn("---", result.data["answer"])
-        self.assertNotIn("---: ---", FileTool._split_sentences(text, structure=True))
+        self.assertNotIn("---: ---", sentences(text, structure=True))
 
     def test_a_diagram_source_is_not_an_answer(self) -> None:
         text = "The gate asks before risky actions run.\n```mermaid\nflowchart TD\n  TOOLS --> GATE\n```\n"

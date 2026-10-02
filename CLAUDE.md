@@ -492,7 +492,30 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             moving it onto `words()` changed 53 of 134 paragraphs, gaining 130 kinds of
             version number ("2026", "120b", "404") and losing 52 contractions, because
             "can't" splits at the apostrophe. Collapsing also turns "e.g." into "eg",
-            which every 3+ character caller drops and which carries no ranking weight),
+            which every 3+ character caller drops and which carries no ranking weight.
+            **It is also the one sentence splitter** (`sentences`), for the same reason: the
+            file summarizer and the knowledge base each flattened every line break and then
+            cut at full stops, which Markdown's badges, tables and code do not have — the
+            README summarized as 15 KB of one paragraph, and asked how to start the app the
+            knowledge base quoted 16,000 characters of image links and a table of contents.
+            Lines are read as lines: images, link targets, real HTML tags and rows of links
+            (navigation) go; headings, rules and blank lines end paragraphs; a run-on is cut
+            into 400-character pieces, none of it dropped. `structure=True` (knowledge) keeps
+            headings, table rows (as `cell: cell`) and code lines but never a ```mermaid
+            source, because the answer is often a row or a command; a summary skips them.
+            Measured on the repo's own docs over ten questions: answers went from 3,000-16,000
+            characters with up to 398 markup tokens to 700-1,700 with none. Two defects found on
+            the way. Terms start at two letters but the stopwords stop at three, so "do" and
+            "in" weighed like "browser" - and with one document indexed every term weighs the
+            same, so live, the README answered "how do i start the app in a browser tab" with
+            Google sign-in. `_FUNCTION_WORDS` now weigh `FUNCTION_WEIGHT` (0.2) of a word in
+            passage scoring only; document search is untouched. Not zero: as stopwords, a
+            follow-up's own document had no matching passage left and the answer came out of a
+            scrape (`test_the_referent_picks_the_document`). Swept over twelve questions whose
+            answer must OPEN the reply: README alone 4/12 at 1.0, 9/12 at 0.2 (8 at 0.1 and 0.3);
+            three documents 6/12 -> 7/12. And the substring pre-check before tokenizing read raw
+            text, where "jarvis" is not in "J.A.R.V.I.S". Left alone, as ranking: "what is
+            jarvis" finds the title's window, but a shorter one-mention window outscores it),
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
 Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
