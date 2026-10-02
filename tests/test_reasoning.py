@@ -56,6 +56,12 @@ class ParseTests(unittest.TestCase):
         self.assertFalse(d.is_final)
         self.assertEqual(d.command, "read file E:/project/README.md")
 
+    def test_a_prose_next_line_before_a_final_is_not_a_step(self) -> None:
+        d = parse_agent_decision("THOUGHT: easy\n## Setup\n- Install it\nNext: run the installer\nFINAL: The steps are above.")
+        self.assertTrue(d.is_final)
+        self.assertIn("## Setup", d.final_answer)
+        self.assertFalse(parse_agent_decision("THOUGHT: go\nNEXT: scan files .").is_final)
+
     def test_an_action_inside_a_deliverable_is_not_run(self) -> None:
         d = parse_agent_decision("THOUGHT: easy\n```\nACTION: run command deploy\n```\nFINAL: The format is above.")
         self.assertTrue(d.is_final)

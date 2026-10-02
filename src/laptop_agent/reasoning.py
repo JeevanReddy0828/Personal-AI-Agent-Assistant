@@ -23,6 +23,7 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 # The loop's own label for a tool result. Upper case only, as the prompt spells it, so an
 # answer may still say "Observation: ..." in its prose.
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
+_FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
 _FORMAT_REMINDER = (
     "\n\nYour last reply had no ACTION: line and no FINAL: line, so nothing could run. "
     "Reply again in exactly the format above: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -141,7 +142,10 @@ def parse_agent_decision(text: str) -> AgentDecision:
          if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)),
         None,
     )
-    if action_match and (final_match is None or action_match.start() < final_match.start()):
+    # Ahead of a FINAL only in the format's own spelling: a deliverable written before FINAL
+    # may hold a prose line such as "Next: run the installer", which is not a step.
+    if action_match and (final_match is None or (_FORMAT_ACTION_RE.match(action_match.group(0))
+                                                 and action_match.start() < final_match.start())):
         return AgentDecision(thought=thought, command=_runnable(action_match), final_answer="", is_final=False)
     if final_match:
         answer = raw[final_match.end():].strip().strip("`").strip()
