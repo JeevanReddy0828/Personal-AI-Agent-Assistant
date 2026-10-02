@@ -41,10 +41,39 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(d.command, "scan files .")
         self.assertEqual(d.thought, "look first")
 
-    def test_final_wins_over_action(self) -> None:
-        d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
+    def test_a_final_written_before_any_action_ends_the_run(self) -> None:
+        d = parse_agent_decision("THOUGHT: done\nFINAL: all set\nACTION: scan files .")
         self.assertTrue(d.is_final)
-        self.assertEqual(d.final_answer, "all set")
+        self.assertTrue(d.final_answer.startswith("all set"))
+
+    def test_an_action_runs_before_a_final_written_after_it(self) -> None:
+        # The live reply: the FINAL was written before the read it depends on had run.
+        d = parse_agent_decision(
+            "THOUGHT: I need to read it.\nACTION: read file E:/project/README.md\n"
+            "FINAL: [The full content of README.md would be provided here after the action runs, "
+            "but since I cannot simulate the observation, I will wait for the actual output.]"
+        )
+        self.assertFalse(d.is_final)
+        self.assertEqual(d.command, "read file E:/project/README.md")
+
+    def test_a_prose_next_line_before_a_final_is_not_a_step(self) -> None:
+        d = parse_agent_decision("THOUGHT: easy\n## Setup\n- Install it\nNext: run the installer\nFINAL: The steps are above.")
+        self.assertTrue(d.is_final)
+        self.assertIn("## Setup", d.final_answer)
+        self.assertFalse(parse_agent_decision("THOUGHT: go\nNEXT: scan files .").is_final)
+
+    def test_a_prose_next_line_does_not_hide_a_real_action(self) -> None:
+        # Codex's repro: the first match was the prose "Next:", so FINAL won over a real ACTION.
+        d = parse_agent_decision(
+            "THOUGHT: inspect it\nNext: inspect the file\nACTION: read file README.md\nFINAL: It contains the answer."
+        )
+        self.assertFalse(d.is_final)
+        self.assertEqual(d.command, "read file README.md")
+
+    def test_an_action_inside_a_deliverable_is_not_run(self) -> None:
+        d = parse_agent_decision("THOUGHT: easy\n```\nACTION: run command deploy\n```\nFINAL: The format is above.")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.command, "")
 
     def test_strips_code_fences_and_quotes(self) -> None:
         d = parse_agent_decision('ACTION: `"read file README.md"`')
@@ -67,7 +96,7 @@ class ParseTests(unittest.TestCase):
         self.assertIn("flowchart TD", d.final_answer)
         self.assertTrue(d.final_answer.endswith("The chart is above."))
         self.assertNotIn("THOUGHT", d.final_answer)
-        d = parse_agent_decision("THOUGHT: done\nACTION: scan files .\nFINAL: all set")
+        d = parse_agent_decision("THOUGHT: done\nACTION: none\nFINAL: all set")
         self.assertEqual(d.final_answer, "all set")
         # Leftover reasoning prose (even a wrapped multi-line THOUGHT) is not a deliverable.
         d = parse_agent_decision(
@@ -102,6 +131,42 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(d.is_final)
         self.assertEqual(d.final_answer, "I should summarize the README")
         self.assertNotIn("THOUGHT", d.final_answer)
+
+    def test_an_observation_the_model_wrote_is_cut_off(self) -> None:
+        # The live reply, shortened: no ACTION ran, the "result" and the summary of it are
+        # both invented, and the README says nothing of the kind.
+        d = parse_agent_decision(
+            "THOUGHT: I need to read the README to summarize it.\n"
+            "OBSERVATION: [ok] [ok] **1 match(es) for `README.md`**  - `README.md:1` \u2014 # Codex Project\n"
+            "This is a new project aimed at building an AI-powered code assistant.\n"
+            "Now I will summarize this README in three bullets.\n\n"
+            "- It supports multiple languages (Python, JavaScript, Java, C++, etc.)"
+        )
+        self.assertNotIn("Codex Project", d.final_answer)
+        self.assertNotIn("multiple languages", d.final_answer)
+        self.assertFalse(d.structured)
+
+    def test_an_action_before_an_invented_observation_still_runs(self) -> None:
+        d = parse_agent_decision(
+            "THOUGHT: read it\nACTION: read file README.md\n"
+            "OBSERVATION: [ok] # Codex Project\nFINAL: It is a code assistant."
+        )
+        self.assertFalse(d.is_final)
+        self.assertEqual(d.command, "read file README.md")
+
+    def test_an_answer_may_still_report_observations(self) -> None:
+        d = parse_agent_decision("THOUGHT: done\nFINAL: Field notes\nOBSERVATION: the river rose 2 m")
+        self.assertIn("the river rose 2 m", d.final_answer)
+        d = parse_agent_decision("THOUGHT: done\n```\nOBSERVATION: sample\n```\nFINAL: The log is above.")
+        self.assertIn("OBSERVATION: sample", d.final_answer)
+        d = parse_agent_decision("Observation: the readings rose overnight.")
+        self.assertIn("readings rose", d.final_answer)
+
+    def test_only_a_reply_with_neither_header_is_unstructured(self) -> None:
+        self.assertTrue(parse_agent_decision("ACTION: scan files .").structured)
+        self.assertTrue(parse_agent_decision("FINAL: done").structured)
+        self.assertTrue(parse_agent_decision("ACTION: none").structured)
+        self.assertFalse(parse_agent_decision("I think the answer is 42.").structured)
 
 
 class AutonomousAgentTests(unittest.TestCase):
@@ -145,6 +210,76 @@ class AutonomousAgentTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual(result.steps[0].status, "failed")
         self.assertIn("failed", result.steps[0].message)
+
+    def test_a_reply_with_no_step_or_answer_is_asked_again(self) -> None:
+        # Live: after one scan the model deliberated in prose, and the run ended "ok" with
+        # that deliberation as its answer.
+        brain = _ScriptedBrain(
+            [
+                "THOUGHT: scan first\nACTION: scan files ~/Downloads",
+                "Actually, looking at the AVAILABLE COMMANDS, there's no direct command. But wait, I "
+                "can only do one command at a time. Let me try search files.",
+                "THOUGHT: narrow it\nACTION: search files iso ~/Downloads",
+                "THOUGHT: enough\nFINAL: The largest file is ubuntu.iso.",
+            ]
+        )
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        result = asyncio.run(agent.run("find the largest file in my downloads"))
+        self.assertEqual(result.final_answer, "The largest file is ubuntu.iso.")
+        self.assertEqual(seen, ["scan files ~/Downloads", "search files iso ~/Downloads"])
+        self.assertIn("no ACTION: line and no FINAL: line", brain.prompts[2])
+        self.assertNotIn("no ACTION: line and no FINAL: line", brain.prompts[3])
+
+    def test_an_invented_observation_is_never_the_answer(self) -> None:
+        brain = _ScriptedBrain(
+            [
+                "THOUGHT: find it\nACTION: search files README .",
+                "THOUGHT: read it\nOBSERVATION: [ok] # Codex Project\nAn AI code assistant.\n- Multi-language",
+                "THOUGHT: read it\nACTION: read file README.md",
+                "FINAL: J.A.R.V.I.S is a local laptop agent.",
+            ]
+        )
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
+        result = asyncio.run(agent.run("summarize the README"))
+        self.assertEqual(result.final_answer, "J.A.R.V.I.S is a local laptop agent.")
+        self.assertEqual(seen, ["search files README .", "read file README.md"])
+
+    def test_a_plain_answer_is_accepted_after_one_reminder(self) -> None:
+        brain = _ScriptedBrain(["The capital of France is Paris.", "Paris."])
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        result = asyncio.run(agent.run("what is the capital of France"))
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.final_answer, "The capital of France is Paris.")
+        self.assertEqual(len(brain.prompts), 2)
+
+    def test_a_stop_during_the_second_ask_stops_the_run(self) -> None:
+        # Codex's repro: Stop lands during the retry and the transport then raises; the run
+        # returned "ok" with the earlier unstructured reply.
+        from laptop_agent.cancellation import OperationCancelled, cancel, operation
+
+        calls: list[str] = []
+
+        def brain(prompt: str) -> str:
+            calls.append(prompt)
+            if len(calls) == 1:
+                return "Let me think about which command fits best here."
+            cancel("agent-ask-again")
+            raise OSError("connection reset")
+
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        with operation("agent-ask-again"):
+            with self.assertRaises(OperationCancelled):
+                asyncio.run(agent.run("find something"))
+        self.assertEqual(len(calls), 2)
+
+    def test_a_reply_that_is_only_an_invented_observation_fails(self) -> None:
+        brain = _ScriptedBrain(["OBSERVATION: [ok] made up", "OBSERVATION: [ok] made up again"])
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")))
+        result = asyncio.run(agent.run("read my notes"))
+        self.assertEqual(result.status, "failed")
+        self.assertNotIn("made up", result.final_answer)
 
     def test_step_cap_forces_summary(self) -> None:
         brain = _ScriptedBrain(["ACTION: tasks"] * 10)  # never emits FINAL

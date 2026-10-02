@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import heapq
 import mimetypes
 import re
 import shutil
@@ -14,6 +15,52 @@ from laptop_agent.terms import collapse_acronyms
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
+
+# What the sentence splitter drops or treats as structure before it looks for prose.
+_CODE_FENCE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.MULTILINE | re.DOTALL)
+_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# Real HTML only: a placeholder such as `127.0.0.1:<port>` is text and must survive.
+_TAG = re.compile(r"</?(?:a|b|i|u|s|em|strong|br|hr|p|div|span|img|sub|sup|small|kbd|code|pre|table|thead|"
+                  r"tbody|tr|td|th|details|summary|picture|source|video|ul|ol|li|h[1-6]|center|del|ins)\b[^<>]*>",
+                  re.IGNORECASE)
+_QUOTE = re.compile(r"^\s*>\s?")
+_NOT_PROSE = re.compile(r"(#{1,6}\s|\||(-{3,}|={3,}|\*{3,})$)")
+_LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
+MAX_SENTENCE = 400
+# Marks a line of fenced code kept for Q&A, so the prose rules below leave it alone.
+_CODE = chr(0) + "code "
+
+
+def _code_lines(block: re.Match[str]) -> str:
+    """A fenced block as one marked line per line of code. A diagram's source is not an answer."""
+    lines = block.group(0).splitlines()
+    if lines[0].lstrip("`~").strip().lower().startswith("mermaid"):
+        return NL
+    return NL + NL.join(_CODE + line.strip() for line in lines[1:-1] if line.strip()) + NL
+
+# `read file` shows what it read: the tool's message used to name the file and nothing else.
+PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
+_FENCE_LANGUAGE = {".py": "python", ".js": "javascript", ".ts": "typescript", ".json": "json", ".md": "markdown",
+                   ".html": "html", ".css": "css", ".sh": "bash", ".ps1": "powershell", ".yml": "yaml",
+                   ".yaml": "yaml", ".toml": "toml", ".sql": "sql", ".xml": "xml", ".ini": "ini"}
+
+
+def _preview(text: str, suffix: str) -> str:
+    """The start of a file as a fenced block. The fence is longer than any run of backticks in
+    the text, so a README's own code blocks cannot close it early."""
+    if not text.strip():
+        return "_The file is empty._"
+    lines = text.splitlines()
+    head = NL.join(lines[:PREVIEW_LINES])
+    shown = head[:PREVIEW_CHARS]
+    fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", shown)), default=0) + 1)
+    rest = len(lines) - len(shown.splitlines())
+    if rest > 0:
+        tail = f"{NL}{NL}_{rest} more line(s) not shown._"
+    else:  # one long line cut short leaves no further lines to count (Codex's review)
+        tail = f"{NL}{NL}_Cut at {PREVIEW_CHARS} characters._" if len(head) > PREVIEW_CHARS else ""
+    return f"{fence}{_FENCE_LANGUAGE.get(suffix.lower(), '')}{NL}{shown}{NL}{fence}{tail}"
 
 
 TEXT_EXTENSIONS = {
@@ -101,7 +148,7 @@ class FileTool:
     def __init__(self, approval_gate: ApprovalGate | None = None) -> None:
         self.approval_gate = approval_gate or ApprovalGate()
 
-    def scan(self, root: str, limit: int = 200) -> ToolResult:
+    def scan(self, root: str, limit: int = 200, by_size: bool = False) -> ToolResult:
         base = Path(root).expanduser().resolve()
         if not base.exists():
             return ToolResult.failure(f"Path does not exist: {base}")
@@ -115,6 +162,10 @@ class FileTool:
         # counting the handful of names that survived truncation. The agent answered that
         # one 27, then 6, against a true 65.
         files: list[dict[str, object]] = []
+        # (size, path) for every file when listing largest first: the first `limit` found
+        # are not the largest, and "what are the largest files in my downloads" was answered
+        # with the first 200 of 1214 in name order.
+        sized: list[tuple[int, str]] = []
         by_extension: dict[str, int] = {}
         total = 0
         walked_all = True
@@ -131,10 +182,25 @@ class FileTool:
             total += 1
             suffix = path.suffix.lower() or "(no extension)"
             by_extension[suffix] = by_extension.get(suffix, 0) + 1
-            if len(files) < limit:
+            if by_size:
+                try:
+                    sized.append((path.stat().st_size, str(path)))
+                except OSError as exc:
+                    record_failure("files/scan", exc, path=str(path)[:120])
+            elif len(files) < limit:
                 files.append(self._summarize(path).__dict__)
+        if by_size:
+            files = [
+                FileSummary(path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__
+                for size, name in heapq.nlargest(limit, sized)
+            ]
         shown = len(files)
-        if not walked_all:
+        if by_size:
+            # The agent reads only this message, so it names the largest rather than counting them.
+            top = ", ".join(f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5])
+            counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
+            message = f"Scanned {counted}, largest first: {top}." if top else f"Scanned {counted}."
+        elif not walked_all:
             message = f"Scanned {shown} files; stopped counting at {total} (the tree is very large)."
         elif shown < total:
             message = f"Scanned {total} files, listing the first {shown}."
@@ -148,6 +214,7 @@ class FileTool:
             listed=shown,
             complete=walked_all and shown == total,
             by_extension=dict(sorted(by_extension.items(), key=lambda item: -item[1])),
+            **({"order": "size"} if by_size else {}),
         )
 
     def read_text(self, path: str, max_chars: int = 12000) -> ToolResult:
@@ -156,7 +223,7 @@ class FileTool:
         if error is not None:
             return error
         return ToolResult.success(
-            f"Read {meta.get('kind', 'text')}: {target}",
+            f"Read {meta.get('kind', 'text')}: {target}\n\n{_preview(text, target.suffix)}",
             text=text[:max_chars],
             truncated=len(text) > max_chars,
             **{key: value for key, value in meta.items() if key != "kind"},
@@ -216,9 +283,15 @@ class FileTool:
             )
 
         wanted = max(1, min(sentences, 15))
-        selected = self._rank_sentences(sentence_list, wanted)
+        if wanted > 1 and len(sentence_list) > wanted and self._content_words(sentence_list[0]):
+            # The opening sentence is how most documents describe themselves, so it is kept, as
+            # extractive summarizers do, and the ranking chooses the rest.
+            selected = [0] + [index + 1 for index in self._rank_sentences(sentence_list[1:], wanted - 1)]
+        else:
+            selected = self._rank_sentences(sentence_list, wanted)
         summary = " ".join(sentence_list[index] for index in selected)
-        words = self._content_words(text)
+        # Counted over the prose, not the raw text: link targets would make "https" a keyword.
+        words = self._content_words(" ".join(sentence_list))
         keywords = [word for word, _ in Counter(words).most_common(8)]
         label = source or "text"
         return ToolResult.success(
@@ -242,7 +315,7 @@ class FileTool:
         cleaned_question = question.strip()
         if not cleaned_question:
             return ToolResult.failure("Ask a question to answer from the text.")
-        sentence_list = self._split_sentences(text)
+        sentence_list = self._split_sentences(text, structure=True)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to answer from{f' in: {source}' if source else '.'}",
@@ -596,12 +669,49 @@ class FileTool:
         return text, None, {"kind": "DOCX"}
 
     @staticmethod
-    def _split_sentences(text: str) -> list[str]:
-        cleaned = re.sub(r"\s+", " ", text).strip()
-        if not cleaned:
-            return []
-        parts = re.split(r"(?<=[.!?])\s+", cleaned)
-        return [part.strip() for part in parts if len(part.strip()) > 1]
+    def _split_sentences(text: str, structure: bool = False) -> list[str]:
+        """Prose sentences. Markup goes first; a heading, table row or rule is not prose and a
+        list item is a sentence of its own; plain lines run together into paragraphs, so a
+        wrapped sentence still joins up but never across a heading or a blank line. Markdown
+        has no sentence punctuation in its badges, code and tables, so splitting only at full
+        stops answered "summarize the readme" with 15 KB of README as one paragraph.
+
+        With `structure` (file Q&A) a line of code, a table row and a heading are sentences
+        too: the answer to a question is often a command or a row, and a file holding only a
+        code block answered "No readable prose" (Codex's review). A summary keeps to prose."""
+        fences = _CODE_FENCE.sub(_code_lines if structure else (lambda _match: "\n"), text)
+        text = _TAG.sub(" ", _LINK.sub(r"\1", _IMAGE.sub(" ", fences)))
+        units: list[str] = []
+        paragraph: list[str] = []
+        for raw in text.splitlines():
+            line = _QUOTE.sub("", raw).strip()
+            if line and not _NOT_PROSE.match(line) and not _LIST_ITEM.match(line) and not line.startswith(_CODE):
+                paragraph.append(line)
+                continue
+            if paragraph:
+                units.append(" ".join(paragraph))
+                paragraph = []
+            if _LIST_ITEM.match(line):
+                units.append(_LIST_ITEM.sub("", line))
+            elif not structure:
+                continue
+            elif line.startswith(_CODE):
+                units.append(line[len(_CODE):].strip())
+            elif line.startswith("|") and not re.fullmatch(r"\|?[\s:|-]+\|?", line):
+                units.append(": ".join(cell.strip() for cell in line.strip("|").split("|") if cell.strip()))
+            elif line.startswith("#"):
+                units.append(line.lstrip("#").strip())
+        if paragraph:
+            units.append(" ".join(paragraph))
+        sentences = []
+        for unit in units:
+            for part in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", unit).strip()):
+                part = part.strip()
+                if len(part) > MAX_SENTENCE:
+                    part = part[:MAX_SENTENCE].rsplit(" ", 1)[0] + "…"
+                if len(part) > 1:
+                    sentences.append(part)
+        return sentences
 
     @staticmethod
     def _content_words(text: str) -> list[str]:

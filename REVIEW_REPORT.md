@@ -1,5 +1,12 @@
 # J.A.R.V.I.S review and remediation
 
+## ANALYTICS-04 update — 2026-10-01
+
+Final local suite: 1,633 tests, 80 optional skips, with only the unrelated prefix fuzzer's live metrics read stubbed in memory; CI runs the unmodified suite. An independent 200-case NumPy comparison agrees on coefficients, VIF, predictions and held-out R2 to below 1e-9. Exact evidence and the local hardware caveat are in docs/analytics.md.
+
+ANALYTICS-04: 15 focused tests pass on Python 3.11 and 3.14; 17 independent in-memory mutations caught. Validated prefix-only fitting/scaling, held-out scores, singular/collinear designs, numerical units, MAD-zero handling and JSON-safe results. See docs/analytics.md; no real app-data skill or causal interpretation is claimed.
+
+
 Reviewed: 2026-09-08. Baseline: version 0.39.0. Requested target: at least 8.5/10 for a dependable local, single-user assistant.
 
 ## Baseline assessment
@@ -303,3 +310,9 @@ psutil. Production metrics behavior is unchanged by this test-harness correction
 ## GPU adapter labels — 2026-10-02
 
 GPU labels: a two-adapter Chromium repro failed before the fix. It checks AMD/NVIDIA names, distinct missing-name fallbacks, zero versus unknown utilization, and HTML escaping in Overview and drawer.
+
+Integration check (2026-10-02): main ead0937, including ANALYTICS-04, is merged into the GPU-label branch. Both sides of the ERRORS.md and REVIEW_REPORT.md conflicts were preserved. Metrics 18, page assets 10, and the two targeted Chromium label regressions pass.
+
+## Diagnostics reference correction — 2026-10-02
+
+Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.

@@ -404,9 +404,46 @@ class HonestAnswerTests(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertIn("name=Austin", asked[0])
 
+    def test_news_you_share_is_not_searched_for(self) -> None:
+        # "good news, i got the job" was searched for on the web, and the reply explained that
+        # the results did not mention the user's job.
+        for text in ("good news, i got the job", "that's great news", "i've got news for you"):
+            self.everyday.searches.clear()
+            _result, ran = self.everyday.say(text)
+            self.assertEqual(self.everyday.searches, [], text)
+            self.assertIsNone(ran, text)
+        self.everyday.searches.clear()
+        self.everyday.say("any good news today?")
+        self.assertEqual(len(self.everyday.searches), 1)
+
     def test_a_news_topic_loses_its_preposition(self) -> None:
         result, _ran = self.everyday.say("news about nvidia")
         self.assertNotIn("about about", result.message)
+
+
+class DeclinedCommandTests(unittest.TestCase):
+    """The router handed the sentence back as a command no tool runs, and the user was told
+    "I don't know how to do that yet" - for a currency conversion the live-search path answers
+    when it is phrased as a question, and for things any model can answer."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=text, confidence=0.8, explanation="echoed")
+
+    def test_a_currency_conversion_reaches_the_live_rate(self) -> None:
+        result, ran = self.everyday.say("convert 100 usd to eur")
+        self.assertTrue(result.ok, result.message)
+        self.assertIsNone(ran)
+        self.assertEqual(self.everyday.searches, ["convert 100 usd to eur"])
+
+    def test_anything_else_is_answered_as_conversation(self) -> None:
+        result, ran = self.everyday.say("translate hello to french")
+        self.assertTrue(result.ok, result.message)
+        self.assertIsNone(ran)
+        self.assertIn("answered]", result.message)
 
 
 if __name__ == "__main__":

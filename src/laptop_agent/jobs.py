@@ -14,6 +14,9 @@ FUNNEL = ["applied", "screen", "interview", "final", "offer"]
 # Forward progress order. "rejected" is a terminal off-ramp and is deliberately absent:
 # a rejection after an interview must not erase that the candidate reached "interview".
 _PROGRESS = {"lead": 0, "applied": 1, "screen": 2, "interview": 3, "final": 4, "offer": 5}
+# Every stage a job enters, with when: `reached` keeps only the furthest, and the time to a
+# reply cannot be read back from it. Bounded per job, since a stage can be toggled forever.
+MAX_EVENTS = 50
 
 
 def _reached_rank(job: dict) -> int:
@@ -74,6 +77,7 @@ class JobTracker:
             "external_id": (external_id or "").strip(),
             "description": (description or "").strip(),
             "applied_at": now if normalized_stage != "lead" else None,
+            "events": [{"stage": normalized_stage, "at": now}],
             "created_at": now,
             "updated_at": now,
         }
@@ -135,19 +139,23 @@ class JobTracker:
         if job is None:
             return None
         allowed = {"company", "role", "stage", "recruiter", "next_date", "notes"}
+        now = datetime.now(UTC).isoformat()
         for key, value in fields.items():
             if key not in allowed or value is None:
                 continue
             if key == "stage":
                 new_stage = normalize_stage(value)
                 if new_stage != "lead" and not job.get("applied_at"):
-                    job["applied_at"] = datetime.now(UTC).isoformat()
+                    job["applied_at"] = now
+                if new_stage != job.get("stage"):
+                    # A job saved before events has none; its history starts here.
+                    job["events"] = (job.get("events") or [])[-(MAX_EVENTS - 1):] + [{"stage": new_stage, "at": now}]
                 job["stage"] = new_stage
                 if _PROGRESS.get(new_stage, -1) > _reached_rank(job):
                     job["reached"] = new_stage
             else:
                 job[key] = str(value).strip()
-        job["updated_at"] = datetime.now(UTC).isoformat()
+        job["updated_at"] = now
         self._save()
         return job
 
