@@ -391,7 +391,7 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_named_file_routes_to_file_search(self) -> None:
         decision = self.plan("find report.txt in downloads")
         self.assertTrue(decision.is_command)
-        self.assertEqual(decision.command, "search files report.txt downloads")
+        self.assertEqual(decision.command, "search files report.txt ~/Downloads")
 
     def test_open_youtube_and_search_routes_to_music(self) -> None:
         decision = self.plan("Hey Jarvis can you open YouTube and type Telugu music?")
@@ -860,3 +860,39 @@ class EverydayRoutingTests(unittest.TestCase):
         for text in ("how do birds fly to the south", "i'm afraid to fly to be honest"):
             self.assertFalse(self.command(text).startswith("web search"), text)
         self.assertEqual(self.command("flights to tokyo"), "web search flights to tokyo")
+
+
+class LargestFilesRoutingTests(unittest.TestCase):
+    """"what are the largest files in my downloads folder" reached the LLM router, which
+    answered `scan files ~/Downloads`: the reply listed the first 200 of 1214 files in name
+    order. "find the three largest files in my downloads" searched file contents instead."""
+
+    def setUp(self) -> None:
+        self.planner = HeuristicPlannerProvider()
+
+    def command(self, text: str) -> str:
+        return self.planner.plan(text, "", {}).command or ""
+
+    def test_asking_for_the_largest_files_lists_them_by_size(self) -> None:
+        cases = {
+            "what are the largest files in my downloads folder": "scan files ~/Downloads by size",
+            "find the three largest files in my downloads folder and tell me their sizes": "scan files ~/Downloads by size",
+            "show me the 5 biggest files on my desktop": "scan files ~/Desktop by size",
+            "can you list the largest files in my documents?": "scan files ~/Documents by size",
+            "what's taking up space in my downloads": "scan files ~/Downloads by size",
+            "which are the biggest files in E:/projects/app": "scan files E:/projects/app by size",
+            "largest files in this folder": "scan files . by size",
+            "what are the biggest files here?": "scan files . by size",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_a_place_that_is_not_a_folder_here_is_left_to_the_model(self) -> None:
+        for text in ("what are the largest files in a typical linux install",
+                     "what are the biggest files in the linux kernel",
+                     "the largest file in my downloads is a video"):
+            self.assertNotIn("by size", self.command(text), text)
+
+    def test_a_text_search_names_the_folder_people_mean(self) -> None:
+        self.assertEqual(self.command("find report in my documents folder"), "search files report ~/Documents")
+        self.assertEqual(self.command("find TODO in src/app"), "search files TODO src/app")

@@ -544,6 +544,42 @@ def strip_address(text: str) -> str:
     return trimmed or raw
 
 
+# "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
+# "what's taking up space in my downloads". The LLM router turned the first into a plain
+# `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
+# files in name order: a confident answer to a question nobody asked.
+_LARGEST_FILES = re.compile(
+    _POLITE + r"(?:(?:what|which)(?:'s|\s+is|\s+are)?\s+|(?:show|list|find|give|tell)(?:\s+me)?\s+)?"
+    r"(?:the\s+|my\s+)?(?:\d+\s+|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+    r"(?:largest|biggest|heaviest)\s+files?\s+(?:are\s+)?(?:(?:in|under|inside|on)\s+(?P<where>.+?)|(?P<here>here))"
+    r"(?:,?\s+and\s+(?:tell|show|give)\s+me\s+(?:their|the)\s+sizes?)?[\s?.!]*$"
+    r"|" + _POLITE + r"what(?:'s|\s+is)\s+(?:taking\s+up|using)\s+(?:the\s+most\s+|all\s+the\s+|so\s+much\s+)?"
+    r"(?:disk\s+)?space\s+(?:in|on)\s+(?P<space>.+?)[\s?.!]*$",
+    re.IGNORECASE,
+)
+_HOME_FOLDERS = {
+    "downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
+    "photos": "Pictures", "music": "Music", "videos": "Videos",
+}
+
+
+def _folder_path(where: str) -> str | None:
+    """'my downloads folder' -> ~/Downloads, 'here' -> '.', a path as written; else None.
+
+    None for anything that does not name a folder on this machine, so "the largest files in
+    a typical linux install" stays a question for the model rather than a scan of nothing.
+    """
+    place = where.strip().strip("'\"")
+    if re.search(r"[\\/]|^~|^[A-Za-z]:", place):
+        return place
+    name = re.sub(r"^(?:my|the|this)\s+", "", place, flags=re.IGNORECASE)
+    name = re.sub(r"\s+(?:folder|directory)$", "", name, flags=re.IGNORECASE).lower()
+    if name in {"here", "folder", "directory", "current folder", "current directory"}:
+        return "."
+    known = _HOME_FOLDERS.get(name)
+    return f"~/{known}" if known else None
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
@@ -580,6 +616,13 @@ class HeuristicPlannerProvider:
         agent = self._agent(raw)
         if agent:
             return agent
+
+        # Ahead of the "files here" listing and the text search, which both took these: "find
+        # the three largest files in my downloads" searched file CONTENTS for "the three
+        # largest files".
+        largest = self._largest_files(raw)
+        if largest:
+            return largest
 
         casual = self._casual(lowered)
         if casual:
@@ -1096,6 +1139,8 @@ class HeuristicPlannerProvider:
         if not has_file_cue and not path_like and not named_file:
             return None
         query = re.sub(r"^(?:files?\s+)?(?:for\s+)?", "", query, flags=re.IGNORECASE).strip()
+        # "in my documents folder" was searched for as a folder of that name under the app.
+        root = _folder_path(root) or root
         return self._command(f"search files {query} {root}", "User wants to search text files.", 0.85)
 
     def _trip(self, text: str) -> PlanDecision | None:
@@ -1352,6 +1397,13 @@ class HeuristicPlannerProvider:
         if not query:
             return None
         return self._command(f"web search {query}", "User wants local recommendations — search the web.", 0.8)
+
+    def _largest_files(self, text: str) -> PlanDecision | None:
+        match = _LARGEST_FILES.match(text.strip())
+        root = _folder_path(match.group("where") or match.group("space") or match.group("here")) if match else None
+        if root is None:
+            return None
+        return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)

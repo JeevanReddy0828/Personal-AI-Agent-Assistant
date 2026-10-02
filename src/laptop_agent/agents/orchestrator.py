@@ -1008,7 +1008,10 @@ class AgentOrchestrator:
     async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, scanning and indexing files."""
         if lowered.startswith("scan files "):
-            return self.context.files.scan(command[len("scan files ") :].strip() or ".")
+            root = command[len("scan files ") :].strip()
+            by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
+            root = root[: by_size.start()].strip() if by_size else root
+            return self.context.files.scan(root or ".", by_size=bool(by_size))
 
         if lowered.startswith("read file "):
             return self.context.files.read_text(command[len("read file ") :].strip())
@@ -2621,6 +2624,7 @@ class AgentOrchestrator:
                 "  screenshot",
                 "  agents | agent <id>",
                 "  scan files <path>",
+                "  scan files <path> by size  (largest files first)",
                 "  read file <path>",
                 "  ask file <path> about <question>",
                 "  summarize file <path>  (text, PDF, DOCX, images, audio, video)",
@@ -3333,6 +3337,7 @@ class AgentOrchestrator:
     _AGENT_COMMANDS = (
         # files & documents
         "scan files <path>",
+        "scan files <path> by size",
         "read file <path>",
         "ask file <path> about <question>",
         "summarize file <path>",
@@ -4292,8 +4297,11 @@ class AgentOrchestrator:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
             total = data.get("total_files")
+            by_size = data.get("order") == "size"
             headline = (
-                f"**{total} file(s) in {data['root']}**"
+                f"**Largest of {total} file(s) in {data['root']}**"
+                if by_size
+                else f"**{total} file(s) in {data['root']}**"
                 if isinstance(total, int) and total != len(files)
                 else f"**{len(files)} file(s) in {data['root']}**"
             )
@@ -4301,7 +4309,7 @@ class AgentOrchestrator:
             # The breakdown is the answer to "how many python files are here", and
             # counting names out of a truncated listing is how that got answered wrong.
             breakdown = data.get("by_extension")
-            if isinstance(breakdown, dict) and len(breakdown) > 1:
+            if isinstance(breakdown, dict) and len(breakdown) > 1 and not by_size:
                 top = list(breakdown.items())[:6]
                 summary = " · ".join(f"`{ext}` {count}" for ext, count in top)
                 if len(breakdown) > len(top):
