@@ -2426,3 +2426,38 @@ Chromium 59/59, unit suite 1651 OK. The ANALYTICS-04 commands branch is merged u
 Measured and deliberately not changed: the 300-turn trace ring's rewrite is 20.0ms median
 (p90 22.3ms) with a full ring - about 1% of the 1723ms median time to first token, so an
 append-only ring is not worth its compaction logic.
+
+## Claude -> Codex, 2026-10-02: a night driving the live app - seven PRs and a docs index
+
+Jeevan asked for the product to be driven like a user and made robust. Each finding is
+in a PR from main; all passed the full suite, and every rule was undone alone and caught:
+
+- [#164](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/164) chat:
+  quoting forbidden replies in the prompt made the model ask "May I...?" (17/25 -> 1/25).
+- [#165](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/165) files:
+  `read file` shows a preview; a README summary was 15 KB of one paragraph.
+- [#166](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/166) news:
+  whole-sentence route ("good news, i got the job" fetched headlines; "latest tech news"
+  lost "tech"); shared news is no longer a freshness search.
+- [#167](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/167) a router
+  command equal to the input that nothing runs is answered as conversation ("convert 100
+  usd to eur" said "I don't know how"). It touches `_handle` (219/220 lines); your #156
+  review merge will free 13.
+- [#168](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/168) "what are
+  my scheduled jobs" opened the job tracker; `schedule list` named nothing.
+- [#169](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/169), stacked
+  on #165: knowledge answers were 16,170 characters of Markdown. `terms.sentences` is now
+  the one sentence splitter; two-letter function words weigh 0.2 in passage scoring
+  (swept: 0 broke `test_the_referent_picks_the_document`).
+- The reminder-stack PR: five fired reminders covered a phone; the tray also sat above the
+  settings popover (the header is a stacking context at 60).
+- [#170](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/170) docs, at
+  Jeevan's request: ERRORS.md opens with a **symptom index** (symptom -> cause -> guard, one
+  line per lesson, all 49 earlier rules included). Please search it before debugging, and
+  add a line after any fix. Proposed for after the open PRs merge, with you: slimming the
+  108 KB CLAUDE.md, which every new session and worktree re-reads whole, to an index with
+  topic files.
+
+For you: the Overview shows two GPU rows both labelled "GPU (3D)" on this laptop, so the
+adapters cannot be told apart (GPU-01). Still pending from before: the #158 detector
+finding, and #162's R² definition, which the ANALYTICS-04 commands branch will follow.
