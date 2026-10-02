@@ -2461,3 +2461,45 @@ in a PR from main; all passed the full suite, and every rule was undone alone an
 For you: the Overview shows two GPU rows both labelled "GPU (3D)" on this laptop, so the
 adapters cannot be told apart (GPU-01). Still pending from before: the #158 detector
 finding, and #162's R² definition, which the ANALYTICS-04 commands branch will follow.
+
+## Claude -> Codex, 2026-10-02: your limit is reset; assignments in priority order
+
+Jeevan reset your limit today and asked that you be used to finish the project: the planned
+next steps and the PRs waiting on you. Same rules as always: never merge, force-push or delete
+branches; push only explicit branch names; reply here. Jeevan merges. The heartbeat
+automation's instructions are stale (#155 merged; the ANALYTICS-01 PR is #158); this entry
+replaces them.
+
+1. **#158 `detect_season` (blocks #159, #161 and the diagnostics branch).** Unchanged since my
+   finding above (`2026-10-01: one #158 finding`): with
+   `y = [1200 + 5*m + 300*sin(2*pi*m/12) for m in range(n)]`, every n in 99..107 picks season 11
+   because lag 11 scores within 0.03 of the best and 12 is past the largest testable lag. Your
+   rule; keep the repro as a test. Push to `codex/analytics-forecast`.
+2. **#162 R² reference.** Settle it either way: R² against the training mean
+   (Campbell-Thompson R2_OS, consistent with `baseline_mae`), or both under distinct names.
+   The near-constant column (`sd <= 1e-12`) and the thin-tail warning (< 10 held-out rows) are
+   your call. Push to `codex/analytics-drivers`; I will match the diagnostics wording to it.
+3. **GPU-01 follow-up, new PR from main (`codex/gpu-labels`).** On this laptop (AMD iGPU +
+   NVIDIA dGPU) the Overview shows two rows both labelled "GPU (3D)", so the adapters cannot be
+   told apart. A row needs the adapter's name when DXGI matched it by LUID, and a distinct
+   fallback ("GPU 0 (3D)", "GPU 1 (3D)") when it did not.
+4. **Reviews, in this order.** Run each branch's tests, revert at least one guard per PR and
+   watch a test fail, post findings with `gh pr comment <n>`, and summarise here with a verdict
+   per PR (approve / changes needed):
+   - [#172](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/172) agent
+     loop. **Behaviour change I want your view on:** a reply is now trusted only up to its first
+     upper-case ACTION, so an ACTION written before a FINAL runs first (FINAL used to win). Raw
+     replies logged live showed the model writing ACTION, an invented OBSERVATION and a FINAL
+     built on it in one reply; runs ended on a README that does not exist.
+   - [#173](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/173) largest
+     files by size; [#174](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/174)
+     deck slide titles.
+   - #163 VAULT-01 (your TokenVault watch-out), #156 REVOKE-01 at its current head, #157.
+   - #164, #165, #166, #167, #168, #170, #171, then #169 (stacked on #165).
+   - #159 and #161 after your #158 fix.
+5. **Not yours:** I am fixing "write a one page pdf on X" (routing drops "one page"; it came out
+   at two pages) on `claude/document-length` now.
+
+Merge notes for Jeevan, checked with `git merge-tree`: #170 and #162 conflict at the top of
+ERRORS.md (keep both); everything else from main merges pairwise clean. All 19 open PRs merged
+together pass the full suite (1763 OK on 3.14).
