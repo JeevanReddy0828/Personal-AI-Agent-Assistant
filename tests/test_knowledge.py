@@ -295,6 +295,30 @@ class ReadableAnswerTests(unittest.TestCase):
         self.assertTrue(out["ok"], out)
         self.assertTrue(str(out["answer"]).startswith("Orbit is a small, local planner"), out["answer"])
 
+    def test_with_one_document_a_short_word_does_not_outweigh_the_subject(self) -> None:
+        # "do" and "in" weighed as much as "browser". With one document every term weighs the
+        # same, so live, windows of the README densest in "in" answered "how do i start the app
+        # in a browser tab", and the row that answers it was never quoted. Neutral sentences
+        # keep the two apart here, so no window holds both.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:notes.md", "Do it in order: do the setup in a terminal, do the import in the shell, and "
+                                  "do the review in a week.\n\nPlans are plain text files.\n\n"
+                                  "Each plan has a title and a list of goals.\n\n"
+                                  "Goals can be marked done at any time.\n\n"
+                                  "| Browser tab | `orbit serve` opens port 8080 |\n")
+        best = str(base.answer("how do i start the app in a browser tab", limit=1)["answer"])
+        self.assertTrue(best.startswith("Browser tab"), best)
+
+    def test_a_dotted_name_is_found_where_it_is_written_with_dots(self) -> None:
+        # The check before tokenizing read the raw text, where "jarvis" is not a substring of
+        # "J.A.R.V.I.S", so the app's own name never reached the scoring.
+        base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
+        base.add("file:about.md", "Plans live on your disk. Nothing leaves it. Backups are yours to keep.\n\n"
+                                  "J.A.R.V.I.S is a local-first assistant that runs on your laptop.\n")
+        # The name alone: with any other term in the question, that term lets the window through.
+        answer = str(base.answer("jarvis")["answer"])
+        self.assertIn("J.A.R.V.I.S is a local-first assistant", answer)
+
 
 if __name__ == "__main__":
     unittest.main()
