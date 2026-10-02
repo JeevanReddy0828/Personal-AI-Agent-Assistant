@@ -69,6 +69,10 @@ class TokenVault:
         if existed:
             data.pop(normalized, None)
             self._save(data)
+        # Even when the vault no longer holds it: an older version kept copies beside the vault -
+        # a .bak on every write, a .corrupt-<hash> of a damaged one - and either may (Codex's review).
+        for copy in [Path(str(self.path) + ".bak"), *self.path.parent.glob(self.path.name + ".corrupt-*")]:
+            copy.unlink(missing_ok=True)
         return existed
 
     @synchronized

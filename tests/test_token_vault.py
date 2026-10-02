@@ -36,6 +36,18 @@ class TokenVaultTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.dir.iterdir() if not path.name.endswith(".lock")),
                          ["email_tokens.json"])
 
+    def test_forget_clears_copies_an_older_version_left_even_when_the_vault_is_clean(self) -> None:
+        # Codex's repro: the live vault no longer holds Gmail, but an older version's .bak
+        # does, and forget('gmail') returned early and left it.
+        self.vault.store("gmail", {"access_token": "gmail-secret"})
+        legacy = self.path.read_bytes()
+        self.vault.forget("gmail")
+        Path(str(self.path) + ".bak").write_bytes(legacy)
+        Path(str(self.path) + ".corrupt-0123456789ab").write_bytes(legacy)
+        self.assertFalse(self.vault.forget("gmail"))
+        self.assertEqual(sorted(path.name for path in self.dir.iterdir() if not path.name.endswith(".lock")),
+                         ["email_tokens.json"])
+
     def test_a_damaged_vault_is_never_read_back_from_an_older_copy(self) -> None:
         self.vault.store("gmail", {"access_token": "gmail-secret"})
         stale = Path(str(self.path) + ".bak")
