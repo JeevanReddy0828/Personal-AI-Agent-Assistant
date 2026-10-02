@@ -159,7 +159,7 @@ def run_drivers(request: DriversRequest) -> ToolResult:
     lines.append(f"On the last {result.test_rows} rows, which played no part in the fit, its average miss was "
                  f"{_shown(result.mae)}, against {_shown(result.baseline_mae)} for the training average.")
     if result.out_of_sample_r2 is not None:
-        lines.append(f"R² on those rows, against their own average: {result.out_of_sample_r2:.2f}.")
+        lines.append(f"R² against the training-mean baseline, on those rows: {result.out_of_sample_r2:.2f}.")
     lines.append("Cautions: " + "; ".join(result.warnings) + ".")
     if skipped:
         lines.append(f"Left out, as not all numbers: {', '.join(skipped)}.")

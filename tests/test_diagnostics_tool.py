@@ -92,6 +92,9 @@ class RunDriversTests(unittest.TestCase):
         self.assertIn("which played no part in the fit", result.message)
         self.assertIn("not causal effects", result.message)
         self.assertNotIn("file order", result.message)
+        # Codex settled #162: R2 is against the fixed training mean, the baseline MAE's reference.
+        self.assertIn("R² against the training-mean baseline", result.message)
+        self.assertNotIn("own average", result.message)
 
     def test_rows_without_dates_are_taken_in_file_order_and_said_so(self) -> None:
         self.assertIn("in file order", self.run_on().message)
