@@ -69,6 +69,122 @@ class SummarizeTests(unittest.TestCase):
             self.assertFalse(result.ok)
 
 
+README = """# Orbit — a tiny planner
+
+[![Tests](https://example.com/badge.svg)](https://example.com/ci)
+![Screenshot](docs/home.png)
+
+Orbit is a small, local planner for **weekly goals**. It keeps every plan on your own disk
+and never needs an account.
+
+## Install
+
+```bash
+pip install orbit-planner
+orbit init --dir ~/plans
+```
+
+| Command | What it does |
+|---|---|
+| orbit add | adds a goal |
+
+- **Sync** — copies plans to a folder you choose, such as `http://127.0.0.1:<port>/sync`.
+- Reminders arrive as desktop notifications at the time you pick.
+
+<details><summary>Notes</summary>Plans are plain Markdown files that any editor can open.</details>
+"""
+
+
+class MarkdownSummaryTests(unittest.TestCase):
+    """Driving the app found "summarize the readme" (a suggestion on the home screen) answering
+    with 15 KB of the README as one paragraph: the splitter cut only at full stops, and badges,
+    code and tables have none, so one "sentence" ran across all of them."""
+
+    def summary(self, text: str, name: str = "README.md") -> str:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / name
+            path.write_text(text, encoding="utf-8")
+            result = auto_approve_tool().summarize(str(path), sentences=3)
+        self.assertTrue(result.ok, result.message)
+        return result.data["summary"]
+
+    def test_markup_is_not_prose_and_the_opening_leads(self) -> None:
+        summary = self.summary(README)
+        self.assertTrue(summary.startswith("Orbit is a small, local planner for **weekly goals**."), summary)
+        for markup in ("![", "](", "|", "```", "pip install", "<details>", "## Install"):
+            self.assertNotIn(markup, summary)
+        self.assertLess(len(summary), 500)
+
+    def test_a_list_item_keeps_its_own_emphasis_and_text_placeholders(self) -> None:
+        sentences = FileTool._split_sentences(README)
+        self.assertIn("**Sync** — copies plans to a folder you choose, such as `http://127.0.0.1:<port>/sync`.",
+                      sentences)
+
+    def test_wrapped_prose_still_joins_but_never_across_a_heading(self) -> None:
+        sentences = FileTool._split_sentences("Plans are kept\non your disk.\n# Usage\nRun it daily.")
+        self.assertEqual(sentences, ["Plans are kept on your disk.", "Run it daily."])
+
+    def test_a_run_on_line_is_cut_short(self) -> None:
+        sentences = FileTool._split_sentences("word " * 400)
+        self.assertLessEqual(max(map(len, sentences)), 401)
+
+
+class FileQuestionStructureTests(unittest.TestCase):
+    """Codex's review of #165: Q&A went through the summary's prose-only splitter, so a file
+    whose answer is a command or a table row answered "No readable prose to answer from"."""
+
+    def test_a_command_in_a_code_block_answers_the_question(self) -> None:
+        result = FileTool().answer_text("```bash\npython -m orbit serve --port 8080\n```", "How do I serve orbit?")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("python -m orbit serve --port 8080", result.data["answer"])
+
+    def test_a_table_row_answers_the_question(self) -> None:
+        text = "# Commands\n\n| Command | Purpose |\n|---|---|\n| orbit serve | starts the server |\n| orbit plan | prints the week |\n"
+        result = FileTool().answer_text(text, "which command starts the server?")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("orbit serve: starts the server", result.data["answer"])
+        self.assertNotIn("---", result.data["answer"])
+        self.assertNotIn("---: ---", FileTool._split_sentences(text, structure=True))
+
+    def test_a_diagram_source_is_not_an_answer(self) -> None:
+        text = "The gate asks before risky actions run.\n```mermaid\nflowchart TD\n  TOOLS --> GATE\n```\n"
+        result = FileTool().answer_text(text, "what does the gate do?")
+        self.assertNotIn("-->", result.data["answer"])
+
+    def test_a_summary_still_keeps_to_prose(self) -> None:
+        self.assertFalse(FileTool().summarize_text("```bash\npython -m orbit serve --port 8080\n```").ok)
+
+
+class ReadPreviewTests(unittest.TestCase):
+    """`read file` replied "Read text file: <path>" and showed none of the text it had read."""
+
+    def test_the_reply_shows_the_start_of_the_file(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "notes.md"
+            path.write_text("\n".join(f"line {i}" for i in range(100)), encoding="utf-8")
+            message = auto_approve_tool().read_text(str(path)).message
+        self.assertIn("```markdown\nline 0\n", message)
+        self.assertIn("line 59\n```", message)
+        self.assertNotIn("line 60", message)
+        self.assertIn("40 more line(s) not shown", message)
+
+    def test_a_files_own_code_fences_cannot_close_the_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "guide.md"
+            path.write_text("Intro\n```python\nprint(1)\n```\nOutro", encoding="utf-8")
+            message = auto_approve_tool().read_text(str(path)).message
+        self.assertIn("````markdown\nIntro\n```python", message)
+        self.assertTrue(message.rstrip().endswith("````"), message)
+
+    def test_one_long_line_cut_short_says_so(self) -> None:
+        # Codex's review: with no further lines there was nothing to count, so no notice.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "minified.js"
+            path.write_text("x" * 5000, encoding="utf-8")
+            message = auto_approve_tool().read_text(str(path)).message
+        self.assertIn("Cut at 3000 characters", message)
+
+
 class FileInfoTests(unittest.TestCase):
     def test_reports_text_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
