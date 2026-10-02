@@ -28,10 +28,14 @@ def _preview(text: str, suffix: str) -> str:
     if not text.strip():
         return "_The file is empty._"
     lines = text.splitlines()
-    shown = NL.join(lines[:PREVIEW_LINES])[:PREVIEW_CHARS]
+    head = NL.join(lines[:PREVIEW_LINES])
+    shown = head[:PREVIEW_CHARS]
     fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", shown)), default=0) + 1)
     rest = len(lines) - len(shown.splitlines())
-    tail = f"{NL}{NL}_{rest} more line(s) not shown._" if rest > 0 else ""
+    if rest > 0:
+        tail = f"{NL}{NL}_{rest} more line(s) not shown._"
+    else:  # one long line cut short leaves no further lines to count (Codex's review)
+        tail = f"{NL}{NL}_Cut at {PREVIEW_CHARS} characters._" if len(head) > PREVIEW_CHARS else ""
     return f"{fence}{_FENCE_LANGUAGE.get(suffix.lower(), '')}{NL}{shown}{NL}{fence}{tail}"
 
 
@@ -267,7 +271,7 @@ class FileTool:
         cleaned_question = question.strip()
         if not cleaned_question:
             return ToolResult.failure("Ask a question to answer from the text.")
-        sentence_list = prose_sentences(text)
+        sentence_list = prose_sentences(text, structure=True)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to answer from{f' in: {source}' if source else '.'}",
