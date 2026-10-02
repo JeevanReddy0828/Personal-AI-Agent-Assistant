@@ -27,6 +27,16 @@ _QUOTE = re.compile(r"^\s*>\s?")
 _NOT_PROSE = re.compile(r"(#{1,6}\s|\||(-{3,}|={3,}|\*{3,})$)")
 _LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
 MAX_SENTENCE = 400
+# Marks a line of fenced code kept for Q&A, so the prose rules below leave it alone.
+_CODE = chr(0) + "code "
+
+
+def _code_lines(block: re.Match[str]) -> str:
+    """A fenced block as one marked line per line of code. A diagram's source is not an answer."""
+    lines = block.group(0).splitlines()
+    if lines[0].lstrip("`~").strip().lower().startswith("mermaid"):
+        return NL
+    return NL + NL.join(_CODE + line.strip() for line in lines[1:-1] if line.strip()) + NL
 
 # `read file` shows what it read: the tool's message used to name the file and nothing else.
 PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
@@ -41,10 +51,14 @@ def _preview(text: str, suffix: str) -> str:
     if not text.strip():
         return "_The file is empty._"
     lines = text.splitlines()
-    shown = NL.join(lines[:PREVIEW_LINES])[:PREVIEW_CHARS]
+    head = NL.join(lines[:PREVIEW_LINES])
+    shown = head[:PREVIEW_CHARS]
     fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", shown)), default=0) + 1)
     rest = len(lines) - len(shown.splitlines())
-    tail = f"{NL}{NL}_{rest} more line(s) not shown._" if rest > 0 else ""
+    if rest > 0:
+        tail = f"{NL}{NL}_{rest} more line(s) not shown._"
+    else:  # one long line cut short leaves no further lines to count (Codex's review)
+        tail = f"{NL}{NL}_Cut at {PREVIEW_CHARS} characters._" if len(head) > PREVIEW_CHARS else ""
     return f"{fence}{_FENCE_LANGUAGE.get(suffix.lower(), '')}{NL}{shown}{NL}{fence}{tail}"
 
 
@@ -280,7 +294,7 @@ class FileTool:
         cleaned_question = question.strip()
         if not cleaned_question:
             return ToolResult.failure("Ask a question to answer from the text.")
-        sentence_list = self._split_sentences(text)
+        sentence_list = self._split_sentences(text, structure=True)
         if not sentence_list:
             return ToolResult.failure(
                 f"No readable prose to answer from{f' in: {source}' if source else '.'}",
@@ -634,18 +648,23 @@ class FileTool:
         return text, None, {"kind": "DOCX"}
 
     @staticmethod
-    def _split_sentences(text: str) -> list[str]:
+    def _split_sentences(text: str, structure: bool = False) -> list[str]:
         """Prose sentences. Markup goes first; a heading, table row or rule is not prose and a
         list item is a sentence of its own; plain lines run together into paragraphs, so a
         wrapped sentence still joins up but never across a heading or a blank line. Markdown
         has no sentence punctuation in its badges, code and tables, so splitting only at full
-        stops answered "summarize the readme" with 15 KB of README as one paragraph."""
-        text = _TAG.sub(" ", _LINK.sub(r"\1", _IMAGE.sub(" ", _CODE_FENCE.sub("\n", text))))
+        stops answered "summarize the readme" with 15 KB of README as one paragraph.
+
+        With `structure` (file Q&A) a line of code, a table row and a heading are sentences
+        too: the answer to a question is often a command or a row, and a file holding only a
+        code block answered "No readable prose" (Codex's review). A summary keeps to prose."""
+        fences = _CODE_FENCE.sub(_code_lines if structure else (lambda _match: "\n"), text)
+        text = _TAG.sub(" ", _LINK.sub(r"\1", _IMAGE.sub(" ", fences)))
         units: list[str] = []
         paragraph: list[str] = []
         for raw in text.splitlines():
             line = _QUOTE.sub("", raw).strip()
-            if line and not _NOT_PROSE.match(line) and not _LIST_ITEM.match(line):
+            if line and not _NOT_PROSE.match(line) and not _LIST_ITEM.match(line) and not line.startswith(_CODE):
                 paragraph.append(line)
                 continue
             if paragraph:
@@ -653,6 +672,14 @@ class FileTool:
                 paragraph = []
             if _LIST_ITEM.match(line):
                 units.append(_LIST_ITEM.sub("", line))
+            elif not structure:
+                continue
+            elif line.startswith(_CODE):
+                units.append(line[len(_CODE):].strip())
+            elif line.startswith("|") and not re.fullmatch(r"\|?[\s:|-]+\|?", line):
+                units.append(": ".join(cell.strip() for cell in line.strip("|").split("|") if cell.strip()))
+            elif line.startswith("#"):
+                units.append(line.lstrip("#").strip())
         if paragraph:
             units.append(" ".join(paragraph))
         sentences = []

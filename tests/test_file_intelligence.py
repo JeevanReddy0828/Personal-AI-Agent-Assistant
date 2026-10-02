@@ -129,6 +129,32 @@ class MarkdownSummaryTests(unittest.TestCase):
         self.assertLessEqual(max(map(len, sentences)), 401)
 
 
+class FileQuestionStructureTests(unittest.TestCase):
+    """Codex's review of #165: Q&A went through the summary's prose-only splitter, so a file
+    whose answer is a command or a table row answered "No readable prose to answer from"."""
+
+    def test_a_command_in_a_code_block_answers_the_question(self) -> None:
+        result = FileTool().answer_text("```bash\npython -m orbit serve --port 8080\n```", "How do I serve orbit?")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("python -m orbit serve --port 8080", result.data["answer"])
+
+    def test_a_table_row_answers_the_question(self) -> None:
+        text = "# Commands\n\n| Command | Purpose |\n|---|---|\n| orbit serve | starts the server |\n| orbit plan | prints the week |\n"
+        result = FileTool().answer_text(text, "which command starts the server?")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("orbit serve: starts the server", result.data["answer"])
+        self.assertNotIn("---", result.data["answer"])
+        self.assertNotIn("---: ---", FileTool._split_sentences(text, structure=True))
+
+    def test_a_diagram_source_is_not_an_answer(self) -> None:
+        text = "The gate asks before risky actions run.\n```mermaid\nflowchart TD\n  TOOLS --> GATE\n```\n"
+        result = FileTool().answer_text(text, "what does the gate do?")
+        self.assertNotIn("-->", result.data["answer"])
+
+    def test_a_summary_still_keeps_to_prose(self) -> None:
+        self.assertFalse(FileTool().summarize_text("```bash\npython -m orbit serve --port 8080\n```").ok)
+
+
 class ReadPreviewTests(unittest.TestCase):
     """`read file` replied "Read text file: <path>" and showed none of the text it had read."""
 
@@ -149,6 +175,14 @@ class ReadPreviewTests(unittest.TestCase):
             message = auto_approve_tool().read_text(str(path)).message
         self.assertIn("````markdown\nIntro\n```python", message)
         self.assertTrue(message.rstrip().endswith("````"), message)
+
+    def test_one_long_line_cut_short_says_so(self) -> None:
+        # Codex's review: with no further lines there was nothing to count, so no notice.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "minified.js"
+            path.write_text("x" * 5000, encoding="utf-8")
+            message = auto_approve_tool().read_text(str(path)).message
+        self.assertIn("Cut at 3000 characters", message)
 
 
 class FileInfoTests(unittest.TestCase):
