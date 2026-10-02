@@ -329,7 +329,15 @@
   .apbtn.yes:hover{filter:brightness(1.08)}
   /* Reminder card: something the user asked to be told, arriving on time. Accent, not warn
      - it is a message, not a decision - and top-right, so it never covers an approval. */
-  #remtray{position:fixed;right:18px;top:64px;z-index:71;display:flex;flex-direction:column;gap:10px;max-width:min(380px,calc(100vw - 36px))}
+  /* Under the approval cards (70): one that is blocking a turn must not sit beneath a reminder.
+     Scrolls rather than run off screen. */
+  #remtray{position:fixed;right:18px;top:64px;z-index:69;display:flex;flex-direction:column;gap:10px;max-width:min(380px,calc(100vw - 36px));
+    max-height:calc(100vh - 80px);overflow-y:auto}
+  #remtray .remhide{display:none}
+  /* The settings popover lives inside the header, a stacking context at 60, so its own z-index
+     counts only in there: the reminders covered the settings the user had just opened. Below
+     the header only while it is open, since on a phone the header wraps taller than 64px. */
+  body:has(#hudPop.open) #remtray{z-index:59}
   .remcard{background:var(--surface-2);border:1px solid var(--accent);border-radius:var(--r-lg);
     padding:14px 16px;box-shadow:var(--shadow-2);animation:apin var(--med) var(--ease)}
   @media (prefers-reduced-motion:reduce){.remcard{animation:none}}

@@ -64,6 +64,10 @@ class AppConfig:
     jobright_min_match: float = 0.2
     # Chain-of-thought token budget for reasoning models (NVIDIA Nemotron ultra tier).
     llm_reasoning_budget: int = 16384
+    # How long a reply may run (OPENAI_MAX_OUTPUT_TOKENS). None: 16,384 on NVIDIA's host, where
+    # every model was measured to accept 65,536, and the old caps anywhere else, where a cap
+    # the endpoint rejects would be a 400 on every turn.
+    llm_max_output_tokens: int | None = None
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -84,6 +88,13 @@ def _load_dotenv(path: str = ".env") -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
+
+
+def _output_tokens(raw: str | None) -> int | None:
+    try:
+        return min(65536, max(256, int(raw))) if raw and raw.strip() else None
+    except ValueError:
+        return None
 
 
 def _env_int(name: str, default: int) -> int:
@@ -186,4 +197,5 @@ def load_config() -> AppConfig:
         jobright_max_years=_env_int("JOBRIGHT_MAX_YEARS", 4),
         jobright_min_match=_env_float("JOBRIGHT_MIN_MATCH", 0.2),
         llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
+        llm_max_output_tokens=_output_tokens(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS")),
     )

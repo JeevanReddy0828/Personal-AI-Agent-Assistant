@@ -155,6 +155,23 @@ class ReliabilityRegressions(unittest.TestCase):
             memory.add_note("safe")
             self.assertEqual(memory.get_profile()["name"], "Test")
 
+    def test_bytes_that_are_not_utf8_are_damage_not_a_dead_end(self):
+        # STORAGE-01: the backup step decoded the old copy strictly, so one invalid byte
+        # raised UnicodeDecodeError from this write and every one after it, and the damaged
+        # bytes were never set aside. They are kept before anything is replaced (Codex), and
+        # the last good backup is not overwritten with them.
+        for name in ("state.json", "notes.txt"):
+            with self.subTest(name), tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / name
+                atomic_write_text(path, '{"value":1}')
+                atomic_write_text(path, '{"value":2}')
+                path.write_bytes(b'{"value":\xff}')
+                atomic_write_text(path, '{"value":3}')
+                self.assertEqual(path.read_text(encoding="utf-8"), '{"value":3}')
+                self.assertEqual(next(Path(raw).glob("*.corrupt-*")).read_bytes(), b'{"value":\xff}')
+                self.assertEqual(Path(str(path) + ".bak").read_text(encoding="utf-8"), '{"value":1}')
+                self.assertTrue(storage_warnings())
+
     def test_due_claim_is_exclusive_across_instances(self):
         with tempfile.TemporaryDirectory() as raw:
             now = datetime.now(UTC)

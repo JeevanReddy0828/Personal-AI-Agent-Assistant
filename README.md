@@ -1,5 +1,10 @@
 # J.A.R.V.I.S — Local-First Personal Agent
 
+## ANALYTICS-04 update — 2026-10-01
+
+Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
+
+
 [![Tests](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
@@ -344,6 +349,11 @@ tool activity, scheduled jobs, agent runs, **Map** and **Trip planner** · setti
 (compact layout, orb focus, always on top, transparency, voice cut-in level) · incognito
 chats that are never saved.
 
+On Windows, GPU usage works without an administrator launch: if NVIDIA's utility cannot
+answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
+refreshes in the background; the first read may show unavailable values briefly. A card
+Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
+
 ---
 
 ## Voice
@@ -433,7 +443,7 @@ python -m laptop_agent.accounts create family --role personal
 - **Sessions** are server-side, stored as hashes of the token, last up to 30 days (7 without
   use), and are **bound to the credentials they were granted under**: a password change or
   a disable ends them, including one created by a sign-in that was mid-hash when the change
-  landed.
+  landed, and stops any agent run or workflow still running under them at its next step.
 - **Managing accounts** — **Manage accounts** in the settings popover (this computer only;
   every change asks your password again), or the same `python -m laptop_agent.accounts`
   command, which also resets passwords, so a forgotten one never locks the owner out.
@@ -548,7 +558,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | Group | Key(s) | Notes |
 |---|---|---|
 | **LLM brain** | `LAPTOP_AGENT_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | Any OpenAI-compatible API. Leave the provider `heuristic` for offline. |
-| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET` | Picked automatically by task complexity. |
+| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS` | Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. |
 | **Pictures** | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY` | A different host from chat — never point `OPENAI_BASE_URL` at it. |
 | **Embeddings** | `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY` | Default to the chat host and key. |
 | **Backup provider** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | Tried after every primary tier. |
@@ -726,3 +736,10 @@ CSV commands and forecast charts are a separate integration; this change adds th
 ## License
 
 Released under the [MIT License](LICENSE).
+
+
+### GPU-01 review follow-up (2026-10-01)
+
+A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
+keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
+VRAM usage displays n/a rather than zero.

@@ -14,30 +14,53 @@ kept per account: reminders, timers, lists and remembered facts.
 
 No principal (the CLI, the Tkinter dashboard, the scheduler's ticker) means the machine's
 owner, as it always has: whoever runs those can already read every file this guards.
+
+A principal also carries a check that its session still stands. Revoking a session ended
+it but not work it had started: an agent run kept dispatching commands under the principal
+it began with. `ensure_signed_in` runs wherever Stop is checked, at the start of every turn
+and of every step of one, so that work now stops at its next step as Stop would stop it.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator
+from typing import Callable, Iterator
 
 from laptop_agent.accounts import Principal
+from laptop_agent.cancellation import OperationCancelled
 
 _current: ContextVar[Principal | None] = ContextVar("principal", default=None)
+_still_signed_in: ContextVar[Callable[[], bool] | None] = ContextVar("still_signed_in", default=None)
+
+
+class SignedOut(OperationCancelled):
+    """The session this work runs under ended after the work began: a password changed
+    elsewhere, or the account was disabled or deleted. A cancellation, so a run stops
+    exactly as Stop stops it and no tool's error fallback starts more work."""
 
 
 @contextmanager
-def acting_as(principal: Principal | None) -> Iterator[None]:
+def acting_as(principal: Principal | None, still_signed_in: Callable[[], bool] | None = None) -> Iterator[None]:
     token = _current.set(principal)
+    check = _still_signed_in.set(still_signed_in if principal is not None else None)
     try:
         yield
     finally:
+        _still_signed_in.reset(check)
         _current.reset(token)
 
 
 def current() -> Principal | None:
     return _current.get()
+
+
+def ensure_signed_in() -> None:
+    """Raise SignedOut when the session the current work runs under has ended. Nothing to
+    check without a principal or without a check, as for the CLI and the ticker."""
+    check = _still_signed_in.get()
+    if check is not None and not check():
+        raise SignedOut("Your session ended, so this stopped.")
 
 
 def is_personal() -> bool:
