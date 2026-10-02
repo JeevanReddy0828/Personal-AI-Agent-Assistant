@@ -233,7 +233,9 @@ def deck_outline(md: str) -> tuple[str, list[tuple[str, list[str]]]]:
                 continue
             if current:
                 slides.append(current)
-            current = (text, [])
+            # The model numbers its headings "Slide 1: What is X?", one behind the real slide
+            # since the title slide comes first; the label is the format talking, not a title.
+            current = (re.sub(r"^slide\s+\d+\s*[:.\u2013\u2014-]\s*(?=\S)", "", text, flags=re.IGNORECASE), [])
             continue
         if current is None:
             continue
