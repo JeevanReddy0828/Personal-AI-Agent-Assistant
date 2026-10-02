@@ -421,5 +421,30 @@ class HonestAnswerTests(unittest.TestCase):
         self.assertNotIn("about about", result.message)
 
 
+class DeclinedCommandTests(unittest.TestCase):
+    """The router handed the sentence back as a command no tool runs, and the user was told
+    "I don't know how to do that yet" - for a currency conversion the live-search path answers
+    when it is phrased as a question, and for things any model can answer."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=text, confidence=0.8, explanation="echoed")
+
+    def test_a_currency_conversion_reaches_the_live_rate(self) -> None:
+        result, ran = self.everyday.say("convert 100 usd to eur")
+        self.assertTrue(result.ok, result.message)
+        self.assertIsNone(ran)
+        self.assertEqual(self.everyday.searches, ["convert 100 usd to eur"])
+
+    def test_anything_else_is_answered_as_conversation(self) -> None:
+        result, ran = self.everyday.say("translate hello to french")
+        self.assertTrue(result.ok, result.message)
+        self.assertIsNone(ran)
+        self.assertIn("answered]", result.message)
+
+
 if __name__ == "__main__":
     unittest.main()

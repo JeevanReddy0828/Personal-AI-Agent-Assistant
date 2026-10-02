@@ -516,6 +516,11 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
+  - **A command handed back unchanged is conversation** (`_DECLINED`). The dispatch has
+    already declined that exact text, so a router naming the sentence itself as a command
+    used to end in "I don't know how to do that yet" - and "convert 100 usd to eur" never
+    reached the live rate that "how much is 100 dollars in euros" gets. A routed command
+    that *differs* and still matches nothing keeps the old reply (a known gap).
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

@@ -124,6 +124,11 @@ class AgentContext:
 # replace it. The model, asked to answer this itself, claimed the app cannot generate
 # images at all — which is wrong, and worse than the nonsense it replaced.
 _VERBATIM = "verbatim-reply"
+# The router handed the sentence back as a command, and no tool runs it. Answered "I don't know
+# how to do that yet" until it was answered as conversation instead: "convert 100 usd to eur"
+# never reached the live rate the same question gets phrased as "how much is 100 dollars in
+# euros", and "translate hello to french" never reached a model that knows French.
+_DECLINED = "The router named the sentence itself as a command; answered as conversation."
 
 
 def _short_topic(text: str, words: int = 8) -> str:
@@ -2128,6 +2133,8 @@ class AgentOrchestrator:
                     }
                 )
                 return result
+            if planned.is_command:  # handed back unchanged: the dispatch above already declined it
+                planned = PlanDecision(action="chat", confidence=planned.confidence, explanation=_DECLINED)
             if planned.is_chat:
                 # Time-sensitive questions ("latest", "did X end", a recent year, …) must
                 # not be answered from stale model knowledge — search the web first and
