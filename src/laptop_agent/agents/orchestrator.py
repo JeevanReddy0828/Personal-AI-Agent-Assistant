@@ -52,7 +52,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.access import everyday_form, is_personal, refused_command
+from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -2065,6 +2065,7 @@ class AgentOrchestrator:
         _whole: bool = True,
     ) -> ToolResult:
         check_cancelled()
+        ensure_signed_in()
         command = text.strip()
         lowered = command.lower()
         history_turns = history or []
@@ -2113,20 +2114,7 @@ class AgentOrchestrator:
             if planned.is_chat and planned.response and planned.explanation == _VERBATIM:
                 return ToolResult.success(planned.response)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
-                # _allow_planner=False stops a planned command from re-triggering
-                # the planner, which would let an LLM loop or double-call itself.
-                # Light up the specialist the planner delegated to, so the control
-                # room reflects the resolved tool, not just the Planner.
-                resolved_agent = self.control_room.start(planned.command)
-                trace = current_trace()
-                if trace is not None:
-                    trace.kind = "command"
-                    trace.verb = planned.command.strip().split(" ", 1)[0].lower()
-                    trace.tool_started()
-                result = await self.handle(planned.command, _allow_planner=False, history=history_turns)
-                if trace is not None:
-                    trace.tool_done()
-                self.control_room.finish(resolved_agent, result.message, ok=result.ok)
+                result = await self._run_routed(planned.command, history_turns)
                 # Format the tool result into plain language locally — instant, with
                 # no second network round-trip, so natural-language requests stay fast.
                 result.message = self._humanize(result)
@@ -2313,6 +2301,29 @@ class AgentOrchestrator:
         r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b",
         re.IGNORECASE,
     )
+
+    async def _run_routed(self, command: str, history_turns: list[dict[str, str]]) -> ToolResult:
+        """Run the command the planner resolved, lighting up the specialist it delegated to so
+        the control room reflects the resolved tool, not just the Planner."""
+        agent_id = self.control_room.start(command)
+        trace = current_trace()
+        if trace is not None:
+            trace.kind = "command"
+            trace.verb = command.strip().split(" ", 1)[0].lower()
+            trace.tool_started()
+        try:
+            # _allow_planner=False stops a planned command from re-triggering the planner,
+            # which would let an LLM loop or double-call itself.
+            result = await self.handle(command, _allow_planner=False, history=history_turns)
+        except BaseException as exc:
+            # handle() turns every Exception into a result; what still escapes - Stop, a session
+            # that ended, a refused approval - left this specialist working.
+            self.control_room.finish(agent_id, str(exc) or "Stopped", ok=False)
+            raise
+        if trace is not None:
+            trace.tool_done()
+        self.control_room.finish(agent_id, result.message, ok=result.ok)
+        return result
 
     def _needs_fresh_info(self, text: str) -> bool:
         if self.context.websearch is None:
@@ -3233,6 +3244,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command, _allow_planner=False)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))
@@ -3435,8 +3449,9 @@ class AgentOrchestrator:
         context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
             result = await agent.run(goal, on_step=on_step, context=context)
-        except OperationCancelled:
-            self.control_room.finish(agent_id, "Stopped by user", ok=False)
+        except OperationCancelled as exc:
+            self.control_room.finish(agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut)
+                                     else "Stopped by user", ok=False)
             raise
         except Exception as exc:  # defensive — keep the control room consistent
             self.control_room.finish(agent_id, str(exc), ok=False)
@@ -4558,7 +4573,9 @@ class AgentOrchestrator:
                 check_cancelled()
                 return await asyncio.to_thread(lambda: asyncio.run(self._run_tracked_subtask(command)))
         results = await asyncio.gather(*(run(command) for command in commands), return_exceptions=True)
+        # gather keeps a stopped subtask as a bare CancelledError, so ask again before reporting.
         check_cancelled()
+        ensure_signed_in()
         payload = []
         records = []
         for index, (command, result) in enumerate(zip(commands, results)):
@@ -4622,6 +4639,9 @@ class AgentOrchestrator:
             agent_id = self.control_room.start(command)
             try:
                 result = await self.handle(command)
+            except OperationCancelled as exc:
+                self.control_room.finish(agent_id, str(exc), ok=False)
+                raise
             except Exception as exc:
                 self.control_room.finish(agent_id, str(exc), ok=False)
                 result = ToolResult.failure(str(exc))

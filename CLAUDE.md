@@ -1014,8 +1014,21 @@ owner. Decisions that each exist for a reason:
   Every route reads the signed-in account through one check, `_signed_in_account()`: the
   Google routes (#145) were written before the epoch and carried their own copy, which
   merged cleanly and treated a session `/api/me` refused as signed in.
-  Known limit: revoking ends sessions, not work already running - an agent run or stream in
-  flight keeps the principal it started with until it ends, and scheduled jobs have no owner.
+  Work already running stops too (REVOKE-01). `_handle` asks the request's own session again
+  beside `check_cancelled()` (`access.ensure_signed_in`, bound by the web server with the
+  principal), so every turn and every step of an agent run, a workflow or a `multi` is
+  checked where Stop is; one that has ended raises `SignedOut`, a cancellation, and a JSON
+  request answers 401. Not in `_account_limits`: prose never reaches it, so a workflow step
+  that reads as prose was still routed and answered. `_run_many` asks again after its
+  `gather`, which turns a stopped subtask into a bare `CancelledError('')` (3.11 to 3.14),
+  or a batch answers "0 succeeded" instead of stopping. A loop that marks its steps in the
+  control room finishes the step on `OperationCancelled` before re-raising: the workflow and
+  autopilot loops caught only `Exception`, so a step that never ran stayed `working` for good
+  (Codex's review); a routed command does the same, since a session that ends during the
+  routing call stops the routed turn. A GET that dispatches (`/api/schedule`,
+  `/api/agent-runs`, `/api/vault`) answers 401 like a POST: unhandled, `SignedOut` killed
+  the worker thread and the client got no answer. Known limits: a command already inside a
+  tool finishes, and scheduled jobs have no owner to check.
 - `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
   token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
   per client and per username. The username key is scoped `local`/`lan`, so failures from
