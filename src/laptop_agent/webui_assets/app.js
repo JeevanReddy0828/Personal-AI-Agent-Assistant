@@ -668,8 +668,8 @@
     const keep=sessions.filter(s=>!s.ghost);
     try{localStorage.setItem(chatKey,JSON.stringify(keep));}
     catch(e){
-      // Over quota: the tool-data digests are the expendable part — drop them and retry once.
-      sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;}));
+      // Over quota: the tool-data digests and saved charts are the expendable part — drop them and retry once.
+      sessions.forEach(s=>s.msgs.forEach(m=>{delete m.extra;delete m.chart;}));
       try{localStorage.setItem(chatKey,JSON.stringify(keep));}
       catch(e2){hint.textContent='Chat could not be saved: browser storage is full or unavailable.';}
     }}
@@ -713,7 +713,7 @@
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);});}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);const chart=m.chart&&forecastChart(m.chart);if(chart)node.querySelector('.md').after(chart);});}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
@@ -1030,6 +1030,8 @@
       // Chat already revealed itself token-by-token; a local command result arrives
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
       if(streamed||(d.data&&d.data.record))setMd(md,reply); else typewriter(md,reply);
+      const chartable=d.ok?chartData(d.data):null;
+      if(chartable){const chart=forecastChart(chartable);if(chart)md.after(chart);}
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
@@ -1039,7 +1041,7 @@
       else bits.push('local');
       bits.push(totalS+'s'+(planner&&planner.model?' total':''));
       const meta=document.createElement('div');meta.className='meta';meta.textContent='⚡ '+bits.join(' · ');node.querySelector('.content').appendChild(meta);
-      const ss=s, message={role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()};if(ss){ss.msgs.push(message);saveSessions();}
+      const ss=s, message={role:'bot',text:reply,extra:dataDigest(d.data),at:Date.now()};if(chartable)message.chart=chartable;if(ss){ss.msgs.push(message);saveSessions();}
       if(d.ok&&d.data&&d.data.record)startRecording(d.data.record.seconds,node,ss,message);
       loadVault();
     }catch(err){
@@ -1544,6 +1546,64 @@
   window.addEventListener('hashchange',()=>setView(location.hash.replace('#/','')));
 
   /* inline SVG charts (no CDN — works offline) */
+  // A forecast drawn from the numbers the tool computed, never from the reply text: recent
+  // history, the forecast, and the band only when every lower and upper bound exists (the
+  // tool's own rule). History is cut to eight times the steps ahead (12 to 48 points): with
+  // all 48 behind three steps, the forecast and its band had 6% of the width. Built as DOM
+  // nodes, so a column name or a label can never be read as markup.
+  // What a chart needs and nothing more, kept on the saved message so a reopened chat draws it
+  // again: the tool digest is cut at 2,000 characters, and a series can hold 4,096 values.
+  function chartData(data){
+    if(!(data&&data.forecast&&data.series))return null;
+    const f=data.forecast, s=data.series, values=s.values||[];
+    return {labels:data.labels||[],forecast:{enough_data:f.enough_data,points:f.points||[],lower:f.lower||[],upper:f.upper||[]},
+            series:{labels:(s.labels||[]).slice(-48),values:values.slice(-48),total:values.length}};
+  }
+  function forecastChart(data){
+    const f=data.forecast||{}, s=data.series||{}, next=data.labels||[], pts=f.points||[];
+    const keep=Math.max(12,Math.min(48,8*pts.length));
+    const all=s.values||[], hist=all.slice(-keep), names=(s.labels||[]).slice(-keep);
+    if(!f.enough_data||!pts.length||!hist.length)return null;
+    const lowB=f.lower||[], highB=f.upper||[];
+    const banded=lowB.length===pts.length&&highB.length===pts.length&&lowB.concat(highB).every(v=>typeof v==='number');
+    const ys=hist.concat(pts,banded?lowB:[],banded?highB:[]);
+    let lo=Math.min(...ys), hi=Math.max(...ys);
+    // Padding scaled to the value: past ~9e15, adding 1 rounds back to the same number, and a
+    // flat series at 1e20 drew every point at NaN (Codex's review).
+    if(hi===lo){const d=Math.max(Math.abs(hi)*.05,1);hi+=d;lo-=d;}
+    const pad=(hi-lo)*.08, top=hi+pad, bottom=lo-pad;
+    const W=600,H=200,L=52,R=12,T=12,B=24,n=hist.length+pts.length,h0=hist.length-1;
+    const x=i=>L+(W-L-R)*(n<=1?0:i/(n-1)), y=v=>T+(H-T-B)*(1-(v-bottom)/(top-bottom));
+    const NS='http://www.w3.org/2000/svg', svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','fchart');svg.setAttribute('role','img');
+    svg.setAttribute('aria-label','Forecast chart: '+hist.length+' past values and '+pts.length+' ahead'+(banded?', with the measured range':''));
+    const add=(tag,attrs,text,parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;(parent||svg).appendChild(e);return e;};
+    // The reply's own rule (`_shown`): under 1, three significant figures. Two decimals put 0 on
+    // every gridline of a small series, such as an error rate (review of #159).
+    const fmt=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():Math.abs(v)>=1||v===0?String(+v.toFixed(2)):String(+v.toPrecision(3));
+    [lo,(lo+hi)/2,hi].forEach(v=>{add('line',{x1:L,x2:W-R,y1:y(v),y2:y(v),style:'stroke:var(--hair);stroke-width:1'});
+      add('text',{x:L-6,y:y(v)+3,'text-anchor':'end','font-size':10,style:'fill:var(--muted);font-family:var(--sans)'},fmt(v));});
+    if(banded&&pts.length>1){const upper=pts.map((_,k)=>x(h0+1+k)+','+y(highB[k])), lower=pts.map((_,k)=>x(h0+1+k)+','+y(lowB[k])).reverse();
+      add('polygon',{points:upper.concat(lower).join(' '),class:'fband',style:'fill:var(--accent);fill-opacity:.16;stroke:none'});}
+    else if(banded){
+      // One step has no width to fill: as a polygon its two corners shared an x, so the measured
+      // range had no area and did not show (Codex's review). An interval marker with caps instead.
+      const cx=x(h0+1), up=y(highB[0]), down=y(lowB[0]);
+      const band=add('g',{class:'fband',style:'stroke:var(--accent);stroke-opacity:.55;stroke-width:2'});
+      [[cx,cx,up,down],[cx-5,cx+5,up,up],[cx-5,cx+5,down,down]].forEach(([x1,x2,y1,y2])=>add('line',{x1,x2,y1,y2},null,band));}
+    add('line',{x1:x(h0),x2:x(h0),y1:T,y2:H-B,style:'stroke:var(--hair-2);stroke-dasharray:3 3'});
+    add('polyline',{points:hist.map((v,i)=>x(i)+','+y(v)).join(' '),class:'fhist',style:'fill:none;stroke:var(--text-2);stroke-width:1.6'});
+    add('polyline',{points:[x(h0)+','+y(hist[h0])].concat(pts.map((v,k)=>x(h0+1+k)+','+y(v))).join(' '),class:'fline',
+      style:'fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4'});
+    pts.forEach((v,k)=>add('circle',{cx:x(h0+1+k),cy:y(v),r:2.6,style:'fill:var(--accent)'}));
+    const label=(i,t,anchor)=>add('text',{x:x(i),y:H-7,'text-anchor':anchor,'font-size':10,style:'fill:var(--muted);font-family:var(--sans)'},t);
+    label(0,names[0]||'','start');
+    if(x(n-1)-x(h0)>70&&x(h0)-x(0)>70)label(h0,names[h0]||'','middle');
+    label(n-1,next[next.length-1]||'','end');
+    const total=s.total||all.length;
+    if(total>hist.length)add('text',{x:L+4,y:T+10,'font-size':10,style:'fill:var(--faint);font-family:var(--sans)'},'last '+hist.length+' of '+total);
+    return svg;
+  }
   const STAGES=['lead','applied','screen','interview','final','offer','rejected'];
   function svgFunnel(funnel){
     const max=Math.max(1,...funnel.map(f=>f.count));
