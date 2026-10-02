@@ -767,3 +767,8 @@ cookie handling. Plain HTTP tests alone did not expose this lifecycle issue.
 
 An old flow's cancellation must not clear a newer flow's proof cookie in another tab.
 Cancel now clears that cookie only after a matching flow/proof was actually cancelled.
+
+
+## Season peak review correction — 2026-10-02
+
+Wrong 11-month cycle for a 12-month signal -> the search stopped on a rising autocorrelation shoulder -> require both neighbours below the candidate; a boundary-check lag is never itself a candidate.

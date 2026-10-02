@@ -282,3 +282,8 @@ No live Google account or Gmail grant was used. Packaged native-window/system-br
 behavior and real Desktop-client consent remain owner integration checks. Phase 2b mail
 credentials and permissions are deliberately pending; health/setup remains Claude's area.
 The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
+
+
+## Season peak review correction — 2026-10-02
+
+Season detector follow-up: Claude's monthly-sine repro failed at every n=99..107 before the fix. A strict two-sided peak now rejects those shoulders while retaining period 12 at n=108 and period 24 at the maximum candidate. All 19 forecast tests pass on Python 3.11 and 3.14.
