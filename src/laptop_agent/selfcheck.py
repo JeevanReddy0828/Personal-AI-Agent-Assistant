@@ -150,6 +150,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("half of my team is remote", "'half of' without a number"),
     ("i don't need the car anymore", "not a timer, alarm or reminder"),
     ("stop reminding me", "names nothing to stop"),
+    ("what are the largest files in a typical linux install", "no folder on this machine"),
 )
 
 

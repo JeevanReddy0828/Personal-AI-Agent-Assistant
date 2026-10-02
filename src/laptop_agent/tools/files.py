@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import heapq
 import mimetypes
 import re
 import shutil
@@ -101,7 +102,7 @@ class FileTool:
     def __init__(self, approval_gate: ApprovalGate | None = None) -> None:
         self.approval_gate = approval_gate or ApprovalGate()
 
-    def scan(self, root: str, limit: int = 200) -> ToolResult:
+    def scan(self, root: str, limit: int = 200, by_size: bool = False) -> ToolResult:
         base = Path(root).expanduser().resolve()
         if not base.exists():
             return ToolResult.failure(f"Path does not exist: {base}")
@@ -115,6 +116,10 @@ class FileTool:
         # counting the handful of names that survived truncation. The agent answered that
         # one 27, then 6, against a true 65.
         files: list[dict[str, object]] = []
+        # (size, path) for every file when listing largest first: the first `limit` found
+        # are not the largest, and "what are the largest files in my downloads" was answered
+        # with the first 200 of 1214 in name order.
+        sized: list[tuple[int, str]] = []
         by_extension: dict[str, int] = {}
         total = 0
         walked_all = True
@@ -131,10 +136,25 @@ class FileTool:
             total += 1
             suffix = path.suffix.lower() or "(no extension)"
             by_extension[suffix] = by_extension.get(suffix, 0) + 1
-            if len(files) < limit:
+            if by_size:
+                try:
+                    sized.append((path.stat().st_size, str(path)))
+                except OSError as exc:
+                    record_failure("files/scan", exc, path=str(path)[:120])
+            elif len(files) < limit:
                 files.append(self._summarize(path).__dict__)
+        if by_size:
+            files = [
+                FileSummary(path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__
+                for size, name in heapq.nlargest(limit, sized)
+            ]
         shown = len(files)
-        if not walked_all:
+        if by_size:
+            # The agent reads only this message, so it names the largest rather than counting them.
+            top = ", ".join(f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5])
+            counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
+            message = f"Scanned {counted}, largest first: {top}." if top else f"Scanned {counted}."
+        elif not walked_all:
             message = f"Scanned {shown} files; stopped counting at {total} (the tree is very large)."
         elif shown < total:
             message = f"Scanned {total} files, listing the first {shown}."
@@ -148,6 +168,7 @@ class FileTool:
             listed=shown,
             complete=walked_all and shown == total,
             by_extension=dict(sorted(by_extension.items(), key=lambda item: -item[1])),
+            **({"order": "size"} if by_size else {}),
         )
 
     def read_text(self, path: str, max_chars: int = 12000) -> ToolResult:
