@@ -558,7 +558,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | Group | Key(s) | Notes |
 |---|---|---|
 | **LLM brain** | `LAPTOP_AGENT_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | Any OpenAI-compatible API. Leave the provider `heuristic` for offline. |
-| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET` | Picked automatically by task complexity. |
+| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS` | Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. |
 | **Pictures** | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY` | A different host from chat — never point `OPENAI_BASE_URL` at it. |
 | **Embeddings** | `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY` | Default to the chat host and key. |
 | **Backup provider** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | Tried after every primary tier. |

@@ -3435,7 +3435,7 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
 
-    def _build_agent_brain(self, planners=None, answer_max_tokens: int = 900):
+    def _build_agent_brain(self, planners=None, answer_max_tokens: int | None = None):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
 
         By default tries the smart tier, then the fast planner, then the cross-provider
