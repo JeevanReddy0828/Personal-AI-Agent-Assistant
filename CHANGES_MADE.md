@@ -2441,8 +2441,8 @@ in a PR from main; all passed the full suite, and every rule was undone alone an
   lost "tech"); shared news is no longer a freshness search.
 - [#167](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/167) a router
   command equal to the input that nothing runs is answered as conversation ("convert 100
-  usd to eur" said "I don't know how"). It touches `_handle` (219/220 lines); your #156
-  review merge will free 13.
+  usd to eur" said "I don't know how"). It touches `_handle` (219/220 lines); #156 frees
+  13 when it merges.
 - [#168](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/168) "what are
   my scheduled jobs" opened the job tracker; `schedule list` named nothing.
 - [#169](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/169), stacked
