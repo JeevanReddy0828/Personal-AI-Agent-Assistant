@@ -13,7 +13,7 @@ from collections.abc import Callable
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
 from laptop_agent.model_status import BROKEN, DEGRADED
-from laptop_agent.planner.core import PlanDecision
+from laptop_agent.planner.core import CutOff, PlanDecision
 from laptop_agent.tools.clock import prompt_stamp
 
 # Transient statuses the free hosted endpoints actually return. A 400/401/404 is the
@@ -433,7 +433,11 @@ class OpenAICompatiblePlannerProvider:
             if on_failure is not None:
                 on_failure(*classify_failure(exc, self.model))
             return None
-        return self._strip_reasoning(content).strip() or None
+        text = self._strip_reasoning(content).strip()
+        if not text:
+            return None
+        # Stripping makes a plain str; the reply still ran out of room.
+        return CutOff(text) if isinstance(content, CutOff) else text
 
     def stream_answer(
         self,
@@ -612,7 +616,7 @@ class OpenAICompatiblePlannerProvider:
                         preview=" ".join(content.split())[:120],
                     )
                     return ""
-                return content
+                return CutOff(content) if truncated else content
             except urllib.error.HTTPError as exc:
                 last = exc
                 detail = ""

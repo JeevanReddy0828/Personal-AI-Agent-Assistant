@@ -446,6 +446,41 @@ class _FakeStream:
         return iter(self.lines)
 
 
+class CutOffMarkerTests(unittest.TestCase):
+    """finish_reason "length" reaches whoever acts on the reply: the agent must never run a
+    command the model was cut off in the middle of."""
+
+    def answer(self, finish: str, content: str = "THOUGHT: x\nACTION: send email to bob@exa"):
+        real = urllib.request.urlopen
+
+        class Response:
+            def __init__(self) -> None:
+                self.body = json.dumps({"choices": [{"message": {"content": content}, "finish_reason": finish}]}).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return self.body
+
+        urllib.request.urlopen = lambda request, timeout=None, **kwargs: Response()
+        try:
+            return OpenAICompatiblePlannerProvider("k", "m").answer("go", {})
+        finally:
+            urllib.request.urlopen = real
+
+    def test_a_reply_cut_off_at_the_limit_is_marked_through_answer(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        cut = self.answer("length", "  THOUGHT: x\nACTION: send email to bob@exa  ")
+        self.assertIsInstance(cut, CutOff)
+        self.assertEqual(cut, "THOUGHT: x\nACTION: send email to bob@exa")
+        self.assertNotIsInstance(self.answer("stop"), CutOff)
+
+
 class OutputLimitTests(unittest.TestCase):
     """Jeevan: replies are "way too limited". Measured: streamed chat was capped at 2,048
     tokens and a long answer stopped after 701 words, mid-table, with no word that it had
