@@ -55,6 +55,8 @@ class AgentDecision:
 # The run's end when a reply was cut off at the length limit and so was the one asked for
 # after it: compared by identity, so it cannot be mistaken for a reply that said nothing.
 _CUT_TWICE = AgentDecision(thought="", command="", final_answer="", is_final=True, structured=False)
+# The same, when asking again after a cut-off reply failed rather than being cut off itself.
+_RETRY_FAILED = AgentDecision(thought="", command="", final_answer="", is_final=True, structured=False)
 
 
 @dataclass(frozen=True)
@@ -350,11 +352,13 @@ class AutonomousAgent:
             decision = parse_agent_decision(reply)
             if cut or not decision.structured:
                 decision = self._ask_again(prompt, decision, cut)
-            if decision is _CUT_TWICE:
+            if decision is _CUT_TWICE or decision is _RETRY_FAILED:
                 return AgentRunResult(
                     goal=goal,
-                    final_answer="The reasoning model's replies were cut off at the length limit twice, so nothing "
-                                 "from them was run.",
+                    final_answer=("The reasoning model's replies were cut off at the length limit twice, so nothing "
+                                  "from them was run." if decision is _CUT_TWICE else
+                                  "The reasoning model's reply was cut off at the length limit and asking again "
+                                  "failed, so nothing from it was run."),
                     status="failed",
                     steps=steps,
                 )
@@ -412,7 +416,7 @@ class AutonomousAgent:
             # stop the run rather than return the earlier answer as a success (Codex's review).
             check_cancelled()
             record_failure("agent/ask-again", exc)
-            return _CUT_TWICE if cut else decision
+            return _RETRY_FAILED if cut else decision
         check_cancelled()
         if isinstance(reply, CutOff):
             return _CUT_TWICE if cut else decision
@@ -429,8 +433,10 @@ class AutonomousAgent:
         try:
             reply = self._decide(prompt) or ""
             check_cancelled()
-            decision = parse_agent_decision(reply)
-            if decision.final_answer:
+            # A summary cut off at the length limit ends mid-sentence; the recap below is true
+            # (Codex's review of #178).
+            decision = None if isinstance(reply, CutOff) else parse_agent_decision(reply)
+            if decision is not None and decision.final_answer:
                 return decision.final_answer
         except Exception as exc:
             # The step limit message below is the fallback; without this the reason the

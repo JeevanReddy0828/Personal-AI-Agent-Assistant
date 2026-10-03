@@ -342,6 +342,19 @@ class AutonomousAgentTests(unittest.TestCase):
         agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
         result = asyncio.run(agent.run("clean up"))
         self.assertEqual((seen, result.status), ([], "failed"))
+        # Not "cut off twice": the second ask failed, it was not cut off (Codex's review).
+        self.assertIn("asking again failed", result.final_answer)
+
+    def test_a_step_limit_summary_cut_off_is_not_the_answer(self) -> None:
+        # Codex's repro on #178: the summary path parsed a cut-off reply directly.
+        from laptop_agent.planner.core import CutOff
+
+        brain = _ScriptedBrain(["ACTION: list files .", CutOff("FINAL: All files are safely")])
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("listed")), max_steps=1)
+        result = asyncio.run(agent.run("check my files"))
+        self.assertEqual(result.status, "stopped")
+        self.assertNotIn("All files are safely", result.final_answer)
+        self.assertIn("Reached the 1-step limit", result.final_answer)
 
     def test_a_reply_that_is_only_an_invented_observation_fails(self) -> None:
         brain = _ScriptedBrain(["OBSERVATION: [ok] made up", "OBSERVATION: [ok] made up again"])
