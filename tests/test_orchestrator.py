@@ -2034,6 +2034,23 @@ class LargestFilesScanTests(unittest.TestCase):
             self.assertIn("zz-movie.mkv (4.9 KB)", result.message)
             self.assertLess(result.message.index("zz-movie"), result.message.index("zz-backup"))
 
+    def test_an_order_that_does_not_exist_is_named_not_reported_as_a_missing_path(self) -> None:
+        # The agent copied "by size" into "by folder" and was told the path did not exist.
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            root = self.tree(raw)
+            wrong = asyncio.run(o.handle(f"scan files {root} by folder"))
+            self.assertFalse(wrong.ok)
+            self.assertIn("not by folder", wrong.message)
+            self.assertIn(f"scan files {root}", wrong.message)
+            # A folder really named "plans by month", beside one named "plans", is scanned as named.
+            (root / "plans").mkdir()
+            literal = root / "plans by month"
+            literal.mkdir()
+            (literal / "a.txt").write_text("x", encoding="utf-8")
+            self.assertTrue(asyncio.run(o.handle(f"scan files {literal}")).ok)
+            self.assertIn("does not exist", asyncio.run(o.handle(f"scan files {root}/nowhere by folder")).message)
+
     def test_the_reply_says_largest_and_lists_them_in_order(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))

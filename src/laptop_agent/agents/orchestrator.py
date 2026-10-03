@@ -1027,6 +1027,14 @@ class AgentOrchestrator:
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
             root = root[: by_size.start()].strip() if by_size else root
+            # The agent copies "by size" into orders that do not exist ("by folder") and was told
+            # only that the path was missing, so it spent another step guessing.
+            other = re.fullmatch(r"(.+?)\s+by\s+(\w+)", root, re.IGNORECASE)
+            if not by_size and other and not Path(root).expanduser().exists() and Path(other.group(1)).expanduser().exists():
+                return ToolResult.failure(
+                    f"scan files can list largest first (`by size`), but not by {other.group(2)}. Use "
+                    f"`scan files {other.group(1)}`, which also counts the files of each type."
+                )
             return self.context.files.scan(root or ".", by_size=bool(by_size))
 
         if lowered.startswith("read file "):
