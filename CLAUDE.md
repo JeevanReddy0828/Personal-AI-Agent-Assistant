@@ -86,6 +86,8 @@ non-negotiable conventions); flag any mismatch before proceeding.
 - A decision future sessions must respect → `MEMORY.md`, dated.
 - How a subsystem works and why → this file. Agent hand-offs → `CHANGES_MADE.md` on
   `claude/pair-log`.
+- How Claude and Codex work together, and what neither may miss → `AGENTS.md`, which Codex
+  loads itself and Claude Code loads through this import: @AGENTS.md
 - After any fix, add one index line to `ERRORS.md` (symptom → cause → guard).
 
 ## Part 8 — Operational Modes
