@@ -131,6 +131,7 @@ _VERBATIM = "verbatim-reply"
 # never reached the live rate the same question gets phrased as "how much is 100 dollars in
 # euros", and "translate hello to french" never reached a model that knows French.
 _DECLINED = "The router named the sentence itself as a command; answered as conversation."
+_INVENTED = "The router named a command no tool runs; the sentence was answered as conversation."
 
 
 def _short_topic(text: str, words: int = 8) -> str:
@@ -2177,19 +2178,11 @@ class AgentOrchestrator:
                 return ToolResult.success(planned.response)
             if planned.is_command and planned.command and planned.command.strip().lower() != lowered:
                 result = await self._run_routed(planned.command, history_turns)
-                # Format the tool result into plain language locally — instant, with
-                # no second network round-trip, so natural-language requests stay fast.
-                result.message = self._humanize(result)
-                result.data.setdefault("planner", {})
-                result.data["planner"].update(
-                    {
-                        "source_text": command,
-                        "planned_command": planned.command,
-                        "confidence": planned.confidence,
-                        "explanation": planned.explanation,
-                    }
-                )
-                return result
+                if not result.data.get("unrecognised"):
+                    return self._routed_reply(result, command, planned)
+                # An invented command no tool runs ("currency convert 100 usd eur") is answered as
+                # the user's own sentence, the way a command handed back unchanged is (#167).
+                planned = PlanDecision(action="chat", confidence=planned.confidence, explanation=_INVENTED)
             if planned.is_command:  # handed back unchanged: the dispatch above already declined it
                 planned = PlanDecision(action="chat", confidence=planned.confidence, explanation=_DECLINED)
             if planned.is_chat:
@@ -2370,6 +2363,22 @@ class AgentOrchestrator:
         r"|^\s*i(?:'ve|\s+have|\s+got)?(?:\s+got)?\s+(?:some\s+)?(?:big\s+|good\s+|bad\s+|great\s+|exciting\s+)?news\b",
         re.IGNORECASE,
     )
+
+    def _routed_reply(self, result: ToolResult, command: str, planned) -> ToolResult:
+        """A routed tool's result in plain language, with what the router made of the sentence."""
+        # Formatted locally - instant, with no second network round-trip, so natural-language
+        # requests stay fast.
+        result.message = self._humanize(result)
+        result.data.setdefault("planner", {})
+        result.data["planner"].update(
+            {
+                "source_text": command,
+                "planned_command": planned.command,
+                "confidence": planned.confidence,
+                "explanation": planned.explanation,
+            }
+        )
+        return result
 
     async def _run_routed(self, command: str, history_turns: list[dict[str, str]]) -> ToolResult:
         """Run the command the planner resolved, lighting up the specialist it delegated to so
@@ -4830,4 +4839,4 @@ class AgentOrchestrator:
         # to claim no language model was connected, which was usually untrue.
         shown = " ".join((text or "").split())[:80]
         return ToolResult.failure(f"I don't know how to do that yet: “{shown}”. Say 'help' to see what I can do.",
-                                  heard=text)
+                                  heard=text, unrecognised=True)
