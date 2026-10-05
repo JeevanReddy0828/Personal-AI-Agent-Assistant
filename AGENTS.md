@@ -15,8 +15,11 @@ you are about to edit (map below) before you change it. Keep this file under 8 K
 
 ## Working together
 
-- **Jeevan owns the product and does the merging** (`gh pr merge`). Neither agent merges,
-  force-pushes or deletes a branch. Push only to a named branch: `git push origin <b>:<b>`.
+- **Jeevan owns the product; Claude merges** (his instruction, 2026-10-05), once CI is green
+  on the final head and the full suite has run on what main becomes, in dependency order.
+  Codex reviews before the merge when it can and after it otherwise; a finding after a merge
+  becomes a follow-up PR. Codex does not merge. Neither agent force-pushes or deletes a
+  branch. Push only to a named branch: `git push origin <b>:<b>`.
 - **Branches:** `claude/<feature>` and `codex/<feature>`, each from current `main`. Keep out
   of the other agent's branches and worktrees, except a synchronization agreed in the log.
 - **The pair log** is `CHANGES_MADE.md` on the `claude/pair-log` branch: dated
