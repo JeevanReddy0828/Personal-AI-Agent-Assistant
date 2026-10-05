@@ -192,11 +192,22 @@ class RoutingContractTests(unittest.TestCase):
         self.assertIn("say please", result.message)
 
     def test_a_path_keeps_its_own_apostrophe(self) -> None:
+        # Only a sentence that STARTED with the file verb kept its path (Codex's review of
+        # #186): "please read file …Jeevan’s notes.txt" was folded and not found.
         note = Path(self.tmp.name) / "Jeevan’s notes.txt"
         note.write_text("the curly one", encoding="utf-8")
-        result, _ran = self.everyday.say(f"read file {note}")
-        self.assertTrue(result.ok, result.message)
-        self.assertIn("the curly one", result.message)
+        for said in (f"read file {note}", f"please read file {note}", f"could you read file {note}",
+                     f"hey jarvis, read file {note}"):
+            with self.subTest(said=said):
+                result, _ran = self.everyday.say(said)
+                self.assertTrue(result.ok, result.message)
+                self.assertIn("the curly one", result.message)
+
+    def test_only_the_words_before_a_path_are_straightened(self) -> None:
+        from laptop_agent.agents.orchestrator import _fold_apostrophes
+        self.assertEqual(_fold_apostrophes("what’s the weather"), "what's the weather")
+        self.assertEqual(_fold_apostrophes("could you’d read file a’s.txt"), "could you'd read file a’s.txt")
+        self.assertEqual(_fold_apostrophes("forecast sales in Jeevan’s.csv"), "forecast sales in Jeevan’s.csv")
 
     def test_ordinary_sentences_run_nothing(self) -> None:
         for text in MUST_STAY_CHAT:
