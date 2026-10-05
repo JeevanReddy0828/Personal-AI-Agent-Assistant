@@ -35,8 +35,12 @@ you are about to edit (map below) before you change it. Keep this file under 8 K
 
 - **Zero required dependencies.** A heavy capability is an optional extra that fails with a
   clear `ToolResult.failure` and an install hint, never a crash.
-- **The approval gate decides risk:** read-only or local = LOW; a network read = MEDIUM;
-  changing anything outside the laptop = HIGH/CRITICAL, which raises an approval card.
+- **Keep each operation's risk level as the code already sets it.** In the app's approval
+  gate, a harmless read is LOW and a network read generally MEDIUM, but writing, moving or
+  deleting files, downloads and shell commands are HIGH or CRITICAL even when entirely local,
+  as is anything that leaves the laptop; those raise an approval card. A `personal` account is
+  refused HIGH/CRITICAL before any card - approving is never a way around it. (This is the
+  app's gate, not a rule about our own edits to this repository.)
 - **Tools return `ToolResult`** (`ok`, `message`, `data`); network and engine calls sit behind
   an injectable backend so the success path is tested offline.
 - **Every swallowing `except` records the reason** (`failures.record_failure`).
