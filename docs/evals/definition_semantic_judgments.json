@@ -1,0 +1,68 @@
+{
+  "fixture_commit": "7be1e80",
+  "fixture_sha256": "083f28c4e4c121e6a8343801618aca16948a67c1fa86a52cb86e460545445d6e",
+  "grading": "Manual assessment against the precommitted semantic rubrics. The source and returned first passage were inspected for each case; these labels were written after inference. An answer passes only when it states the rubric fact, including acknowledging an absent definition for cedar.",
+  "checks": [
+    {
+      "corpus": "single_subject_README",
+      "variant": "baseline",
+      "passed": [
+        "cedar",
+        "kite",
+        "vega"
+      ],
+      "passed_count": 3,
+      "total": 8
+    },
+    {
+      "corpus": "single_subject_README",
+      "variant": "title_definition",
+      "passed": [
+        "atlas",
+        "nacre",
+        "orchid"
+      ],
+      "passed_count": 3,
+      "total": 8
+    },
+    {
+      "corpus": "illustrative_user_mix",
+      "variant": "baseline",
+      "passed": [
+        "kite",
+        "vega"
+      ],
+      "passed_count": 2,
+      "total": 8
+    },
+    {
+      "corpus": "illustrative_user_mix",
+      "variant": "title_definition",
+      "passed": [
+        "morrow",
+        "nacre"
+      ],
+      "passed_count": 2,
+      "total": 8
+    },
+    {
+      "corpus": "developer_history_stress",
+      "variant": "baseline",
+      "passed": [
+        "kite"
+      ],
+      "passed_count": 1,
+      "total": 8
+    },
+    {
+      "corpus": "developer_history_stress",
+      "variant": "title_definition",
+      "passed": [
+        "morrow",
+        "nacre"
+      ],
+      "passed_count": 2,
+      "total": 8
+    }
+  ]
+}
