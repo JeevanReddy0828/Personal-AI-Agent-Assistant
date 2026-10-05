@@ -70,10 +70,30 @@ class BrowserRegressions(unittest.TestCase):
                 {"name": "GPU 2", "util_kind": "3D", "util_percent": None,
                  "mem_used_mb": None, "mem_total_mb": 4096}]}))
         self.page.locator("#railStatus").click()
-        self.wait_js("document.getElementById('metrics').textContent.includes('GPU (3D)')")
+        self.wait_js("document.getElementById('metrics').textContent.includes('GPU 2 (3D)')")
         rendered = self.page.locator("#metrics").inner_text()
-        self.assertIn("GPU (3D)", rendered)
+        self.assertIn("GPU 2 (3D)", rendered)
         self.assertEqual(rendered.count("n/a"), 2)
+
+    def test_overview_and_drawer_distinguish_named_and_unknown_adapters(self):
+        gpus=[{"name":"AMD Radeon Graphics","util_kind":"3D","util_percent":12},
+              {"name":"NVIDIA GeForce RTX 4060","util_kind":"3D","util_percent":37}]
+        self.page.route("**/api/metrics",lambda route:route.fulfill(json={"gpus":gpus}))
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        for area in ("#ovMetrics","#metrics"):
+            labels=self.page.locator(area+" .top span").all_text_contents()
+            self.assertIn("AMD Radeon Graphics (3D)",labels)
+            self.assertIn("NVIDIA GeForce RTX 4060 (3D)",labels)
+        gpus[:]=[{"util_kind":"3D","util_percent":None},{"name":" ","util_kind":"3D","util_percent":0}]
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        for area in ("#ovMetrics","#metrics"):
+            labels=self.page.locator(area+" .top span").all_text_contents()
+            self.assertIn("GPU 0 (3D)",labels)
+            self.assertIn("GPU 1 (3D)",labels)
+        gpus[:]=[{"name":"<img src=x onerror=alert(1)>","util_percent":0}]
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        self.assertEqual(self.page.locator("#ovMetrics img,#metrics img").count(),0)
+        self.assertIn("<img",self.page.locator("#ovMetrics").inner_text())
 
     def test_four_views_at_mobile_tablet_and_desktop_widths(self):
         for width in (390, 700, 1100, 1440):

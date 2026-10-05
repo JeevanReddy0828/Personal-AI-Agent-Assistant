@@ -307,6 +307,12 @@ probe. Its simulated win32 platform otherwise calls windll on a Linux CI host wi
 psutil. Production metrics behavior is unchanged by this test-harness correction.
 
 
+## GPU adapter labels — 2026-10-02
+
+GPU labels: a two-adapter Chromium repro failed before the fix. It checks AMD/NVIDIA names, distinct missing-name fallbacks, zero versus unknown utilization, and HTML escaping in Overview and drawer.
+
+Integration check (2026-10-02): main ead0937, including ANALYTICS-04, is merged into the GPU-label branch. Both sides of the ERRORS.md and REVIEW_REPORT.md conflicts were preserved. Metrics 18, page assets 10, and the two targeted Chromium label regressions pass.
+
 ## Diagnostics reference correction — 2026-10-02
 
 Unclear R2 beside baseline MAE -> two different reference predictors -> both now use the fixed training mean. R2 remains a squared-error comparison, MAE an absolute-error comparison. Near-constant training data is refused at normalized sd <= 1e-12; tails under ten rows warn. See docs/analytics.md for the superseding contract and tests.
