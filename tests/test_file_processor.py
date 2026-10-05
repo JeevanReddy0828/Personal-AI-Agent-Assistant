@@ -42,6 +42,18 @@ class SpreadsheetStatsTests(unittest.TestCase):
             self.assertEqual(columns["age"]["mean"], 41)
             self.assertEqual(columns["score"]["sum"], 25.0)
 
+    def test_one_reading_of_a_table_and_its_cells(self) -> None:
+        # Shared with `forecast` (review of #159): this copy kept an Excel byte-order mark in the
+        # first column's name and summed "1,5" as fifteen, which the forecast tool refused.
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "excel.csv"
+            path.write_bytes('﻿month,amount,price\nJan,"1,5",$1200\nFeb,2,"$1,250"\n'.encode("utf-8"))
+            result = FileTool(ApprovalGate(lambda r: True)).analyze_spreadsheet(str(path))
+            columns = {column["name"]: column for column in result.data["columns"]}
+            self.assertIn("month", columns)
+            self.assertEqual(columns["amount"]["type"], "text")
+            self.assertEqual((columns["price"]["type"], columns["price"]["sum"]), ("number", 2450.0))
+
     def test_rejects_non_spreadsheet(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "doc.txt"

@@ -1365,6 +1365,10 @@ class HeuristicPlannerProvider:
         rain tomorrow", "do i need an umbrella", "what's the weather" - used to reach a
         chat model that cannot see the sky, or a web search for the sentence itself.
         """
+        # A sentence naming a table is a data forecast, never the weather: one that missed the
+        # forecast command's grammar was answered with the weather at a place called "sales.csv".
+        if re.search(r"\.(?:csv|tsv)\b", text, re.IGNORECASE):
+            return None
         asked = _WEATHER_ASK.match(text)
         if not asked and not re.search(r"\b(weather|forecast|temperature)\b", text, re.IGNORECASE):
             return None
