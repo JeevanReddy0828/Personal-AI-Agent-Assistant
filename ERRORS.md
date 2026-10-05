@@ -68,6 +68,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   command, and the first test passed with the guard removed. (10-05)
 - **Ordinary talk triggers a tool** ("good news, i got the job" → headlines) → a keyword
   anywhere in the sentence → whole-sentence grammar; refuse words only talk uses. (10-01)
+- **"what's happening in the world today" got a web search, not headlines** → the news
+  grammar needs the word "news" → `_WORLD_NEWS`, whole sentence, a pronoun is no topic. (10-05)
 - **"I don't know how to do that yet" for an answerable question** → the router echoed the
   input as a command nothing runs → answer it as conversation (`_DECLINED`). (10-01)
 - **A reminder refused for "no time", though the time was said** → it was said first

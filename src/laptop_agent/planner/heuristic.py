@@ -494,6 +494,12 @@ _TARGETY = re.compile(
 # problem"; and a topic counted only with nothing before it, so "latest tech news" lost
 # "tech" and got the day's top stories.
 _NEWS_WHEN = r"(?:\s+(?:today|tonight|now|right\s+now|please|this\s+(?:morning|afternoon|evening|week)))*"
+_WORLD_NEWS = re.compile(
+    _POLITE + r"(?:what(?:'s|s|\s+is)\s+(?:happening|going\s+on|new)|any\s+news)\s+in\s+the\s+world"
+    r"(?:\s+of\s+(?P<topic>[a-z][\w&+.-]*(?:\s+[a-z][\w&+.-]*){0,2}))?"
+    r"(?:\s+(?:today|right\s+now|this\s+morning|tonight|lately))?\s*[?.!]*",
+    re.IGNORECASE,
+)
 _NEWS_ASK = re.compile(
     _POLITE
     + r"(?:(?:what(?:'s|s|\s+is)\s+(?:new|(?:the\s+)?latest)\s+in"
@@ -1305,6 +1311,14 @@ class HeuristicPlannerProvider:
         # "read the news article file.txt" names a target, so it belongs to the file path.
         if _TARGETY.search(text):
             return None
+        world = _WORLD_NEWS.fullmatch(text)
+        if world:
+            # "what's happening in the world today" names no "news", and got a web search.
+            topic = re.sub(r"\s+(?:today|tonight|lately|right\s+now|this\s+morning)$", "",
+                           (world.group("topic") or "").strip(), flags=re.IGNORECASE)
+            if any(word in _NOT_A_TOPIC for word in topic.lower().split()):
+                return None     # "the world of my dreams"
+            return self._command(f"news {topic}".strip(), "User wants the latest headlines.", 0.85)
         asked = _NEWS_ASK.fullmatch(text) or _NEWS_BARE.fullmatch(text)
         if not asked:
             return None
