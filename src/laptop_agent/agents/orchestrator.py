@@ -44,11 +44,14 @@ from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import (
+    _POLITE,
     SMALL_TALK,
     fact_question,
     is_diagram_subject,
+    is_negated_request,
     is_plain_question,
     nameless_list_edit,
+    strip_address,
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
@@ -580,6 +583,10 @@ class AgentOrchestrator:
             return decision
 
         fast = self.router.plan(command, help_text, profile)
+        # A routed model may erase a leading "do not" and propose the positive tool.
+        # The instant router already marks this as chat; keep that result through dispatch.
+        if is_negated_request(command):
+            return decided("heuristic", fast)
         if fast.is_command or self.planner is None:
             return decided("heuristic", fast)
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
@@ -665,6 +672,7 @@ class AgentOrchestrator:
     )
     _NOT_RUNNING = re.compile(
         r"\b(?:don'?t|do\s+not|never|without|not|no\s+need\s+to)\s+(?:\w+\s+){0,2}(?:run|execute|exec)\b"
+        r"|^(?!\s*(?:run|execute|exec)\b).*?\bhow\s+to\s+(?:run|execute|exec)\b"
         r"|^\s*(?:what|why|how|explain|is|are|does|should|can\s+i|could\s+i)\b",
         re.IGNORECASE,
     )
@@ -681,12 +689,17 @@ class AgentOrchestrator:
         command = (planned.command or "") if planned.is_command else ""
         if not command.lower().startswith("run command "):
             return planned
-        if self._NOT_RUNNING.search(text):
+        request = strip_address(text)
+        courtesy = re.match(_POLITE, request, re.IGNORECASE)
+        if courtesy:
+            request = request[courtesy.end():]
+        if self._NOT_RUNNING.search(request):
             # A question about a command, or a request not to run one: answer it, run nothing.
             return PlanDecision(action="chat", confidence=0.55,
                                 explanation="A shell command for a question or a refusal; answered instead.")
         typed = re.sub(r"^in\s+.+?\s+::\s+", "", command[len("run command "):].strip(), flags=re.IGNORECASE)
-        said = typed and re.search(r"(?<!\w)" + re.escape(typed) + r"(?!\w)", text, re.IGNORECASE)
+        # A command mentioned inside prose is not the user's own command request.
+        said = bool(typed) and request.casefold() == typed.casefold()
         if self._ASKS_TO_RUN.search(text) or said:
             return planned
         return PlanDecision(

@@ -89,12 +89,19 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
-  match anywhere, so a leading negation was skipped → `_NEGATED` leaves it to the model.
-  Found by testing a guard's negation cases end to end: the instant router got there first. (10-05)
+  match anywhere, so a leading negation was skipped → `_NEGATED` identifies it before a route.
+  That alone was insufficient: an LLM route could propose the positive tool and a MEDIUM open
+  ran automatically → keep the negated turn on the chat path through dispatch. (10-05)
 - **A shell command for a sentence that never asked for one** ("change my desktop background"
   → `reg add HKCU\…`) → the LLM router fills the gap with the shell, despite the prompt
   saying not to → `_repair_shell_command`; the rest of tool substitution is an OPEN limit in
   CLAUDE.md, measured and not fixed. (10-05)
+- **"Please explain how to run npm install" raised a CRITICAL card** → the question guard
+  only matched sentence-initial `explain`/`how`, while `run` or the copied command still
+  counted as execution intent → remove address and shared polite prefix before checking for
+  questions; a command merely mentioned in prose ("I saw git status in a tutorial") must
+  not count as the user typing that command as their whole request. Test through `handle()`
+  with a misrouted LLM command. (10-05)
 - **"it's" saved as a name; `1e309` read as 309** → filler accepted; no left boundary on a
   number → `_meaningful`; `(?<![\w.])`. (09-26)
 - **A validator rejects the common phrasing** → it rejected a shape → look for the wanted

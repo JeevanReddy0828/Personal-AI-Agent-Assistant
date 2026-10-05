@@ -600,6 +600,11 @@ def strip_address(text: str) -> str:
 _NEGATED = re.compile(_POLITE + r"(?:do\s+not|don'?t|dont|never(?!\s*mind)|no\s+need\s+to)\b", re.IGNORECASE)
 
 
+def is_negated_request(text: str) -> bool:
+    """Whether the request opens with a negation after its address and courtesy."""
+    return bool(_NEGATED.match(strip_address(text)))
+
+
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
 # "what's taking up space in my downloads". The LLM router turned the first into a plain
 # `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
@@ -640,8 +645,8 @@ class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
         raw = strip_address(text)
-        if _NEGATED.match(raw):
-            return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; left to the model.")
+        if is_negated_request(raw):
+            return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; answer without an action.")
         lowered = raw.lower()
         polite = re.match(_POLITE, raw, re.IGNORECASE).end()
         asked = raw[polite:]

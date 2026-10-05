@@ -609,12 +609,14 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
     the same way; a real command that runs and fails still reports its failure.
   - **A negated request is never turned into its positive** (`heuristic._NEGATED`). Routes
     match anywhere in a sentence, so "do not open youtube" opened it and "do not remind me to
-    call mom" set the reminder. A sentence that opens with a negation is left to the model,
-    which reads one; "never mind the timer" is a cancellation and still routes.
+    call mom" set the reminder. A sentence that opens with a negation stays on the chat path;
+    the routing model is skipped so it cannot propose a positive command. "Never mind the
+    timer" is a cancellation and still routes.
   - **The LLM router may not invent a shell command** (`_repair_shell_command`). For "change
     my desktop background to blue" it wrote `reg add "HKCU\Control Panel\Colors" ...`. A
     routed `run command` stands only when the words asked to run something, named a shell
-    to do it in, or contain the command itself; a question or a "don't run" is answered,
+    to do it in, or consist of the command itself; a question (including a polite explanation
+    request) or a "don't run" is answered,
     and anything else gets a fixed reply saying nothing was run.
   - **Open limit, not accepted behaviour: the LLM router substitutes a nearby tool.**
     Measured 2026-10-05 on 22 requests the app cannot do: 8 became a tool that changes state
