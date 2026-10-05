@@ -78,6 +78,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`total_files`, `by_extension`) and say when text was clipped. (09-11)
 - **A count instead of an answer** ("1 scheduled job(s).") → the content was only in `data`
   → name what is counted. (10-01, 09-11)
+- **The agent answered with its own deliberation, or a file that does not exist** → a reply
+  with no ACTION/FINAL was taken whole, and the model writes ACTION, an invented OBSERVATION
+  and a FINAL built on it in one reply → trust a reply up to its first upper-case ACTION, cut
+  an OBSERVATION it wrote, ask once more (#172). Log the raw replies before trusting an eval. (10-02)
+- **A command the agent was cut off in the middle of** → `finish_reason: length` stopped at
+  the transport → `CutOff` reaches the loop; never run, one retry, never the partial (#178). (10-02)
+- **What the user said ("one page", "largest") was gone from the routed command** → the LLM
+  router rewrote the sentence → the instant route keeps it, and a `_repair_*` hook puts back
+  what the router drops (#173, #176). (10-02)
 
 ### Models and providers
 - **A tier "busy" for hours** → a 400/401/404/410 misconfiguration read as congestion →
@@ -93,6 +102,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   tier; 900-token caps. (09-09)
 - **Invented captions from `nemotron-parse`; dead env names** → drop `Caption` regions; every
   env name gets a `config.py` field. (09-11)
+- **A long reply stops mid-sentence, with no notice** → a 2,048-token stream cap that never
+  read `finish_reason` → 16,384 on NVIDIA (measured to accept 65,536) and a cut-off note; a
+  note alone is not an answer, or the fallback never runs (#177). (10-02)
+- **The model will not shorten its own draft** (335 → 319 words, asked for 142) → draft the
+  request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
 - **A summary or answer that is a wall of Markdown** → a splitter flattened lines → one
@@ -163,6 +177,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Committed to `main`; committed `docs/review/*.png`** → check the branch before the first
   commit; discard noisy paths before `git add`. (09-11, 09-22)
 - **Nearly rebuilt an existing feature** → `git grep` before building. (09-09)
+- **`gh pr merge` refused as "merge without review"** → the auto-mode classifier does not
+  count PR-comment verdicts → never route around it; hand Jeevan the commands. His terminal
+  is Windows PowerShell 5.1: `foreach (...) { ...; if ($LASTEXITCODE -ne 0) { break } }`,
+  never a bash loop or `||`. (10-02)
+- **A stacked PR would merge into its parent branch, not main** → `gh pr edit N --base main`
+  before it is merged, with its parent merged first in the same batch. (10-02)
+- **A new worktree cost ~27k tokens of context** → the Read tool loads that worktree's
+  CLAUDE.md → read files in other worktrees through the shell. (10-02)
 
 ## Session 2026-10-01/02 — driving the app found nine user-visible bugs
 
