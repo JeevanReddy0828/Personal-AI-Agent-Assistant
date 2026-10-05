@@ -3,6 +3,7 @@ from __future__ import annotations
 from laptop_agent.failures import record_failure
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import FOLLOW_UP_RULE
+from laptop_agent.planner.core import CutOff
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 import json
@@ -24,6 +25,10 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 # answer may still say "Observation: ..." in its prose.
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
 _FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
+_CUT_OFF_REMINDER = (
+    "\n\nYour last reply was cut off at the length limit, so none of it was used. Reply again, "
+    "shorter: THOUGHT then ACTION, or THOUGHT then FINAL."
+)
 _FORMAT_REMINDER = (
     "\n\nYour last reply had no ACTION: line and no FINAL: line, so nothing could run. "
     "Reply again in exactly the format above: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -45,6 +50,13 @@ class AgentDecision:
     is_final: bool
     # False when the reply had neither an ACTION nor a FINAL line and was taken whole.
     structured: bool = True
+
+
+# The run's end when a reply was cut off at the length limit and so was the one asked for
+# after it: compared by identity, so it cannot be mistaken for a reply that said nothing.
+_CUT_TWICE = AgentDecision(thought="", command="", final_answer="", is_final=True, structured=False)
+# The same, when asking again after a cut-off reply failed rather than being cut off itself.
+_RETRY_FAILED = AgentDecision(thought="", command="", final_answer="", is_final=True, structured=False)
 
 
 @dataclass(frozen=True)
@@ -336,9 +348,20 @@ class AutonomousAgent:
                 )
 
             check_cancelled()
+            cut = isinstance(reply, CutOff)
             decision = parse_agent_decision(reply)
-            if not decision.structured:
-                decision = self._ask_again(prompt, decision)
+            if cut or not decision.structured:
+                decision = self._ask_again(prompt, decision, cut)
+            if decision is _CUT_TWICE or decision is _RETRY_FAILED:
+                return AgentRunResult(
+                    goal=goal,
+                    final_answer=("The reasoning model's replies were cut off at the length limit twice, so nothing "
+                                  "from them was run." if decision is _CUT_TWICE else
+                                  "The reasoning model's reply was cut off at the length limit and asking again "
+                                  "failed, so nothing from it was run."),
+                    status="failed",
+                    steps=steps,
+                )
             if decision.is_final and not decision.structured and not decision.final_answer:
                 return AgentRunResult(
                     goal=goal,
@@ -375,22 +398,31 @@ class AutonomousAgent:
         summary = self._summarize(goal, steps, context)
         return AgentRunResult(goal=goal, final_answer=summary, status="stopped", steps=steps)
 
-    def _ask_again(self, prompt: str, decision: AgentDecision) -> AgentDecision:
-        """Ask once more when a reply had neither an ACTION nor a FINAL line.
+    def _ask_again(self, prompt: str, decision: AgentDecision, cut: bool = False) -> AgentDecision:
+        """Ask once more when a reply had neither an ACTION nor a FINAL line, or was cut off.
 
         Such a reply was taken as the answer, so a run ended "ok" on the model's own
         deliberation ("Actually, looking at the AVAILABLE COMMANDS... But wait..."). A second
         reply without them is still accepted, so a model that simply answered is not refused.
+
+        A reply cut off at the length limit is never used at all, even when it parses: a
+        command cut short is a different command, and an answer cut short is not the answer.
+        If the second reply is cut off too, nothing from either runs (`_CUT_TWICE`).
         """
         try:
-            retried = parse_agent_decision(self._decide(prompt + _FORMAT_REMINDER) or "")
+            reply = self._decide(prompt + (_CUT_OFF_REMINDER if cut else _FORMAT_REMINDER)) or ""
         except Exception as exc:
             # A Stop that lands during this call can surface as a transport error; it must still
             # stop the run rather than return the earlier answer as a success (Codex's review).
             check_cancelled()
             record_failure("agent/ask-again", exc)
-            return decision
+            return _RETRY_FAILED if cut else decision
         check_cancelled()
+        if isinstance(reply, CutOff):
+            return _CUT_TWICE if cut else decision
+        retried = parse_agent_decision(reply)
+        if cut:
+            return retried
         return retried if retried.structured or not decision.final_answer else decision
 
     def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
@@ -401,8 +433,10 @@ class AutonomousAgent:
         try:
             reply = self._decide(prompt) or ""
             check_cancelled()
-            decision = parse_agent_decision(reply)
-            if decision.final_answer:
+            # A summary cut off at the length limit ends mid-sentence; the recap below is true
+            # (Codex's review of #178).
+            decision = None if isinstance(reply, CutOff) else parse_agent_decision(reply)
+            if decision is not None and decision.final_answer:
                 return decision.final_answer
         except Exception as exc:
             # The step limit message below is the fallback; without this the reason the

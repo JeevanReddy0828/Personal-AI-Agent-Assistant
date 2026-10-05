@@ -2005,6 +2005,26 @@ class HonestScanTests(unittest.TestCase):
             self.assertIn("complete=False", observation)
 
 
+class AgentBrainCutOffTests(unittest.TestCase):
+    """The agent's decide() is between the provider and the loop: it must hand a cut-off reply
+    on as one, or the loop cannot tell it from a finished reply."""
+
+    config = OrchestratorTests.config
+    build = OrchestratorTests.build
+
+    def test_decide_passes_the_marker_on(self) -> None:
+        from laptop_agent.planner.core import CutOff
+
+        class Cut:
+            def answer(self, prompt, profile, model=None, history=None, max_tokens=None):
+                return CutOff("ACTION: send email to bob@exa")
+
+        with tempfile.TemporaryDirectory() as raw:
+            o = self.build(Path(raw))
+            decide = o._build_agent_brain(planners=(Planner(Cut()),))
+            self.assertIsInstance(decide("go"), CutOff)
+
+
 class LargestFilesScanTests(unittest.TestCase):
     """"What are the largest files in my downloads" listed the first 200 of 1214 in name
     order, and the agent, shown only a count, spent six steps without finding one size."""
