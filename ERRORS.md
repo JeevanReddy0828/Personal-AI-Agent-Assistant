@@ -51,6 +51,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A request answered by a model that cannot see the data** → a hand-written word list
   missed plurals (`_TOOL_SIGNALS`) → enumerate lists against real inputs; add a noun as users
   say it. (09-20)
+- **"Find the email from Alex about the budget" read an inbox digest** → a broad
+  "find ... email" rule won before targeted search, and IMAP treated a natural sender/topic
+  phrase as one TEXT literal → route named senders first and search FROM plus TEXT. A
+  `@gmail.com` sender is not an instruction to switch to Gmail OAuth; only an explicit
+  provider suffix chooses that account. Assert the visible matching reply. (10-05)
 - **One phrasing routes, fourteen do not** → an exact-string route → match the shape, polite
   prefix included; reproduce a backlog item's scope first. (09-20)
 - **Every phrase with an apostrophe missed its tool from a phone** (8/8 contract phrases) →

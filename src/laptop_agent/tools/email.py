@@ -3,6 +3,7 @@ from __future__ import annotations
 import imaplib
 import json
 import mimetypes
+import re
 import smtplib
 import urllib.error
 import urllib.parse
@@ -554,6 +555,14 @@ class EmailTool:
             return ["ALL"]
         if cleaned.upper() in {"UNSEEN", "SEEN"}:
             return [cleaned.upper()]
+        sender_query = re.fullmatch(r'from:"([^"\\]+)"(?:\s+(.+))?', cleaned, re.IGNORECASE)
+        if sender_query:
+            sender = sender_query.group(1).replace("\\", "\\\\").replace('"', '\\"')
+            criteria = ["FROM", f'"{sender}"']
+            if sender_query.group(2):
+                topic = sender_query.group(2).replace("\\", "\\\\").replace('"', '\\"')
+                criteria.extend(("TEXT", f'"{topic}"'))
+            return criteria
         escaped = cleaned.replace("\\", "\\\\").replace('"', '\\"')
         return ["TEXT", f'"{escaped}"']
 

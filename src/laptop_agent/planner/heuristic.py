@@ -1916,6 +1916,33 @@ class HeuristicPlannerProvider:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
+        # A named sender is a search, not a general inbox digest. The broad "find ...
+        # email" rule below swallowed "find the email from Alex about the budget".
+        provider_suffix = re.search(r"\s+(?:in|on)\s+(gmail|google|outlook|microsoft)\s*[?.!]*$",
+                                    text, re.IGNORECASE)
+        search_provider = (self._email_api_provider(provider_suffix.group(1).lower())
+                           if provider_suffix else None)
+        search_text = text[:provider_suffix.start()] if provider_suffix else text
+        sender_search = re.search(
+            r"\b(?:find|search(?:\s+for)?|look\s+for|show(?:\s+me)?)\s+"
+            r"(?:(?:me|my|the|an?|that)\s+)?(?:e-?mails?|messages?)\s+from\s+"
+            r"(?P<sender>.+?)(?:\s+about\s+(?P<topic>.+?))?\s*[?.!]*$",
+            search_text, re.IGNORECASE,
+        )
+        if sender_search:
+            sender = sender_search.group("sender").strip()
+            topic = (sender_search.group("topic") or "").strip().rstrip("?.!")
+            topic = re.sub(r"^(?:the|an?)\s+", "", topic, flags=re.IGNORECASE)
+            if re.fullmatch(r"[\w .@+'-]{1,80}", sender) and topic != "":
+                query = f'from:"{sender}" {topic}'
+            elif re.fullmatch(r"[\w .@+'-]{1,80}", sender) and not sender_search.group("topic"):
+                query = f'from:"{sender}"'
+            else:
+                query = ""
+            if query:
+                command = (f"email api search {search_provider} {query}" if search_provider
+                           else f"email search {query}")
+                return self._command(command, "User wants mail from a named sender.", 0.78)
         # General "show/give/get me my (important/recent) emails" or "emails from the last
         # N days" -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
         # not OAuth, unless the user explicitly names a provider — OAuth reads are gated.
