@@ -215,6 +215,8 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             `data_dir/documents/`, downloaded via `/api/document?name=`. Note: the abandoned
             PyPI package named `docx` shadows python-docx and fails on import — the failure
             message says so.
+            In "write up a one pager on remote work as a word doc", `write up` is one
+            verb: the heuristic strips both words before handing the topic to this tool.
             **A deck names its format at the FRONT**, a document at the end. `split_format`
             only ever looked for a tail ("… as a pdf"), so "create a ppt for sun and planets"
             matched nothing, fell through to the default, and shipped a **PDF** for a request

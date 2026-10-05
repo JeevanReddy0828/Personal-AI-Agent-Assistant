@@ -1431,7 +1431,7 @@ class HeuristicPlannerProvider:
             return None
         match = re.match(
             r"^\s*(?:can you |could you |please )?"
-            r"(?:write|create|make|generate|draft|prepare|produce|export)\s+"
+            r"(?:write(?:\s+up)?|create|make|generate|draft|prepare|produce|export)\s+"
             r"(?:me\s+)?(?:an?\s+|the\s+)?(.+)$",
             text, re.IGNORECASE,
         )
