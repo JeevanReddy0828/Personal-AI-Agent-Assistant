@@ -1,10 +1,5 @@
 # MEMORY.md — decision log
 
-## ANALYTICS-04 update — 2026-10-01
-
-ANALYTICS-04: codex/analytics-drivers starts at main 766b645; Codex implements and Claude reviews. drivers() fits only the prefix, and anomalies() is a whole-sample diagnostic. Immutable JSON-safe results and consumer rules are documented in docs/analytics.md. Runtime has no extra dependency or IO.
-
-
 Permanent architectural facts and decisions. Append when a choice is made that future
 sessions must respect. See `CLAUDE.md` for the operating principles and full architecture.
 
@@ -283,3 +278,7 @@ this conservative heuristic is not a statistical-confidence claim.
 Claude found one-shot callers inheriting the async cache: system status/briefing now
 force a fresh sample. Only HTTP polling uses stale-while-refresh. Optional util_kind=3D
 labels counter data; unknown usage remains unknown through prose and UI formatting.
+
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04: codex/analytics-drivers starts at main 766b645; Codex implements and Claude reviews. drivers() fits only the prefix, and anomalies() is a whole-sample diagnostic. Immutable JSON-safe results and consumer rules are documented in docs/analytics.md. Runtime has no extra dependency or IO.

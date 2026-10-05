@@ -1,10 +1,5 @@
 # CLAUDE.md
 
-## ANALYTICS-04 update — 2026-10-01
-
-ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
-
-
 Guidance for AI coding agents (Claude Code, Codex) working in this repo.
 
 > **Read [Agent Operating Principles](#agent-operating-principles) first — it governs
@@ -676,6 +671,10 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
   and a reply with neither header is asked again once (`_ask_again`). Known limit: a
   well-formed FINAL can still be wrong, which parsing cannot see.
+
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
 
 ## LLM brain — tiered models
 
