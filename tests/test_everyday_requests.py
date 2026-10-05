@@ -554,6 +554,11 @@ class ShellBackstopTests(unittest.TestCase):
         # Each needs one layer alone: the question behind a courtesy, the explanation mid-sentence.
         "please, is it safe to run ipconfig /flushdns": "run command ipconfig /flushdns",
         "and what does ipconfig /flushdns do": "run command ipconfig /flushdns",
+        # Codex's #193: a command mentioned, not asked for; an explanation; a run asked for first.
+        "I saw git status in a tutorial": "run command git status",
+        "can you explain what npm install does": "run command npm install",
+        "I read about how to run npm install": "run command npm install",
+        "please run npm install and explain how to run it": "run command npm install",
     }
 
     def setUp(self) -> None:
@@ -569,7 +574,8 @@ class ShellBackstopTests(unittest.TestCase):
         return result, any(risk in ("high", "critical") for risk, _action in self.everyday.approvals)
 
     def test_an_invented_command_is_refused_and_says_nothing_ran(self) -> None:
-        for text in ("change my desktop background to blue", "give me directions to boston"):
+        for text in ("change my desktop background to blue", "give me directions to boston",
+                     "I saw git status in a tutorial"):
             with self.subTest(text=text):
                 result, asked = self.shell_asked(text)
                 self.assertFalse(asked)
@@ -578,7 +584,8 @@ class ShellBackstopTests(unittest.TestCase):
 
     def test_a_command_asked_for_still_reaches_the_approval_card(self) -> None:
         for text in ("can you execute ipconfig in powershell", "check my network settings in the terminal",
-                     "git status please", "run the tests and tell me how to fix failures"):
+                     "git status please", "run the tests and tell me how to fix failures",
+                     "please run npm install and explain how to run it"):
             with self.subTest(text=text):
                 self.assertTrue(self.shell_asked(text)[1], text)
 
@@ -586,7 +593,8 @@ class ShellBackstopTests(unittest.TestCase):
         for text in ("what does this command do: ipconfig /flushdns", "how do i run npm install",
                      "please don't execute ipconfig, just explain it", "please explain how to run npm install",
                      "please, what does this command do: ipconfig /flushdns", "hey jarvis, how do i run npm install",
-                     "please, is it safe to run ipconfig /flushdns", "and what does ipconfig /flushdns do"):
+                     "please, is it safe to run ipconfig /flushdns", "and what does ipconfig /flushdns do",
+                     "can you explain what npm install does", "I read about how to run npm install"):
             with self.subTest(text=text):
                 result, asked = self.shell_asked(text)
                 self.assertFalse(asked)
