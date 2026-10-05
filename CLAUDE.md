@@ -607,15 +607,19 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
     reached the live rate that "how much is 100 dollars in euros" gets. Since #184 a routed
     command that *differs* and matches nothing ("currency convert 100 usd eur") is answered
     the same way; a real command that runs and fails still reports its failure.
-  - **A negated request is never turned into its positive** (`heuristic._NEGATED`). Routes
+  - **A negated request is never turned into its positive** (`heuristic.is_negated`). Routes
     match anywhere in a sentence, so "do not open youtube" opened it and "do not remind me to
-    call mom" set the reminder. A sentence that opens with a negation is left to the model,
-    which reads one; "never mind the timer" is a cancellation and still routes.
+    call mom" set the reminder. A sentence that opens with a negation is not routed by the
+    instant router, and whatever command the model returns for it is answered rather than
+    run (`_route.decided`) - the model can still say `open url …`. Not negations: "never
+    mind the timer" (a cancellation), "don't forget to…", "don't let me forget/miss…".
   - **The LLM router may not invent a shell command** (`_repair_shell_command`). For "change
     my desktop background to blue" it wrote `reg add "HKCU\Control Panel\Colors" ...`. A
     routed `run command` stands only when the words asked to run something, named a shell
     to do it in, or contain the command itself; a question or a "don't run" is answered,
-    and anything else gets a fixed reply saying nothing was run.
+    and anything else gets a fixed reply saying nothing was run. A question is read after
+    any courtesy in front of it, and "what does … do" / "how to run …" anywhere: checked
+    only at the very start, "please explain how to run npm install" raised an approval card.
   - **Open limit, not accepted behaviour: the LLM router substitutes a nearby tool.**
     Measured 2026-10-05 on 22 requests the app cannot do: 8 became a tool that changes state
     or spends a call - "book me a table for two at 7pm" set a reminder, "set my wallpaper to
