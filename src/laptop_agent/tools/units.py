@@ -114,9 +114,10 @@ def _unit(word: str) -> str | None:
 def parse(text: str) -> tuple[float, str, str] | None:
     """(amount, from-unit, to-unit) for a conversion request, or None."""
     cleaned = _NUMBER_WORD.sub(lambda m: _words_to_number(m.group(0)), text or "")
-    # The router hands over `convert <what was said>`, and "how many ounces in a pound"
-    # only reads as a conversion from its own first word.
-    cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+many\b)", "", cleaned, flags=re.IGNORECASE)
+    # The router hands over `convert <what was said>`, and "how many ounces in a pound" or
+    # "what's 70 fahrenheit in celsius" only reads as a conversion from its own first word.
+    cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much)\b|what\b)", "", cleaned,
+                     flags=re.IGNORECASE)
     for pattern in (_FORWARD, _HOW_MANY):
         match = pattern.match(cleaned)
         if not match:
@@ -124,6 +125,10 @@ def parse(text: str) -> tuple[float, str, str] | None:
         source, target = _unit(match.group("from")), _unit(match.group("to"))
         if source is None or target is None:
             continue
+        # "how many ounces in a cup" means fluid ounces; it was refused as a mass against a
+        # volume. The answer names the unit it used, so the reading is never hidden.
+        if "ounce" in (source, target) and "volume" in (_FACTORS[source][0], _FACTORS[target][0]):
+            source, target = ("fluid ounce" if unit == "ounce" else unit for unit in (source, target))
         amount = float((match.group("n") or "1").replace(",", "."))
         return amount, source, target
     return None

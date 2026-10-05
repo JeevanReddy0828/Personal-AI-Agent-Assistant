@@ -369,6 +369,9 @@ _CALENDAR_SHOW = re.compile(
     r"(?:calendar|agenda|schedule\s+(?:for\s+)?(?:today|tomorrow|this\s+week))\b"
     r"|^\s*what(?:'s|s|\s+is)\s+on\s+my\s+calendar\b"
     r"|^\s*what\s+do\s+i\s+have\s+(?:on\s+)?(?:today|tomorrow|this\s+week(?:end)?)\s*[?.!]*$"
+    # "is there anything i need to do today" was answered from a web search for the sentence.
+    r"|^\s*(?:is\s+there\s+anything|do\s+i\s+have\s+anything|what\s+do\s+i\s+(?:need|have)\s+to\s+do)\s+"
+    r"(?:i\s+(?:need|have)\s+to\s+do\s+)?(?:on\s+)?(?:today|tomorrow|this\s+week(?:end)?)\s*[?.!]*$"
     r"|^\s*am\s+i\s+(?:free|busy|available)\b"
     r"|^\s*do\s+i\s+have\s+(?:any(?:thing)?\s+)?(?:meetings?|appointments?|plans|events?)\b",
     re.IGNORECASE,

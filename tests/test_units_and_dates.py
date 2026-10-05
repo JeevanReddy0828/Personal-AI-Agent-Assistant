@@ -41,6 +41,12 @@ class UnitTests(unittest.TestCase):
     def test_us_volumes_say_so(self) -> None:
         self.assertIn("(US measure)", UnitTool().convert("convert 1 gallon to liters").message)
 
+    def test_ounces_against_a_volume_are_fluid_ounces(self) -> None:
+        # Refused as "a volume and a mass"; nobody asking how many ounces are in a cup means weight.
+        self.assertIn("**8 fluid ounces** (US measure)", UnitTool().convert("how many ounces in a cup").message)
+        self.assertIn("**2 cups**", UnitTool().convert("convert 16 oz to cups").message)
+        self.assertIn("**16 ounces**", UnitTool().convert("how many ounces in a pound").message)
+
     def test_different_kinds_do_not_convert(self) -> None:
         result = UnitTool().convert("convert 5 miles to kg")
         self.assertFalse(result.ok)
@@ -108,6 +114,11 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertIn("**16 ounces**", result.message)
         result, _ran = self.say("how many days between march 1 and april 15")
         self.assertIn("**45 days**", result.message)
+        # "what's the date tomorrow" was computed, "what's the date next friday" went to a model.
+        for text in ("what's the date next friday", "what is the date on friday", "what's the day of thanksgiving"):
+            result, _ran = self.say(text)
+            self.assertNotIn("answered]", result.message, text)
+            self.assertRegex(result.message, r"\d{4} — \d+ days? from today", text)
 
     def test_a_personal_date_comes_from_memory_or_a_reminder(self) -> None:
         self.say("remember my wife's birthday is june 5")
@@ -151,6 +162,12 @@ class ThroughTheAssistantTests(unittest.TestCase):
         result, ran = self.say("hey jarvis, convert 5 miles to km")
         self.assertEqual(ran, "convert 5 miles to km")
         self.assertIn("**8.05 kilometres**", result.message)
+        # The router prefixes `convert`, which the parser read only before "how many": "what's 70
+        # fahrenheit in celsius" was routed here and then answered "I don't know how to do that yet".
+        result, ran = self.say("what's 70 fahrenheit in celsius")
+        self.assertEqual(ran, "convert what's 70 fahrenheit in celsius")
+        self.assertIn("**21.11°C**", result.message)
+        self.assertIn("**8.05 kilometres**", self.say("how much is 5 miles in km")[0].message)
         self.assertEqual(planner.plan("when is thanksgiving?", "", {}).command, "when is thanksgiving")
         self.assertEqual(planner.plan("what day is it", "", {}).command, "time what day is it")
 

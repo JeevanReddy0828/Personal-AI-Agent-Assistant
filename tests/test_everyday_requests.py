@@ -160,6 +160,24 @@ class RoutingContractTests(unittest.TestCase):
                 direct = ran == text.strip() and result is not None and "answered]" not in result.message
                 self.assertTrue(reached(ran, expected) or direct, f"{text!r} ran {ran!r}, expected {expected!r}")
 
+    def test_a_curly_apostrophe_routes_like_a_straight_one(self) -> None:
+        # Phone keyboards type "what’s". Every phrase here with an apostrophe missed its tool
+        # when it was curly, and the chat model answered instead.
+        curly = [(text.replace("'", "’"), expected) for text, expected in CONTRACT if "'" in text]
+        self.assertGreaterEqual(len(curly), 8)
+        for text, expected in curly:
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                direct = ran == text.strip() and result is not None and "answered]" not in result.message
+                self.assertTrue(reached(ran, expected) or direct, f"{text!r} ran {ran!r}, expected {expected!r}")
+
+    def test_a_path_keeps_its_own_apostrophe(self) -> None:
+        note = Path(self.tmp.name) / "Jeevan’s notes.txt"
+        note.write_text("the curly one", encoding="utf-8")
+        result, _ran = self.everyday.say(f"read file {note}")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("the curly one", result.message)
+
     def test_ordinary_sentences_run_nothing(self) -> None:
         for text in MUST_STAY_CHAT:
             with self.subTest(text=text):

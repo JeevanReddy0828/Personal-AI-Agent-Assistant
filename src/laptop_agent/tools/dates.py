@@ -146,7 +146,8 @@ _UNTIL = re.compile(
 )
 # "when is thanksgiving", "what day is christmas", "what date is easter this year"
 _WHEN = re.compile(
-    r"^\s*(?:when(?:'s|s|\s+is)|what\s+(?:day|date)\s+(?:is|does)|what\s+day\s+of\s+the\s+week\s+is)\s+"
+    r"^\s*(?:when(?:'s|s|\s+is)|what\s+(?:day|date)\s+(?:is|does)|what\s+day\s+of\s+the\s+week\s+is"
+    r"|what(?:'s|s|\s+is)\s+the\s+(?:date|day)(?:\s+(?:on|of))?)\s+"
     r"(?P<what>.+?)(?:\s+(?:fall|land)\s+on)?\s*[?.!]*$",
     re.IGNORECASE,
 )

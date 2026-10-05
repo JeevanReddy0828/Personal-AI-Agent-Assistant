@@ -57,6 +57,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   anywhere in the sentence → whole-sentence grammar; refuse words only talk uses. (10-01)
 - **"I don't know how to do that yet" for an answerable question** → the router echoed the
   input as a command nothing runs → answer it as conversation (`_DECLINED`). (10-01)
+- **Every phrase with an apostrophe missed its tool from a phone** (8/8 contract phrases) →
+  keyboards type "what’s" and every route is written with `'` → `_handle` folds curly
+  apostrophes once, except in a path. Test input copied from a desktop keyboard hides it. (10-05)
+- **Routed to the right tool, which then refused it** ("what's 70 fahrenheit in celsius" →
+  "I don't know how to do that yet") → the router prefixes `convert` and the parser stripped
+  it only before "how many" → strip it before every lead-in the parser reads. A contract that
+  checks the routed command cannot see this: assert the reply. (10-05)
 - **The model asks "May I…?" and never acts** → the prompt quoted the forbidden replies
   (17/25 → 1/25 reworded) → state the rule, never the bad example. (10-01)
 - **The model says it cannot do something it can** → the prompt said only what it cannot →

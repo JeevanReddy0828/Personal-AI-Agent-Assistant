@@ -208,6 +208,10 @@ _UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contain
 _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
                "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
                "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
+# Phone keyboards type "what’s", and every route is written with a straight apostrophe: all
+# eight contract phrases with one went to the chat model when it was curly. A path keeps its
+# own characters, since a file may really be named with one.
+_CURLY_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
 # Where one request ends and the next begins, in speech.
 _JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
 # A second request in a sentence starts with its own verb or question word; "hotels in
@@ -2129,6 +2133,8 @@ class AgentOrchestrator:
         check_cancelled()
         ensure_signed_in()
         command = text.strip()
+        if not command.lower().startswith(_FILE_VERBS):
+            command = command.translate(_CURLY_APOSTROPHES)
         lowered = command.lower()
         history_turns = history or []
         if not command:
