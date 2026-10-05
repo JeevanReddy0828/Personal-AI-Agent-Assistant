@@ -184,18 +184,18 @@ _LET_GO = re.compile(
     re.IGNORECASE,
 )
 _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
+_SNOOZE = re.compile(
+    r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
+    r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?:another\s+)?(?P<minutes>\d+)\s*(?:more\s+)?(?:minutes?|mins?|m))?"
+    r"(?:\s+more)?\s*[.!]*$",
+    re.IGNORECASE,
+)
 # "how long does it take to drive to chicago (from boston)", "how long is the drive from a to b".
 _DRIVE = re.compile(
     _POLITE + r"(?:tell\s+me\s+)?(?:how\s+long\s+(?:(?:does|would|will)\s+it\s+take|it\s+(?:takes|would\s+take))"
     r"(?:\s+me)?\s+to\s+drive|how\s+long\s+is\s+the\s+drive|how\s+long\s+of\s+a\s+drive\s+is\s+it"
     r"|(?:what(?:'s|s|\s+is)\s+the\s+)?driv(?:e|ing)\s+time)"
     r"(?:\s+from\s+(?P<start>.+?))?\s+to\s+(?P<end>.+?)(?:\s+from\s+(?P<start2>.+?))?[\s?.!]*$",
-    re.IGNORECASE,
-)
-_SNOOZE = re.compile(
-    r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
-    r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?:another\s+)?(?P<minutes>\d+)\s*(?:more\s+)?(?:minutes?|mins?|m))?"
-    r"(?:\s+more)?\s*[.!]*$",
     re.IGNORECASE,
 )
 # "stop" and "cancel" are different requests: "stop the alarm" means the one ringing, and
