@@ -39,8 +39,10 @@ you are about to edit (map below) before you change it. Keep this file under 8 K
   gate, a harmless read is LOW and a network read generally MEDIUM, but writing, moving or
   deleting files, downloads and shell commands are HIGH or CRITICAL even when entirely local,
   as is anything that leaves the laptop; those raise an approval card. A `personal` account is
-  refused HIGH/CRITICAL before any card - approving is never a way around it. (This is the
-  app's gate, not a rule about our own edits to this repository.)
+  refused HIGH/CRITICAL before any card unless the operation is explicitly marked everyday
+  (`everyday=True`, such as clearing several of its own reminders), and those are still asked.
+  Approving never lifts a developer-only restriction. (This is the app's gate, not a rule
+  about our own edits to this repository.)
 - **Tools return `ToolResult`** (`ok`, `message`, `data`); network and engine calls sit behind
   an injectable backend so the success path is tested offline.
 - **Every swallowing `except` records the reason** (`failures.record_failure`).
