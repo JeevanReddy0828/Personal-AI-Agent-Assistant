@@ -213,6 +213,22 @@ _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "ext
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
 _CURLY_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
+# Everything from the first verb that takes a path on is left as typed. Checking only the
+# start of the sentence (Codex's review of #186) folded the path in "please read file
+# Jeevan’s notes.txt", and the file was then not found.
+_PATH_VERB = re.compile(
+    r"\b(?:" + "|".join(re.escape(verb.strip()) for verb in _FILE_VERBS) +
+    r"|knowledge export|search files|save research report|open app|forecast|what drives|anomalies in)\b",
+    re.IGNORECASE,
+)
+
+
+def _fold_apostrophes(command: str) -> str:
+    """Straighten curly apostrophes in what was said, never in a path it names."""
+    verb = _PATH_VERB.search(command)
+    if verb is None:
+        return command.translate(_CURLY_APOSTROPHES)
+    return command[: verb.start()].translate(_CURLY_APOSTROPHES) + command[verb.start():]
 # Where one request ends and the next begins, in speech.
 _JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
 # A second request in a sentence starts with its own verb or question word; "hotels in
@@ -2133,9 +2149,7 @@ class AgentOrchestrator:
     ) -> ToolResult:
         check_cancelled()
         ensure_signed_in()
-        command = text.strip()
-        if not command.lower().startswith(_FILE_VERBS):
-            command = command.translate(_CURLY_APOSTROPHES)
+        command = _fold_apostrophes(text.strip())
         lowered = command.lower()
         history_turns = history or []
         if not command:
