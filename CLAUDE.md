@@ -612,7 +612,9 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
     call mom" set the reminder. A sentence that opens with a negation is not routed by the
     instant router, and whatever command the model returns for it is answered rather than
     run (`_route.decided`) - the model can still say `open url …`. Not negations: "never
-    mind the timer" (a cancellation), "don't forget to…", "don't let me forget/miss…".
+    mind the timer" (a cancellation), and "don't forget to…" / "don't let me forget/miss…",
+    which ask for a reminder and may become only that (`asks_not_to_forget`): the model routed
+    "don't forget to call mom at 5pm" to `open url …mom.com`, and "mom" was in the words.
   - **The LLM router may not invent a shell command** (`_repair_shell_command`). For "change
     my desktop background to blue" it wrote `reg add "HKCU\Control Panel\Colors" ...`. A
     routed `run command` stands only when the words asked to run something, named a shell

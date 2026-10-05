@@ -611,6 +611,16 @@ def is_negated(text: str) -> bool:
     return bool(_NEGATED.match(strip_address(text)))
 
 
+_FORGET_IDIOM = re.compile(_POLITE + r"(?:do\s+not|don'?t|dont|never)\s+(?:let\s+me\s+)?(?:forget|miss)\b",
+                           re.IGNORECASE)
+
+
+def asks_not_to_forget(text: str) -> bool:
+    """"don't forget to call mom at 5pm": a negation that asks for a reminder - and for
+    nothing else (Codex's review of #194: the model routed it to `open url …mom.com`)."""
+    return bool(_FORGET_IDIOM.match(strip_address(text)))
+
+
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
 # "what's taking up space in my downloads". The LLM router turned the first into a plain
 # `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214

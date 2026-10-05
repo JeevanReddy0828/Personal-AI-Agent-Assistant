@@ -47,6 +47,7 @@ from laptop_agent.planner.heuristic import (
     SMALL_TALK,
     fact_question,
     is_diagram_subject,
+    asks_not_to_forget,
     is_negated,
     is_plain_question,
     nameless_list_edit,
@@ -215,6 +216,8 @@ _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "ext
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
 _CURLY_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
+# What "don't forget …" may become: something that reminds. Timers and alarms are reminders here.
+_REMINDER_CREATION = re.compile(r"^\s*(?:remind\s+me|reminder\s+add|alarm|timer)\b", re.IGNORECASE)
 # Everything from the first verb that takes a path on is left as typed. Checking only the
 # start of the sentence (Codex's review of #186) folded the path in "please read file
 # Jeevan’s notes.txt", and the file was then not found.
@@ -583,6 +586,10 @@ class AgentOrchestrator:
                 # of #191); it is answered instead.
                 decision = PlanDecision(action="chat", confidence=0.55,
                                         explanation="A request not to do something; answered, not run.")
+            elif (decision.is_command and asks_not_to_forget(command)
+                  and not _REMINDER_CREATION.match(decision.command or "")):
+                decision = PlanDecision(action="chat", confidence=0.55,
+                                        explanation="'Don't forget' asks for a reminder, not this.")
             if trace is not None:
                 trace.route_done(source)
             return decision

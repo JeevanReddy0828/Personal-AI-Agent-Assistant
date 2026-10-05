@@ -91,7 +91,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
   match anywhere, so a leading negation was skipped → `is_negated` holds EVERY route, since
   the model may still answer with the positive; "don't forget to…" asks for the thing and is
-  not a negation. Guarding only the instant router, and calling one good live sample proof,
+  not a negation - it may become a reminder and nothing else, since the model once routed it
+  to `open url …mom.com`. Guarding only the instant router, and calling one good live sample proof,
   was #191's mistake (Codex's review): a safety property needs a guard, not a sample. (10-05)
 - **A shell command for a sentence that never asked for one** ("change my desktop background"
   → `reg add HKCU\…`) → the LLM router fills the gap with the shell, despite the prompt
