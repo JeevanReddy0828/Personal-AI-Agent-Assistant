@@ -228,6 +228,18 @@ class ReminderConversationTests(unittest.TestCase):
         message = self.say("remind me every month on 2026-10-01 at 9 to pay rent")
         self.assertIn("set once", message)
 
+    def test_a_time_said_first_is_kept(self) -> None:
+        # Only the words after "remind me" were kept, so these were refused for having no time.
+        message = self.say("every monday at 9 remind me to file my timesheet")
+        self.assertIn("Repeating reminder set — Mondays at 09:00: file my timesheet.", message)
+        self.assertIn("tomorrow at 9:00 AM: call bob", self.say("tomorrow at 9, can you remind me to call bob"))
+
+    def test_tell_me_at_a_time_sets_a_reminder(self) -> None:
+        # It starts like a question, so the chat model answered it and nothing was set.
+        self.assertIn("set for tomorrow at 9:00 AM: call the bank", self.say("tell me tomorrow at 9 to call the bank"))
+        (item,) = self.reminders.list()
+        self.assertEqual(item["message"], "call the bank")
+
     def test_an_alarm_can_repeat(self) -> None:
         # "every weekday at 7" was set once, for tomorrow, and the repeat dropped unsaid.
         self.assertEqual(self.say("set an alarm for every weekday at 7"),

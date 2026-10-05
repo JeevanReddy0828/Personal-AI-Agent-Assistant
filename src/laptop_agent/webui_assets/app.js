@@ -896,7 +896,7 @@
   }
   function showReminder(r){
     const host=remTray();
-    if(host.querySelector('[data-rem="'+r.id+'"]'))return;
+    if(host.querySelector('[data-rem="'+r.id+'"]'))return false;
     const card=document.createElement('div');card.className='remcard';card.setAttribute('data-rem',String(r.id));card.setAttribute('role','alert');
     const head=document.createElement('h4');head.textContent='Reminder'+(r.due_spoken?' · '+r.due_spoken:'');
     const msg=document.createElement('div');msg.className='remmsg';msg.textContent=r.message||'';
@@ -906,19 +906,34 @@
     const done=document.createElement('button');done.className='apbtn remdone';done.textContent='Done';
     dismiss.onclick=()=>{card.remove();remLayout();}; snooze.onclick=()=>remAct(r,'snooze',card); done.onclick=()=>remAct(r,'done',card);
     row.append(dismiss,snooze,done);card.append(head,msg,row);host.appendChild(card);remLayout();
-    chime();
-    try{if('Notification' in window&&Notification.permission==='granted')new Notification('J.A.R.V.I.S reminder',{body:r.message||'',tag:'jarvis-rem-'+r.id});}catch(e){}
     if(voiceActive)enqueueTTS('Reminder: '+(r.message||''));
+    return true;
+  }
+  // One chime and one notification for everything that fell due together. Each card chimed
+  // at the same instant, so five due at once - a phone opened after a while away - played
+  // five copies of one tone on top of each other, at 0.9 of full scale, and raised five
+  // system notifications.
+  function announceReminders(fresh){
+    const shown=fresh.filter(showReminder);
+    if(!shown.length)return;
+    chime();
+    try{if('Notification' in window&&Notification.permission==='granted'){
+      const one=shown.length===1;
+      new Notification(one?'J.A.R.V.I.S reminder':shown.length+' J.A.R.V.I.S reminders',
+        {body:shown.map(r=>r.message||'').join(' · ').slice(0,240),tag:one?'jarvis-rem-'+shown[0].id:'jarvis-rem-batch'});
+    }}catch(e){}
   }
   async function checkReminders(){
     clearTimeout(remTimer);
     let d=null;
     try{d=await (await fetch('/api/reminders')).json();}catch(e){}
+    const fresh=[];
     if(d&&d.ok)(d.due||[]).forEach(r=>{
       const key=r.id+'@'+r.due_at;
       if(remAnnounced.has(key))return;
-      remAnnounced.add(key);remSave();showReminder(r);
+      remAnnounced.add(key);fresh.push(r);
     });
+    if(fresh.length){remSave();announceReminders(fresh);}
     const next=d&&d.next_in!=null?Math.min(30,Math.max(1,d.next_in+0.3)):30;
     remTimer=setTimeout(checkReminders,next*1000);
   }

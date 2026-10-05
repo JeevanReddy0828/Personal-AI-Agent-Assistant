@@ -57,6 +57,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   anywhere in the sentence → whole-sentence grammar; refuse words only talk uses. (10-01)
 - **"I don't know how to do that yet" for an answerable question** → the router echoed the
   input as a command nothing runs → answer it as conversation (`_DECLINED`). (10-01)
+- **A reminder refused for "no time", though the time was said** → it was said first
+  ("every monday at 9 remind me…") and only the words after "remind me" were kept → carry a
+  leading run of time words (`_TIME_FIRST`); "tell me at 3pm to…" starts like a question, so
+  it needs its own route (`_TELL_ME_AT`). Found by an indirect-phrasing corpus, not the
+  contract: a prefix check cannot see a dropped time. (10-05)
 - **The model asks "May I…?" and never acts** → the prompt quoted the forbidden replies
   (17/25 → 1/25 reworded) → state the rule, never the bad example. (10-01)
 - **The model says it cannot do something it can** → the prompt said only what it cannot →
@@ -151,6 +156,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   context (`position` + `z-index`, `backdrop-filter`) → compare at the root;
   `body:has(...)` to swap. (10-01)
 - **Notifications cover the screen** → an unbounded stack → cap + "+N more"; Dismiss all. (10-01)
+- **Several reminders at once: one loud, harsh chime and a pile of OS notifications** → each
+  card chimed at the same instant (5 due = 10 tones summed to 0.9 of full scale) → announce
+  the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)
 - **A CSS rule silently gone** → a stray `*/`. **A grid collapsed** → a 0-width track. (09-17, 09-09)
 - **Advice in the UI that does nothing** → check the control can deliver it. (09-17)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
