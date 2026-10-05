@@ -70,7 +70,10 @@ def diagnostics_request(command: str) -> DriversRequest | AnomaliesRequest | Non
     if (match := _DRIVERS.fullmatch(text)) is not None:
         if (clauses := _clauses(match["rest"], {"by", "using"})) is None:
             return None
-        named = tuple(name.strip() for name in re.split(r",|\s+and\s+", clauses.get("using", "")) if name.strip())
+        named = tuple(name.strip() for name in re.split(r",|\s+and\s+", clauses.get("using", ""), flags=re.IGNORECASE)
+                      if name.strip())
+        if "using" in clauses and not named:
+            return None   # asked for chosen features and named none: never quietly all of them
         return DriversRequest(match["column"].strip(), match["path"].strip('"'), named, clauses.get("by"))
     if (match := _ANOMALIES.fullmatch(text)) is not None:
         if (clauses := _clauses(match["rest"], {"by"})) is None:

@@ -36,6 +36,8 @@ class DiagnosticsRequestTests(unittest.TestCase):
                 (("Ad spend", "Discount", "Weather"), None),
             "what drives Revenue in sales.csv by Month using Ad spend": (("Ad spend",), "Month"),
             "what drives Revenue in sales.csv using Ad spend by Month?": (("Ad spend",), "Month"),
+            # Codex's review: the rest of the command ignores case, so "AND" splits too.
+            'WHAT DRIVES Revenue IN "sales.csv" USING Ad spend AND Discount': (("Ad spend", "Discount"), None),
         }
         for text, (features, order_by) in cases.items():
             with self.subTest(text):
@@ -53,7 +55,10 @@ class DiagnosticsRequestTests(unittest.TestCase):
                 self.assertEqual((request.column, request.path, request.label_by), ("Rate", "errors.csv", label_by))
 
     def test_a_table_that_cannot_be_followed_gets_the_usage(self) -> None:
+        # Codex's review: `using` that names nothing is not the same as no `using` at all; it
+        # analysed every column instead.
         for text, usage in (("what drives Revenue in sales.csv with gusto", "what drives <column>"),
+                            ('what drives Revenue in "sales.csv" using ,', "what drives <column>"),
                             ("anomalies in Rate in errors.csv using Day", "anomalies in <column>")):
             with self.subTest(text):
                 result = diagnostics_command(text)
