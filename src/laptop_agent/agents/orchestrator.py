@@ -47,8 +47,11 @@ from laptop_agent.planner.heuristic import (
     SMALL_TALK,
     fact_question,
     is_diagram_subject,
+    asks_not_to_forget,
+    is_negated,
     is_plain_question,
     nameless_list_edit,
+    strip_address,
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
@@ -213,6 +216,8 @@ _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "ext
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
 _CURLY_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
+# What "don't forget …" may become: something that reminds. Timers and alarms are reminders here.
+_REMINDER_CREATION = re.compile(r"^\s*(?:remind\s+me|reminder\s+add|alarm|timer)\b", re.IGNORECASE)
 # Everything from the first verb that takes a path on is left as typed. Checking only the
 # start of the sentence (Codex's review of #186) folded the path in "please read file
 # Jeevan’s notes.txt", and the file was then not found.
@@ -575,6 +580,16 @@ class AgentOrchestrator:
             decision = self._repair_target_command(command, decision, history)
             decision = self._repair_diagram_command(command, decision, history)
             decision = self._repair_document_length(command, decision, history)
+            if decision.is_command and is_negated(command):
+                # "do not open youtube": the model, asked what it means, may still answer
+                # `open url …`. A request not to do something never does it (Codex's review
+                # of #191); it is answered instead.
+                decision = PlanDecision(action="chat", confidence=0.55,
+                                        explanation="A request not to do something; answered, not run.")
+            elif (decision.is_command and asks_not_to_forget(command)
+                  and not _REMINDER_CREATION.match(decision.command or "")):
+                decision = PlanDecision(action="chat", confidence=0.55,
+                                        explanation="'Don't forget' asks for a reminder, not this.")
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -663,11 +678,20 @@ class AgentOrchestrator:
         r"\b(?:run|execute|exec)\b|\bin\s+(?:the\s+|a\s+)?(?:terminal|shell|powershell|cmd|command\s+prompt|bash)\b",
         re.IGNORECASE,
     )
+    # A refusal anywhere; an explanation of a command anywhere unless the request itself
+    # starts by asking to run ("run npm install and explain how to run it" - Codex's #193);
+    # or a question, read after any courtesy in front of it. Read only at the very start,
+    # "please explain how to run npm install" raised an approval card (Codex's review of #191).
     _NOT_RUNNING = re.compile(
         r"\b(?:don'?t|do\s+not|never|without|not|no\s+need\s+to)\s+(?:\w+\s+){0,2}(?:run|execute|exec)\b"
-        r"|^\s*(?:what|why|how|explain|is|are|does|should|can\s+i|could\s+i)\b",
+        r"|^(?!\s*(?:run|execute|exec)\b).*?(?:\bwhat\s+(?:does|would|will|did)\b[^.?!]*\bdo\b"
+        r"|\bhow\s+(?:do\s+i|do\s+you|to|can\s+i|would\s+i|should\s+i)\s+(?:\w+\s+)?(?:run|execute|exec|use|start)\b)",
         re.IGNORECASE,
     )
+    _QUESTION_START = re.compile(r"(?:what|why|how|explain|describe|is|are|does|should|can\s+i|could\s+i)\b",
+                                 re.IGNORECASE)
+    _COURTESY = re.compile(r"^(?:(?:please|kindly)\b[\s,]*|(?:can|could|would|will)\s+(?:you|u)\b[\s,]*)+",
+                           re.IGNORECASE)
 
     def _repair_shell_command(self, text, planned):
         """A shell command the router wrote for a sentence that never asked for one.
@@ -681,12 +705,15 @@ class AgentOrchestrator:
         command = (planned.command or "") if planned.is_command else ""
         if not command.lower().startswith("run command "):
             return planned
-        if self._NOT_RUNNING.search(text):
+        asked = self._COURTESY.sub("", strip_address(text)).strip()
+        if self._NOT_RUNNING.search(asked) or self._QUESTION_START.match(asked):
             # A question about a command, or a request not to run one: answer it, run nothing.
             return PlanDecision(action="chat", confidence=0.55,
                                 explanation="A shell command for a question or a refusal; answered instead.")
         typed = re.sub(r"^in\s+.+?\s+::\s+", "", command[len("run command "):].strip(), flags=re.IGNORECASE)
-        said = typed and re.search(r"(?<!\w)" + re.escape(typed) + r"(?!\w)", text, re.IGNORECASE)
+        # The command typed AS the request, not mentioned in it: "I saw git status in a
+        # tutorial" raised an approval card for `git status` (Codex's #193).
+        said = bool(typed) and asked.rstrip(" ?.!").casefold() == typed.casefold()
         if self._ASKS_TO_RUN.search(text) or said:
             return planned
         return PlanDecision(

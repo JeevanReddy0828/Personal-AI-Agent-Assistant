@@ -597,7 +597,28 @@ def strip_address(text: str) -> str:
 # youtube" opened it, "do not remind me to call mom" set the reminder, and "do not run this
 # command: del notes.txt" asked to run it. A negated request is the model's to read. "never
 # mind the timer" is a cancellation, not a negation.
-_NEGATED = re.compile(_POLITE + r"(?:do\s+not|don'?t|dont|never(?!\s*mind)|no\s+need\s+to)\b", re.IGNORECASE)
+# "don't forget to call mom at 6", "don't let me miss the bus" ask for the very thing.
+_NEGATED = re.compile(
+    _POLITE + r"(?:do\s+not|don'?t|dont|never(?!\s*mind)|no\s+need\s+to)\b"
+    r"(?!\s+(?:let\s+me\s+)?(?:forget|miss)\b)",
+    re.IGNORECASE,
+)
+
+
+def is_negated(text: str) -> bool:
+    """A request that opens by saying not to do something. The orchestrator holds every
+    route to this, not only the instant one: the model can still return the positive."""
+    return bool(_NEGATED.match(strip_address(text)))
+
+
+_FORGET_IDIOM = re.compile(_POLITE + r"(?:do\s+not|don'?t|dont|never)\s+(?:let\s+me\s+)?(?:forget|miss)\b",
+                           re.IGNORECASE)
+
+
+def asks_not_to_forget(text: str) -> bool:
+    """"don't forget to call mom at 5pm": a negation that asks for a reminder - and for
+    nothing else (Codex's review of #194: the model routed it to `open url …mom.com`)."""
+    return bool(_FORGET_IDIOM.match(strip_address(text)))
 
 
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",

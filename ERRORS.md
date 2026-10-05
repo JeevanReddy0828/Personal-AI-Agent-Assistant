@@ -89,8 +89,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
-  match anywhere, so a leading negation was skipped → `_NEGATED` leaves it to the model.
-  Found by testing a guard's negation cases end to end: the instant router got there first. (10-05)
+  match anywhere, so a leading negation was skipped → `is_negated` holds EVERY route, since
+  the model may still answer with the positive; "don't forget to…" asks for the thing and is
+  not a negation - it may become a reminder and nothing else, since the model once routed it
+  to `open url …mom.com`. Guarding only the instant router, and calling one good live sample proof,
+  was #191's mistake (Codex's review): a safety property needs a guard, not a sample. (10-05)
 - **A shell command for a sentence that never asked for one** ("change my desktop background"
   → `reg add HKCU\…`) → the LLM router fills the gap with the shell, despite the prompt
   saying not to → `_repair_shell_command`; the rest of tool substitution is an OPEN limit in

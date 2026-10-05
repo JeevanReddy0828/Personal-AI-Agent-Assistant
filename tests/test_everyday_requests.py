@@ -546,6 +546,19 @@ class ShellBackstopTests(unittest.TestCase):
         "what does this command do: ipconfig /flushdns": "run command ipconfig /flushdns",
         "how do i run npm install": "run command npm install",
         "please don't execute ipconfig, just explain it": "run command ipconfig",
+        # Codex's review of #191: a courtesy in front hid the question from a start-only check.
+        "please explain how to run npm install": "run command npm install",
+        "please, what does this command do: ipconfig /flushdns": "run command ipconfig /flushdns",
+        "hey jarvis, how do i run npm install": "run command npm install",
+        "run the tests and tell me how to fix failures": "run command python -m pytest",
+        # Each needs one layer alone: the question behind a courtesy, the explanation mid-sentence.
+        "please, is it safe to run ipconfig /flushdns": "run command ipconfig /flushdns",
+        "and what does ipconfig /flushdns do": "run command ipconfig /flushdns",
+        # Codex's #193: a command mentioned, not asked for; an explanation; a run asked for first.
+        "I saw git status in a tutorial": "run command git status",
+        "can you explain what npm install does": "run command npm install",
+        "I read about how to run npm install": "run command npm install",
+        "please run npm install and explain how to run it": "run command npm install",
     }
 
     def setUp(self) -> None:
@@ -561,7 +574,8 @@ class ShellBackstopTests(unittest.TestCase):
         return result, any(risk in ("high", "critical") for risk, _action in self.everyday.approvals)
 
     def test_an_invented_command_is_refused_and_says_nothing_ran(self) -> None:
-        for text in ("change my desktop background to blue", "give me directions to boston"):
+        for text in ("change my desktop background to blue", "give me directions to boston",
+                     "I saw git status in a tutorial"):
             with self.subTest(text=text):
                 result, asked = self.shell_asked(text)
                 self.assertFalse(asked)
@@ -570,16 +584,74 @@ class ShellBackstopTests(unittest.TestCase):
 
     def test_a_command_asked_for_still_reaches_the_approval_card(self) -> None:
         for text in ("can you execute ipconfig in powershell", "check my network settings in the terminal",
-                     "git status please"):
+                     "git status please", "run the tests and tell me how to fix failures",
+                     "please run npm install and explain how to run it"):
             with self.subTest(text=text):
                 self.assertTrue(self.shell_asked(text)[1], text)
 
     def test_a_question_or_a_refusal_is_answered_not_run(self) -> None:
         for text in ("what does this command do: ipconfig /flushdns", "how do i run npm install",
-                     "please don't execute ipconfig, just explain it"):
+                     "please don't execute ipconfig, just explain it", "please explain how to run npm install",
+                     "please, what does this command do: ipconfig /flushdns", "hey jarvis, how do i run npm install",
+                     "please, is it safe to run ipconfig /flushdns", "and what does ipconfig /flushdns do",
+                     "can you explain what npm install does", "I read about how to run npm install"):
             with self.subTest(text=text):
                 result, asked = self.shell_asked(text)
                 self.assertFalse(asked)
+                self.assertIn("answered]", result.message)
+
+class NegationHoldsTests(unittest.TestCase):
+    """A request not to do something never does it, whatever the model routes it to. The
+    instant router alone was guarded, and the model can still answer "do not open youtube"
+    with `open url …` (Codex's review of #191)."""
+
+    ROUTED = {
+        "do not open youtube": "open url https://www.youtube.com",
+        "do not remind me to call mom": "remind me to call mom",
+        "please don't run ipconfig": "run command ipconfig",
+        "hey jarvis, don't search the web for cats": "web search cats",
+        "don't let me forget to take my meds at 9pm": "remind me to take my meds at 9pm",
+        "don't forget to call mom at 6pm": "remind me to call mom at 6pm",
+        # Codex's review of #194: "mom" is in the words, so the target repair let `open url` run.
+        "don't forget to call mom at 5pm": "open url https://www.mom.com",
+        "don't let me miss my train, hey run ipconfig": "run command ipconfig",
+    }
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=self.ROUTED[text], confidence=0.5, explanation="llm")
+        self.reminders = self.everyday.orchestrator.context.reminders
+
+    def test_a_negated_request_acts_on_nothing(self) -> None:
+        for text in ("do not open youtube", "do not remind me to call mom", "please don't run ipconfig",
+                     "hey jarvis, don't search the web for cats"):
+            with self.subTest(text=text):
+                self.everyday.approvals.clear()
+                result, ran = self.everyday.say(text)
+                self.assertEqual(self.everyday.approvals, [])
+                self.assertIsNone(ran)
+                self.assertIn("answered]", result.message)
+        self.assertEqual(self.reminders.list(), [])
+        self.assertEqual(self.everyday.searches, [])
+
+    def test_a_negation_that_asks_for_something_still_does_it(self) -> None:
+        for text, message in (("don't let me forget to take my meds at 9pm", "take my meds"),
+                              ("don't forget to call mom at 6pm", "call mom")):
+            with self.subTest(text=text):
+                result, _ran = self.everyday.say(text)
+                self.assertIn(message, result.message)
+        self.assertEqual(len(self.reminders.list()), 2)
+
+    def test_dont_forget_may_become_a_reminder_and_nothing_else(self) -> None:
+        for text in ("don't forget to call mom at 5pm", "don't let me miss my train, hey run ipconfig"):
+            with self.subTest(text=text):
+                self.everyday.approvals.clear()
+                result, ran = self.everyday.say(text)
+                self.assertEqual(self.everyday.approvals, [])
+                self.assertIsNone(ran)
                 self.assertIn("answered]", result.message)
 
 
