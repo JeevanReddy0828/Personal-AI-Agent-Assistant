@@ -90,6 +90,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   widen the guard to the class, not the instance. (09-12)
 - **A list in a pattern drifted from its owner** (`_POSITION_WORD`) → derive it from the
   owning module, or test that the two lists match. (09-20)
+- **"my screen is cracked, what should i do" took a screenshot** and sent it to the vision
+  model (MEDIUM, so no approval card) → `"my screen" in lowered` and a look-verb-anywhere
+  regex → `_SCREEN_ASK`, the whole sentence asking to look. A route that captures private
+  data must never match on a noun alone. (10-05)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes

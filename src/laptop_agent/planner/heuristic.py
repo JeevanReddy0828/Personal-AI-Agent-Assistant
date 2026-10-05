@@ -184,6 +184,19 @@ _LET_GO = re.compile(
     re.IGNORECASE,
 )
 _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
+# Asking to look at the screen, as a whole sentence. "my screen" anywhere took a screenshot
+# and sent it to the vision model for "my screen is cracked, what should i do", "dim my
+# screen brightness" and "i can't read the screen, it's too bright".
+_SCREEN_ASK = re.compile(
+    "|".join(_POLITE + branch + r"(?:\s+and\s+(?:tell|describe|read|explain|summari[sz]e)\b[^?!]*)?[\s?.!]*$" for branch in (
+        r"(?:(?:take\s+a\s+)?look\s+at|read|check|view|describe|scan|see)\s+(?:what(?:'s|s|\s+is)\s+on\s+)?"
+        r"(?:my|the|this)?\s*screen(?:\s+(?:for\s+me|now|right\s+now))?",
+        r"what(?:'s|s|\s+is)\s+on\s+(?:my|the)\s+screen(?:\s+(?:right\s+)?now)?",
+        r"what\s+(?:do|can)\s+you\s+see\s+on\s+(?:my|the)\s+screen",
+        r"screen\s+text",
+    )),
+    re.IGNORECASE,
+)
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
 # the words after "remind me" were kept, so the reminder lost its time and was refused.
 # Nothing but time words may stand there; anything else keeps the old reading.
@@ -707,8 +720,8 @@ class HeuristicPlannerProvider:
         if casual:
             return casual
 
-        if any(phrase in lowered for phrase in ("read my screen", "read the screen", "what is on my screen", "what's on my screen", "screen text")):
-            return self._command("read screen", "User wants on-screen text captured and read.", 0.85)
+        if _SCREEN_ASK.match(lowered):
+            return self._command("read screen", "User wants the agent to look at the screen.", 0.85)
 
         if any(phrase in lowered for phrase in ("look at me", "what do you see", "use the webcam", "use my webcam", "look through the camera", "look at the camera")):
             return self._command("look at webcam", "User wants the webcam captured and described.", 0.84)
@@ -939,8 +952,6 @@ class HeuristicPlannerProvider:
         if re.search(r"\b(?:show|list|view)\s+(?:me\s+)?(?:my\s+|the\s+)?tasks\b|\btask\s+(?:status|dashboard)\b"
                      r"|\bhow\s+are\s+(?:my|the)\s+tasks\s+(?:going|doing)\b", lowered):
             return self._command("tasks", "User wants the task dashboard.", 0.8)
-        if re.search(r"\b(look at|read|see|check|what.?s on|view|describe)\b.*\bscreen\b", lowered) or "my screen" in lowered:
-            return self._command("read screen", "User wants the agent to look at the screen.", 0.82)
         return None
 
     @staticmethod
