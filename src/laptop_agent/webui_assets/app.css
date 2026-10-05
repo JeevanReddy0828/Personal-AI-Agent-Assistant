@@ -353,6 +353,7 @@
   @media(hover:none){.copybtn{opacity:.7}}
   .copybtn:hover{color:var(--text);background:rgba(255,255,255,.05)}
   .meta{display:inline-block;margin:6px 10px 0 0;font:11px var(--mono);color:var(--faint)}
+  .fchart{display:block;width:100%;max-width:640px;height:auto;margin:10px 0 2px}
   .det{margin-top:6px} .det>summary{font:12px var(--sans);color:var(--faint);cursor:pointer;list-style:none}
   .det>summary::-webkit-details-marker{display:none} .det>summary::before{content:'\25B8  '} .det[open]>summary::before{content:'\25BE  '}
   .data{margin-top:6px;font:11.5px/1.5 var(--mono);color:var(--muted);background:#0a0f17;border:1px solid var(--hair);border-radius:8px;padding:10px 12px;max-height:220px;max-width:100%;overflow:auto;white-space:pre-wrap}

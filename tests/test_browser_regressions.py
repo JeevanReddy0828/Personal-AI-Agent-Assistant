@@ -70,10 +70,30 @@ class BrowserRegressions(unittest.TestCase):
                 {"name": "GPU 2", "util_kind": "3D", "util_percent": None,
                  "mem_used_mb": None, "mem_total_mb": 4096}]}))
         self.page.locator("#railStatus").click()
-        self.wait_js("document.getElementById('metrics').textContent.includes('GPU (3D)')")
+        self.wait_js("document.getElementById('metrics').textContent.includes('GPU 2 (3D)')")
         rendered = self.page.locator("#metrics").inner_text()
-        self.assertIn("GPU (3D)", rendered)
+        self.assertIn("GPU 2 (3D)", rendered)
         self.assertEqual(rendered.count("n/a"), 2)
+
+    def test_overview_and_drawer_distinguish_named_and_unknown_adapters(self):
+        gpus=[{"name":"AMD Radeon Graphics","util_kind":"3D","util_percent":12},
+              {"name":"NVIDIA GeForce RTX 4060","util_kind":"3D","util_percent":37}]
+        self.page.route("**/api/metrics",lambda route:route.fulfill(json={"gpus":gpus}))
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        for area in ("#ovMetrics","#metrics"):
+            labels=self.page.locator(area+" .top span").all_text_contents()
+            self.assertIn("AMD Radeon Graphics (3D)",labels)
+            self.assertIn("NVIDIA GeForce RTX 4060 (3D)",labels)
+        gpus[:]=[{"util_kind":"3D","util_percent":None},{"name":" ","util_kind":"3D","util_percent":0}]
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        for area in ("#ovMetrics","#metrics"):
+            labels=self.page.locator(area+" .top span").all_text_contents()
+            self.assertIn("GPU 1 (3D)",labels)
+            self.assertIn("GPU 2 (3D)",labels)
+        gpus[:]=[{"name":"<img src=x onerror=alert(1)>","util_percent":0}]
+        self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
+        self.assertEqual(self.page.locator("#ovMetrics img,#metrics img").count(),0)
+        self.assertIn("<img",self.page.locator("#ovMetrics").inner_text())
 
     def test_four_views_at_mobile_tablet_and_desktop_widths(self):
         for width in (390, 700, 1100, 1440):
@@ -508,6 +528,108 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["wellFormed"], "uuid() fallback produced " + repr(outcome["id"]))
         self.assertIsNone(outcome["threw"], "send() threw without crypto.randomUUID")
         self.assertIsNotNone(outcome["reachedTheServer"], "the message never left the page")
+
+    def test_a_forecast_is_drawn_with_its_band_only_when_measured(self):
+        """ANALYTICS-03's chart: a forecast result is drawn from its numbers, and the band
+        only when every lower and upper bound exists. Drives the real send() loop against a
+        synthetic stream, and asserts a box on screen rather than an attribute."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10);
+                const realFetch = window.fetch;
+                const done = (bounded) => ({type: 'done', ok: true, message: '**Revenue: the next 3 months**',
+                    data: {labels: ['2025-01', '2025-02', '2025-03'],
+                           series: {labels: ['2024-10', '2024-11', '2024-12'], values: [10, 12, 11], period: 'month'},
+                           forecast: {enough_data: true, points: [12, 13, 14],
+                                      lower: bounded ? [11, 11.5, 12] : [11, 11.5, 12],
+                                      upper: bounded ? [13, 14.5, 16] : [13, null, 16]}}});
+                const turn = async (bounded) => {
+                    window.fetch = (url, opts) => String(url).indexOf('/api/stream') >= 0
+                        ? Promise.resolve(new Response('data: ' + JSON.stringify(done(bounded)) + NL + NL, {status: 200}))
+                        : realFetch(url, opts);
+                    try { await send('forecast revenue in sales.csv'); } finally { window.fetch = realFetch; }
+                    const charts = document.querySelectorAll('.msg .fchart');
+                    const chart = charts[charts.length - 1];
+                    if (!chart) return null;
+                    const box = chart.getBoundingClientRect();
+                    return {height: box.height, width: box.width, band: !!chart.querySelector('.fband'),
+                            line: !!chart.querySelector('.fline'), history: !!chart.querySelector('.fhist')};
+                };
+                return {bounded: await turn(true), partial: await turn(false),
+                        charts: document.querySelectorAll('.msg .fchart').length};
+            }"""
+        )
+        self.assertIsNotNone(outcome["bounded"], "no chart was drawn for a forecast")
+        self.assertGreater(outcome["bounded"]["height"], 50)
+        self.assertTrue(outcome["bounded"]["band"] and outcome["bounded"]["line"] and outcome["bounded"]["history"])
+        self.assertIsNotNone(outcome["partial"])
+        self.assertFalse(outcome["partial"]["band"], "a band was drawn with an upper bound missing")
+        self.assertEqual(outcome["charts"], 2)
+        self.assertEqual(self.errors, [])
+
+    def test_a_one_step_range_shows_and_huge_flat_values_stay_finite(self):
+        """Codex's review of #161. A one-step range drawn as a polygon had two corners at the
+        same x, so it had no area and did not show; and a flat series at 1e20 drew every
+        point at NaN, because 1e20 + 1 is 1e20 again and the scale divided by zero."""
+        outcome = self.page.evaluate(
+            """() => {
+                const draw = (values, point, low, high) => {
+                    const chart = forecastChart({labels: ['next'],
+                        series: {labels: values.map((_, i) => 'p' + i), values},
+                        forecast: {enough_data: true, points: [point], lower: [low], upper: [high]}});
+                    document.body.appendChild(chart);
+                    const band = chart.querySelector('.fband');
+                    const box = band ? band.getBBox() : null;
+                    const result = {area: box ? box.width * box.height : 0,
+                                    finite: !/NaN|Infinity/.test(chart.outerHTML)};
+                    chart.remove();
+                    return result;
+                };
+                const small = forecastChart({labels: ['next'], series: {labels: ['a', 'b', 'c'],
+                    values: [0.0031, 0.0029, 0.0034]}, forecast: {enough_data: true, points: [0.0032],
+                    lower: [null], upper: [null]}});
+                const ticks = [...small.querySelectorAll('text[text-anchor="end"]')]
+                    .filter(t => +t.getAttribute('x') < 52).map(t => t.textContent);   // the y-axis gutter
+                return {oneStep: draw([10, 12, 11], 12, 9, 15), huge: draw([1e20, 1e20], 1e20, 1e20, 1e20), ticks};
+            }"""
+        )
+        self.assertGreater(outcome["oneStep"]["area"], 0, "a one-step range has no visible area")
+        self.assertTrue(outcome["oneStep"]["finite"])
+        self.assertTrue(outcome["huge"]["finite"], "a flat series at 1e20 drew NaN coordinates")
+        # Review of #159: two decimals labelled every gridline of a small series 0.
+        self.assertEqual(outcome["ticks"], ["0.0029", "0.00315", "0.0034"])
+        self.assertEqual(self.errors, [])
+
+    def test_a_reopened_chat_draws_its_forecast_again(self):
+        """A saved message kept only the tool digest, cut at 2,000 characters, so reopening a
+        chat lost every forecast chart. It now keeps the chart's own small payload."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10), realFetch = window.fetch;
+                const values = Array.from({length: 200}, (_, i) => 100 + i + (i % 7));
+                const done = {type: 'done', ok: true, message: '**Revenue: the next 3 months**',
+                    data: {labels: ['n1', 'n2', 'n3'],
+                           series: {labels: values.map((_, i) => 'p' + i), values, period: 'month'},
+                           forecast: {enough_data: true, points: [301, 302, 303],
+                                      lower: [290, 291, 292], upper: [310, 312, 314]}}};
+                window.fetch = (url, opts) => String(url).indexOf('/api/stream') >= 0
+                    ? Promise.resolve(new Response('data: ' + JSON.stringify(done) + NL + NL, {status: 200}))
+                    : realFetch(url, opts);
+                try { await send('forecast Revenue in sales.csv'); } finally { window.fetch = realFetch; }
+                const drawn = () => { const charts = document.querySelectorAll('.msg .fchart');
+                    return charts.length ? charts[charts.length - 1].textContent : null; };
+                const live = drawn();
+                const saved = curSession().msgs.filter(m => m.chart).pop();
+                loadSession(current);
+                return {live, reopened: drawn(), kept: saved ? saved.chart.series.values.length : null,
+                        size: saved ? JSON.stringify(saved.chart).length : null};
+            }"""
+        )
+        self.assertIn("last 24 of 200", outcome["live"])
+        self.assertEqual(outcome["reopened"], outcome["live"], "the reopened chat drew a different chart, or none")
+        self.assertEqual(outcome["kept"], 48)
+        self.assertLess(outcome["size"], 4000)
+        self.assertEqual(self.errors, [])
 
     def test_copying_works_without_a_secure_context(self):
         """navigator.clipboard is also absent outside a secure context. One Copy button

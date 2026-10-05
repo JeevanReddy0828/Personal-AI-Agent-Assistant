@@ -1,10 +1,5 @@
 # MEMORY.md — decision log
 
-## ANALYTICS-04 update — 2026-10-01
-
-ANALYTICS-04: codex/analytics-drivers starts at main 766b645; Codex implements and Claude reviews. drivers() fits only the prefix, and anomalies() is a whole-sample diagnostic. Immutable JSON-safe results and consumer rules are documented in docs/analytics.md. Runtime has no extra dependency or IO.
-
-
 Permanent architectural facts and decisions. Append when a choice is made that future
 sessions must respect. See `CLAUDE.md` for the operating principles and full architecture.
 
@@ -220,6 +215,27 @@ local engine. This bounds only hosted waiting, not local ASR or complete file pr
 No live credentials or provider calls were used in verification. VOICE-02 remains a
 separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this branch.
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+Owner Codex, reviewer Claude: codex/analytics-forecast starts at main ec6a079. The core
+accepts finite, ordered, equally spaced numbers, never loads app data, and uses only stdlib.
+Model selection and interval calibration are separate chronological blocks, with season
+and settings frozen before either. Compare with the better naive baseline; ties retain
+it. Zero/unstable MASE scale gives null and consistent MAE comparison, never infinity.
+The API and tool integration decisions are in docs/forecasting.md. Date frequency alone
+must not force a seasonal period. Per-horizon empirical coverage is not a guarantee.
+
+
+### ANALYTICS-01 review follow-up — 2026-10-01
+
+The two appended Forecast fields holdout_mae / holdout_baseline_mae default to None
+and compare frozen choices on the later calibration origins. They cannot reselect a
+model. Because that block also calibrates the bands, these are not independent interval
+coverage scores. Under eight selection origins, require more than 10% improvement;
+this conservative heuristic is not a statistical-confidence claim.
+
+
 ## 2026-09-28 — Google identity, phase 2a
 
 - AUTH-01 2a is based on Claude's repaired auth-admin 1327dea. Identity uses Google `sub`,
@@ -262,3 +278,7 @@ separate reviewed fallback fix. REC-01 and AUTH-01 are not stacked into this bra
 Claude found one-shot callers inheriting the async cache: system status/briefing now
 force a fresh sample. Only HTTP polling uses stale-while-refresh. Optional util_kind=3D
 labels counter data; unknown usage remains unknown through prose and UI formatting.
+
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04: codex/analytics-drivers starts at main 766b645; Codex implements and Claude reviews. drivers() fits only the prefix, and anomalies() is a whole-sample diagnostic. Immutable JSON-safe results and consumer rules are documented in docs/analytics.md. Runtime has no extra dependency or IO.

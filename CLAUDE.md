@@ -1,10 +1,5 @@
 # CLAUDE.md
 
-## ANALYTICS-04 update — 2026-10-01
-
-ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
-
-
 Guidance for AI coding agents (Claude Code, Codex) working in this repo.
 
 > **Read [Agent Operating Principles](#agent-operating-principles) first — it governs
@@ -271,6 +266,42 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             still reaches the advisor, and `solve` hands a sum straight to the calculator.
             Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
             inside power gave 4),
+        forecast (`forecast <column> in <file.csv> [by <date column>] [for N]` - a column of
+            the user's own CSV projected forward by `analytics/forecast.py` (Codex's
+            ANALYTICS-01, contract in `docs/forecasting.md`), never by a model.
+            `tools/forecast.py` owns what the core leaves to the tool: dates, spacing, gaps
+            and odd cells, each refused with a reason rather than guessed - a missing month is
+            named, two rows in one period are not added up, "1,5" is not fifteen. The period
+            comes from the **smallest** gap between dates: the median gap of Jan, Feb, Jun is
+            75.5 days and named no period at all. Quarters and years are counted on the
+            calendar the labels use (Codex's review): counting from the first date's month
+            took Mar 31, Jun 30, Oct 1, Dec 31 as four quarters in a row, labelled Q1, Q2,
+            Q4, Q4. The answer says what the core established and nothing more: **no number**
+            when it could not test a forecast (its points are then the last value repeated),
+            **no band** unless every lower *and* upper bound exists, and accuracy only from
+            the later stretches that played no part in choosing the method (`holdout_mae`) -
+            never the selection-block MASE, since the winner is chosen on that block and
+            beating the baseline there is guaranteed. A kept baseline is "not improved on by
+            enough", never "unbeaten": on few tests a smoother must win by a margin. In the
+            web reply `forecastChart` (app.js) draws it from the result's data, never the
+            text: recent history (eight times the steps ahead, 12-48 points - with all 48
+            behind three steps the band had 6% of the width), the dashed forecast, and the
+            band under the same every-bound rule, built as DOM nodes. One step is a capped
+            whisker (as a polygon its corners shared an x and it had no area), and a flat
+            series is padded by its own magnitude (1e20 + 1 is 1e20, which drew NaN). Only a
+            `.csv`/`.tsv` makes it a data
+            forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
+            weather. The reverse holds too (review of #159): "forecast Revenue in sales.csv."
+            missed the grammar and got the weather at a place called sales.csv, so a sentence
+            that starts with "forecast" and names a table is answered with the usage when it
+            cannot be followed (`forecast_command`), and the weather heuristic declines any
+            sentence naming a `.csv`/`.tsv`. The clauses after the file come in either order,
+            a sentence may end in "." or "please", and `season N` states a cycle the user knows
+            - never inferred from the calendar, which the contract rules out; the reply suggests
+            it when none was found and the history holds two cycles. Numbers under 1 show three
+            significant figures: two decimals called an error rate's average miss 0. One reader
+            and one number parser serve this and `analyze spreadsheet` (`tools.files.read_rows`,
+            `parse_number`). Developer-only by default-deny, since it reads a file),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
             "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
             bottom, the four corners, thirds, centre, full. `parse_placements` finds the
@@ -640,6 +671,10 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
   and a reply with neither header is asked again once (`_ask_again`). Known limit: a
   well-formed FINAL can still be wrong, which parsing cannot see.
+
+## ANALYTICS-04 update — 2026-10-01
+
+ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
 
 ## LLM brain — tiered models
 
@@ -1480,6 +1515,17 @@ Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates
 This is independent of VOICE-02's broader grpc exception fallback and does not import
 those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+Forecasting (ANALYTICS-01) lives in analytics/forecast.py: pure stdlib, no app data or IO.
+Read docs/forecasting.md before integrating. Default season detection and parameter tuning
+use only an initial prefix; separate chronological blocks select against both baselines
+and calibrate horizon-specific empirical intervals. Unsupported data/intervals must be
+shown as such, not narrated as a confident prediction. Calendar frequency is not a season.
+CSV commands, charts, OLS/MAD and job/tier predictions remain separate work.
+
+
 ### AUTH-01 phase 2a — Google identity handoff (Codex, 2026-09-28)
 
 Branch `codex/google-signin` starts at auth-admin `1327dea`; it is intentionally stacked
@@ -1519,3 +1565,8 @@ new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
 GPU-01 review: one-shot system status and briefing use force=True for fresh data; the
 polled HTTP path alone serves stale snapshots. Fallback bars are explicitly labelled 3D.
 Unknown dedicated usage is n/a, even when capacity is known.
+
+
+## GPU adapter labels — 2026-10-02
+
+GPU labels follow-up: Overview and status drawer share gpuLabel. Keep the full matched adapter name, preserve existing generic names, use GPU <index> for missing/blank names, and append (3D) only for the counter source. Escape names before HTML assembly.

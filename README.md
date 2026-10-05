@@ -1,10 +1,5 @@
 # J.A.R.V.I.S — Local-First Personal Agent
 
-## ANALYTICS-04 update — 2026-10-01
-
-Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
-
-
 [![Tests](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
@@ -326,6 +321,10 @@ the night the clocks go back.
 | Terminal commands (gated, timed) | `run command <cmd>` |
 | Browser forms: inspect / preview / fill (gated) | `inspect forms <url>` · `fill form <url>` |
 | Downloads (gated) | `download <url>` |
+
+### ANALYTICS-04 update — 2026-10-01
+
+Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
 
 ### 🩺 Diagnostics
 | Capability | How |
@@ -722,6 +721,16 @@ See [REVIEW_REPORT.md](REVIEW_REPORT.md) for the feature inventory, review findi
 remediation evidence and remaining limits.
 
 ---
+
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+The developer API `laptop_agent.analytics.forecast.forecast(values, horizon=3)` supplies
+naive/seasonal baselines and guarded smoothing forecasts without extra packages. It uses
+chronological backtests and empirical uncertainty bands, with explicit reasons when data
+or calibration is insufficient. See [the contract and validation](docs/forecasting.md).
+CSV commands and forecast charts are a separate integration; this change adds the core.
+
 
 ## License
 

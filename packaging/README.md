@@ -90,6 +90,14 @@ from 10 to 120 seconds; `RIVA_ASR_TIMEOUT_SECONDS` overrides it with a finite va
 This does not bound local-model loading or offline transcription. Rebuild the app after
 runtime changes; test a real configured provider separately from the synthetic SDK checks.
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+analytics/forecast.py uses only the standard library and needs no optional extra or
+bundled data. It is a core API, not a new packaged command or chart yet. Preserve null
+intervals and the enough_data flag when a later UI integrates its result.
+
+
 ### Google identity in a packaged app
 
 AUTH-01 phase 2a adds `webui_assets/google_auth.js`; keep packaging the whole asset directory
