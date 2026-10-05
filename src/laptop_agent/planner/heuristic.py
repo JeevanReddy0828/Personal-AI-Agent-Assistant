@@ -1128,14 +1128,17 @@ class HeuristicPlannerProvider:
         match = re.search(r"\b(?:search|find|look for)\s+(?:for\s+)?(.+?)\s+(?:in|under|inside)\s+(.+)$", text, re.IGNORECASE)
         if not match:
             return None
-        query = match.group(1).strip().strip("'\"")
+        said = match.group(1).strip()
+        quoted = len(said) > 1 and said[0] in "'\"" and said[-1] == said[0]
+        query = said.strip("'\"")
         root = match.group(2).strip().strip("'\"")
         # A size is never something to look for inside files: "find the largest files in the
         # linux kernel" searched a folder called "the linux kernel" for the words "the largest
         # files". `_largest_files` takes the ones that name a folder here; the rest are questions.
-        # Ranking files by size only - a size word then "files" - so a word to find stays one:
-        # "find largest in src/app" and 'find "smallest" in src/app' are text searches (Codex).
-        if re.search(r"\b(?:largest|biggest|heaviest|smallest)\s+(?:\w+\s+)?files?\b", query, re.IGNORECASE):
+        # Ranking files by size only - a size word then "files", unquoted - so a word or a quoted
+        # phrase to find stays one: "find largest in src/app" and 'find "largest files" in
+        # src/app' are text searches (Codex's reviews).
+        if not quoted and re.search(r"\b(?:largest|biggest|heaviest|smallest)\s+(?:\w+\s+)?files?\b", query, re.IGNORECASE):
             return None
         # Only treat this as a FILE search when there's an explicit file/folder cue or
         # the root is clearly a path. Otherwise a request like "find Indian restaurants

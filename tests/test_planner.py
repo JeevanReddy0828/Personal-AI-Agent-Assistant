@@ -925,6 +925,9 @@ class LargestFilesRoutingTests(unittest.TestCase):
         self.assertEqual(self.command("find largest in src/app"), "search files largest src/app")
         self.assertEqual(self.command('find "smallest" in src/app'), "search files smallest src/app")
         self.assertFalse(self.command("find the largest pdf files in the linux kernel").startswith("search files"))
+        # Codex's second review: a quoted phrase is something to find, whatever its words.
+        self.assertEqual(self.command('find "largest files" in src/app'), "search files largest files src/app")
+        self.assertEqual(self.command('find "smallest pdf files" in src/app'), "search files smallest pdf files src/app")
 
     def test_a_text_search_names_the_folder_people_mean(self) -> None:
         self.assertEqual(self.command("find report in my documents folder"), "search files report ~/Documents")
