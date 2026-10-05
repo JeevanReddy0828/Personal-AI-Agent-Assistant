@@ -76,7 +76,7 @@ _ARRANGE_PLACEMENTS = re.compile(
 # where a document names it at the end ("... as a pdf"). Kept in step with
 # `tools.document._DECK_HEAD`, which is what actually splits the subject off.
 _DECK_ASK = re.compile(
-    r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?"
+    r"^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?"
     r"(?:make|create|build|write|prepare|generate|do)?\s*(?:me\s+)?(?:an?\s+)?"
     r"(?:pptx|ppt|power\s*point|slide\s*deck|slides|deck|presentation)"
     r"(?:\s+(?:file|deck|presentation|slides))?\s+(?:for|on|about|of|covering|regarding)\s+\S",

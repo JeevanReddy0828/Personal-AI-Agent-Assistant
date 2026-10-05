@@ -48,6 +48,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"Could you make a slide deck" returned a PDF** → the router understood the request, but
+  `document.split_format` recognized only `can you`/`please` before a front-named deck → keep
+  the router and format parser's courtesy forms aligned; assert the saved format and reply,
+  not just the routed command. (10-05)
 - **A request answered by a model that cannot see the data** → a hand-written word list
   missed plurals (`_TOOL_SIGNALS`) → enumerate lists against real inputs; add a noun as users
   say it. (09-20)

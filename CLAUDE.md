@@ -221,8 +221,10 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             that said PPT. `_DECK_HEAD` ("a ppt for X", "slides on X", "a deck for X") is
             checked after the tail, and the same phrasing is mirrored in
             `heuristic._DECK_ASK` — whose document route also required a trailing format, so
-            a deck request never routed instantly either. The heuristic passes the **whole
-            sentence** through as `document <text>` so the tool can still read the format
+            a deck request never routed instantly either. Keep its courtesy forms aligned
+            with `document._DECK_HEAD`: "could you make a slide deck about Mars" once routed
+            correctly but saved a PDF because only the tool missed `could you`. The heuristic
+            passes the **whole sentence** through as `document <text>` so the tool can read the format
             off it. A deck also gets its own prompt (`_DECK_PROMPT`): asked for slides
             against the document prompt, the model writes essay paragraphs. `deck_outline`
             turns `#` into the title slide and each `##` + bullets into a slide, drops a
