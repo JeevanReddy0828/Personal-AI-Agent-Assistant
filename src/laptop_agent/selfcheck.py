@@ -111,6 +111,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what do you remember", "memory", "no 'about me'"),
     ("what did i ask you to remember", "memory", "same"),
     ("how much battery do i have", "system status", "this machine"),
+    ("how long does it take to drive to chicago", "distance here to chicago", "no start named: was a chat answer"),
+    ("how long would it take me to drive to dallas from houston", "distance houston to dallas", "start said last"),
     ("hey jarvis, what's my name", "what's my name", "read back, never guessed"),
     ("hey jarvis, flip a coin", "flip a coin", "a model cannot draw at random"),
 )
@@ -132,6 +134,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
     ("what are the largest files in a typical linux install", "no folder on this machine"),
     ("turn left and then right", "two positions, no window"),
+    ("how long does it take to learn to drive", "driving is the subject, not a trip"),
     ("should i put the legend on the right", "a decision belongs to the advisor"),
     ("how does tcp congestion control work", "a plain question"),
     ("update my resume", "'resume' is not a media key"),
