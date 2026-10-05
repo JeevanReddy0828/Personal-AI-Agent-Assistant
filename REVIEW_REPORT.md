@@ -247,6 +247,31 @@ VOICE-03 review follow-up: the fake future now rejects nonpositive or over-100ms
 Removing the production deadline check fails the silent-RPC test in 0.007 seconds rather
 than hanging. The unchanged implementation passes all eight deadline tests.
 
+
+## ANALYTICS-01 forecasting core — 2026-10-01
+
+The forecasting core includes 16 synthetic-only tests and 17 caught in-memory mutations.
+A second 300-series evaluation used unseen seeds and untouched future values: 80% interval
+coverage 77.0% trend, 78.3% seasonal, 79.3% noisy level. Mean future error improved over
+baseline in every family; backtest comparison passed 300/300. See docs/forecasting.md for
+exact generation, limitations, schema and counts. No real app data, CSV command, UI,
+routing or dependency changes belong to this feature. Claude reviews; Jeevan merges.
+
+The full isolated suite passed 1,617 tests (78 optional skips). After adding the
+unit-scale invariance regression, the final focused forecast suite passes all 16 tests;
+CI runs the expanded complete suite on both supported operating systems.
+
+
+### ANALYTICS-01 review follow-up — 2026-10-01
+
+Claude approved #158 and suggested independent point-error reporting and a stronger
+thin-sample guard. Added holdout_mae / holdout_baseline_mae on the later calibration
+origins (null below four), without letting them reselect the model. Fewer than eight
+selection origins now require more than 10% improvement. All 18 forecast tests pass,
+including a model that loses on holdout and must report that loss. Four additional
+mutations were caught, bringing the feature total to 21.
+
+
 ## AUTH-01 phase 2a review — 2026-09-28
 
 Implemented on codex/google-signin from 1327dea: Google Desktop identity linking and
@@ -265,6 +290,12 @@ behavior and real Desktop-client consent remain owner integration checks. Phase 
 credentials and permissions are deliberately pending; health/setup remains Claude's area.
 The full unit matrix runs in CI; local checks avoid the existing desktop side-effect tests.
 
+
+## Season peak review correction — 2026-10-02
+
+Season detector follow-up: Claude's monthly-sine repro failed at every n=99..107 before the fix. A strict two-sided peak now rejects those shoulders while retaining period 12 at n=108 and period 24 at the maximum candidate. All 19 forecast tests pass on Python 3.11 and 3.14.
+
+Integration check (2026-10-02): main ead0937 is included, preserving both documentation histories and the reviewed detector. The final tracked suite passes 1,731 tests (83 optional skips). Only live GPU sampling inside the unrelated prefix-fuzz test is stubbed locally; saved untracked review probes are excluded. CI runs the unmodified tracked suite on Linux and Windows.
 
 ## GPU-01 review — 2026-10-01
 
