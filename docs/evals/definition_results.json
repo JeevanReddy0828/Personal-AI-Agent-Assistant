@@ -1,0 +1,948 @@
+{
+  "main_revision": "1c6b263123c33a6a8c2075f5fc90baa3abee8469",
+  "fixture_sha256": "083f28c4e4c121e6a8343801618aca16948a67c1fa86a52cb86e460545445d6e",
+  "runs": [
+    {
+      "panel": "legacy_windows",
+      "corpus": "README_only",
+      "variant": "baseline",
+      "document_hit": 12,
+      "window_hit": 3,
+      "up_to_four_hit": 7,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "1",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "2",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "4",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "5",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "8",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "9",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "10",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "11",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        }
+      ]
+    },
+    {
+      "panel": "legacy_windows",
+      "corpus": "README_only",
+      "variant": "title_definition",
+      "document_hit": 12,
+      "window_hit": 5,
+      "up_to_four_hit": 9,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "1",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "2",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "4",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "5",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "8",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "9",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "10",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "11",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        }
+      ]
+    },
+    {
+      "panel": "legacy_windows",
+      "corpus": "illustrative_user_mix",
+      "variant": "baseline",
+      "document_hit": 15,
+      "window_hit": 4,
+      "up_to_four_hit": 9,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "1",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "2",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "4",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "5",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "8",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "9",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "10",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "11",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "12",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "13",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "14",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        }
+      ]
+    },
+    {
+      "panel": "legacy_windows",
+      "corpus": "illustrative_user_mix",
+      "variant": "title_definition",
+      "document_hit": 15,
+      "window_hit": 6,
+      "up_to_four_hit": 11,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "1",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "2",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "4",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "5",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "8",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "9",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "10",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "11",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "12",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "13",
+          "document_hit": true,
+          "window_hit": false,
+          "up_to_four_hit": true
+        },
+        {
+          "id": "14",
+          "document_hit": true,
+          "window_hit": true,
+          "up_to_four_hit": true
+        }
+      ]
+    },
+    {
+      "panel": "legacy_windows",
+      "corpus": "developer_history_stress",
+      "variant": "baseline",
+      "document_hit": 0,
+      "window_hit": 0,
+      "up_to_four_hit": 0,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "1",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "2",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "4",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "5",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "8",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "9",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "10",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "11",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "12",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "13",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "14",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        }
+      ]
+    },
+    {
+      "panel": "legacy_windows",
+      "corpus": "developer_history_stress",
+      "variant": "title_definition",
+      "document_hit": 0,
+      "window_hit": 0,
+      "up_to_four_hit": 0,
+      "rows": [
+        {
+          "id": "0",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "1",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "2",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "3",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "4",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "5",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "6",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "7",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "8",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "9",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "10",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "11",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "12",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "13",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        },
+        {
+          "id": "14",
+          "document_hit": false,
+          "window_hit": false,
+          "up_to_four_hit": false
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "single_subject_README",
+      "variant": "baseline",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "Kite is an offline route planner for walking trips using downloaded maps. It computes directions without an internet connection. Users can save an itinerary before leaving home."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow is an appointment calendar for small repair shops. Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega displays surrounding events when a result is opened. Vega keeps a separate view for saved searches. The retention policy deletes log records after fourteen days."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar meeting notes assign the next presentation to Morgan. The Cedar agenda included a lunch break. These notes never define Cedar or say what kind of thing it is."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms."
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "single_subject_README",
+      "variant": "title_definition",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas is a local backup utility that keeps versioned copies of selected folders. It restores an earlier version after an accidental edit. Users choose the folders included in each backup."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid is a desktop reading journal for recording books and private reading notes. It keeps the journal on the reader's computer. Readers can search notes by title or author."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "The Kite archive begins with an administrative note for maintainers. This note records where the checklist was filed. The checklist lists documents reviewed in the last meeting."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow is an appointment calendar for small repair shops. Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega is a server log viewer with a searchable event timeline. Vega groups messages by service and severity. Vega displays surrounding events when a result is opened."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar meeting happened on Tuesday in the west room. The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre is a command-line checksum verifier for checking downloaded files against published hashes. It reports a mismatch when the downloaded bytes differ. The verifier supports a manifest with one filename and hash per line."
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "illustrative_user_mix",
+      "variant": "baseline",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "Kite is an offline route planner for walking trips using downloaded maps. It computes directions without an internet connection. Users can save an itinerary before leaving home."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician. Morrow stores the shop's opening hours."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega displays surrounding events when a result is opened. Vega keeps a separate view for saved searches. The retention policy deletes log records after fourteen days."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan. The Cedar agenda included a lunch break."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms."
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "illustrative_user_mix",
+      "variant": "title_definition",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "The Kite archive begins with an administrative note for maintainers. This note records where the checklist was filed. The checklist lists documents reviewed in the last meeting."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow is an appointment calendar for small repair shops. Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega is a server log viewer with a searchable event timeline. Vega groups messages by service and severity. Vega displays surrounding events when a result is opened."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar meeting happened on Tuesday in the west room. The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms."
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "developer_history_stress",
+      "variant": "baseline",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "Kite is an offline route planner for walking trips using downloaded maps. It computes directions without an internet connection. Users can save an itinerary before leaving home."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician. Morrow stores the shop's opening hours."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega groups messages by service and severity. Vega displays surrounding events when a result is opened. Vega keeps a separate view for saved searches."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan. The Cedar agenda included a lunch break."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms."
+        }
+      ]
+    },
+    {
+      "panel": "heldout_semantic",
+      "corpus": "developer_history_stress",
+      "variant": "title_definition",
+      "rows": [
+        {
+          "id": "atlas",
+          "source": [
+            "heldout/atlas/README.md"
+          ],
+          "answer": "Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs."
+        },
+        {
+          "id": "orchid",
+          "source": [
+            "heldout/orchid/README.md"
+          ],
+          "answer": "Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font."
+        },
+        {
+          "id": "helios",
+          "source": [
+            "heldout/helios/README.md"
+          ],
+          "answer": "Helios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen."
+        },
+        {
+          "id": "kite",
+          "source": [
+            "heldout/kite/README.md"
+          ],
+          "answer": "The Kite archive begins with an administrative note for maintainers. This note records where the checklist was filed. The checklist lists documents reviewed in the last meeting."
+        },
+        {
+          "id": "morrow",
+          "source": [
+            "heldout/morrow/README.md"
+          ],
+          "answer": "Morrow is an appointment calendar for small repair shops. Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician."
+        },
+        {
+          "id": "vega",
+          "source": [
+            "heldout/vega/README.md"
+          ],
+          "answer": "Vega is a server log viewer with a searchable event timeline. Vega groups messages by service and severity. Vega displays surrounding events when a result is opened."
+        },
+        {
+          "id": "cedar",
+          "source": [
+            "heldout/cedar/README.md"
+          ],
+          "answer": "The Cedar meeting happened on Tuesday in the west room. The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan."
+        },
+        {
+          "id": "nacre",
+          "source": [
+            "heldout/nacre/README.md"
+          ],
+          "answer": "Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms."
+        }
+      ]
+    }
+  ]
+}

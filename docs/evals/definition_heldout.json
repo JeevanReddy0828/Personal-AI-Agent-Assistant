@@ -1,0 +1,63 @@
+{
+  "description": "Synthetic held-out named subjects and counterexamples. Written before running the fixed 3x first-passage title-definition variant; no scorer tuning. Semantic rubrics authored from intended user questions and source facts, independently of retrieved windows. Not production traffic. Follow-ups are explicit subject questions, not conversational pronoun resolution.",
+  "variant": "Exactly the existing title_definition variant in knowledge_windows.py; no tuning permitted in this run.",
+  "main_revision": "1c6b263123c33a6a8c2075f5fc90baa3abee8469",
+  "cases": [
+    {
+      "id": "atlas",
+      "question": "what is Atlas",
+      "source": "heldout/atlas/README.md",
+      "text": "# Atlas product notes\n\nAtlas is a local backup utility that keeps versioned copies of selected folders. It restores an earlier version after an accidental edit. Users choose the folders included in each backup. The backup schedule can run every evening. The activity page shows the most recent completed copy. Atlas stores its backup catalog beside the archive. Atlas reports skipped files in the activity log. The Atlas window can be minimized while a copy runs.",
+      "rubric": "The answer identifies a local backup utility and versioned folder copies."
+    },
+    {
+      "id": "orchid",
+      "question": "what is Orchid",
+      "source": "heldout/orchid/README.md",
+      "text": "# Orchid product notes\n\nOrchid is a desktop reading journal for recording books and private reading notes. It keeps the journal on the reader's computer. Readers can search notes by title or author. The journal supports a separate entry for each edition. An export contains the selected entries as plain text. Orchid displays recent reading sessions in date order. Orchid lets readers rename their shelves. The Orchid preferences page changes the display font.",
+      "rubric": "The answer identifies a reading journal and books or reading notes."
+    },
+    {
+      "id": "helios",
+      "question": "what is Helios",
+      "source": "heldout/helios/README.md",
+      "text": "# Helios product notes\n\nHelios version three corrects the October release checklist. The Helios release now displays the new build identifier. The Helios update includes a revised splash screen. These release notes describe maintenance rather than the product. Helios is a home energy monitor that measures electricity use by appliance. Its readings help a household compare overnight consumption. Measurements remain available even when the dashboard closes. Installation starts by pairing the meter with the local hub.",
+      "rubric": "The answer identifies a home energy monitor and appliance electricity measurements, not just release changes."
+    },
+    {
+      "id": "kite",
+      "question": "what is Kite",
+      "source": "heldout/kite/README.md",
+      "text": "# Kite product notes\n\nThe Kite archive begins with an administrative note for maintainers. This note records where the checklist was filed. The checklist lists documents reviewed in the last meeting. Those documents are separate from the product guide below. Kite is an offline route planner for walking trips using downloaded maps. It computes directions without an internet connection. Users can save an itinerary before leaving home. Directions include the estimated length of each leg.",
+      "rubric": "The answer identifies an offline walking route planner and downloaded maps or offline directions."
+    },
+    {
+      "id": "morrow",
+      "question": "what is Morrow subscription price",
+      "source": "heldout/morrow/README.md",
+      "text": "# Morrow product notes\n\nMorrow is an appointment calendar for small repair shops. Morrow collects bookings in a shared daily agenda. Morrow assigns each appointment to a technician. Morrow stores the shop's opening hours. A free trial includes the full booking view. The subscription price is twelve dollars per shop per month. There is no additional fee per technician. A shop may cancel renewal before its next invoice.",
+      "rubric": "The answer gives twelve dollars per shop per month; a generic product definition alone fails."
+    },
+    {
+      "id": "vega",
+      "question": "what is Vega retention policy",
+      "source": "heldout/vega/README.md",
+      "text": "# Vega product notes\n\nVega is a server log viewer with a searchable event timeline. Vega groups messages by service and severity. Vega displays surrounding events when a result is opened. Vega keeps a separate view for saved searches. The retention policy deletes log records after fourteen days. Administrators can export records before that deadline. Exporting does not extend the original retention period. The deletion job runs once each night.",
+      "rubric": "The answer gives deletion after fourteen days; a generic product definition alone fails."
+    },
+    {
+      "id": "cedar",
+      "question": "what is Cedar",
+      "source": "heldout/cedar/README.md",
+      "text": "# Cedar product notes\n\nThe Cedar meeting happened on Tuesday in the west room. The Cedar attendees discussed next month's rota. The Cedar meeting notes assign the next presentation to Morgan. The Cedar agenda included a lunch break. These notes never define Cedar or say what kind of thing it is. The group scheduled another meeting for Friday. The room booking expires at noon. Participants should bring the printed agenda.",
+      "rubric": "The answer acknowledges that the supplied notes do not define Cedar. An unrelated meeting summary is not a definition."
+    },
+    {
+      "id": "nacre",
+      "question": "what is Nacre",
+      "source": "heldout/nacre/README.md",
+      "text": "# Nacre product notes\n\nNacre is a command-line checksum verifier for checking downloaded files against published hashes. It reports a mismatch when the downloaded bytes differ. The verifier supports a manifest with one filename and hash per line. Files are read without being changed. Verification can be repeated after copying a file to another disk. Nacre prints a separate result for each checked file. Nacre can write its report to standard output. The Nacre help command lists supported hash algorithms.",
+      "rubric": "The answer identifies a checksum verifier and checking downloads against hashes."
+    }
+  ]
+}
