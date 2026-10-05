@@ -193,7 +193,9 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             files in my downloads" routes there instantly, and a place that is not a folder on this
             machine is left to the model), file_processor (universal "process file" dispatcher),
         web, websearch, research, browser, desktop, email,
-        music, weather (Open-Meteo, real forecast — no key),
+        music (a personal voicemail/messages request is not a YouTube song search;
+            the shared router/tool guard leaves actual songs named "Voicemail" playable),
+        weather (Open-Meteo, real forecast — no key),
         news (`news [topic]` — real headlines, free and key-less. A generic web search for
             "latest news" returns cnn.com and foxnews.com with their taglines, which is not
             the news. Google News RSS gives breadth and arbitrary topic search; **its own
