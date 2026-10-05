@@ -130,9 +130,6 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what is the record for the 100m", "record is a noun"),
     ("can you record?", "asks whether it can; only a named request starts the microphone"),
     ("what is a reminder", "a definition, not a listing"),
-    ("is there anything i need to know about python", "no day, so not the agenda"),
-    ("what do i need to do to learn rust", "same"),
-    ("what's the date of the french revolution", "a date question about no date we can compute"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
     ("my keys are on the right", "a lone placement is where ordinary prose lives"),
     ("what are the largest files in a typical linux install", "no folder on this machine"),
@@ -160,6 +157,9 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("stop reminding me", "names nothing to stop"),
     ("good news, i got the job", "sharing news, not asking for it: got the day's top stories"),
     ("fake news is a problem", "was a headline search for 'is a problem'"),
+    ("is there anything i need to know about python", "no day, so not the agenda"),
+    ("what do i need to do to learn rust", "same"),
+    ("what's the date of the french revolution", "a date question about no date we can compute"),
 )
 
 
