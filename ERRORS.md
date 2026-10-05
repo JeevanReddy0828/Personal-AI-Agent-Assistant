@@ -156,6 +156,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   context (`position` + `z-index`, `backdrop-filter`) → compare at the root;
   `body:has(...)` to swap. (10-01)
 - **Notifications cover the screen** → an unbounded stack → cap + "+N more"; Dismiss all. (10-01)
+- **Several reminders at once: one loud, harsh chime and a pile of OS notifications** → each
+  card chimed at the same instant (5 due = 10 tones summed to 0.9 of full scale) → announce
+  the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)
 - **A CSS rule silently gone** → a stray `*/`. **A grid collapsed** → a 0-width track. (09-17, 09-09)
 - **Advice in the UI that does nothing** → check the control can deliver it. (09-17)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)

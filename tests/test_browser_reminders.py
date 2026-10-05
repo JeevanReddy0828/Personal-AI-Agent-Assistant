@@ -179,6 +179,35 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         self.assertEqual(self.shown(), 1)
         self.assertIn("+2 more reminders", self.page.locator("[data-rem-more]").inner_text())
 
+    def test_reminders_due_together_chime_once(self):
+        # Each card chimed at the same instant: five due at once played five copies of one
+        # tone on top of each other and raised five system notifications.
+        self.context.add_init_script("""
+            window.__tones = 0; window.__notes = [];
+            window.AudioContext = function () {
+                this.currentTime = 0; this.state = 'running'; this.destination = {};
+                this.createOscillator = () => ({ type: '', frequency: {}, connect(node) { return node; },
+                                                 start() { window.__tones++; }, stop() {} });
+                this.createGain = () => ({ gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+                                           connect(node) { return node; } });
+            };
+            window.Notification = function (title, options) { window.__notes.push([title, options.body]); };
+            window.Notification.permission = 'granted';
+            window.Notification.requestPermission = () => Promise.resolve('granted');
+        """)
+        self.add_due("one", "two", "three", "four", "five")
+        self.page.goto(self.url)
+        self.page.wait_for_selector("[data-rem-more]")
+        self.assertEqual(self.page.evaluate("window.__tones"), 2, "one chime is two tones")
+        notes = self.page.evaluate("window.__notes")
+        self.assertEqual([title for title, _body in notes], ["5 J.A.R.V.I.S reminders"])
+        # One that falls due later still has its own chime and notification.
+        self.add_due("six")
+        self.page.evaluate("checkReminders()")
+        self.page.wait_for_function("window.__notes.length === 2")
+        self.assertEqual(self.page.evaluate("window.__tones"), 4)
+        self.assertEqual(self.page.evaluate("window.__notes[1]"), ["J.A.R.V.I.S reminder", "six"])
+
     def test_the_settings_popover_is_above_the_reminders(self):
         self.add_due("one", "two", "three")
         self.page.goto(self.url)
