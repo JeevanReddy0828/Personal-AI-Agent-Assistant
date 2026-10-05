@@ -287,7 +287,13 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             the later stretches that played no part in choosing the method (`holdout_mae`) -
             never the selection-block MASE, since the winner is chosen on that block and
             beating the baseline there is guaranteed. A kept baseline is "not improved on by
-            enough", never "unbeaten": on few tests a smoother must win by a margin. Only a
+            enough", never "unbeaten": on few tests a smoother must win by a margin. In the
+            web reply `forecastChart` (app.js) draws it from the result's data, never the
+            text: recent history (eight times the steps ahead, 12-48 points - with all 48
+            behind three steps the band had 6% of the width), the dashed forecast, and the
+            band under the same every-bound rule, built as DOM nodes. One step is a capped
+            whisker (as a polygon its corners shared an x and it had no area), and a flat
+            series is padded by its own magnitude (1e20 + 1 is 1e20, which drew NaN). Only a
             `.csv`/`.tsv` makes it a data
             forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
             weather. The reverse holds too (review of #159): "forecast Revenue in sales.csv."
