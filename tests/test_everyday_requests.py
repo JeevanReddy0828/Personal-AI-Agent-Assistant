@@ -171,6 +171,26 @@ class RoutingContractTests(unittest.TestCase):
                 direct = ran == text.strip() and result is not None and "answered]" not in result.message
                 self.assertTrue(reached(ran, expected) or direct, f"{text!r} ran {ran!r}, expected {expected!r}")
 
+    def test_a_courtesy_at_the_end_does_not_hide_the_request(self) -> None:
+        # Routes end in `[?.!]*$`: 24 of these missed their tool with "please" after them.
+        for text, expected in CONTRACT:
+            said = text.rstrip("?.! ") + " please"
+            with self.subTest(text=said):
+                result, ran = self.everyday.say(said)
+                direct = ran == said.strip() and result is not None and "answered]" not in result.message
+                self.assertTrue(reached(ran, expected) or direct, f"{said!r} ran {ran!r}, expected {expected!r}")
+        for text in MUST_STAY_CHAT:
+            with self.subTest(text=text):
+                self.assertIsNone(self.everyday.say(text.rstrip("?.! ") + ", thanks")[1])
+
+    def test_please_is_kept_where_it_is_what_was_said(self) -> None:
+        # Addressed by name, so the router sees it: a bare "remind me …" is a direct command
+        # and never reaches the courtesy strip, which is how the first version of this
+        # test passed with the guard removed.
+        result, ran = self.everyday.say("hey jarvis, remind me at 6pm to say please")
+        self.assertEqual(ran, "reminder add at 6pm to say please")
+        self.assertIn("say please", result.message)
+
     def test_a_path_keeps_its_own_apostrophe(self) -> None:
         note = Path(self.tmp.name) / "Jeevan’s notes.txt"
         note.write_text("the curly one", encoding="utf-8")

@@ -537,6 +537,10 @@ _ADDRESS = re.compile(
 )
 
 
+_TRAILING_COURTESY = re.compile(r"[\s,]+(?:please|thanks|thank\s+you)[\s?.!]*$", re.IGNORECASE)
+_COURTESY_IS_CONTENT = re.compile(r"\b(?:say|said|saying|spell|word)$", re.IGNORECASE)
+
+
 def strip_address(text: str) -> str:
     """Drop a leading greeting or wake name so routing sees the actual request.
 
@@ -545,6 +549,12 @@ def strip_address(text: str) -> str:
     """
     raw = (text or "").strip()
     trimmed = _ADDRESS.sub("", raw, count=1).strip()
+    # The same courtesy at the other end: routes end in `[?.!]*$`, so 24 of the 73 contract
+    # phrases missed their tool when "please" followed them. Kept where it is the content:
+    # "remind me to say please".
+    courtesy = _TRAILING_COURTESY.search(trimmed)
+    if courtesy and not _COURTESY_IS_CONTENT.search(trimmed[: courtesy.start()].strip()):
+        trimmed = trimmed[: courtesy.start()].strip()
     return trimmed or raw
 
 
