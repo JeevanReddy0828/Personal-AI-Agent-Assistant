@@ -109,6 +109,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("add milk to my shopping list", "list", "lists had no home"),
     ("would you mind adding eggs to my shopping list", "list", "a gerund after a polite prefix"),
     ("what's on my calendar today", "calendar", "was a web search; none is connected"),
+    ("is there anything i need to do today", "calendar", "was a web search for the sentence"),
+    ("what do i need to do tomorrow", "calendar", "same"),
     ("schedule a meeting with john tomorrow at 3pm", "calendar add", "answered with command syntax once"),
     ("my name is jeevan", "remember", "a fact said without 'remember'"),
     ("change my name to Jeev", "remember", "a fact corrected"),
@@ -161,6 +163,9 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("stop reminding me", "names nothing to stop"),
     ("good news, i got the job", "sharing news, not asking for it: got the day's top stories"),
     ("fake news is a problem", "was a headline search for 'is a problem'"),
+    ("is there anything i need to know about python", "no day, so not the agenda"),
+    ("what do i need to do to learn rust", "same"),
+    ("what's the date of the french revolution", "a date question about no date we can compute"),
 )
 
 

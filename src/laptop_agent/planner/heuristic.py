@@ -390,6 +390,9 @@ _CALENDAR_SHOW = re.compile(
     r"(?:calendar|agenda|schedule\s+(?:for\s+)?(?:today|tomorrow|this\s+week))\b"
     r"|^\s*what(?:'s|s|\s+is)\s+on\s+my\s+calendar\b"
     r"|^\s*what\s+do\s+i\s+have\s+(?:on\s+)?(?:today|tomorrow|this\s+week(?:end)?)\s*[?.!]*$"
+    # "is there anything i need to do today" was answered from a web search for the sentence.
+    r"|^\s*(?:is\s+there\s+anything|do\s+i\s+have\s+anything|what\s+do\s+i\s+(?:need|have)\s+to\s+do)\s+"
+    r"(?:i\s+(?:need|have)\s+to\s+do\s+)?(?:on\s+)?(?:today|tomorrow|this\s+week(?:end)?)\s*[?.!]*$"
     r"|^\s*am\s+i\s+(?:free|busy|available)\b"
     r"|^\s*do\s+i\s+have\s+(?:any(?:thing)?\s+)?(?:meetings?|appointments?|plans|events?)\b",
     re.IGNORECASE,
@@ -555,6 +558,10 @@ _ADDRESS = re.compile(
 )
 
 
+_TRAILING_COURTESY = re.compile(r"[\s,]+(?:please|thanks|thank\s+you)[\s?.!]*$", re.IGNORECASE)
+_COURTESY_IS_CONTENT = re.compile(r"\b(?:say|said|saying|spell|word)$", re.IGNORECASE)
+
+
 def strip_address(text: str) -> str:
     """Drop a leading greeting or wake name so routing sees the actual request.
 
@@ -563,6 +570,12 @@ def strip_address(text: str) -> str:
     """
     raw = (text or "").strip()
     trimmed = _ADDRESS.sub("", raw, count=1).strip()
+    # The same courtesy at the other end: routes end in `[?.!]*$`, so 24 of the 73 contract
+    # phrases missed their tool when "please" followed them. Kept where it is the content:
+    # "remind me to say please".
+    courtesy = _TRAILING_COURTESY.search(trimmed)
+    if courtesy and not _COURTESY_IS_CONTENT.search(trimmed[: courtesy.start()].strip()):
+        trimmed = trimmed[: courtesy.start()].strip()
     return trimmed or raw
 
 

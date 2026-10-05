@@ -53,6 +53,17 @@ guard, with the date), and a session entry only when the line cannot carry the l
   say it. (09-20)
 - **One phrasing routes, fourteen do not** → an exact-string route → match the shape, polite
   prefix included; reproduce a backlog item's scope first. (09-20)
+- **Every phrase with an apostrophe missed its tool from a phone** (8/8 contract phrases) →
+  keyboards type "what’s" and every route is written with `'` → `_handle` folds curly
+  apostrophes once, except in a path. Test input copied from a desktop keyboard hides it. (10-05)
+- **Routed to the right tool, which then refused it** ("what's 70 fahrenheit in celsius" →
+  "I don't know how to do that yet") → the router prefixes `convert` and the parser stripped
+  it only before "how many" → strip it before every lead-in the parser reads. A contract that
+  checks the routed command cannot see this: assert the reply. (10-05)
+- **A trailing "please" hid the request** (24/73 contract phrases) → every route ends in
+  `[?.!]*$` → `strip_address` drops a trailing please/thanks unless it is the content ("say
+  please"). A test of a router guard must reach the router: a bare "remind me …" is a direct
+  command, and the first test passed with the guard removed. (10-05)
 - **Ordinary talk triggers a tool** ("good news, i got the job" → headlines) → a keyword
   anywhere in the sentence → whole-sentence grammar; refuse words only talk uses. (10-01)
 - **"I don't know how to do that yet" for an answerable question** → the router echoed the
