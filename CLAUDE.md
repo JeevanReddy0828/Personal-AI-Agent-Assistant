@@ -304,6 +304,17 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             significant figures: two decimals called an error rate's average miss 0. One reader
             and one number parser serve this and `analyze spreadsheet` (`tools.files.read_rows`,
             `parse_number`). Developer-only by default-deny, since it reads a file),
+        diagnostics (`what drives <column> in <file.csv> [using <col>, <col>] [by <date column>]`
+            and `anomalies in <column> in <file.csv> [by <label column>]` - Codex's ANALYTICS-04
+            core, contract in `docs/analytics.md`, over a CSV read exactly as `forecast` reads
+            one. Drivers ranks features by standardized association, says "association", never
+            cause, and gives accuracy only from the held-out last rows against the training
+            average; without `by` the rows are taken in file order and the reply says so, and a
+            column that is not all numbers is left out by name rather than silently. With MAD
+            zero a value that differs is listed as unscored - not an anomaly, not nothing - as
+            the contract requires. One dispatcher branch (`diagnostics_command`) serves both,
+            and like `forecast` a sentence naming a table it cannot follow gets the usage.
+            Developer-only by default-deny),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
             "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
             bottom, the four corners, thirds, centre, full. `parse_placements` finds the

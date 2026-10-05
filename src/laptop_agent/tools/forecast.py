@@ -157,22 +157,29 @@ def _column(header: list[str], wanted: str, body: list[list[str]], numeric: bool
     raise SeriesError(f"There is no column called '{wanted}'.{listed}")
 
 
+def _numbers(header: list[str], body: list[list[str]], at: int) -> list[float]:
+    """Column `at` as numbers. A blank or a cell that is not plainly a number is refused with
+    its row: a missing value is never guessed."""
+    values: list[float] = []
+    for line, row in enumerate(body, start=2):
+        cell = row[at] if at < len(row) else ""
+        if not cell.strip():
+            raise SeriesError(f"Row {line} has no {header[at]}. Fill it in or remove the row; "
+                              "I will not guess a missing value.")
+        number = parse_number(cell)
+        if number is None:
+            raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[at]} is not a number.")
+        values.append(number)
+    return values
+
+
 def load_series(path: str | Path, column: str, date_column: str | None = None) -> Series:
     """The `column` of a CSV/TSV as a forecastable series: ordered by `date_column` when one
     is named, otherwise taken in file order as evenly spaced rows. Raises SeriesError."""
     path = Path(path).expanduser()
     header, body = _rows(path)
     value_at = _column(header, column, body, numeric=True)
-    values: list[float] = []
-    for line, row in enumerate(body, start=2):
-        cell = row[value_at] if value_at < len(row) else ""
-        if not cell.strip():
-            raise SeriesError(f"Row {line} has no {header[value_at]}. Fill it in or remove the row; "
-                              "I will not guess a missing value.")
-        number = parse_number(cell)
-        if number is None:
-            raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[value_at]} is not a number.")
-        values.append(number)
+    values = _numbers(header, body, value_at)
     if date_column is None:
         return Series([str(index) for index in range(1, len(values) + 1)], values, "row", None)
 

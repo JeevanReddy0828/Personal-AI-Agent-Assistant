@@ -173,10 +173,11 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
 # Top-level branches chosen by a pattern or a parser, which the scan above cannot read.
 # Everyday: deleting a reminder, a bare or asked-after list, a remembered fact, a coin or
 # dice, how long a timer has left, a list edit, a date question. Refused: `media volume N`
-# by the `media` prefix, and `record N` (REC-01) and a data forecast (`forecast <column> in
-# <file.csv>`, ANALYTICS-03: it reads a file) by default-deny, which refuses any dispatched
-# command that is not marked everyday.
-OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 2,
+# by the `media` prefix, and `record N` (REC-01), a data forecast (`forecast <column> in
+# <file.csv>`, ANALYTICS-03) and the table diagnostics (`what drives` / `anomalies in` a
+# <file.csv>, ANALYTICS-04) - each reads a file - by default-deny, which refuses any
+# dispatched command that is not marked everyday.
+OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 3,
                   "_dispatch_personal": 7}
 
 
