@@ -446,5 +446,41 @@ class DeclinedCommandTests(unittest.TestCase):
         self.assertIn("answered]", result.message)
 
 
+class InventedCommandTests(unittest.TestCase):
+    """The router named a DIFFERENT command that no tool runs, and the user was told "I don't
+    know how to do that yet: \"currency convert 100 usd eur\"" - shown a command they never
+    typed. #167 answered only the echo as conversation; this is the same sentence's other door."""
+
+    INVENTED = {"convert 100 usd to eur": "currency convert 100 usd eur",
+                "translate hello to french": "translate text hello french",
+                "show me nope.txt": "read file nope.txt"}
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=self.INVENTED.get(text, text), confidence=0.8, explanation="invented")
+
+    def test_the_users_own_sentence_reaches_the_live_rate(self) -> None:
+        result, _ran = self.everyday.say("convert 100 usd to eur")
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(self.everyday.searches, ["convert 100 usd to eur"])
+        self.assertNotIn("currency convert", result.message)
+
+    def test_anything_else_is_answered_as_conversation(self) -> None:
+        result, _ran = self.everyday.say("translate hello to french")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("answered]", result.message)
+        self.assertNotIn("translate text", result.message)
+
+    def test_a_real_command_that_fails_still_says_why(self) -> None:
+        # Only a command no tool recognises becomes conversation; a tool's own failure is news.
+        result, ran = self.everyday.say("show me nope.txt")
+        self.assertFalse(result.ok)
+        self.assertEqual(ran, "read file nope.txt")
+        self.assertNotIn("answered]", result.message)
+
+
 if __name__ == "__main__":
     unittest.main()
