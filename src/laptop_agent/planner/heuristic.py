@@ -184,6 +184,27 @@ _LET_GO = re.compile(
     re.IGNORECASE,
 )
 _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
+# A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
+# the words after "remind me" were kept, so the reminder lost its time and was refused.
+# Nothing but time words may stand there; anything else keeps the old reading.
+_DAY_WORD = r"(?:mon|tues|wednes|thurs|fri|satur|sun)days?"
+_TIME_FIRST = re.compile(
+    rf"(?:(?:(?<!\d)\d{{1,2}}(?::\d{{2}})?(?!\d)|[ap]\.m\.|{_DURATION}"
+    r"|(?:am|pm|at|on|in|by|every|each|the|next|this|and|a|an|tomorrow|tonight|today|morning|afternoon"
+    rf"|evening|night|noon|midnight|day|week|daily|hourly|weekdays?|weekends?|{_DAY_WORD})\b)[\s,]*)+",
+    re.IGNORECASE,
+)
+_PREFIX_POLITE = re.compile(r"[\s,]*(?:(?:can|could|would|will)\s+(?:you|u)|please|kindly)(?:\s+please)?\s*$",
+                            re.IGNORECASE)
+# "tell me at 3pm to join the call" asks for a reminder, but starts like a question and was
+# answered as one. Only when a time comes first: "tell me in one sentence how to cook rice"
+# and "tell me at least three reasons to learn rust" are questions.
+_TELL_ME_AT = re.compile(
+    _POLITE + r"tell\s+me\s+(?P<when>(?:at\s+(?:\d|noon\b|midnight\b)|in\s+" + _DURATION
+    + rf"|tomorrow\b|tonight\b|this\s+(?:morning|afternoon|evening)\b|on\s+{_DAY_WORD}\b|every\b)[^,]*?)"
+    r",?\s+(?P<rest>(?:to|about|that)\b.+)$",
+    re.IGNORECASE,
+)
 _SNOOZE = re.compile(
     r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
     r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?:another\s+)?(?P<minutes>\d+)\s*(?:more\s+)?(?:minutes?|mins?|m))?"
@@ -962,9 +983,16 @@ class HeuristicPlannerProvider:
         )
         if add and not fact_question(text):    # "remind me of my wife's birthday" asks, it sets nothing
             rest = add.group(1).strip().strip("'\"")
+            said_first = spoken_to_digits(_PREFIX_POLITE.sub("", text[: add.start()]).strip(" ,"))
+            if said_first and _TIME_FIRST.fullmatch(said_first):
+                rest = f"{rest} {said_first}"
             if rest:
                 return self._command(
                     f"reminder add {rest}", "User wants to create a reminder.", 0.86)
+        told = _TELL_ME_AT.match(spoken)
+        if told:
+            return self._command(f"reminder add {told.group('rest').strip()} {told.group('when').strip()}",
+                                 "User wants to be told something at a time.", 0.86)
         return None
 
     def _personal(self, text: str) -> PlanDecision | None:
