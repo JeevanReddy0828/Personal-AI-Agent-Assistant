@@ -88,8 +88,8 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
         for area in ("#ovMetrics","#metrics"):
             labels=self.page.locator(area+" .top span").all_text_contents()
-            self.assertIn("GPU 0 (3D)",labels)
             self.assertIn("GPU 1 (3D)",labels)
+            self.assertIn("GPU 2 (3D)",labels)
         gpus[:]=[{"name":"<img src=x onerror=alert(1)>","util_percent":0}]
         self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
         self.assertEqual(self.page.locator("#ovMetrics img,#metrics img").count(),0)
