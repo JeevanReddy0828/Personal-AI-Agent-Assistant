@@ -520,5 +520,57 @@ class InventedCommandTests(unittest.TestCase):
         self.assertNotIn("answered]", result.message)
 
 
+class ShellBackstopTests(unittest.TestCase):
+    """The real router wrote `reg add "HKCU\\Control Panel\\Colors" ...` for "change my desktop
+    background to blue" (pair log, 2026-10-05). A shell command runs only when the words asked
+    for one; a question or a refusal is answered, and nothing else reaches the approval card."""
+
+    ROUTED = {
+        "change my desktop background to blue":
+            'run command in . :: reg add "HKCU\\Control Panel\\Colors" /v Background /t REG_SZ /d "0 0 255" /f',
+        "give me directions to boston": "run command dir",
+        "can you execute ipconfig in powershell": "run command ipconfig",
+        "check my network settings in the terminal": "run command ipconfig /all",
+        "git status please": "run command git status",
+        "what does this command do: ipconfig /flushdns": "run command ipconfig /flushdns",
+        "how do i run npm install": "run command npm install",
+        "please don't execute ipconfig, just explain it": "run command ipconfig",
+    }
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=self.ROUTED[text], confidence=0.5, explanation="llm")
+
+    def shell_asked(self, text: str):
+        self.everyday.approvals.clear()
+        result, _ran = self.everyday.say(text)
+        return result, any(risk in ("high", "critical") for risk, _action in self.everyday.approvals)
+
+    def test_an_invented_command_is_refused_and_says_nothing_ran(self) -> None:
+        for text in ("change my desktop background to blue", "give me directions to boston"):
+            with self.subTest(text=text):
+                result, asked = self.shell_asked(text)
+                self.assertFalse(asked)
+                self.assertIn("nothing was run", result.message)
+                self.assertNotIn("background", result.message)
+
+    def test_a_command_asked_for_still_reaches_the_approval_card(self) -> None:
+        for text in ("can you execute ipconfig in powershell", "check my network settings in the terminal",
+                     "git status please"):
+            with self.subTest(text=text):
+                self.assertTrue(self.shell_asked(text)[1], text)
+
+    def test_a_question_or_a_refusal_is_answered_not_run(self) -> None:
+        for text in ("what does this command do: ipconfig /flushdns", "how do i run npm install",
+                     "please don't execute ipconfig, just explain it"):
+            with self.subTest(text=text):
+                result, asked = self.shell_asked(text)
+                self.assertFalse(asked)
+                self.assertIn("answered]", result.message)
+
+
 if __name__ == "__main__":
     unittest.main()

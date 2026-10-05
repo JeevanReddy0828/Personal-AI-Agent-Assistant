@@ -587,6 +587,13 @@ def strip_address(text: str) -> str:
     return trimmed or raw
 
 
+# Routes match anywhere in the sentence, so a leading "do not" was simply skipped: "do not open
+# youtube" opened it, "do not remind me to call mom" set the reminder, and "do not run this
+# command: del notes.txt" asked to run it. A negated request is the model's to read. "never
+# mind the timer" is a cancellation, not a negation.
+_NEGATED = re.compile(_POLITE + r"(?:do\s+not|don'?t|dont|never(?!\s*mind)|no\s+need\s+to)\b", re.IGNORECASE)
+
+
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
 # "what's taking up space in my downloads". The LLM router turned the first into a plain
 # `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
@@ -627,6 +634,8 @@ class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
         raw = strip_address(text)
+        if _NEGATED.match(raw):
+            return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; left to the model.")
         lowered = raw.lower()
         polite = re.match(_POLITE, raw, re.IGNORECASE).end()
         asked = raw[polite:]

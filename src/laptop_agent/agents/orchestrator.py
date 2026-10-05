@@ -596,7 +596,7 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        return decided("llm", self.planner.plan(command, help_text, profile, history))
+        return decided("llm", self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history)))
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
     # the user: 'I read "this" as I can't generate or attach images directly...'.
@@ -641,6 +641,46 @@ class AgentOrchestrator:
             "jpeg", "webp", "gif", "mp4", "mp3", "wav", "py", "js", "ts",
         }
         return {p.lower() for p in parts if p.lower() not in skip}
+
+    # Asked for in so many words: a run verb, or a shell to do it in.
+    _ASKS_TO_RUN = re.compile(
+        r"\b(?:run|execute|exec)\b|\bin\s+(?:the\s+|a\s+)?(?:terminal|shell|powershell|cmd|command\s+prompt|bash)\b",
+        re.IGNORECASE,
+    )
+    _NOT_RUNNING = re.compile(
+        r"\b(?:don'?t|do\s+not|never|without|not|no\s+need\s+to)\s+(?:\w+\s+){0,2}(?:run|execute|exec)\b"
+        r"|^\s*(?:what|why|how|explain|is|are|does|should|can\s+i|could\s+i)\b",
+        re.IGNORECASE,
+    )
+
+    def _repair_shell_command(self, text, planned):
+        """A shell command the router wrote for a sentence that never asked for one.
+
+        Measured on the real router: "change my desktop background to blue" became
+        `run command in . :: reg add "HKCU\\Control Panel\\Colors" ...`, and no prompt wording
+        stopped it without breaking real requests (pair log, 2026-10-05). The approval card
+        would still have asked, but one careless click stood between a sentence and the
+        registry. Kept when the user asked to run something or typed the command itself.
+        """
+        command = (planned.command or "") if planned.is_command else ""
+        if not command.lower().startswith("run command "):
+            return planned
+        if self._NOT_RUNNING.search(text):
+            # A question about a command, or a request not to run one: answer it, run nothing.
+            return PlanDecision(action="chat", confidence=0.55,
+                                explanation="A shell command for a question or a refusal; answered instead.")
+        typed = re.sub(r"^in\s+.+?\s+::\s+", "", command[len("run command "):].strip(), flags=re.IGNORECASE)
+        said = typed and re.search(r"(?<!\w)" + re.escape(typed) + r"(?!\w)", text, re.IGNORECASE)
+        if self._ASKS_TO_RUN.search(text) or said:
+            return planned
+        return PlanDecision(
+            action="chat",
+            confidence=0.55,
+            explanation=_VERBATIM,
+            response=("I didn't do that. It would have taken a shell command you didn't ask for, so "
+                      "nothing was run and nothing on this computer changed. To run a command, say "
+                      "\"run\" and the command."),
+        )
 
     def _repair_target_command(self, text, planned, history):
         """Refuse a command whose target the user never mentioned.

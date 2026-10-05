@@ -604,8 +604,27 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
   - **A command handed back unchanged is conversation** (`_DECLINED`). The dispatch has
     already declined that exact text, so a router naming the sentence itself as a command
     used to end in "I don't know how to do that yet" - and "convert 100 usd to eur" never
-    reached the live rate that "how much is 100 dollars in euros" gets. A routed command
-    that *differs* and still matches nothing keeps the old reply (a known gap).
+    reached the live rate that "how much is 100 dollars in euros" gets. Since #184 a routed
+    command that *differs* and matches nothing ("currency convert 100 usd eur") is answered
+    the same way; a real command that runs and fails still reports its failure.
+  - **A negated request is never turned into its positive** (`heuristic._NEGATED`). Routes
+    match anywhere in a sentence, so "do not open youtube" opened it and "do not remind me to
+    call mom" set the reminder. A sentence that opens with a negation is left to the model,
+    which reads one; "never mind the timer" is a cancellation and still routes.
+  - **The LLM router may not invent a shell command** (`_repair_shell_command`). For "change
+    my desktop background to blue" it wrote `reg add "HKCU\Control Panel\Colors" ...`. A
+    routed `run command` stands only when the words asked to run something, named a shell
+    to do it in, or contain the command itself; a question or a "don't run" is answered,
+    and anything else gets a fixed reply saying nothing was run.
+  - **Open limit, not accepted behaviour: the LLM router substitutes a nearby tool.**
+    Measured 2026-10-05 on 22 requests the app cannot do: 8 became a tool that changes state
+    or spends a call - "book me a table for two at 7pm" set a reminder, "set my wallpaper to
+    a beach photo" made a hosted picture, "text john" became an email, "get me an uber" a
+    reminder. A reminder nobody asked for is still a task persisted without consent. Not
+    fixed because every measured fix broke real requests: a keyword gate would lose the 12
+    of 18 indirect requests only the LLM understands ("ping me at 5", "whip up a sketch"); a
+    prompt rule made the model claim it cannot send email; the few-shot example alone copied
+    its own "7pm" into "call mom" (pair log 26e58bc). Measure any new idea on both corpora.
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

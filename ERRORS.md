@@ -84,6 +84,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   owning module, or test that the two lists match. (09-20)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
+- **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
+  match anywhere, so a leading negation was skipped → `_NEGATED` leaves it to the model.
+  Found by testing a guard's negation cases end to end: the instant router got there first. (10-05)
+- **A shell command for a sentence that never asked for one** ("change my desktop background"
+  → `reg add HKCU\…`) → the LLM router fills the gap with the shell, despite the prompt
+  saying not to → `_repair_shell_command`; the rest of tool substitution is an OPEN limit in
+  CLAUDE.md, measured and not fixed. (10-05)
 - **"it's" saved as a name; `1e309` read as 309** → filler accepted; no left boundary on a
   number → `_meaningful`; `(?<![\w.])`. (09-26)
 - **A validator rejects the common phrasing** → it rejected a shape → look for the wanted
