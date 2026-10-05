@@ -55,6 +55,19 @@ class DistanceTests(unittest.TestCase):
         self.assertIn("4h 50m", result.message)
         self.assertIn("Austin, Texas", result.message)
 
+    def test_from_here_starts_at_the_ip_location(self) -> None:
+        # "how long does it take to drive to dallas" names no start.
+        result = TravelTool(transport=transport()).distance("here", "Dallas")
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(result.data["origin"], "Austin, Texas, United States (approximate, by IP)")
+        self.assertIn("Driving:", result.message)
+
+        def _get(url):
+            return {"status": "fail"} if "ip-api" in url else transport()(url)
+        failed = TravelTool(transport=_get).distance("here", "Dallas")
+        self.assertFalse(failed.ok)
+        self.assertIn("starting from", failed.message)
+
     def test_unknown_origin(self) -> None:
         def _get(url):
             return {"results": []}

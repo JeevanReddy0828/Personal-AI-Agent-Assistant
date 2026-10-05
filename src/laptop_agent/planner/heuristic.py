@@ -211,6 +211,14 @@ _SNOOZE = re.compile(
     r"(?:\s+more)?\s*[.!]*$",
     re.IGNORECASE,
 )
+# "how long does it take to drive to chicago (from boston)", "how long is the drive from a to b".
+_DRIVE = re.compile(
+    _POLITE + r"(?:tell\s+me\s+)?(?:how\s+long\s+(?:(?:does|would|will)\s+it\s+take|it\s+(?:takes|would\s+take))"
+    r"(?:\s+me)?\s+to\s+drive|how\s+long\s+is\s+the\s+drive|how\s+long\s+of\s+a\s+drive\s+is\s+it"
+    r"|(?:what(?:'s|s|\s+is)\s+the\s+)?driv(?:e|ing)\s+time)"
+    r"(?:\s+from\s+(?P<start>.+?))?\s+to\s+(?P<end>.+?)(?:\s+from\s+(?P<start2>.+?))?[\s?.!]*$",
+    re.IGNORECASE,
+)
 # "stop" and "cancel" are different requests: "stop the alarm" means the one ringing, and
 # with nothing ringing it must not delete a weekday alarm - which it did.
 _CANCEL = re.compile(
@@ -1233,6 +1241,13 @@ class HeuristicPlannerProvider:
 
     def _distance(self, text: str) -> PlanDecision | None:
         """Driving distance + time between two places (free OSRM routing)."""
+        # "how long does it take to drive to chicago" matched nothing - only "how long to
+        # drive" did - and named no start, so it reached the chat model. No start is here.
+        drive = _DRIVE.match(text)
+        if drive:
+            origin = drive.group("start") or drive.group("start2") or "here"
+            return self._command(f"distance {origin.strip()} to {drive.group('end').strip()}",
+                                 "User wants a driving time.", 0.86)
         m = re.search(
             r"\b(?:distance|how far|driving (?:distance|time)|how long (?:to drive|is the drive))\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$",
             text, re.IGNORECASE,

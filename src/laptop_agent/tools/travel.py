@@ -27,6 +27,9 @@ _CATEGORY_TAGS = {
     "gym": 'leisure=fitness_centre',
 }
 
+# A start that means the user's own location rather than a place to look up.
+_HERE = {"here", "me", "my location", "my current location", "current location", "where i am"}
+
 
 def _urllib_json(url: str) -> dict:
     request = urllib.request.Request(url, headers={"User-Agent": "laptop-agent/1.0"})
@@ -91,10 +94,22 @@ class TravelTool:
     def distance(self, origin: str, destination: str) -> ToolResult:
         if not origin.strip() or not destination.strip():
             return ToolResult.failure("Use: distance <origin> to <destination>")
-        self._guard(f"Look up the route from {origin} to {destination}")
-        a, b = self._geocode(origin), self._geocode(destination)
+        # "how long does it take to drive to chicago" names no start: it starts here, found
+        # the way "around me" finds it, and the answer says it is approximate.
+        here = origin.strip().lower() in _HERE
+        if here:
+            self._guard(f"Look up your approximate location by IP and the route to {destination}")
+            a = self._locate_self()
+            if a is not None:
+                a = {**a, "label": f"{a['label']} (approximate, by IP)"}
+        else:
+            self._guard(f"Look up the route from {origin} to {destination}")
+            a = self._geocode(origin)
+        b = self._geocode(destination)
         if a is None:
-            return ToolResult.failure(f"I couldn't find '{origin}'.")
+            return ToolResult.failure(
+                "I couldn't tell where you are from your IP address. Say where you're starting from: "
+                "\"distance <from> to <to>\"." if here else f"I couldn't find '{origin}'.")
         if b is None:
             return ToolResult.failure(f"I couldn't find '{destination}'.")
         straight = _haversine_mi(a["latitude"], a["longitude"], b["latitude"], b["longitude"])
