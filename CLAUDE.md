@@ -634,7 +634,12 @@ Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
     fixed because every measured fix broke real requests: a keyword gate would lose the 12
     of 18 indirect requests only the LLM understands ("ping me at 5", "whip up a sketch"); a
     prompt rule made the model claim it cannot send email; the few-shot example alone copied
-    its own "7pm" into "call mom" (pair log 26e58bc). Measure any new idea on both corpora.
+    its own "7pm" into "call mom" (pair log 26e58bc). A second, narrow YES/NO call after the
+    LLM picked a state-changing tool ("does `<command>` do what was asked?") caught all 8
+    substitutions but refused 2-3 of 15 legitimate reminders ("ping me at 5…"), was no better
+    for being told when a reminder counts, found nothing to catch outside reminders, and
+    would add ~350 ms to every LLM-routed picture, email and document - not shipped, by
+    agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
