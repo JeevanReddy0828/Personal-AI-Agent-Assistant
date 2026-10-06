@@ -48,6 +48,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **A question defining a tiling feature tried to arrange a window** → the loose
+  layout-phrase fallback bypassed the question guard used by explicit placements →
+  keep that fallback for spoken imperatives but reject questions and decisions. (10-06)
 - **"what's the best way to cook rice" took 20-80 s** → `_advise` and `_DECIDING` treated
   every "best way to" as a decision, so a how-to went to the advisor's research run → only an
   explicit decision ("help me decide", "should I X or Y") goes there; a how-to is a plain

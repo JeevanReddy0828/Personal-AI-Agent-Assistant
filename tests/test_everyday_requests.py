@@ -443,6 +443,17 @@ class ProseIsNotACommandTests(unittest.TestCase):
                 _result, ran = self.everyday.say(text)
                 self.assertEqual(ran, text)
 
+    def test_questions_about_window_features_do_not_arrange_windows(self) -> None:
+        for text in ("what does split screen mean", "how do I use split screen",
+                     "explain side by side", "what is snap layout"):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text, stream=False)
+                self.assertFalse((ran or "").startswith("window "), (text, ran, result.message))
+                self.assertIn("answered", result.message)
+
+        result, ran = self.everyday.say("and chrome on right using split windows function", stream=False)
+        self.assertTrue((ran or "").startswith("window "), (ran, result.message))
+
     def test_a_typo_in_the_command_form_still_gets_its_usage_message(self) -> None:
         result, _ran = self.everyday.say("schedule briefing")
         self.assertFalse(result.ok)

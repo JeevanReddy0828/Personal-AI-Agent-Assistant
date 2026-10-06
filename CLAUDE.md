@@ -356,6 +356,9 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             right" is a clean fullmatch and belongs to the advisor. This narrows the class
             rather than closing it ("the answer lies in the middle..." still slips through),
             and a false positive costs one harmless, self-reporting tool call.
+            The looser layout-feature phrase fallback also rejects definition questions;
+            those belong to chat, while a spoken imperative using the phrase can still
+            arrange a named window.
             **`_POSITION_WORD` is derived from `LAYOUTS`/`_ALIASES`, never hand-written.**
             The planner's copy had already drifted - `left` and `third` but no `top left`,
             `bottom right`, `left third` or `right half` - so "notepad on the top left"
