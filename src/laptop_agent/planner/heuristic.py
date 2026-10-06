@@ -188,6 +188,18 @@ _TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", r
 # Asking to look at the screen, as a whole sentence. "my screen" anywhere took a screenshot
 # and sent it to the vision model for "my screen is cracked, what should i do", "dim my
 # screen brightness" and "i can't read the screen, it's too bright".
+# Asking to be looked at through the camera, as a whole sentence, or a request that opens by
+# naming it. The capture needs no approval, and "what do you see" anywhere turned the camera on
+# for "what do you see in this code" and sent the frame to the vision model.
+_WEBCAM_ASK = re.compile(
+    "|".join(_POLITE + branch for branch in (
+        r"(?:(?:take\s+a\s+)?look\s+at\s+me|what\s+(?:do|can)\s+you\s+see|(?:can|do)\s+you\s+see\s+me"
+        r"|look\s+(?:through|at)\s+the\s+camera)(?:\s+(?:now|right\s+now))?"
+        r"(?:\s+and\s+(?:tell|describe|say|explain)\b[^?!]*)?[\s?.!]*$",
+        r"use\s+(?:the|my)\s+(?:webcam|camera)\b",
+    )),
+    re.IGNORECASE,
+)
 _SCREEN_ASK = re.compile(
     "|".join(_POLITE + branch + r"(?:\s+and\s+(?:tell|describe|read|explain|summari[sz]e)\b[^?!]*)?[\s?.!]*$" for branch in (
         r"(?:(?:take\s+a\s+)?look\s+at|read|check|view|describe|scan|see)\s+(?:what(?:'s|s|\s+is)\s+on\s+)?"
@@ -724,7 +736,7 @@ class HeuristicPlannerProvider:
         if _SCREEN_ASK.match(lowered):
             return self._command("read screen", "User wants the agent to look at the screen.", 0.85)
 
-        if any(phrase in lowered for phrase in ("look at me", "what do you see", "use the webcam", "use my webcam", "look through the camera", "look at the camera")):
+        if _WEBCAM_ASK.match(lowered):
             return self._command("look at webcam", "User wants the webcam captured and described.", 0.84)
 
         if lowered in {"tasks", "show tasks", "task dashboard", "show task dashboard", "show me the tasks"}:
@@ -940,7 +952,10 @@ class HeuristicPlannerProvider:
         return PlanDecision(action="chat", confidence=0.25, explanation="No high-confidence tool route found.")
 
     def _casual(self, lowered: str) -> PlanDecision | None:
-        if re.search(r"\b(file|files|what.*here)\b", lowered) and re.search(r"\b(here|this folder|this directory|current (folder|directory))\b", lowered):
+        # "what … here" anywhere listed the folder for "what do you see as the main risk here".
+        if ((re.search(r"\bfiles?\b", lowered)
+             and re.search(r"\b(here|this folder|this directory|current (folder|directory))\b", lowered))
+                or re.fullmatch(r"\s*what(?:'s|s|\s+is|\s+do\s+i\s+have)\s+(?:in\s+)?here[\s?.!]*", lowered)):
             return self._command("scan files .", "User wants the files in the current folder.", 0.84)
         if re.search(r"\b(summari[sz]e|gist|overview|tl;?dr)\b.*\breadme\b", lowered) or re.search(r"\breadme\b.*\b(summari[sz]e|gist|overview)\b", lowered):
             return self._command("summarize file README.md", "User wants the README summarized.", 0.84)

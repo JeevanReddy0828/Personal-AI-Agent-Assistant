@@ -98,6 +98,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   model (MEDIUM, so no approval card) → `"my screen" in lowered` and a look-verb-anywhere
   regex → `_SCREEN_ASK`, the whole sentence asking to look. A route that captures private
   data must never match on a noun alone. (10-05)
+- **"what do you see in this code" turned the webcam on** - the capture has no approval gate
+  and the frame goes to the vision model → "what do you see" / "look at me" matched anywhere →
+  `_WEBCAM_ASK`, whole sentences or a request that opens by naming the camera. Same class as
+  the screen: sweep every route that captures for substring matching. (10-05)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
