@@ -229,8 +229,10 @@ _SCREEN_ASK = re.compile(
 _MAIL = r"(?:e-?mails?|mail|inbox)"
 _MAIL_KIND = r"(?:(?:new|unread|latest|recent|important|priority)\s+)*"
 _MAIL_TAIL = (
-    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week))"
-    r"|\s+(?:from|in|over|for)\s+the\s+(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?(?:days?|hours?|weeks?))?"
+    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week|month|year)"
+    r"|(?:last|past)\s+(?:week|month|year))"
+    r"|\s+(?:from|in|over|for)\s+(?:the\s+)?(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?"
+    r"(?:days?|hours?|weeks?|months?|years?))?"
     r"(?:\s+(?:in|on)\s+(?:gmail|google|outlook|microsoft(?:\s+mail)?))?[\s?.!]*$"
 )
 _MAIL_LEAD = _POLITE + r"(?:for\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?\s*[-,:]\s*)?"

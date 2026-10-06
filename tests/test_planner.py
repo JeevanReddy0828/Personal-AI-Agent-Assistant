@@ -436,6 +436,9 @@ class HeuristicPlannerTests(unittest.TestCase):
             ("read my latest emails", "email digest"), ("any important emails today", "email digest"),
             ("can you check my inbox", "email digest"), ("summarize my emails from today", "email digest"),
             ("give me my emails in gmail", "email api unread gmail"),
+            # A time span is a period of the inbox, not a sender (#196).
+            ("show me emails from last week", "email digest"),
+            ("any emails from the past 2 months", "email digest"),
         ):
             self.assertEqual(self.plan(text).command, expected, text)
 
