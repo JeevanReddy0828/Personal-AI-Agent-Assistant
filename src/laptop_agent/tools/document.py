@@ -40,7 +40,7 @@ _FORMAT_TAIL = re.compile(
 # document's format is named at the end. Asked to "create a ppt for sun and planets" the
 # tool wrote a PDF: "ppt" never appeared in a tail position, and nothing else looked for it.
 _DECK_HEAD = re.compile(
-    r"^(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:make|create|build|write|prepare|generate|do)?\s*(?:me\s+)?(?:an?\s+)?"
+    r"^(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:make|create|build|write|prepare|generate|do|throw\s+together|whip\s+up)?\s*(?:me\s+)?(?:an?\s+)?"
     r"(?:pptx|ppt|power\s*point|slide\s*deck|slides|deck|presentation)"
     r"(?:\s+(?:file|deck|presentation|slides))?\s+(?:for|on|about|of|covering|regarding)\s+(.+)$",
     re.IGNORECASE,
