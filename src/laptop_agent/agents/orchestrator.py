@@ -234,6 +234,39 @@ def _fold_apostrophes(command: str) -> str:
     if verb is None:
         return command.translate(_CURLY_APOSTROPHES)
     return command[: verb.start()].translate(_CURLY_APOSTROPHES) + command[verb.start():]
+
+
+# A quoted path: straight or curly, double or single. Windows' "Copy as path" puts double
+# quotes around every path, and `read file "C:\...\notes.txt"` looked for a file whose name
+# began with a quote. Only a span that looks like a path is unquoted - a quoted search phrase
+# keeps its quotes - and only after a verb that takes one. A quote must stand at a word's
+# edge, or the two apostrophes in `C:\Jeevan's docs\Sam's.txt` would read as a pair.
+_QUOTED = re.compile(
+    r"(?<!\S)(?:\"([^\"\r\n]+)\"|\u201c([^\u201d\r\n]+)\u201d|\u2018([^\u2019\r\n]+)\u2019|'([^'\r\n]+)')"
+    r"(?=[\s.,;:?!]|$)"
+)
+_PATH_LIKE = re.compile(r"[\\/]|^~|\.[A-Za-z0-9]{1,5}$")
+
+
+def _clean_paths(command: str) -> str:
+    """`read file "C:\\a b.txt"?` -> `read file C:\\a b.txt`, for every tool at once."""
+    verb = _PATH_VERB.search(command)
+    if verb is None:
+        return command
+
+    def unquote(match: re.Match[str]) -> str:
+        inner = next(group for group in match.groups() if group is not None)
+        return inner if _PATH_LIKE.search(inner.strip()) else match.group(0)
+
+    command = command[: verb.end()] + _QUOTED.sub(unquote, command[verb.end():])
+    # "?" cannot be in a Windows file name, so one straight after a path ends the question:
+    # "read file notes.txt?" looked for "notes.txt?", and with "please" it missed the route.
+    last = command.rsplit(None, 1)[-1]
+    if last.endswith("?") and _PATH_LIKE.search(last.rstrip("?")):
+        command = command.rstrip("?")
+    return command
+
+
 # Where one request ends and the next begins, in speech.
 _JOINER = re.compile(r"\s*,?\s+(?:and\s+then|and\s+also|and|then)\s+", re.IGNORECASE)
 # A second request in a sentence starts with its own verb or question word; "hotels in
@@ -2216,7 +2249,7 @@ class AgentOrchestrator:
     ) -> ToolResult:
         check_cancelled()
         ensure_signed_in()
-        command = _fold_apostrophes(text.strip())
+        command = _clean_paths(_fold_apostrophes(text.strip()))
         lowered = command.lower()
         history_turns = history or []
         if not command:
