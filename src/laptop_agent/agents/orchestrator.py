@@ -91,6 +91,7 @@ from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_tra
 from laptop_agent.tools.document import DocumentTool, page_target
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
+from laptop_agent.tools.translate import TranslateTool, parse_translation
 from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
@@ -457,6 +458,7 @@ class AgentOrchestrator:
         self.router = Planner(HeuristicPlannerProvider())
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
+        self._translate_tool_cache: TranslateTool | None = None
         self._image_tool_cache: ImageTool | None = None
         self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
@@ -1444,7 +1446,7 @@ class AgentOrchestrator:
         return None
 
     async def _dispatch_generate(self, command: str, lowered: str, history_turns) -> ToolResult | None:
-        """Direct commands for news, weather, documents and pictures."""
+        """Direct commands for news, weather, translation, documents and pictures."""
         if lowered == "news":
             return self._news_tool().headlines()
 
@@ -1468,7 +1470,46 @@ class AgentOrchestrator:
 
         if lowered.startswith("weather "):
             return self._forecast(command[len("weather ") :])
+
+        if lowered.startswith("translate "):
+            return self._translation(command[len("translate ") :], history_turns)
         return None
+
+    # "translate that to Spanish" means the reply above, not the word "that".
+    _EARLIER_REPLY = re.compile(
+        r"(?:this|that|it|the above|(?:your|the|that|this)\s+(?:last\s+|previous\s+)?"
+        r"(?:answer|reply|response|message))",
+        re.IGNORECASE,
+    )
+    # The web client appends a digest of each reply's tool data to the turn it sends back.
+    _DIGEST_TAIL = re.compile(r"\n\[tool result data, context only[^\n]*$")
+
+    def _translation(self, raw: str, history_turns) -> ToolResult:
+        """`translate <text> to <language> [from <language>]`."""
+        parsed = parse_translation(raw)
+        if parsed is None:
+            return ToolResult.failure(
+                "Say it like: translate good morning to Spanish, or translate bonjour from French to English.")
+        text, target, source = parsed
+        if self._EARLIER_REPLY.fullmatch(text):
+            earlier = next((str(turn.get("text") or "") for turn in reversed(history_turns or [])
+                            if turn.get("role") == "assistant" and str(turn.get("text") or "").strip()), "")
+            text = self._DIGEST_TAIL.sub("", earlier).strip()
+            if not text:
+                return ToolResult.failure("There is nothing earlier in this chat to translate.")
+        return self._translate_tool().translate(text, target, source)
+
+    def _detect_language(self, text: str) -> str | None:
+        """The fast tier names the language of Latin-script text bound for English: the
+        translation service needs a source and cannot detect one."""
+        provider = getattr(self.planner, "provider", None)
+        answer = getattr(provider, "answer", None)
+        if answer is None:
+            return None
+        request = ("Which language is this text written in? Reply with only the language's "
+                   "English name, one or two words.\n\n" + text[:300])
+        reply = (answer(request, {}, max_tokens=8) or "").strip()
+        return reply.splitlines()[0].strip(" .\"'*") if reply else None
 
     # Profile keys that say where the user is: "remember my city is Austin" stores `city`.
     _HOME_KEYS = frozenset({
@@ -2071,6 +2112,7 @@ class AgentOrchestrator:
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
+        "translate",
     })
 
     def _reads_as_prose(self, command: str, lowered: str) -> bool:
@@ -2087,6 +2129,8 @@ class AgentOrchestrator:
             return not parse_placements(command)
         if verb == "remind":
             return asks_to_be_told(command)
+        if verb == "translate":
+            return parse_translation(rest) is None
         # A typo in the command form ("schedule briefing", "email hello") still gets the
         # tool's usage message; English is recognised by how it goes on.
         if verb == "schedule":
@@ -2836,6 +2880,7 @@ class AgentOrchestrator:
                 "  failures  (what has been caught and swallowed this session)",
                 "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
+                "  translate <text> to <language> [from <language>]  (NVIDIA's hosted translation model)",
                 "  distance <origin> to <destination>  (driving miles + ETA)",
                 "  trip <stop1> to <stop2> to <stop3> …  (multi-stop route + totals)",
                 "  hotels near <place>  ·  nearby <category> near <place>",
@@ -3544,6 +3589,7 @@ class AgentOrchestrator:
         "image <description>",
         "document <request> as pdf|word|markdown",
         "weather <location>",
+        "translate <text> to <language>",
         "distance <origin> to <destination>",
         "trip <stop1> to <stop2> to <stop3>",
         "around <category>",
@@ -3883,6 +3929,12 @@ class AgentOrchestrator:
                 approval_gate=self.context.web.approval_gate,
             )
         return self._image_tool_cache
+
+    def _translate_tool(self) -> TranslateTool:
+        if self._translate_tool_cache is None:
+            self._translate_tool_cache = TranslateTool(approval_gate=self.context.web.approval_gate,
+                                                       detect=self._detect_language)
+        return self._translate_tool_cache
 
     def _weather_tool(self) -> WeatherTool:
         if self._weather_tool_cache is None:

@@ -176,7 +176,8 @@ Tested, and exercised on the real app. Only these are claimed as working.
   recurring scheduled jobs; lists and remembered facts.
 - **Web:** search (DuckDuckGo, or Brave/Serper/SerpApi with a key), multi-source research
   reports, real news headlines, weather (Open-Meteo), driving distance and multi-stop trips,
-  maps, opening URLs and downloads (asks first).
+  maps, opening URLs and downloads (asks first); translation between 34 languages (NVIDIA
+  Riva), including "how do you say X in Y" and "translate that".
 - **Files and documents:** read, summarize, ask about, scan and search files; quoted Windows
   paths; spreadsheet stats; CSV forecasts and drivers/anomalies; generated PDF, Word,
   PowerPoint and Markdown documents.
