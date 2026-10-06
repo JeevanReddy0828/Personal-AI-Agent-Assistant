@@ -693,5 +693,42 @@ class NegationHoldsTests(unittest.TestCase):
                 self.assertIn("answered]", result.message)
 
 
+class TellMeAgainTests(unittest.TestCase):
+    """"remind me how to center a div" asks to be told now. Read as a reminder it answered
+    "I could not find a time in that", and the next reply would have set one."""
+
+    ROUTED = {
+        "remind me how to center a div": "reminder add how to center a div",
+        "can you remind me what a closure is": "reminder add what a closure is",
+        "remind me again what the plan was": "remind me again what the plan was",
+        "please remind me why we chose postgres": "reminder add why we chose postgres",
+    }
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.everyday = Everyday(Path(self.tmp.name))
+        # The model may still say "reminder add …" for these.
+        self.everyday.orchestrator.planner.provider.plan = lambda text, *args, **kwargs: PlanDecision(
+            action="command", command=self.ROUTED.get(text, ""), confidence=0.5, explanation="llm")
+        self.reminders = self.everyday.orchestrator.context.reminders
+
+    def test_remind_me_how_or_what_is_answered(self) -> None:
+        for text in self.ROUTED:
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertIsNone(ran, f"{text!r} ran {ran!r}")
+                self.assertIn("answered]", result.message)
+        self.assertEqual(self.reminders.list(), [])
+
+    def test_a_time_still_makes_it_a_reminder(self) -> None:
+        for text in ("remind me what to buy at 5pm", "remind me to call mom at 6pm",
+                     "can you remind me to take my pills tomorrow at 9"):
+            with self.subTest(text=text):
+                result, _ran = self.everyday.say(text)
+                self.assertTrue(result.ok, result.message)
+        self.assertEqual(len(self.reminders.list()), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
