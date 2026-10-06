@@ -361,9 +361,11 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
         target = WEEKDAYS[weekday.group("name")]
         ahead = (target - today.weekday()) % 7
         # A weekday that is today means today only when "this" or nothing qualifies it and
-        # the clock has not passed; "next monday" on a Monday is always the one coming.
-        if ahead == 0 and weekday.group("next") == "next":
-            ahead = 7
+        # the clock has not passed. "next friday" is the Friday of NEXT week, weeks starting
+        # on Monday - said on a Thursday it is eight days away, not tomorrow (Jeevan's
+        # reading, 2026-10-06). The plain weekday stays the coming one.
+        if weekday.group("next") == "next":
+            ahead = (7 - today.weekday()) + target
         return today + timedelta(days=ahead), weekday.start(), weekday.end(), False
 
     months = "|".join(sorted(MONTHS, key=len, reverse=True))
