@@ -48,6 +48,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"Set the volume to fifty" answered as chat** → the level route accepted only digits,
+  though voice transcription spells numbers out → use the calculator's existing number
+  grammar for level words and assert the visible percent reply through `handle()`. (10-05)
 - **"Could you make a slide deck" returned a PDF** → the router understood the request, but
   `document.split_format` recognized only `can you`/`please` before a front-named deck → keep
   the router and format parser's courtesy forms aligned; assert the saved format and reply,
