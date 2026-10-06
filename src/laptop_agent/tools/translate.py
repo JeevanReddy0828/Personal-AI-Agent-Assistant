@@ -114,20 +114,34 @@ def _unsupported_script(text: str) -> str | None:
     return None
 
 
-def _pieces(text: str) -> list[list[str]]:
-    """Lines, each cut at sentence ends into pieces the model takes comfortably."""
-    lines: list[list[str]] = []
+def _pieces(text: str) -> list[list[tuple[str, str]]]:
+    """Bound backend pieces; keep the separator before each piece for reconstruction."""
+    lines: list[list[tuple[str, str]]] = []
     for line in text.split("\n"):
         line = line.strip()
         if not line:
             lines.append([])
             continue
-        pieces: list[str] = []
+        pieces: list[tuple[str, str]] = []
         for sentence in re.split(r"(?<=[.!?])\s+", line):
-            if pieces and len(pieces[-1]) + len(sentence) + 1 <= _PIECE:
-                pieces[-1] = f"{pieces[-1]} {sentence}"
-            else:
-                pieces.append(sentence)
+            separator = " " if pieces else ""
+            while sentence:
+                if len(sentence) <= _PIECE:
+                    if pieces and separator == " " and len(pieces[-1][1]) + len(sentence) + 1 <= _PIECE:
+                        previous_separator, previous = pieces[-1]
+                        pieces[-1] = (previous_separator, f"{previous} {sentence}")
+                    else:
+                        pieces.append((separator, sentence))
+                    break
+                cut = sentence.rfind(" ", 0, _PIECE + 1)
+                if cut > 0:
+                    pieces.append((separator, sentence[:cut]))
+                    sentence = sentence[cut + 1:]
+                    separator = " "
+                else:
+                    pieces.append((separator, sentence[:_PIECE]))
+                    sentence = sentence[_PIECE:]
+                    separator = ""
         lines.append(pieces)
     return lines
 
@@ -211,7 +225,7 @@ class TranslateTool:
                 reason="Translation sends the text to NVIDIA's hosted model.",
             ))
         lines = _pieces(text)
-        flat = [piece for line in lines for piece in line]
+        flat = [piece for line in lines for _, piece in line]
         try:
             out = self._translate(flat, source_code, target_code)
         except ImportError:
@@ -225,7 +239,8 @@ class TranslateTool:
             record_failure("translate/shape", error)
             return ToolResult.failure("The translation service returned an incomplete answer.")
         answers = iter(out)
-        result = "\n".join(" ".join(next(answers).strip() for _ in line) for line in lines).strip()
+        result = "\n".join("".join(separator + next(answers).strip() for separator, _ in line)
+                           for line in lines).strip()
         if not result:
             return ToolResult.failure("The translation came back empty.")
         heading = f"{language_name(source_code)} → {language_name(target_code)}"

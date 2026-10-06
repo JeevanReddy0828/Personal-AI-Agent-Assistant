@@ -197,6 +197,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   what the router drops (#173, #176). (10-02)
 
 ### Models and providers
+- **A long unpunctuated translation fails despite being under 5,000 characters** →
+  sentence-only splitting sent one oversized request to the hosted model → bound every
+  piece at 400 characters, split at word spaces when possible, and remember whether a
+  hard split needs a space on reassembly. (10-06)
 - **A tier "busy" for hours** → a 400/401/404/410 misconfiguration read as congestion →
   `classify_failure`; send one request by hand and read the HTTP body. (09-11, 09-09)
 - **`HTTP 400 thinking_token_budget is not yet supported`** → never send `reasoning_budget`. (09-11)
