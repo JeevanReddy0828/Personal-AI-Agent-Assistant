@@ -227,7 +227,7 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             S-color image of the alpha-ray diffraction pattern...", fabricated from training
             data — dropping them took the extraction from 2121 characters to 901, all real.
             Any failure, including a blank extraction, falls through to Tesseract.
-            **STT**: Vosk lightweight or Whisper, see below), webcam (vision extra),
+            **STT**: Vosk lightweight or Whisper, see voice.md), webcam (vision extra),
         obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
             alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
             for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
@@ -416,7 +416,7 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             jarvis" finds the title's window, but a shorter one-mention window outscores it),
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
-Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
+Everyday layer (see "Everyday requests" in routing.md): tools/units.py (conversions),
         tools/dates.py (days until / holidays / "what's today"), tools/chance.py (coin, dice,
         numbers via `secrets`), timers/alarms/repeats in the orchestrator over reminders.py +
         scheduler.py (`days` for weekdays / named days), lists and facts in memory.py
