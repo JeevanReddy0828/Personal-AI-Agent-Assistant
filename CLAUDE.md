@@ -225,7 +225,9 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             with `document._DECK_HEAD`: "could you make a slide deck about Mars" once routed
             correctly but saved a PDF because only the tool missed `could you`. The heuristic
             passes the **whole sentence** through as `document <text>` so the tool can read the format
-            off it. A deck also gets its own prompt (`_DECK_PROMPT`): asked for slides
+            off it. The heuristic and tool also recognize spoken verbs such as "throw
+            together slides about X" and "whip up slides on X"; a miss in either leaves
+            a chat answer or a PDF. A deck also gets its own prompt (`_DECK_PROMPT`): asked for slides
             against the document prompt, the model writes essay paragraphs. `deck_outline`
             turns `#` into the title slide and each `##` + bullets into a slide, drops a
             heading with no body, and keeps a stray prose line as a bullet rather than
