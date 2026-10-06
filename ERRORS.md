@@ -48,6 +48,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **A question defining a tiling feature tried to arrange a window** → the loose
+  layout-phrase fallback bypassed the question guard used by explicit placements →
+  keep that fallback for spoken imperatives but reject questions and decisions. (10-06)
 - **"Play my voicemail/messages" opened YouTube** → the broad `play <target>` rule
   treated a personal inbox as a song, and the music tool would do the same with a
   model-routed command → share one personal-message guard between router and tool;
