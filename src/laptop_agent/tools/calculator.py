@@ -36,6 +36,7 @@ _WORDS = (
 # Everyday money and percentage phrasings, rewritten into plain arithmetic before parsing.
 # A bare "%" stays modulo ("10 % 3" is 1); only these shapes mean a percentage.
 _NUMBER = r"(\d+(?:\.\d+)?)"
+_MONEY = r"(?:\s+(?:dollars?|bucks|euros?|pounds?|rupees?))?"
 _PHRASES = (
     # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45"
     (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+)?(?:of|on|for)\s+{_NUMBER}", r"(\1/100*\2)"),
@@ -45,9 +46,11 @@ _PHRASES = (
     (rf"\b(?:the\s+)?square\s+root\s+of\s+{_NUMBER}", r"sqrt(\1)"),
     (rf"\bsqrt\s+(?:of\s+)?{_NUMBER}", r"sqrt(\1)"),
     # "split 120 between 4 people", "divide 90 among 3", "120 split 4 ways"
-    (rf"\b(?:split|divide|share)\s+{_NUMBER}\s+(?:between|among|amongst|by|into|with)\s+{_NUMBER}"
+    (rf"\b(?:split|divide|share)\s+{_NUMBER}{_MONEY}\s+(?:between|among|amongst|by|into|with)\s+{_NUMBER}"
      r"(?:\s+(?:people|persons|friends|ways|of us))?", r"(\1/\2)"),
     (rf"{_NUMBER}\s+split\s+{_NUMBER}\s+ways", r"(\1/\2)"),
+    # "split 90 dollars three ways" - a currency word, and ways with no "between".
+    (rf"\b(?:split|divide|share)\s+{_NUMBER}{_MONEY}\s+{_NUMBER}\s+ways", r"(\1/\2)"),
     # "1/4 of 200", "half of 30", "a third of 90", "3 quarters of 100" (number words are
     # digits by now, so "two thirds" arrives as "2 thirds")
     (rf"{_NUMBER}\s*/\s*{_NUMBER}\s+of\s+{_NUMBER}", r"(\1/\2*\3)"),

@@ -128,6 +128,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   number → `_meaningful`; `(?<![\w.])`. (09-26)
 - **A validator rejects the common phrasing** → it rejected a shape → look for the wanted
   thing. (09-11)
+- **"convert 5k to miles" said kelvin and miles do not convert** → a bare "k" was always
+  kelvin → against a length it is kilometres. Found with four routes missing a common form
+  ("get me up at 6", "split 90 dollars three ways", "how far is it to boston", "do i need
+  anything from the store") by an everyday-phrasing corpus. (10-05)
 - **"how long does it take to drive to chicago" got a chat answer** → only "how long to
   drive" was a route, and nothing could start from where the user is → `_DRIVE` (start
   before, after or absent) and `distance here to …` via the IP lookup "around me" uses. (10-05)
