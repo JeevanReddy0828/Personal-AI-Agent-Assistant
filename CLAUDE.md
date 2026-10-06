@@ -195,7 +195,9 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
         web, websearch, research, browser, desktop, email ("find the email from Alex about
             the budget" is a sender plus topic search, not an inbox digest; IMAP combines
             FROM and TEXT criteria. A sender at `@gmail.com` does not select Gmail OAuth:
-            only an explicit "in Gmail/Outlook" suffix does),
+            only an explicit "in Gmail/Outlook" suffix does. "Search my email for X" is
+            a search too; the possessive before "email" must not hide the topic, and
+            a spoken "and then tell me what you find" is not part of the query),
         music, weather (Open-Meteo, real forecast — no key),
         news (`news [topic]` — real headlines, free and key-less. A generic web search for
             "latest news" returns cnn.com and foxnews.com with their taglines, which is not

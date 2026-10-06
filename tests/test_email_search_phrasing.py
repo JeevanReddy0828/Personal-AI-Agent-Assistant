@@ -28,6 +28,48 @@ class _Mailbox:
 
 
 class EmailSearchPhrasingTests(unittest.TestCase):
+    def test_time_spans_are_inbox_reads_not_senders(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            mailbox = _Mailbox()
+            object.__setattr__(everyday.orchestrator.context, "email", mailbox)
+            for said in ("show me emails from the last 3 days",
+                         "show me emails from yesterday",
+                         "show me emails from this week",
+                         "show me emails from today"):
+                with self.subTest(said=said):
+                    result, ran = everyday.say(said, stream=False)
+                    self.assertEqual(ran, "email digest")
+                    self.assertTrue(result.ok, result.message)
+                    self.assertEqual(mailbox.queries, [])
+
+    def test_mentioning_new_email_does_not_read_inbox(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            mailbox = _Mailbox()
+            object.__setattr__(everyday.orchestrator.context, "email", mailbox)
+            for said in ("is there a new email standard for spam",
+                         "i got a new email address remember it"):
+                with self.subTest(said=said):
+                    result, ran = everyday.say(said, stream=False)
+                    self.assertNotEqual(ran, "email unread")
+                    self.assertTrue(result.ok, result.message)
+                    self.assertEqual(mailbox.queries, [])
+
+    def test_search_my_email_for_topic_reaches_mailbox(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            mailbox = _Mailbox()
+            object.__setattr__(everyday.orchestrator.context, "email", mailbox)
+            for said in ("search my email for the budget",
+                         "um search my email for the budget",
+                         "search my email for the budget and then tell me what you find"):
+                with self.subTest(said=said):
+                    result, ran = everyday.say(said, stream=False)
+                    self.assertEqual(ran, "email search the budget")
+                    self.assertTrue(result.ok, result.message)
+                    self.assertEqual(mailbox.queries[-1], "the budget")
+
     def test_named_sender_and_topic_search_reaches_mailbox_not_digest(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             everyday = Everyday(Path(raw))

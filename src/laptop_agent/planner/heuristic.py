@@ -1958,10 +1958,12 @@ class HeuristicPlannerProvider:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
             return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)
-        match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
+        match = re.search(r"\b(?:search|find|look for)\s+(?:(?:my|the)\s+)?(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
         if not match:
             return None
         query = match.group(1).strip().strip("'\"") or "ALL"
+        query = re.sub(r"\s+and then\s+(?:tell|show)\s+me\s+(?:what you find|the results?)\s*[.!?]*$",
+                       "", query, flags=re.IGNORECASE).strip()
         for provider_name in ("gmail", "google", "outlook", "microsoft"):
             query = re.sub(rf"\b(?:in|on|from)\s+{provider_name}\b", "", query, flags=re.IGNORECASE).strip()
         if api_provider:
