@@ -32,6 +32,20 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             calculator, then sends numeric `media volume 50`; keep questions such as "how do I
             set the volume" out of the action route),
         weather (Open-Meteo, real forecast — no key),
+        translate (`translate <text> to <language> [from <language>]`, "how do you say X in
+            Y": NVIDIA's hosted `riva-translate-1.6b` over the Riva gRPC host, chosen by
+            `RIVA_NMT_FUNCTION_ID`. **The service cannot detect a source language** - an empty
+            or "auto" source is refused - so the tool names it: `from <language>` when said,
+            else the script (kana, Hangul, Han, Devanagari, Thai, Arabic, Greek, Cyrillic),
+            else English, and only Latin-script text bound *for* English asks the fast tier
+            which language it is; with no answer it asks the user rather than guess.
+            `LANGUAGES` holds exactly the codes the model's own config reported; Telugu,
+            Tamil and the other languages it lacks are named so the reply says so instead of
+            reaching the router as prose. "translate that to Spanish" takes the reply above,
+            without the tool-data digest the web client appends to it. `riva-translate-4b-
+            instruct-v2` ignores its target language through this endpoint and
+            `megatron-1b-nmt` is not callable on this account (measured 2026-10-06).
+            MEDIUM, like the other network reads; everyday for a personal account),
         news (`news [topic]` — real headlines, free and key-less. A generic web search for
             "latest news" returns cnn.com and foxnews.com with their taglines, which is not
             the news. Google News RSS gives breadth and arbitrary topic search; **its own

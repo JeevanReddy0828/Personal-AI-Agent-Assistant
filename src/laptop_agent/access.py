@@ -156,7 +156,7 @@ EVERYDAY_PREFIX = (
     "remember ", "forget ", "reminder add ", "remind me ", "reminder done ", "reminder stop ",
     "reminder snooze ", "timer ", "alarm ", "solve ", "advise me on ", "advise ", "strategize ",
     "strategise ", "research report ", "research ", "time ", "date ", "clock ", "calculate ", "calc ",
-    "compute ", "news ", "document ", "image ", "weather ", "distance ", "trip ", "around ", "map ",
+    "compute ", "news ", "document ", "image ", "weather ", "translate ", "distance ", "trip ", "around ", "map ",
     "hotels near ", "hotels in ", "nearby ", "summarize youtube ", "youtube summary ", "web search ",
     "search web ", "list ", "calendar add ", "convert ",
 )

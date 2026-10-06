@@ -52,6 +52,7 @@ image <description>              document <request> [as pdf|word|markdown]
 window <name> <position>         play music <file|folder|url>  media volume <0-100>
 email unread | email digest      run command <command>         read screen [question]
 forecast <column> in <file.csv>  what drives <column> in <file.csv>
+translate <text> to <language> [from <language>]
 ```
 
 **Adding a tool:** write the module with a class whose methods return `ToolResult`, take
@@ -87,6 +88,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `browser.py` | Playwright automation: inspect pages and forms, preview and fill forms (asks first). |
 | `news.py` | Real headlines from free feeds (BBC first, Google News for topics), with article text. |
 | `weather.py` | Open-Meteo current weather and 3-day forecast; no key. |
+| `translate.py` | Translation between 34 languages by NVIDIA's hosted Riva model (`riva` extra); names the source language from the request, the script, or the fast model. |
 | `travel.py` | Driving distance and time (OSRM), multi-stop trips, maps, places nearby. |
 | `youtube.py` | Video transcript → summary, indexed for questions (`youtube` extra). |
 | `jobright.py` | Pulls early-career job leads from Jobright with Playwright and filters them. |
