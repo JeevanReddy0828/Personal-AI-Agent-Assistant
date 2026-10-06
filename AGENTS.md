@@ -80,6 +80,7 @@ the file for the area you are about to edit (map below) before you change it. Ke
 | `access.py`, personal accounts | `accounts.md`: "A `personal` account is the assistant, not the machine" |
 | `webui_assets/` (page, voice, orb, meter) | `voice.md` ("Voice…", "Barge-in…", "The dock…"); `web-ui.md` ("Orb focus…", "Nothing in the page may assume a secure context") |
 | `analytics/` | `analytics.md`; `docs/analytics.md`, `docs/forecasting.md` |
+| Riva speech, voice, translation (`tools/transcribe.py`, `voice.py`, `tools/translate.py`) | `voice.md`; NVIDIA's `nemotron-speech` skill in `.agents/skills/` (`.agents/skills/README.md` first) |
 | the test runner itself | `testing.md`: "The runner makes `os.startfile`"; "A failing run writes `test-failures.log`" |
 | packaging | `voice.md`: "A packaged app searches `sys._MEIPASS` too" |
 
