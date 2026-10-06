@@ -47,7 +47,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 
 | Area | Files |
 |---|---|
-| Runner and repository guards | `run_tests.py`, `test_run_tests.py`, `test_page_integrity.py` (no control characters or mangled escapes in source), `test_agents_md.py`, `test_packaging.py` |
+| Runner and repository guards | `run_tests.py`, `test_run_tests.py`, `test_page_integrity.py` (no control characters or mangled escapes in source), `test_folder_readmes.py` (every folder has a README naming each of its code files), `test_agents_md.py`, `test_packaging.py` |
 | Routing and conversation | `test_planner.py`, `test_llm_planner.py`, `test_everyday_requests.py` (the routing contract and the never-crash sweeps), `test_selfcheck.py`, `test_conversation_flow.py`, `test_command_dispatch.py`, `test_orchestrator.py`, `test_context.py`, `test_monologue.py` |
 | Model tiers and reliability | `test_model_fallback.py`, `test_model_status.py`, `test_openrouter_fallback.py`, `test_failures*.py`, `test_tracing.py`, `test_reliability_regressions.py` |
 | Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
