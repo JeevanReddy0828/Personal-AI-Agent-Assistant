@@ -231,8 +231,10 @@ _SCREEN_ASK = re.compile(
 _MAIL = r"(?:e-?mails?|mail|inbox)"
 _MAIL_KIND = r"(?:(?:new|unread|latest|recent|important|priority)\s+)*"
 _MAIL_TAIL = (
-    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week))"
-    r"|\s+(?:from|in|over|for)\s+the\s+(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?(?:days?|hours?|weeks?))?"
+    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week|month|year)"
+    r"|(?:last|past)\s+(?:week|month|year))"
+    r"|\s+(?:from|in|over|for)\s+(?:the\s+)?(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?"
+    r"(?:days?|hours?|weeks?|months?|years?))?"
     r"(?:\s+(?:in|on)\s+(?:gmail|google|outlook|microsoft(?:\s+mail)?))?[\s?.!]*$"
 )
 _MAIL_LEAD = _POLITE + r"(?:for\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?\s*[-,:]\s*)?"
@@ -252,6 +254,15 @@ _MAIL_DIGEST_ASK = re.compile(
     _MAIL_LEAD + r"(?:summari[sz]e|recap|digest|tl;?dr(?:\s+of)?"
     r"|give\s+me\s+(?:a|an)\s+(?:quick\s+)?(?:summary|digest|overview|recap)\s+of)\s+"
     r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
+    re.IGNORECASE,
+)
+# Asking for research opens the sentence. Matched anywhere, 14 of 16 ordinary sentences
+# started the multi-search workflow: "the police will investigate the crash", "I'll look
+# into it", "my professor told me to read up on kant".
+_RESEARCH_ASK = re.compile(
+    _POLITE + r"(?:i\s+(?:want|need|would\s+like)\s+you\s+to\s+)?"
+    r"(?:research|do\s+(?:some\s+|a\s+bit\s+of\s+)?research\s+(?:on|into|about)|look\s+into|investigate"
+    r"|read\s+up\s+on|dig\s+into)\s+(?P<topic>.+?)[\s?.!]*$",
     re.IGNORECASE,
 )
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
@@ -1816,14 +1827,10 @@ class HeuristicPlannerProvider:
         return self._command(f"solve {problem}", "User wants a reasoned recommendation, not just chat.", 0.78)
 
     def _research(self, text: str) -> PlanDecision | None:
-        match = re.search(
-            r"\b(?:research|do research on|look into|investigate|read up on)\s+(.+)$",
-            text,
-            re.IGNORECASE,
-        )
+        match = _RESEARCH_ASK.match(text or "")
         if not match:
             return None
-        topic = match.group(1).strip().strip("'\"?")
+        topic = match.group("topic").strip().strip("'\"?")
         if not topic:
             return None
         return self._command(f"research {topic}", "User wants an autonomous web research workflow.", 0.8)
@@ -2042,10 +2049,43 @@ class HeuristicPlannerProvider:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
             return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)
-        match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
+        # A named sender is a search, not a general inbox digest. The broad "find ...
+        # email" rule below swallowed "find the email from Alex about the budget".
+        provider_suffix = re.search(r"\s+(?:in|on)\s+(gmail|google|outlook|microsoft)\s*[?.!]*$",
+                                    text, re.IGNORECASE)
+        search_provider = (self._email_api_provider(provider_suffix.group(1).lower())
+                           if provider_suffix else None)
+        search_text = text[:provider_suffix.start()] if provider_suffix else text
+        sender_search = re.search(
+            r"\b(?:find|search(?:\s+for)?|look\s+for|show(?:\s+me)?)\s+"
+            r"(?:(?:me|my|the|an?|that)\s+)?(?:e-?mails?|messages?)\s+from\s+"
+            r"(?P<sender>.+?)(?:\s+about\s+(?P<topic>.+?))?\s*[?.!]*$",
+            search_text, re.IGNORECASE,
+        )
+        if sender_search and not re.fullmatch(
+            r"(?:today|yesterday|(?:the\s+)?(?:last|past)\s+\d+\s+(?:days?|weeks?|months?|years?)"
+            r"|(?:this|last|past)\s+(?:day|week|month|year))",
+            sender_search.group("sender").strip(), re.IGNORECASE,
+        ):
+            sender = sender_search.group("sender").strip()
+            topic = (sender_search.group("topic") or "").strip().rstrip("?.!")
+            topic = re.sub(r"^(?:the|an?)\s+", "", topic, flags=re.IGNORECASE)
+            if re.fullmatch(r"[\w .@+'-]{1,80}", sender) and topic != "":
+                query = f'from:"{sender}" {topic}'
+            elif re.fullmatch(r"[\w .@+'-]{1,80}", sender) and not sender_search.group("topic"):
+                query = f'from:"{sender}"'
+            else:
+                query = ""
+            if query:
+                command = (f"email api search {search_provider} {query}" if search_provider
+                           else f"email search {query}")
+                return self._command(command, "User wants mail from a named sender.", 0.78)
+        match = re.search(r"\b(?:search|find|look for)\s+(?:(?:my|the)\s+)?(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
         if not match:
             return None
         query = match.group(1).strip().strip("'\"") or "ALL"
+        query = re.sub(r"\s+and then\s+(?:tell|show)\s+me\s+(?:what you find|the results?)\s*[.!?]*$",
+                       "", query, flags=re.IGNORECASE).strip()
         for provider_name in ("gmail", "google", "outlook", "microsoft"):
             query = re.sub(rf"\b(?:in|on|from)\s+{provider_name}\b", "", query, flags=re.IGNORECASE).strip()
         if api_provider:
