@@ -166,7 +166,7 @@ _TIMER_ASK = re.compile(
     re.IGNORECASE,
 )
 _ALARM_ASK = re.compile(
-    _POLITE + r"(?:set\s+(?:an?\s+|my\s+|the\s+)?alarm|wake\s+me(?:\s+up)?|alarm)\s+(?:for\s+|at\s+|to\s+)?"
+    _POLITE + r"(?:set\s+(?:an?\s+|my\s+|the\s+)?alarm|wake\s+me(?:\s+up)?|get\s+me\s+up|alarm)\s+(?:for\s+|at\s+|to\s+)?"
     r"(?P<when>.+?)\s*[.!?]*$",
     re.IGNORECASE,
 )
@@ -241,7 +241,7 @@ _SNOOZE = re.compile(
 _DRIVE = re.compile(
     _POLITE + r"(?:tell\s+me\s+)?(?:how\s+long\s+(?:(?:does|would|will)\s+it\s+take|it\s+(?:takes|would\s+take))"
     r"(?:\s+me)?\s+to\s+drive|how\s+long\s+is\s+the\s+drive|how\s+long\s+of\s+a\s+drive\s+is\s+it"
-    r"|(?:what(?:'s|s|\s+is)\s+the\s+)?driv(?:e|ing)\s+time)"
+    r"|(?:what(?:'s|s|\s+is)\s+the\s+)?driv(?:e|ing)\s+time|how\s+far\s+is\s+it)"
     r"(?:\s+from\s+(?P<start>.+?))?\s+to\s+(?P<end>.+?)(?:\s+from\s+(?P<start2>.+?))?[\s?.!]*$",
     re.IGNORECASE,
 )
@@ -356,6 +356,10 @@ _LIST_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)?|sti
                        + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
 _LIST_SHOW = re.compile(_POLITE + r"(?:what(?:'s|s|\s+is|\s+are)?\s+(?:on|in)|show(?:\s+me)?|read(?:\s+me)?"
                         r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on)\s+" + _LIST_NAME + r"\s*[?.!]*$",
+                        re.IGNORECASE)
+# "do i need anything from the store" asks for the shopping list; it was answered from nothing.
+_STORE_ASK = re.compile(_POLITE + r"(?:do\s+(?:i|we)\s+need\s+anything|what\s+do\s+(?:i|we)\s+need)\s+(?:from|at)\s+"
+                        r"the\s+(?:store|shop|shops|grocery(?:\s+store)?|supermarket|market)\s*[?.!]*$",
                         re.IGNORECASE)
 _LIST_REMOVE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
                           r"(?:off(?:\s+of)?|from)\s+" + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
@@ -1100,6 +1104,8 @@ class HeuristicPlannerProvider:
         shown = _LIST_SHOW.match(text)
         if shown:
             return self._command(f"list {shown.group('name')} show", "Read a list.", 0.88)
+        if _STORE_ASK.match(text):
+            return self._command("list shopping show", "What to buy is the shopping list.", 0.86)
         removed = _LIST_REMOVE.match(text)
         if removed:
             return self._command(f"list {removed.group('name')} remove {removed.group('items')}", "Remove from a list.", 0.88)
