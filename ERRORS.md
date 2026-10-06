@@ -48,6 +48,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"Play my voicemail/messages" opened YouTube** → the broad `play <target>` rule
+  treated a personal inbox as a song, and the music tool would do the same with a
+  model-routed command → share one personal-message guard between router and tool;
+  keep a song titled "Voicemail" playable. (10-05)
 - **"Could you make a slide deck" returned a PDF** → the router understood the request, but
   `document.split_format` recognized only `can you`/`please` before a front-named deck → keep
   the router and format parser's courtesy forms aligned; assert the saved format and reply,

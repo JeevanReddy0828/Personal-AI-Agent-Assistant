@@ -27,6 +27,13 @@ _UA = (
 # pattern: find each result, then read the first title that follows it.
 _RESULT = re.compile(r'"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"')
 _TITLE = re.compile(r'"text":"((?:[^"\\]|\\.)*)"')
+_PERSONAL_MESSAGES = re.compile(r"^(?:my|our)\s+(?:voice\s*mail|voicemails?|voice\s+messages?|messages?)\b",
+                                re.IGNORECASE)
+
+
+def is_personal_message_target(target: str) -> bool:
+    """A personal inbox is not a song title to send to YouTube."""
+    return bool(_PERSONAL_MESSAGES.match((target or "").strip()))
 
 
 def _default_resolver(query: str) -> list[dict[str, str]]:
@@ -88,6 +95,10 @@ class MusicTool:
         path = Path(target).expanduser()
         if path.exists():
             return self.desktop.open_app_or_file(str(path.resolve()))
+        if is_personal_message_target(target):
+            return ToolResult.failure(
+                "I can't access your voicemail or personal messages here. Open them in your phone or messaging app."
+            )
         # Otherwise treat it as a search and open it on YouTube (no API key needed).
         query = self._youtube_query(target)
         if not query:

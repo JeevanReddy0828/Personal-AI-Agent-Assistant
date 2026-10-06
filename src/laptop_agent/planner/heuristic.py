@@ -6,6 +6,7 @@ from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import spoken_to_digits
 from laptop_agent.tools.chance import is_chance_request
+from laptop_agent.tools.music import is_personal_message_target
 from laptop_agent.tools.weather import clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
@@ -1852,7 +1853,7 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         target = match.group("target").strip().strip("'\"")
-        if not target or _NOT_MUSIC.search(target):
+        if not target or _NOT_MUSIC.search(target) or is_personal_message_target(target):
             return None
         return self._command(f"play music {target}", "User wants to play music from a target.", 0.75)
 
