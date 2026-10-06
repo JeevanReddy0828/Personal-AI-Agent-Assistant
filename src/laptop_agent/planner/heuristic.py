@@ -122,7 +122,7 @@ _ASKING = re.compile(
 # Decisions belong to the advisor, which researches and recommends — do not shortcut those.
 _DECIDING = re.compile(
     r"^\s*(?:should|would|could|can)\s+(?:i|we)\b"
-    r"|\bbest way to\b|\bpros and cons\b|\bworth (?:it|the)\b|\bis it better to\b",
+    r"|\bpros and cons\b|\bworth (?:it|the)\b|\bis it better to\b",
     re.IGNORECASE,
 )
 # Anything naming a tool, a destination, or the user's own data goes to the real router.
@@ -1809,10 +1809,13 @@ class HeuristicPlannerProvider:
 
     def _advise(self, text: str) -> PlanDecision | None:
         """Decision/problem-solving requests go to the structured advisor (research +
-        options + recommendation + plan), not a plain chat reply or web search."""
+        options + recommendation + plan), not a plain chat reply or web search.
+
+        "what's the best way to cook rice" is a how-to question, not a decision: sent here it
+        took the 20-80 s research path for a one-paragraph answer, so it is answered directly
+        (Jeevan's call, 2026-10-06). An explicit decision still comes here."""
         match = re.search(
             r"\b(?:help me (?:decide|choose|figure out|solve)|weigh (?:my|the|up) options|"
-            r"what(?:'?s| is) the best (?:way|approach|option|strategy) (?:to|for)|"
             r"how should i (?:approach|tackle|handle|solve)|figure out (?:how|whether)|"
             r"should i\b.+?\bor\b)\b",
             text,
