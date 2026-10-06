@@ -138,6 +138,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   only mentioned email; MEDIUM, so no card) → `"new email" in lowered` and verb-anywhere /
   "latest … email" regexes → `_MAIL_ASK` / `_MAIL_DIGEST_ASK`, the whole sentence asking for
   your mail. The same sweep, applied to a route that reads private data. (10-05)
+- **"the police will investigate the crash" started a web research run** (14 of 16 ordinary
+  sentences) → `research|look into|investigate|read up on` matched anywhere →
+  `_RESEARCH_ASK`: the request opens the sentence (polite prefix or "I want you to"), and
+  "do some research on X" no longer keeps "on" in the topic. (10-06)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"remind me how to center a div" → "I could not find a time in that"** → "remind me" was

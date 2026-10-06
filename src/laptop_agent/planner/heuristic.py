@@ -256,6 +256,15 @@ _MAIL_DIGEST_ASK = re.compile(
     r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
     re.IGNORECASE,
 )
+# Asking for research opens the sentence. Matched anywhere, 14 of 16 ordinary sentences
+# started the multi-search workflow: "the police will investigate the crash", "I'll look
+# into it", "my professor told me to read up on kant".
+_RESEARCH_ASK = re.compile(
+    _POLITE + r"(?:i\s+(?:want|need|would\s+like)\s+you\s+to\s+)?"
+    r"(?:research|do\s+(?:some\s+|a\s+bit\s+of\s+)?research\s+(?:on|into|about)|look\s+into|investigate"
+    r"|read\s+up\s+on|dig\s+into)\s+(?P<topic>.+?)[\s?.!]*$",
+    re.IGNORECASE,
+)
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
 # the words after "remind me" were kept, so the reminder lost its time and was refused.
 # Nothing but time words may stand there; anything else keeps the old reading.
@@ -1818,14 +1827,10 @@ class HeuristicPlannerProvider:
         return self._command(f"solve {problem}", "User wants a reasoned recommendation, not just chat.", 0.78)
 
     def _research(self, text: str) -> PlanDecision | None:
-        match = re.search(
-            r"\b(?:research|do research on|look into|investigate|read up on)\s+(.+)$",
-            text,
-            re.IGNORECASE,
-        )
+        match = _RESEARCH_ASK.match(text or "")
         if not match:
             return None
-        topic = match.group(1).strip().strip("'\"?")
+        topic = match.group("topic").strip().strip("'\"?")
         if not topic:
             return None
         return self._command(f"research {topic}", "User wants an autonomous web research workflow.", 0.8)
