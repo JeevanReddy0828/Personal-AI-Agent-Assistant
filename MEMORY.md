@@ -1,7 +1,8 @@
 # MEMORY.md — decision log
 
 Permanent architectural facts and decisions. Append when a choice is made that future
-sessions must respect. See `CLAUDE.md` for the operating principles and full architecture.
+sessions must respect. See `CLAUDE.md` for the operating principles and the core, and
+`docs/design/` for the full architecture.
 
 ## Locked stack / constraints
 - Python 3.11+, **zero required runtime dependencies** (`dependencies = []`). New heavy
@@ -18,6 +19,13 @@ sessions must respect. See `CLAUDE.md` for the operating principles and full arc
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-06: **CLAUDE.md is the core; the detail is in `docs/design/` (Jeevan's decision,
+  done by Claude).** CLAUDE.md was 127 KB and re-read whole by every session. It now keeps the
+  operating principles, what the app is, the request-flow diagrams, what works today (only
+  features tested on the real app: the webcam, Google sign-in, the Jobright pull and
+  recordings are left out until verified), the seven rules, running and testing, and a map.
+  Every other paragraph moved unchanged to a topic file in `docs/design/`, checked paragraph
+  by paragraph. `AGENTS.md`'s map points there, and `test_agents_md` keeps it honest.
 - 2026-10-02: **Docs: one place per kind of knowledge (Claude, at Jeevan's request).**
   Something broken → `ERRORS.md`'s symptom index first (one line per lesson: symptom → cause
   → guard), detail in its dated sessions; a decision → here; how a subsystem works →

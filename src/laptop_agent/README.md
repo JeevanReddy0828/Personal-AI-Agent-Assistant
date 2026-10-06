@@ -128,7 +128,8 @@ README.
 
 ## Read next
 
-- `CLAUDE.md` at the repository root: the reasoning behind each subsystem, and the rules
-  (zero required dependencies, the approval gate, `ToolResult`, injectable backends).
+- `CLAUDE.md` at the repository root for the rules (zero required dependencies, the approval
+  gate, `ToolResult`, injectable backends), and `docs/design/` for the reasoning behind each
+  subsystem.
 - `ERRORS.md`: start at its symptom index when something misbehaves.
 - `tests/README.md`: how to run the suite and where each area is tested.

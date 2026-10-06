@@ -53,7 +53,7 @@ review only; the browser still receives a single document.
 
 ## Read next
 
-- `CLAUDE.md` → the paragraphs on voice, barge-in, the dock, orb focus, maths and diagrams,
-  and "Nothing in the page may assume a secure context".
+- `docs/design/voice.md` (voice, barge-in, the dock) and `docs/design/web-ui.md` (orb focus,
+  maths and diagrams, "Nothing in the page may assume a secure context").
 - Tests: `test_page_assets.py`, `test_page_integrity.py`, `test_webui*.py`, and the opt-in
   browser suites `test_browser_*.py` (`JARVIS_BROWSER_TESTS=1`).

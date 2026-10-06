@@ -28,6 +28,7 @@ CSV tools. Re-run an evaluation from the repository root, for example
 
 | Path | What it is |
 |---|---|
+| `design/` | The detailed design notes that used to fill `CLAUDE.md`, one file per subsystem; see its README. |
 | `analytics.md` | Contract for `analytics/diagnostics.py`: drivers fitted on a prefix and scored on an untouched tail, associations not causes, robust anomalies with unscored zero-MAD values. |
 | `forecasting.md` | Contract for `analytics/forecast.py`: season and tuning from an early prefix, method choice against two baselines, calibrated intervals, and what to say when data is insufficient. |
 | `evals/` | Offline knowledge-ranking experiments, their fixtures and recorded results. |
@@ -36,5 +37,5 @@ CSV tools. Re-run an evaluation from the repository root, for example
 
 ## Read next
 
-- `CLAUDE.md` → "ANALYTICS-01 forecasting core" and "ANALYTICS-04 update".
+- `design/analytics.md` for the wiring notes, and `design/README.md` for every design note.
 - Each sub-folder's README.

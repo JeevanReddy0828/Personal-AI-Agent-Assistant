@@ -3,13 +3,13 @@
 Both agents load this file at the start of every session: Codex reads `AGENTS.md` itself
 (root down to the working directory, 32 KiB combined), and Claude Code imports it from
 `CLAUDE.md`. So it holds only what neither of us may ever miss, and a map to the rest.
-**`CLAUDE.md` stays the canonical guide to each subsystem** - read the section for the area
-you are about to edit (map below) before you change it. Keep this file under 8 KiB.
+**`CLAUDE.md` is the core and `docs/design/` the canonical detail for each subsystem** - read
+the file for the area you are about to edit (map below) before you change it. Keep this file under 8 KiB.
 
 ## Before changing anything
 
 1. Search the **symptom index** at the top of `ERRORS.md` for what you are seeing.
-2. Read the `CLAUDE.md` section for the files you will touch (map below).
+2. Read the `docs/design/` file for the files you will touch (map below).
 3. `git fetch` and `git status -sb`: the other agent works in this repository at the same
    time, from its own worktrees, and branches move under you.
 
@@ -67,21 +67,21 @@ you are about to edit (map below) before you change it. Keep this file under 8 K
   `LAPTOP_AGENT_DATA_DIR` set (the port alone writes into the real store), stopped afterwards.
 - Call a model before wiring it in, and pace live model calls about 12 seconds apart.
 
-## Where the detail is: sections of CLAUDE.md
+## Where the detail is: docs/design/
 
-| You are editing | Read first |
+| You are editing | Read first (in `docs/design/`) |
 |---|---|
-| `planner/heuristic.py`, routing in `planner/openai_compatible.py` | "Non-negotiable conventions" item 5; "Everyday requests" |
-| a tool in `tools/` | its entry in "Architecture (map)" |
-| `knowledge.py`, `terms.py`, `context.py`, `embeddings.py` | their entries in "Architecture (map)"; "Session context" |
-| model tiers, providers, reply length | "LLM brain — tiered models"; "How long a reply may run" |
-| `reasoning.py` (agent mode) | "Two autonomy layers"; "The agent trusts a reply only up to its first runnable ACTION" |
-| `webui.py`: server, caching, LAN, accounts, sessions | "Running it" |
-| `access.py`, personal accounts | "A `personal` account is the assistant, not the machine" |
-| `webui_assets/` (page, voice, orb, meter) | the "Voice…", "Barge-in…", "The dock…" and "Orb focus…" paragraphs; "Nothing in the page may assume a secure context" |
-| `analytics/` | `docs/analytics.md`, `docs/forecasting.md` |
-| the test runner itself | "The runner makes `os.startfile`"; "A failing run writes `test-failures.log`" |
-| packaging | "A packaged app searches `sys._MEIPASS` too" |
+| `planner/heuristic.py`, routing in `planner/openai_compatible.py` | `conventions.md` item 5; "Everyday requests" in `routing.md` |
+| a tool in `tools/` | its entry in `architecture-map.md` |
+| `knowledge.py`, `terms.py`, `context.py`, `embeddings.py` | their entries in `architecture-map.md`; "Session context" in `orchestrator.md` |
+| model tiers, providers, reply length | `models.md`, from "How long a reply may run" |
+| `reasoning.py` (agent mode) | `orchestrator.md`: "Two autonomy layers"; "The agent trusts a reply only up to its first runnable ACTION" |
+| `webui.py`: server, caching, LAN, accounts, sessions | `web-server.md`, `running.md`, `accounts.md` |
+| `access.py`, personal accounts | `accounts.md`: "A `personal` account is the assistant, not the machine" |
+| `webui_assets/` (page, voice, orb, meter) | `voice.md` ("Voice…", "Barge-in…", "The dock…"); `web-ui.md` ("Orb focus…", "Nothing in the page may assume a secure context") |
+| `analytics/` | `analytics.md`; `docs/analytics.md`, `docs/forecasting.md` |
+| the test runner itself | `testing.md`: "The runner makes `os.startfile`"; "A failing run writes `test-failures.log`" |
+| packaging | `voice.md`: "A packaged app searches `sys._MEIPASS` too" |
 
 ## Jeevan's setup
 

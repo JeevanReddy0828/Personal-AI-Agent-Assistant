@@ -65,7 +65,7 @@ the routing contract in `selfcheck.py` so `tests/test_everyday_requests.py` hold
 
 ## Read next
 
-- `CLAUDE.md` → "Everyday requests" (the rules the dispatch and routing follow) and
-  "Session context" (what the history becomes before a model sees it).
+- `docs/design/routing.md` (the rules the dispatch and routing follow) and
+  `docs/design/orchestrator.md` (session context: what the history becomes before a model sees it).
 - `planner/README.md` for the routers, `tools/README.md` for what the commands reach.
 - Tests: `test_orchestrator.py`, `test_command_dispatch.py`, `test_everyday_requests.py`.

@@ -34,5 +34,5 @@ git checkout -- docs/review
 
 ## Read next
 
-- `CLAUDE.md` → "Outstanding / watch-outs" (the note about discarding these images) and the
-  web UI paragraphs.
+- `docs/design/watch-outs.md` (the note about discarding these images) and
+  `docs/design/web-ui.md`.
