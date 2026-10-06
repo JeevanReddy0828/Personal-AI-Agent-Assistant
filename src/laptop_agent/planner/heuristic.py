@@ -5,6 +5,7 @@ import re
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import spoken_to_digits
+from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
 from laptop_agent.tools.weather import clean_place
@@ -313,7 +314,7 @@ _NAMELESS_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?)\s+(?P<items>
 # "set the volume to 50", "volume 30%", "turn the volume to 20 percent"
 _VOLUME_LEVEL = re.compile(
     r"^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:(?:set|change|put|turn|make)\s+(?:the\s+)?volume"
-    r"\s+(?:to|at)|volume(?:\s+(?:to|at))?)\s+(?P<level>\d{1,3})\s*(?:%|percent)?(?:\s+please)?\s*[.!]*$",
+    rf"\s+(?:to|at)|volume(?:\s+(?:to|at))?)\s+(?P<level>\d{{1,3}}|{_NUMBER_WORD.pattern})\s*(?:%|percent)?(?:\s+please)?\s*[.!]*$",
     re.IGNORECASE,
 )
 
@@ -1916,7 +1917,9 @@ class HeuristicPlannerProvider:
                 return self._command(f"media {key}", "User wants media playback controlled.", 0.8)
         level = _VOLUME_LEVEL.match(text)
         if level:
-            return self._command(f"media volume {level.group('level')}", "User wants a volume level.", 0.84)
+            said_level = level.group("level")
+            digits = said_level if said_level.isdigit() else _words_to_number(said_level)
+            return self._command(f"media volume {digits}", "User wants a volume level.", 0.84)
         match = _PLAY.match(text)
         if not match:
             return None
