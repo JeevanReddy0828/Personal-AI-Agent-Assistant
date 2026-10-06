@@ -19,6 +19,15 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-06: **NVIDIA's speech skills: a hosted voice, translation, and the agent skill
+  (Jeevan chose all three from build.nvidia.com/skills, Claude built them).** The app
+  window speaks with hosted Magpie by default (`LAPTOP_AGENT_TTS=auto`), the offline voice
+  behind it; `offline` keeps replies on the laptop. Translation is a tool over
+  `riva-translate-1.6b`, MEDIUM like other network reads and everyday for a personal
+  account. The service cannot detect a source language, so the tool names it - the
+  request, then the script, then English - and asks the fast tier only for Latin-script
+  text bound for English; it asks the user rather than guess. NVIDIA's `nemotron-speech`
+  skill is vendored unchanged in `.agents/skills/` for both agents.
 - 2026-10-06: **CLAUDE.md is the core; the detail is in `docs/design/` (Jeevan's decision,
   done by Claude).** CLAUDE.md was 127 KB and re-read whole by every session. It now keeps the
   operating principles, what the app is, the request-flow diagrams, what works today (only

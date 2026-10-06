@@ -126,7 +126,7 @@ and a failed cloud call falls through to a local engine — losing the network c
 not the transcription. `/api/health` reports the chosen engine as `stt.engine`, and the web
 page uses that to record-and-post instead of trusting the browser's recognizer (a gear
 toggle overrides; server speech has no recognizer running while we talk, so it barges in on
-microphone **level** instead — see below). The two local engines:
+microphone **level** instead — see "Barge-in in server-STT mode" above). The two local engines:
 **Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
 browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
 when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
