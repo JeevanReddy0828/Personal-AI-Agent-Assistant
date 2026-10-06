@@ -72,6 +72,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   them up to the first verb that takes a path. Exempting only sentences that START with one
   folded "please read file Jeevan’s notes.txt" (Codex's review). Test input copied from a
   desktop keyboard hides the whole class. (10-05)
+- **`read file "C:\…\notes.txt"` → "File does not exist"**, and with "please" in front the chat
+  model answered → Windows' "Copy as path" quotes the path, and a `?` after it was read as
+  part of the name → `_clean_paths` unquotes a quoted span that looks like a path and drops a
+  `?` after one. A quote counts only at a word's edge, or the apostrophes in
+  `C:\Jeevan's docs\the kids' photos.txt` pair up. (10-05)
 - **Routed to the right tool, which then refused it** ("what's 70 fahrenheit in celsius" →
   "I don't know how to do that yet") → the router prefixes `convert` and the parser stripped
   it only before "how many" → strip it before every lead-in the parser reads. A contract that
