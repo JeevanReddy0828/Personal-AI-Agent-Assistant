@@ -113,6 +113,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and the frame goes to the vision model → "what do you see" / "look at me" matched anywhere →
   `_WEBCAM_ASK`, whole sentences or a request that opens by naming the camera. Same class as
   the screen: sweep every route that captures for substring matching. (10-05)
+- **"minimize distractions while studying" answered "no window matches"** (22 of 24 ordinary
+  sentences) → `_ARRANGE_ASK` took a verb with a position word anywhere after it, or
+  "minimize" plus any word, and the `split`/`snap`/`arrange` prefixes only looked for a
+  position → a whole sentence with a short name that no function word is part of, shared by
+  the router and the prefixes (`asks_to_arrange`). (10-05)
 - **"give me a template for a follow up email" read the inbox** (14 of 18 sentences that
   only mentioned email; MEDIUM, so no card) → `"new email" in lowered` and verb-anywhere /
   "latest … email" regexes → `_MAIL_ASK` / `_MAIL_DIGEST_ASK`, the whole sentence asking for

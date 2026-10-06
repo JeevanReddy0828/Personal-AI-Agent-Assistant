@@ -36,6 +36,34 @@ class HeuristicPlannerTests(unittest.TestCase):
             decision = self.plan(text)
             self.assertFalse((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
 
+    def test_a_verb_and_a_position_are_not_a_window_request(self) -> None:
+        # A verb with a position anywhere after it, or "minimize" plus any word, sent 22 of
+        # these 24 here, and each got "no window matches" instead of an answer.
+        for text in ("put the milk on the left shelf", "move the meeting to the top of the agenda",
+                     "send the report to the right person", "place the comma in the right spot",
+                     "shift the focus to the bottom line", "arrange the flowers in the center of the table",
+                     "drag the slider to the left to reduce noise", "center the text in css",
+                     "centre the title on the page", "maximize your savings with a roth ira",
+                     "minimize distractions while studying", "minimize the number of api calls",
+                     "maximize the profit given these constraints", "resize the image to full hd",
+                     "snap a photo of the bottom of the page", "move the decimal point two places to the left",
+                     "put the most important point at the top", "send me the bottom line",
+                     "split the data into a left and right subtree", "move forward with the right decision",
+                     "place your hands at the top of the steering wheel",
+                     # Two clean placements, asked as a question.
+                     "is chrome on the left and notepad on the right"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith("window "), text)
+
+    def test_a_short_name_and_a_position_still_arrange(self) -> None:
+        for text in ("move chrome to the top right", "maximise chrome", "minimize spotify", "center the calculator",
+                     "move visual studio code to the left", "put the chrome window on the left",
+                     "move chrome to the left side of the screen", "can you move chrome left please",
+                     "minimize all windows", "put spotify in the bottom right corner", "move notepad to the right third",
+                     "put chrome on the left, notepad on the right", "snap chrome to the left and notepad to the right"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("window "), text)
+
     def test_placements_route_without_any_verb(self) -> None:
         """How it gets said when nobody is being careful: name, position, name, position,
         with no "put" or "move" anywhere. The tool has always parsed these correctly — the

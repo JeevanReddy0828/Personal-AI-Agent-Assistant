@@ -45,6 +45,7 @@ from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import (
     SMALL_TALK,
+    asks_to_arrange,
     fact_question,
     is_diagram_subject,
     asks_not_to_forget,
@@ -2075,7 +2076,9 @@ class AgentOrchestrator:
         first = rest.split(None, 1)[0]
         if first in self._PROSE_OPENERS:
             return True
-        if verb in {"split", "windows", "arrange", "snap"}:
+        if verb in {"split", "arrange", "snap"}:
+            return not asks_to_arrange(command)
+        if verb == "windows":
             return not parse_placements(command)
         # A typo in the command form ("schedule briefing", "email hello") still gets the
         # tool's usage message; English is recognised by how it goes on.
