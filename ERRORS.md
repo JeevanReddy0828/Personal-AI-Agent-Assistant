@@ -51,6 +51,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A question defining a tiling feature tried to arrange a window** → the loose
   layout-phrase fallback bypassed the question guard used by explicit placements →
   keep that fallback for spoken imperatives but reject questions and decisions. (10-06)
+- **"what's the best way to cook rice" took 20-80 s** → `_advise` and `_DECIDING` treated
+  every "best way to" as a decision, so a how-to went to the advisor's research run → only an
+  explicit decision ("help me decide", "should I X or Y") goes there; a how-to is a plain
+  question answered directly (Jeevan's call). (10-06)
 - **"Play my voicemail/messages" opened YouTube** → the broad `play <target>` rule
   treated a personal inbox as a song, and the music tool would do the same with a
   model-routed command → share one personal-message guard between router and tool;
@@ -225,6 +229,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"next friday" said on a Thursday meant tomorrow** → `next <weekday>` was only "the coming
+  one" → it is that weekday in the next Monday-Sunday week (Jeevan's reading); one parser
+  serves reminders and the dates tool, and a sweep tests all seven days. (10-06)
 - **A reminder an hour off across DST** → `astimezone()` is a fixed offset → `local=True`;
   count calendar days. (09-28)
 - **A job fired twice in the repeated hour** → target rebuilt from each tick's offset → the

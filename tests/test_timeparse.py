@@ -67,6 +67,11 @@ class GrammarTests(unittest.TestCase):
         ("thursday at 6pm", at(2026, 9, 17, 18)),
         ("thursday at 9am", at(2026, 9, 24, 9)),
         ("next thursday at 9am", at(2026, 9, 24, 9)),
+        # "next friday" is the Friday of next week, not tomorrow (Jeevan, 2026-10-06).
+        ("next friday at 9am", at(2026, 9, 25, 9)),
+        ("next sunday", at(2026, 9, 27, 9)),
+        ("next monday", at(2026, 9, 21, 9)),
+        ("friday at 9am", at(2026, 9, 18, 9)),
         # written dates, rolling to next year once this year's has gone
         ("on the 25th december at 7am", at(2026, 12, 25, 7)),
         ("5 march at 3pm", at(2027, 3, 5, 15)),
@@ -96,6 +101,19 @@ class GrammarTests(unittest.TestCase):
                 found = parse_when(text, NOW)
                 assert found is not None
                 self.assertGreater(found.at, NOW, f"{text!r} resolved into the past")
+
+    def test_next_weekday_is_in_next_week_whatever_today_is(self) -> None:
+        """"next friday" is the Friday of the following Monday-Sunday week, said on any day
+        (Jeevan, 2026-10-06). It was the coming Friday: tomorrow, said on a Thursday."""
+        names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        for offset in range(7):
+            now = NOW + timedelta(days=offset)
+            next_monday = now.date() + timedelta(days=7 - now.weekday())
+            for index, name in enumerate(names):
+                with self.subTest(today=now.strftime("%A"), said=f"next {name}"):
+                    found = parse_when(f"next {name} at 9am", now)
+                    assert found is not None
+                    self.assertEqual(found.at.date(), next_monday + timedelta(days=index))
 
     def test_parsing_is_pure(self) -> None:
         """Same text, same now, same answer — every time. A reminder may not depend on
