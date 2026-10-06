@@ -57,7 +57,7 @@ from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
 from laptop_agent.timeparse import describe
-from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav
+from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav, tts_engine_name
 from laptop_agent.webui_page import PAGE, SIGNIN_PAGE
 from laptop_agent.window_fx import apply_window_effects
 
@@ -341,6 +341,17 @@ def _ocr_engine() -> str | None:
             record_failure("ocr/probe", exc)
             _LLM_STATUS["ocr"] = None
     return _LLM_STATUS["ocr"]  # type: ignore[return-value]
+
+
+def _tts_engine() -> str | None:
+    """Name of the voice /api/tts would use. Cached like the others."""
+    if "tts" not in _LLM_STATUS:
+        try:
+            _LLM_STATUS["tts"] = tts_engine_name()
+        except Exception as exc:  # a broken engine must not break setup
+            record_failure("tts/probe", exc)
+            _LLM_STATUS["tts"] = None
+    return _LLM_STATUS["tts"]  # type: ignore[return-value]
 
 
 def _safe_artifact(name: str, folder: str, types: dict[str, str]) -> Path | None:
@@ -1318,7 +1329,7 @@ class Handler(BaseHTTPRequestHandler):
             # Developer-only by the route allow-list: it describes this installation.
             self._json(200, {"ok": True, "items": setup_report(
                 _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
-                ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
+                tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":
@@ -1748,7 +1759,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_tts(self) -> None:
         """Text-to-speech for the native app's voice loop: render a sentence to WAV
-        audio server-side (offline engine) so the page can play it without the
+        audio server-side (hosted Magpie, or the offline engine) so the page can play it without the
         browser's speechSynthesis, which is unavailable in a webview window."""
         try:
             payload = self._read_json()
@@ -1758,7 +1769,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         wav = _render_tts(text)
         if not wav:
-            self._json(503, {"ok": False, "message": "Text-to-speech needs: pip install pyttsx3"})
+            self._json(503, {"ok": False, "message": "Text-to-speech needs pyttsx3, or nvidia-riva-client "
+                                                     "with an NVIDIA API key for the hosted voice."})
             return
         self._send(200, wav, "audio/wav")
 

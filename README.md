@@ -145,7 +145,7 @@ provider with that API works.
 | Embeddings — semantic recall | `nvidia/nemotron-3-embed-1b` | `OPENAI_EMBED_MODEL` | Default. Asymmetric: documents embed as `passage`, questions as `query` |
 | OCR — text in images | `nvidia/nemotron-parse` | `LAPTOP_AGENT_OCR=auto` | Keeps headings, tables and reading order; Tesseract offline |
 | Speech-to-text | NVIDIA Riva **Parakeet** (`parakeet-tdt-0.6b-v2`) | `LAPTOP_AGENT_STT=auto` | gRPC, ~1 s with punctuation; falls back to **Vosk** (~50 MB, offline) or **Whisper** |
-| Text-to-speech | Browser voice · offline `pyttsx3` | — | The native window speaks through `/api/tts` |
+| Text-to-speech | NVIDIA Riva **Magpie** (`magpie-tts-multilingual`) · offline `pyttsx3` | `LAPTOP_AGENT_TTS=auto` | The native window speaks through `/api/tts`: Magpie ~0.7 s a sentence, the offline voice when it fails; a browser tab uses its own voice |
 | Backup chat | `openai/gpt-oss-120b:free` via OpenRouter | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Default; only tried after every primary tier |
 
 ### The model ladder
@@ -366,7 +366,7 @@ flowchart LR
   RIVA --> ORC[Orchestrator]
   LOCAL --> ORC
   ORC -->|streamed reply| CHUNK["SpeechChunker<br/>one sentence at a time"]
-  CHUNK --> TTS["Text to speech<br/>browser voice · offline pyttsx3"]
+  CHUNK --> TTS["Text to speech<br/>Magpie (hosted) · pyttsx3 · browser voice"]
   TTS --> SPK[Speaker]
   SPK -.->|"sound while it speaks"| BARGE{"3+ words that are<br/>not its own echo?"}
   BARGE -->|yes| STOP[Stop the reply and answer you]
@@ -378,6 +378,10 @@ flowchart LR
   failed cloud call falls through to a local engine, so losing the network costs quality,
   not the transcription. Chrome/Edge tabs can use the browser's own recognizer; the native
   window records and transcribes on the server.
+- **Its voice.** In the native window `LAPTOP_AGENT_TTS=auto` speaks with NVIDIA's hosted
+  Magpie voice when the `riva` extra and a key are present, and with the offline `pyttsx3`
+  voice when they are not or a call fails. `offline` keeps every reply on the laptop;
+  `RIVA_TTS_VOICE` picks a voice. A browser tab still speaks with the browser's own voice.
 - **It starts talking early.** The reply is carved into sentences as it streams, so the
   first sentence is spoken while the rest is still being written.
 - **Barge-in listens to level, then to words.** While it speaks, sustained sound above the
@@ -561,7 +565,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | **Pictures** | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY` | A different host from chat — never point `OPENAI_BASE_URL` at it. |
 | **Embeddings** | `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY` | Default to the chat host and key. |
 | **Backup provider** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | Tried after every primary tier. |
-| **Speech** | `LAPTOP_AGENT_STT=auto`, `RIVA_API_KEY`, `RIVA_SERVER`, `RIVA_ASR_FUNCTION_ID`, `RIVA_ASR_LANGUAGE`, `RIVA_ASR_TIMEOUT_SECONDS`, `VOSK_MODEL` | Riva selects a model by **function id**, never a model name; the key falls back to `OPENAI_API_KEY`. |
+| **Speech** | `LAPTOP_AGENT_STT=auto`, `RIVA_API_KEY`, `RIVA_SERVER`, `RIVA_ASR_FUNCTION_ID`, `RIVA_ASR_LANGUAGE`, `RIVA_ASR_TIMEOUT_SECONDS`, `VOSK_MODEL`, `LAPTOP_AGENT_TTS=auto`, `RIVA_TTS_FUNCTION_ID`, `RIVA_TTS_VOICE`, `RIVA_TTS_LANGUAGE` | Riva selects a model by **function id**, never a model name; the key falls back to `OPENAI_API_KEY`. |
 | **OCR** | `LAPTOP_AGENT_OCR=auto\|parse\|tesseract` | `auto`: hosted `nemotron-parse` when a key is set, else Tesseract. |
 | **Web search** | `SEARCH_PROVIDER`, `SEARCH_API_KEY` (or `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) | No key → DuckDuckGo; an API falls back to DuckDuckGo too. |
 | **Email** | `SMTP_*`, `IMAP_*`, `MICROSOFT_CLIENT_*` | Drafts need nothing; SMTP/IMAP (a Gmail app password) or OAuth unlock send/read. |
