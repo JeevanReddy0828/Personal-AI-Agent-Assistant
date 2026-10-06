@@ -41,6 +41,12 @@ class UnitTests(unittest.TestCase):
     def test_us_volumes_say_so(self) -> None:
         self.assertIn("(US measure)", UnitTool().convert("convert 1 gallon to liters").message)
 
+    def test_a_bare_k_is_kilometres_against_a_length(self) -> None:
+        # "convert 5k to miles" was answered "kelvin is a temperature and mile is a length".
+        self.assertIn("**3.11 miles**", UnitTool().convert("convert 5k to miles").message)
+        self.assertIn("**3.11 miles**", UnitTool().convert("how many miles is a 5k").message)
+        self.assertIn("**26.85°C**", UnitTool().convert("300k to celsius").message)
+
     def test_ounces_against_a_volume_are_fluid_ounces(self) -> None:
         # Refused as "a volume and a mass"; nobody asking how many ounces are in a cup means weight.
         self.assertIn("**8 fluid ounces** (US measure)", UnitTool().convert("how many ounces in a cup").message)

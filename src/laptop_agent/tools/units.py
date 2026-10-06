@@ -129,6 +129,11 @@ def parse(text: str) -> tuple[float, str, str] | None:
         # volume. The answer names the unit it used, so the reading is never hidden.
         if "ounce" in (source, target) and "volume" in (_FACTORS[source][0], _FACTORS[target][0]):
             source, target = ("fluid ounce" if unit == "ounce" else unit for unit in (source, target))
+        # "convert 5k to miles" is a race, not five kelvin: a bare "k" against a length is km.
+        if source == "kelvin" and match.group("from").strip().lower() == "k" and _FACTORS[target][0] == "length":
+            source = "kilometre"
+        if target == "kelvin" and match.group("to").strip().lower() == "k" and _FACTORS[source][0] == "length":
+            target = "kilometre"
         amount = float((match.group("n") or "1").replace(",", "."))
         return amount, source, target
     return None
