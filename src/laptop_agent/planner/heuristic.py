@@ -24,14 +24,27 @@ _POSITION_WORD = "(?:" + "|".join(
 # Arranging windows, as it is actually said out loud. `window`/`split`/`snap`/`arrange`
 # are already direct command prefixes, so this only has to catch the natural phrasings:
 # "put X on the left", "move X to the top right", "maximise X", "left side X right side Y".
+# The whole sentence, with a short name: a verb with a position anywhere after it sent 22 of
+# 24 ordinary sentences here - "minimize distractions while studying", "center the text in
+# css", "move the decimal point two places to the left" - and each got "no window matches".
+# A word no window is named after ends the name, so "minimize the number of api calls" and
+# "put the most important point at the top" are not names.
+_NOT_A_NAME = (r"(?:a|an|the|my|your|our|their|his|her|its|this|that|these|those|it|me|you|us|them|"
+               r"yourself|myself|while|with|for|to|of|in|on|at|by|from|about|given|into|onto|and|or|but|"
+               r"so|if|when|then|than|as|is|are|was|were|be|over|under|up|down|forward|back|number|most)")
+_WINDOW_NAME = (r"(?:(?:the|my)\s+)?(?!" + _NOT_A_NAME + r"\b)[a-z0-9][\w.+#-]*"
+                r"(?:\s+(?!" + _NOT_A_NAME + r"\b)[a-z0-9][\w.+#-]*){0,2}")
+_PLACE_AT = (r"(?:\s+(?:to|on|at|in|into|onto)(?:\s+the)?)?\s+" + _POSITION_WORD
+             + r"(?:\s+(?:side|half|third|corner))?(?:\s+(?:of|on)\s+(?:the|my)\s+(?:screen|monitor|display))?")
+_ARRANGE_VERB = r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)"
 _ARRANGE_ASK = re.compile(
     r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+|i\s+(?:want|need)\s+)?(?:jarvis[,\s]+)?(?:"
-    # a verb, then a position somewhere after it
-    r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)\b[\s\S]{0,80}?\b"
-    + _POSITION_WORD + r"\b"
-    r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+\S+"
-    r"|" + _POSITION_WORD + r"\s+side\b[\s\S]{0,60}"
-    r")",
+    + _ARRANGE_VERB + r"\s+" + _WINDOW_NAME + _PLACE_AT
+    + r"(?:\s*,?\s*(?:and\s+(?:then\s+)?|then\s+)?(?:" + _ARRANGE_VERB + r"\s+)?" + _WINDOW_NAME + _PLACE_AT + r")*"
+    r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+" + _WINDOW_NAME
+    + r"|" + _POSITION_WORD + r"\s+side\s+" + _WINDOW_NAME
+    + r"(?:\s*,?\s*(?:and\s+)?" + _POSITION_WORD + r"\s+side\s+" + _WINDOW_NAME + r")*"
+    r")(?:\s+(?:please|now|for\s+me))?[\s?.!]*$",
     re.IGNORECASE,
 )
 # "split screen", "split windows", "side by side" anywhere in the sentence is unambiguous
@@ -649,6 +662,18 @@ def asks_not_to_forget(text: str) -> bool:
     """"don't forget to call mom at 5pm": a negation that asks for a reminder - and for
     nothing else (Codex's review of #194: the model routed it to `open url …mom.com`)."""
     return bool(_FORGET_IDIOM.match(strip_address(text)))
+
+
+def asks_to_arrange(text: str) -> bool:
+    """The whole sentence asks to place or size windows. The router and the direct `split`,
+    `snap` and `arrange` prefixes share it: the prefixes checked only for a position word,
+    so "snap a photo of the bottom of the page" still reached the window tool."""
+    probe = text or ""
+    if _ARRANGE_PLACEMENTS.match(probe):
+        # "should i put the legend on the right" is a clean fullmatch and is a decision for
+        # the advisor; "what is on the left and what is on the right" is a question.
+        return not (_ASKING.match(probe) or _DECIDING.search(probe))
+    return bool(_ARRANGE_ASK.match(probe) or _ARRANGE_PHRASE.search(probe))
 
 
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
@@ -1418,14 +1443,7 @@ class HeuristicPlannerProvider:
         The whole sentence is passed through as `window <text>`; the tool parses the
         placements, because the position can come before the name when it is spoken.
         """
-        probe = text or ""
-        placements = bool(_ARRANGE_PLACEMENTS.match(probe))
-        if placements and (_ASKING.match(probe) or _DECIDING.search(probe)):
-            # "should i put the legend on the right" is a clean fullmatch and is a
-            # decision for the advisor; "what is on the left and what is on the right"
-            # is a question. Neither is a request to move a window.
-            return None
-        if not placements and not _ARRANGE_ASK.match(probe) and not _ARRANGE_PHRASE.search(probe):
+        if not asks_to_arrange(text):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
 
