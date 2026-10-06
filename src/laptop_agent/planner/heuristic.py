@@ -78,7 +78,7 @@ _ARRANGE_PLACEMENTS = re.compile(
 # `tools.document._DECK_HEAD`, which is what actually splits the subject off.
 _DECK_ASK = re.compile(
     r"^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?"
-    r"(?:make|create|build|write|prepare|generate|do)?\s*(?:me\s+)?(?:an?\s+)?"
+    r"(?:make|create|build|write|prepare|generate|do|throw\s+together|whip\s+up)?\s*(?:me\s+)?(?:an?\s+)?"
     r"(?:pptx|ppt|power\s*point|slide\s*deck|slides|deck|presentation)"
     r"(?:\s+(?:file|deck|presentation|slides))?\s+(?:for|on|about|of|covering|regarding)\s+\S",
     re.IGNORECASE,
@@ -1447,7 +1447,7 @@ class HeuristicPlannerProvider:
             return None
         match = re.match(
             r"^\s*(?:can you |could you |please )?"
-            r"(?:write|create|make|generate|draft|prepare|produce|export)\s+"
+            r"(?:write(?:\s+up)?|create|make|generate|draft|prepare|produce|export)\s+"
             r"(?:me\s+)?(?:an?\s+|the\s+)?(.+)$",
             text, re.IGNORECASE,
         )
