@@ -346,10 +346,22 @@ class HeuristicPlannerTests(unittest.TestCase):
         for text in (
             "should I use Postgres or MySQL",
             "should we migrate to Kubernetes",
-            "what's the best way to learn Rust",
             "is it better to cache or recompute",
         ):
             self.assertFalse(is_plain_question(text), text)
+
+    def test_a_how_to_question_is_answered_directly(self) -> None:
+        # "what's the best way to cook rice" took the advisor's 20-80 s research path for a
+        # one-paragraph answer (Jeevan's call, 2026-10-06: a how-to is not a decision).
+        for text in ("what's the best way to learn Rust", "what's the best way to cook rice",
+                     "what is the best strategy for chess openings"):
+            with self.subTest(text=text):
+                self.assertTrue(is_plain_question(text), text)
+                self.assertFalse((self.plan(text).command or "").startswith("solve"), text)
+        for text in ("help me decide between a mac and a pc for programming", "how should i approach a salary negotiation",
+                     "should i rent or buy a house in austin"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("solve"), text)
 
     def test_an_empty_or_enormous_input_is_not_a_plain_question(self) -> None:
         self.assertFalse(is_plain_question(""))
