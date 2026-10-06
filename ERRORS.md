@@ -52,6 +52,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   treated a personal inbox as a song, and the music tool would do the same with a
   model-routed command → share one personal-message guard between router and tool;
   keep a song titled "Voicemail" playable. (10-05)
+- **"Write up a one pager" put `up` in the document topic** → the document heuristic
+  stripped `write` but not its phrasal particle → consume `write up` together, and assert
+  the generated file's request and visible reply. (10-05)
 - **"Could you make a slide deck" returned a PDF** → the router understood the request, but
   `document.split_format` recognized only `can you`/`please` before a front-named deck → keep
   the router and format parser's courtesy forms aligned; assert the saved format and reply,
