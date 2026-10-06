@@ -58,6 +58,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"Throw together slides" answered as chat or saved a PDF** → the heuristic and
   document format parser recognized only narrower creation verbs → keep both front-deck
   expressions aligned and assert the saved PPTX format through `handle()`. (10-05)
+- **"Set the volume to fifty" answered as chat** → the level route accepted only digits,
+  though voice transcription spells numbers out → use the calculator's existing number
+  grammar for level words and assert the visible percent reply through `handle()`. (10-05)
 - **"Could you make a slide deck" returned a PDF** → the router understood the request, but
   `document.split_format` recognized only `can you`/`please` before a front-named deck → keep
   the router and format parser's courtesy forms aligned; assert the saved format and reply,
@@ -72,6 +75,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   them up to the first verb that takes a path. Exempting only sentences that START with one
   folded "please read file Jeevan’s notes.txt" (Codex's review). Test input copied from a
   desktop keyboard hides the whole class. (10-05)
+- **`read file "C:\…\notes.txt"` → "File does not exist"**, and with "please" in front the chat
+  model answered → Windows' "Copy as path" quotes the path, and a `?` after it was read as
+  part of the name → `_clean_paths` unquotes a quoted span that looks like a path and drops a
+  `?` after one. A quote counts only at a word's edge, or the apostrophes in
+  `C:\Jeevan's docs\the kids' photos.txt` pair up. (10-05)
 - **Routed to the right tool, which then refused it** ("what's 70 fahrenheit in celsius" →
   "I don't know how to do that yet") → the router prefixes `convert` and the parser stripped
   it only before "how many" → strip it before every lead-in the parser reads. A contract that
@@ -108,6 +116,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and the frame goes to the vision model → "what do you see" / "look at me" matched anywhere →
   `_WEBCAM_ASK`, whole sentences or a request that opens by naming the camera. Same class as
   the screen: sweep every route that captures for substring matching. (10-05)
+- **"minimize distractions while studying" answered "no window matches"** (22 of 24 ordinary
+  sentences) → `_ARRANGE_ASK` took a verb with a position word anywhere after it, or
+  "minimize" plus any word, and the `split`/`snap`/`arrange` prefixes only looked for a
+  position → a whole sentence with a short name that no function word is part of, shared by
+  the router and the prefixes (`asks_to_arrange`). (10-05)
+- **"give me a template for a follow up email" read the inbox** (14 of 18 sentences that
+  only mentioned email; MEDIUM, so no card) → `"new email" in lowered` and verb-anywhere /
+  "latest … email" regexes → `_MAIL_ASK` / `_MAIL_DIGEST_ASK`, the whole sentence asking for
+  your mail. The same sweep, applied to a route that reads private data. (10-05)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"remind me how to center a div" → "I could not find a time in that"** → "remind me" was

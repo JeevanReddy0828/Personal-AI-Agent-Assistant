@@ -6,6 +6,7 @@ from datetime import datetime
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
+from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
 from laptop_agent.tools.weather import clean_place
@@ -25,14 +26,27 @@ _POSITION_WORD = "(?:" + "|".join(
 # Arranging windows, as it is actually said out loud. `window`/`split`/`snap`/`arrange`
 # are already direct command prefixes, so this only has to catch the natural phrasings:
 # "put X on the left", "move X to the top right", "maximise X", "left side X right side Y".
+# The whole sentence, with a short name: a verb with a position anywhere after it sent 22 of
+# 24 ordinary sentences here - "minimize distractions while studying", "center the text in
+# css", "move the decimal point two places to the left" - and each got "no window matches".
+# A word no window is named after ends the name, so "minimize the number of api calls" and
+# "put the most important point at the top" are not names.
+_NOT_IN_A_WINDOW_NAME = (r"(?:a|an|the|my|your|our|their|his|her|its|this|that|these|those|it|me|you|us|them|"
+               r"yourself|myself|while|with|for|to|of|in|on|at|by|from|about|given|into|onto|and|or|but|"
+               r"so|if|when|then|than|as|is|are|was|were|be|over|under|up|down|forward|back|number|most)")
+_WINDOW_NAME = (r"(?:(?:the|my)\s+)?(?!" + _NOT_IN_A_WINDOW_NAME + r"\b)[a-z0-9][\w.+#-]*"
+                r"(?:\s+(?!" + _NOT_IN_A_WINDOW_NAME + r"\b)[a-z0-9][\w.+#-]*){0,2}")
+_PLACE_AT = (r"(?:\s+(?:to|on|at|in|into|onto)(?:\s+the)?)?\s+" + _POSITION_WORD
+             + r"(?:\s+(?:side|half|third|corner))?(?:\s+(?:of|on)\s+(?:the|my)\s+(?:screen|monitor|display))?")
+_ARRANGE_VERB = r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)"
 _ARRANGE_ASK = re.compile(
     r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+|please\s+|i\s+(?:want|need)\s+)?(?:jarvis[,\s]+)?(?:"
-    # a verb, then a position somewhere after it
-    r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)\b[\s\S]{0,80}?\b"
-    + _POSITION_WORD + r"\b"
-    r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+\S+"
-    r"|" + _POSITION_WORD + r"\s+side\b[\s\S]{0,60}"
-    r")",
+    + _ARRANGE_VERB + r"\s+" + _WINDOW_NAME + _PLACE_AT
+    + r"(?:\s*,?\s*(?:and\s+(?:then\s+)?|then\s+)?(?:" + _ARRANGE_VERB + r"\s+)?" + _WINDOW_NAME + _PLACE_AT + r")*"
+    r"|(?:maximi[sz]e|minimi[sz]e|centre|center)\s+" + _WINDOW_NAME
+    + r"|" + _POSITION_WORD + r"\s+side\s+" + _WINDOW_NAME
+    + r"(?:\s*,?\s*(?:and\s+)?" + _POSITION_WORD + r"\s+side\s+" + _WINDOW_NAME + r")*"
+    r")(?:\s+(?:please|now|for\s+me))?[\s?.!]*$",
     re.IGNORECASE,
 )
 # "split screen", "split windows", "side by side" anywhere in the sentence is unambiguous
@@ -211,6 +225,35 @@ _SCREEN_ASK = re.compile(
     )),
     re.IGNORECASE,
 )
+# Asking for your own mail, as a whole sentence. Matched as words anywhere, 14 of 18
+# sentences that only mentioned email read the inbox: "give me a template for a follow up
+# email", "summarize the history of email", "write a new email to my landlord".
+_MAIL = r"(?:e-?mails?|mail|inbox)"
+_MAIL_KIND = r"(?:(?:new|unread|latest|recent|important|priority)\s+)*"
+_MAIL_TAIL = (
+    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week))"
+    r"|\s+(?:from|in|over|for)\s+the\s+(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?(?:days?|hours?|weeks?))?"
+    r"(?:\s+(?:in|on)\s+(?:gmail|google|outlook|microsoft(?:\s+mail)?))?[\s?.!]*$"
+)
+_MAIL_LEAD = _POLITE + r"(?:for\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?\s*[-,:]\s*)?"
+_MAIL_ASK = re.compile(
+    "|".join(_MAIL_LEAD + branch + _MAIL_TAIL for branch in (
+        r"(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+get|are\s+there|is\s+there|got)\s+(?:any\s+|an?\s+)?"
+        + _MAIL_KIND + _MAIL + r"(?:\s+(?:for\s+me|in\s+my\s+inbox))?",
+        r"any\s+" + _MAIL_KIND + _MAIL,
+        r"(?:new|unread)\s+" + _MAIL_KIND + _MAIL,
+        r"(?:check|read|show|get|give|fetch|find|pull\s+up|bring\s+up)\s+(?:me\s+)?(?:for\s+)?"
+        r"(?:my\s+|the\s+|all\s+(?:my\s+|the\s+)?)?(?:any\s+)?" + _MAIL_KIND + _MAIL,
+        r"what(?:'s|s|\s+is)\s+(?:new\s+)?in\s+my\s+" + _MAIL,
+    )),
+    re.IGNORECASE,
+)
+_MAIL_DIGEST_ASK = re.compile(
+    _MAIL_LEAD + r"(?:summari[sz]e|recap|digest|tl;?dr(?:\s+of)?"
+    r"|give\s+me\s+(?:a|an)\s+(?:quick\s+)?(?:summary|digest|overview|recap)\s+of)\s+"
+    r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
+    re.IGNORECASE,
+)
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
 # the words after "remind me" were kept, so the reminder lost its time and was refused.
 # Nothing but time words may stand there; anything else keeps the old reading.
@@ -272,7 +315,7 @@ _NAMELESS_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?)\s+(?P<items>
 # "set the volume to 50", "volume 30%", "turn the volume to 20 percent"
 _VOLUME_LEVEL = re.compile(
     r"^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:(?:set|change|put|turn|make)\s+(?:the\s+)?volume"
-    r"\s+(?:to|at)|volume(?:\s+(?:to|at))?)\s+(?P<level>\d{1,3})\s*(?:%|percent)?(?:\s+please)?\s*[.!]*$",
+    rf"\s+(?:to|at)|volume(?:\s+(?:to|at))?)\s+(?P<level>\d{{1,3}}|{_NUMBER_WORD.pattern})\s*(?:%|percent)?(?:\s+please)?\s*[.!]*$",
     re.IGNORECASE,
 )
 
@@ -690,6 +733,18 @@ def asks_to_be_told(text: str) -> bool:
         return parse_when(spoken, datetime.now().astimezone(), local=True) is None
     except TimeParseError:
         return True
+
+
+def asks_to_arrange(text: str) -> bool:
+    """The whole sentence asks to place or size windows. The router and the direct `split`,
+    `snap` and `arrange` prefixes share it: the prefixes checked only for a position word,
+    so "snap a photo of the bottom of the page" still reached the window tool."""
+    probe = text or ""
+    if _ARRANGE_PLACEMENTS.match(probe):
+        # "should i put the legend on the right" is a clean fullmatch and is a decision for
+        # the advisor; "what is on the left and what is on the right" is a question.
+        return not (_ASKING.match(probe) or _DECIDING.search(probe))
+    return bool(_ARRANGE_ASK.match(probe) or _ARRANGE_PHRASE.search(probe))
 
 
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
@@ -1460,14 +1515,7 @@ class HeuristicPlannerProvider:
         The whole sentence is passed through as `window <text>`; the tool parses the
         placements, because the position can come before the name when it is spoken.
         """
-        probe = text or ""
-        placements = bool(_ARRANGE_PLACEMENTS.match(probe))
-        if placements and (_ASKING.match(probe) or _DECIDING.search(probe)):
-            # "should i put the legend on the right" is a clean fullmatch and is a
-            # decision for the advisor; "what is on the left and what is on the right"
-            # is a question. Neither is a request to move a window.
-            return None
-        if not placements and not _ARRANGE_ASK.match(probe) and not _ARRANGE_PHRASE.search(probe):
+        if not asks_to_arrange(text):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
 
@@ -1911,7 +1959,9 @@ class HeuristicPlannerProvider:
                 return self._command(f"media {key}", "User wants media playback controlled.", 0.8)
         level = _VOLUME_LEVEL.match(text)
         if level:
-            return self._command(f"media volume {level.group('level')}", "User wants a volume level.", 0.84)
+            said_level = level.group("level")
+            digits = said_level if said_level.isdigit() else _words_to_number(said_level)
+            return self._command(f"media volume {digits}", "User wants a volume level.", 0.84)
         match = _PLAY.match(text)
         if not match:
             return None
@@ -1979,30 +2029,16 @@ class HeuristicPlannerProvider:
     def _email_search(self, text: str) -> PlanDecision | None:
         lowered = text.lower()
         api_provider = self._email_api_provider(lowered)
-        # Require the summarise verb to be *near* the inbox noun on the same line, so a
-        # message that merely happens to say "summarize X" and "write an email" in
-        # separate sentences no longer misroutes to the inbox (and IMAP).
-        if re.search(
-            r"\b(?:summari[sz]e|digest|overview|recap|catch me up on|tl;?dr)\b[^\n]{0,25}?\b(?:inbox|emails?|mail)\b",
-            lowered,
-        ):
+        if _MAIL_DIGEST_ASK.match(text):
             return self._command("email digest", "User wants a summary of their inbox.", 0.82)
-        if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
+        ask = _MAIL_ASK.match(text)
+        if ask and re.search(r"\b(?:new|unread)\b", ask.group(0), re.IGNORECASE):
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
-        # General "show/give/get me my (important/recent) emails" or "emails from the last
-        # N days" -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
+        # The rest -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
         # not OAuth, unless the user explicitly names a provider — OAuth reads are gated.
-        general_read = re.search(
-            r"\b(?:show|give|get|fetch|read|check|find|pull up|bring up)\s+(?:me|my|all|the|up)\b.*\b(emails?|inbox|mail)\b", lowered
-        ) or re.search(
-            r"\b(?:important|recent|latest|priority|any)\b[\w\s,'-]*\b(emails?|inbox|mail)\b", lowered
-        ) or re.search(
-            r"\b(emails?|inbox|mail)\b[\w\s,'-]*\b(?:from|in|over|for|the)\b[\w\s,'-]*\b(?:last|past|recent|today|yesterday|days?|hours?|week)\b",
-            lowered,
-        )
-        if general_read and not re.search(r"\b(?:send|draft|write|compose|reply|delete)\b", lowered):
+        if ask:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
             return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)

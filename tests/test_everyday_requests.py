@@ -209,6 +209,32 @@ class RoutingContractTests(unittest.TestCase):
         self.assertEqual(_fold_apostrophes("could you’d read file a’s.txt"), "could you'd read file a’s.txt")
         self.assertEqual(_fold_apostrophes("forecast sales in Jeevan’s.csv"), "forecast sales in Jeevan’s.csv")
 
+    def test_a_quoted_path_is_the_path(self) -> None:
+        # Windows' "Copy as path" quotes every path, and `read file "C:\…"` looked for a file
+        # whose name began with a quote; with "please" in front it never reached the tool.
+        folder = Path(self.tmp.name) / "my docs"
+        folder.mkdir()
+        note = folder / "my notes.txt"
+        note.write_text("the quoted budget", encoding="utf-8")
+        for said in (f'read file "{note}"', f"read file “{note}”", f"read file '{note}'",
+                     f"please read file “{note}”?", f'file info "{note}"', f'scan files "{folder}"',
+                     f'search files budget "{folder}"', f"read file {note}?", f"can you read file {note}?"):
+            with self.subTest(said=said):
+                result, ran = self.everyday.say(said)
+                self.assertIsNotNone(ran, said)
+                self.assertTrue(result.ok, result.message)
+
+    def test_only_a_quoted_path_loses_its_quotes(self) -> None:
+        from laptop_agent.agents.orchestrator import _clean_paths
+        self.assertEqual(_clean_paths(r"read file C:\Jeevan's docs\Sam's notes.txt"),
+                         r"read file C:\Jeevan's docs\Sam's notes.txt")
+        self.assertEqual(_clean_paths(r"read file C:\Jeevan's docs\the kids' photos.txt"),
+                         r"read file C:\Jeevan's docs\the kids' photos.txt")
+        self.assertEqual(_clean_paths("read file 'Til Tuesday/the 80's.txt"), "read file 'Til Tuesday/the 80's.txt")
+        self.assertEqual(_clean_paths('ask file "C:\\a b.md" about "the plan"'), 'ask file C:\\a b.md about "the plan"')
+        self.assertEqual(_clean_paths('what is "C:\\a b.md"?'), 'what is "C:\\a b.md"?')
+        self.assertEqual(_clean_paths("ask file a.md about the budget?"), "ask file a.md about the budget?")
+
     def test_ordinary_sentences_run_nothing(self) -> None:
         for text in MUST_STAY_CHAT:
             with self.subTest(text=text):
@@ -404,6 +430,18 @@ class ProseIsNotACommandTests(unittest.TestCase):
         self.assertEqual(ran, "(denied)")
         self.assertTrue(any("email draft to bob@example.com" in action for _risk, action in self.everyday.approvals),
                         self.everyday.approvals)
+
+    def test_a_window_word_and_a_position_are_not_a_window_request(self) -> None:
+        # The prefixes accepted any sentence with a position word in it.
+        for text in ("snap a photo of the bottom of the page", "arrange the flowers in the center of the table",
+                     "split the data into a left and right subtree"):
+            with self.subTest(text=text):
+                _result, ran = self.everyday.say(text)
+                self.assertFalse((ran or "").startswith(("window", "split", "snap", "arrange")), f"{text!r} ran {ran!r}")
+        for text in ("snap chrome to the left and notepad to the right", "arrange chrome left and notepad right"):
+            with self.subTest(text=text):
+                _result, ran = self.everyday.say(text)
+                self.assertEqual(ran, text)
 
     def test_a_typo_in_the_command_form_still_gets_its_usage_message(self) -> None:
         result, _ran = self.everyday.say("schedule briefing")
