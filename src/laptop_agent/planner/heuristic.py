@@ -122,7 +122,7 @@ _ASKING = re.compile(
 # Decisions belong to the advisor, which researches and recommends — do not shortcut those.
 _DECIDING = re.compile(
     r"^\s*(?:should|would|could|can)\s+(?:i|we)\b"
-    r"|\bbest way to\b|\bpros and cons\b|\bworth (?:it|the)\b|\bis it better to\b",
+    r"|\bpros and cons\b|\bworth (?:it|the)\b|\bis it better to\b",
     re.IGNORECASE,
 )
 # Anything naming a tool, a destination, or the user's own data goes to the real router.
@@ -254,6 +254,15 @@ _MAIL_DIGEST_ASK = re.compile(
     _MAIL_LEAD + r"(?:summari[sz]e|recap|digest|tl;?dr(?:\s+of)?"
     r"|give\s+me\s+(?:a|an)\s+(?:quick\s+)?(?:summary|digest|overview|recap)\s+of)\s+"
     r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
+    re.IGNORECASE,
+)
+# Asking for research opens the sentence. Matched anywhere, 14 of 16 ordinary sentences
+# started the multi-search workflow: "the police will investigate the crash", "I'll look
+# into it", "my professor told me to read up on kant".
+_RESEARCH_ASK = re.compile(
+    _POLITE + r"(?:i\s+(?:want|need|would\s+like)\s+you\s+to\s+)?"
+    r"(?:research|do\s+(?:some\s+|a\s+bit\s+of\s+)?research\s+(?:on|into|about)|look\s+into|investigate"
+    r"|read\s+up\s+on|dig\s+into)\s+(?P<topic>.+?)[\s?.!]*$",
     re.IGNORECASE,
 )
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
@@ -1800,10 +1809,13 @@ class HeuristicPlannerProvider:
 
     def _advise(self, text: str) -> PlanDecision | None:
         """Decision/problem-solving requests go to the structured advisor (research +
-        options + recommendation + plan), not a plain chat reply or web search."""
+        options + recommendation + plan), not a plain chat reply or web search.
+
+        "what's the best way to cook rice" is a how-to question, not a decision: sent here it
+        took the 20-80 s research path for a one-paragraph answer, so it is answered directly
+        (Jeevan's call, 2026-10-06). An explicit decision still comes here."""
         match = re.search(
             r"\b(?:help me (?:decide|choose|figure out|solve)|weigh (?:my|the|up) options|"
-            r"what(?:'?s| is) the best (?:way|approach|option|strategy) (?:to|for)|"
             r"how should i (?:approach|tackle|handle|solve)|figure out (?:how|whether)|"
             r"should i\b.+?\bor\b)\b",
             text,
@@ -1818,14 +1830,10 @@ class HeuristicPlannerProvider:
         return self._command(f"solve {problem}", "User wants a reasoned recommendation, not just chat.", 0.78)
 
     def _research(self, text: str) -> PlanDecision | None:
-        match = re.search(
-            r"\b(?:research|do research on|look into|investigate|read up on)\s+(.+)$",
-            text,
-            re.IGNORECASE,
-        )
+        match = _RESEARCH_ASK.match(text or "")
         if not match:
             return None
-        topic = match.group(1).strip().strip("'\"?")
+        topic = match.group("topic").strip().strip("'\"?")
         if not topic:
             return None
         return self._command(f"research {topic}", "User wants an autonomous web research workflow.", 0.8)

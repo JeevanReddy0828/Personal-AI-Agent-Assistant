@@ -48,6 +48,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"what's the best way to cook rice" took 20-80 s** → `_advise` and `_DECIDING` treated
+  every "best way to" as a decision, so a how-to went to the advisor's research run → only an
+  explicit decision ("help me decide", "should I X or Y") goes there; a how-to is a plain
+  question answered directly (Jeevan's call). (10-06)
 - **"Play my voicemail/messages" opened YouTube** → the broad `play <target>` rule
   treated a personal inbox as a song, and the music tool would do the same with a
   model-routed command → share one personal-message guard between router and tool;
@@ -138,6 +142,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   only mentioned email; MEDIUM, so no card) → `"new email" in lowered` and verb-anywhere /
   "latest … email" regexes → `_MAIL_ASK` / `_MAIL_DIGEST_ASK`, the whole sentence asking for
   your mail. The same sweep, applied to a route that reads private data. (10-05)
+- **"the police will investigate the crash" started a web research run** (14 of 16 ordinary
+  sentences) → `research|look into|investigate|read up on` matched anywhere →
+  `_RESEARCH_ASK`: the request opens the sentence (polite prefix or "I want you to"), and
+  "do some research on X" no longer keeps "on" in the topic. (10-06)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"remind me how to center a div" → "I could not find a time in that"** → "remind me" was

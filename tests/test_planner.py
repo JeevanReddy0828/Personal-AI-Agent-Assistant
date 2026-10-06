@@ -346,10 +346,22 @@ class HeuristicPlannerTests(unittest.TestCase):
         for text in (
             "should I use Postgres or MySQL",
             "should we migrate to Kubernetes",
-            "what's the best way to learn Rust",
             "is it better to cache or recompute",
         ):
             self.assertFalse(is_plain_question(text), text)
+
+    def test_a_how_to_question_is_answered_directly(self) -> None:
+        # "what's the best way to cook rice" took the advisor's 20-80 s research path for a
+        # one-paragraph answer (Jeevan's call, 2026-10-06: a how-to is not a decision).
+        for text in ("what's the best way to learn Rust", "what's the best way to cook rice",
+                     "what is the best strategy for chess openings"):
+            with self.subTest(text=text):
+                self.assertTrue(is_plain_question(text), text)
+                self.assertFalse((self.plan(text).command or "").startswith("solve"), text)
+        for text in ("help me decide between a mac and a pc for programming", "how should i approach a salary negotiation",
+                     "should i rent or buy a house in austin"):
+            with self.subTest(text=text):
+                self.assertTrue((self.plan(text).command or "").startswith("solve"), text)
 
     def test_an_empty_or_enormous_input_is_not_a_plain_question(self) -> None:
         self.assertFalse(is_plain_question(""))
@@ -736,6 +748,27 @@ class HeuristicPlannerTests(unittest.TestCase):
         decision = self.plan("what does report.txt say about latency")
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "ask file report.txt about latency")
+
+    def test_a_sentence_using_a_research_verb_is_not_a_research_request(self) -> None:
+        # Matched anywhere, 14 of these started the multi-search research workflow.
+        for text in ("how do I research a company before an interview", "the police will investigate the crash",
+                     "I need to look into my taxes this weekend", "I'll look into it",
+                     "we should investigate this bug tomorrow", "they research ai safety at anthropic",
+                     "my professor told me to read up on kant", "is it worth it to research your family tree",
+                     "scientists research new vaccines every year", "why do people investigate ufo sightings",
+                     "did you research this before answering"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith("research"), text)
+
+    def test_asking_for_research_still_routes(self) -> None:
+        for text, expected in (("research quantum computing", "research quantum computing"),
+                               ("can you research the best laptops under 1000", "research the best laptops under 1000"),
+                               ("investigate why sourdough bread rises", "research why sourdough bread rises"),
+                               ("read up on the history of rome", "research the history of rome"),
+                               ("I want you to research remote work productivity", "research remote work productivity"),
+                               ("do some research on the best running shoes", "research the best running shoes")):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, expected)
 
     def test_routes_ask_knowledge(self) -> None:
         decision = self.plan("answer from knowledge about payment retries")
