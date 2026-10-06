@@ -55,8 +55,10 @@ def main() -> int:
     import laptop_agent.config as config
 
     config._load_dotenv = lambda *a, **k: None
+    # Riva speech, voice and translation go over gRPC, whose sockets are opened in C where the
+    # guard below cannot see them, so their keys must not reach a test at all.
     for key in list(os.environ):
-        if key.startswith(("OPENAI_", "OPENROUTER_", "SMTP_", "IMAP_", "GOOGLE_", "MICROSOFT_", "JOBRIGHT_", "SEARCH_", "BRAVE_", "SERPER_", "SERPAPI_", "OBSIDIAN_", "LAPTOP_AGENT_")):
+        if key.startswith(("OPENAI_", "OPENROUTER_", "SMTP_", "IMAP_", "GOOGLE_", "MICROSOFT_", "JOBRIGHT_", "SEARCH_", "BRAVE_", "SERPER_", "SERPAPI_", "OBSIDIAN_", "LAPTOP_AGENT_", "RIVA_", "NVIDIA_")):
             os.environ.pop(key, None)
     os.environ["LAPTOP_AGENT_LLM_PROVIDER"] = "heuristic"
     connect = socket.socket.connect

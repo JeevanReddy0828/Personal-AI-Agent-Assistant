@@ -9,6 +9,8 @@ from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
 from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
+from laptop_agent.tools.translate import LANGUAGES as _LANGUAGES, UNSUPPORTED as _UNSUPPORTED_LANGUAGES
+from laptop_agent.tools.translate import parse_translation
 from laptop_agent.tools.weather import clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
@@ -607,6 +609,19 @@ _WORLD_NEWS = re.compile(
     r"(?:\s+(?:today|right\s+now|this\s+morning|tonight|lately))?\s*[?.!]*",
     re.IGNORECASE,
 )
+# Asking for a translation, as a whole sentence. The languages are read from the tool, never
+# copied here: a hand-kept list drifts from what the tool accepts, as the window positions did.
+_LANGUAGE_NAME = "|".join(sorted((re.escape(name) for name in (*_LANGUAGES, *_UNSUPPORTED_LANGUAGES)),
+                                 key=len, reverse=True))
+_TRANSLATE_ASK = re.compile(_POLITE + r"translate\s+(?P<rest>.+?)[\s?.!]*", re.IGNORECASE)
+# "what's the best way to say sorry in japanese" asks for advice, not the phrase translated.
+_SAY_IN = re.compile(
+    _POLITE + r"(?:how\s+(?:do|would|can|should)\s+(?:you|i|we|one)\s+say"
+    r"|what(?:'s|s|\s+is)(?:\s+the\s+(?:word|phrase)\s+for)?)\s+"
+    r"(?!(?:the|a)\s+(?:best|good|nice|polite|right|proper|correct)\s+way\b)"
+    r"(?P<text>.+?)\s+in\s+(?P<lang>" + _LANGUAGE_NAME + r")[\s?.!]*",
+    re.IGNORECASE,
+)
 _NEWS_ASK = re.compile(
     _POLITE
     + r"(?:(?:what(?:'s|s|\s+is)\s+(?:new|(?:the\s+)?latest)\s+in"
@@ -848,6 +863,10 @@ class HeuristicPlannerProvider:
         if casual:
             return casual
 
+        translation = self._translation(raw)
+        if translation:
+            return translation
+
         if _SCREEN_ASK.match(lowered):
             return self._command("read screen", "User wants the agent to look at the screen.", 0.85)
 
@@ -1065,6 +1084,19 @@ class HeuristicPlannerProvider:
         # route yet" to "thanks" and to "what is photosynthesis", and even when a model was
         # configured and merely busy.
         return PlanDecision(action="chat", confidence=0.25, explanation="No high-confidence tool route found.")
+
+    def _translation(self, raw: str) -> PlanDecision | None:
+        asked = _TRANSLATE_ASK.fullmatch(raw.strip())
+        if asked:
+            rest = asked.group("rest")
+            if parse_translation(rest):
+                return self._command(f"translate {rest}", "User asked for a translation.", 0.9)
+            return None
+        say = _SAY_IN.fullmatch(raw.strip())
+        if say:
+            return self._command(f"translate {say.group('text')} to {say.group('lang').lower()}",
+                                 "User asked how something is said in another language.", 0.88)
+        return None
 
     def _casual(self, lowered: str) -> PlanDecision | None:
         # "what … here" anywhere listed the folder for "what do you see as the main risk here".

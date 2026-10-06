@@ -144,6 +144,7 @@ provider with that API works.
 | Pictures (text-to-image) | `black-forest-labs/flux.2-klein-4b` | `OPENAI_IMAGE_MODEL` | Default; ~2 s. Its own host (`ai.api.nvidia.com/v1/genai`) and optional fallback model |
 | Embeddings — semantic recall | `nvidia/nemotron-3-embed-1b` | `OPENAI_EMBED_MODEL` | Default. Asymmetric: documents embed as `passage`, questions as `query` |
 | OCR — text in images | `nvidia/nemotron-parse` | `LAPTOP_AGENT_OCR=auto` | Keeps headings, tables and reading order; Tesseract offline |
+| Translation | NVIDIA Riva `riva-translate-1.6b` | `RIVA_NMT_FUNCTION_ID` | gRPC, ~0.3 s; 34 languages; the source is named by the request, the script or the fast tier |
 | Speech-to-text | NVIDIA Riva **Parakeet** (`parakeet-tdt-0.6b-v2`) | `LAPTOP_AGENT_STT=auto` | gRPC, ~1 s with punctuation; falls back to **Vosk** (~50 MB, offline) or **Whisper** |
 | Text-to-speech | NVIDIA Riva **Magpie** (`magpie-tts-multilingual`) · offline `pyttsx3` | `LAPTOP_AGENT_TTS=auto` | The native window speaks through `/api/tts`: Magpie ~0.7 s a sentence, the offline voice when it fails; a browser tab uses its own voice |
 | Backup chat | `openai/gpt-oss-120b:free` via OpenRouter | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Default; only tried after every primary tier |
@@ -567,6 +568,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | **Backup provider** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | Tried after every primary tier. |
 | **Speech** | `LAPTOP_AGENT_STT=auto`, `RIVA_API_KEY`, `RIVA_SERVER`, `RIVA_ASR_FUNCTION_ID`, `RIVA_ASR_LANGUAGE`, `RIVA_ASR_TIMEOUT_SECONDS`, `VOSK_MODEL`, `LAPTOP_AGENT_TTS=auto`, `RIVA_TTS_FUNCTION_ID`, `RIVA_TTS_VOICE`, `RIVA_TTS_LANGUAGE` | Riva selects a model by **function id**, never a model name; the key falls back to `OPENAI_API_KEY`. |
 | **OCR** | `LAPTOP_AGENT_OCR=auto\|parse\|tesseract` | `auto`: hosted `nemotron-parse` when a key is set, else Tesseract. |
+| **Translation** | `RIVA_NMT_FUNCTION_ID` | NVIDIA's hosted `riva-translate-1.6b`, same key as speech; the `riva` extra. |
 | **Web search** | `SEARCH_PROVIDER`, `SEARCH_API_KEY` (or `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) | No key → DuckDuckGo; an API falls back to DuckDuckGo too. |
 | **Email** | `SMTP_*`, `IMAP_*`, `MICROSOFT_CLIENT_*` | Drafts need nothing; SMTP/IMAP (a Gmail app password) or OAuth unlock send/read. |
 | **Google sign-in** | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | A Desktop OAuth client. `GOOGLE_REDIRECT_URI` belongs to the older email OAuth only. |
