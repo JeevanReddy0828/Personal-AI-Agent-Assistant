@@ -192,7 +192,14 @@ Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
 Tools (tools/): files (`scan files <path> by size` lists the largest across the whole tree; "largest
             files in my downloads" routes there instantly, and a place that is not a folder on this
             machine is left to the model), file_processor (universal "process file" dispatcher),
-        web, websearch, research, browser, desktop, email,
+        web, websearch, research, browser, desktop, email ("find the email from Alex about
+            the budget" is a sender plus topic search, not an inbox digest; IMAP combines
+            FROM and TEXT criteria. A sender at `@gmail.com` does not select Gmail OAuth:
+            only an explicit "in Gmail/Outlook" suffix does. "Search my email for X" is
+            a search too; the possessive before "email" must not hide the topic, and
+            a spoken "and then tell me what you find" is not part of the query. A date
+            span after "from" asks for an inbox period, not a person; merely mentioning
+            "new email" must not read the mailbox),
         music (a personal voicemail/messages request is not a YouTube song search;
             the shared router/tool guard leaves actual songs named "Voicemail" playable),
         weather (Open-Meteo, real forecast — no key),

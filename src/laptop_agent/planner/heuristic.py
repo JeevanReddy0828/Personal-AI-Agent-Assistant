@@ -1997,10 +1997,43 @@ class HeuristicPlannerProvider:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
             return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)
-        match = re.search(r"\b(?:search|find|look for)\s+(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
+        # A named sender is a search, not a general inbox digest. The broad "find ...
+        # email" rule below swallowed "find the email from Alex about the budget".
+        provider_suffix = re.search(r"\s+(?:in|on)\s+(gmail|google|outlook|microsoft)\s*[?.!]*$",
+                                    text, re.IGNORECASE)
+        search_provider = (self._email_api_provider(provider_suffix.group(1).lower())
+                           if provider_suffix else None)
+        search_text = text[:provider_suffix.start()] if provider_suffix else text
+        sender_search = re.search(
+            r"\b(?:find|search(?:\s+for)?|look\s+for|show(?:\s+me)?)\s+"
+            r"(?:(?:me|my|the|an?|that)\s+)?(?:e-?mails?|messages?)\s+from\s+"
+            r"(?P<sender>.+?)(?:\s+about\s+(?P<topic>.+?))?\s*[?.!]*$",
+            search_text, re.IGNORECASE,
+        )
+        if sender_search and not re.fullmatch(
+            r"(?:today|yesterday|(?:the\s+)?(?:last|past)\s+\d+\s+(?:days?|weeks?|months?|years?)"
+            r"|(?:this|last|past)\s+(?:day|week|month|year))",
+            sender_search.group("sender").strip(), re.IGNORECASE,
+        ):
+            sender = sender_search.group("sender").strip()
+            topic = (sender_search.group("topic") or "").strip().rstrip("?.!")
+            topic = re.sub(r"^(?:the|an?)\s+", "", topic, flags=re.IGNORECASE)
+            if re.fullmatch(r"[\w .@+'-]{1,80}", sender) and topic != "":
+                query = f'from:"{sender}" {topic}'
+            elif re.fullmatch(r"[\w .@+'-]{1,80}", sender) and not sender_search.group("topic"):
+                query = f'from:"{sender}"'
+            else:
+                query = ""
+            if query:
+                command = (f"email api search {search_provider} {query}" if search_provider
+                           else f"email search {query}")
+                return self._command(command, "User wants mail from a named sender.", 0.78)
+        match = re.search(r"\b(?:search|find|look for)\s+(?:(?:my|the)\s+)?(?:emails?|inbox)\s+(?:for|about)?\s*(.+)$", text, re.IGNORECASE)
         if not match:
             return None
         query = match.group(1).strip().strip("'\"") or "ALL"
+        query = re.sub(r"\s+and then\s+(?:tell|show)\s+me\s+(?:what you find|the results?)\s*[.!?]*$",
+                       "", query, flags=re.IGNORECASE).strip()
         for provider_name in ("gmail", "google", "outlook", "microsoft"):
             query = re.sub(rf"\b(?:in|on|from)\s+{provider_name}\b", "", query, flags=re.IGNORECASE).strip()
         if api_provider:
