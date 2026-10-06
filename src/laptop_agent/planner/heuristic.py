@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
-from laptop_agent.timeparse import spoken_to_digits
+from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
 from laptop_agent.tools.weather import clean_place
@@ -379,6 +380,28 @@ _MY_FACT = re.compile(
     r"(?P<key>" + _PERSONAL_KEY + r")\s+is\s+(?P<value>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
+# A value that describes a situation is not a fact: "my name is on the list", "my phone is at
+# 5 percent" and "my favourite part is when the hero wins" were stored, and the chat prompt
+# then called the user "on the list". A date may start with "on" or "in" ("on march 3"), so
+# it is refused only words that make it relative or not a date at all.
+_NOT_A_VALUE = re.compile(
+    r"(?:on|in|at|when|that|not|still|so|too|very|really|always|never|almost|nearly|probably|under"
+    r"|over|out|off|up|down|about|like|because|being|getting|coming|going|changing|moving)\b",
+    re.IGNORECASE,
+)
+_NOT_A_DATE = re.compile(r"(?:coming|almost|nearly|soon|not|over|today|tomorrow|tonight|yesterday|this|next"
+                         r"|in\s+(?:\d+|a|an|two|three|few)\s)\b", re.IGNORECASE)
+
+
+def _plausible_fact(key: str, value: str) -> bool:
+    key, value = key.lower(), value.strip()
+    if "phone" in key:
+        return len(re.findall(r"\d", value)) >= 7
+    if "email" in key:
+        return "@" in value
+    if "birthday" in key or "anniversary" in key:
+        return not _NOT_A_DATE.match(value)
+    return not _NOT_A_VALUE.match(value)
 # Correcting one: "change my name to Jeev", "update my city to Dallas".
 _FACT_CHANGE = re.compile(
     r"^\s*(?:please\s+)?(?:change|update|set|correct)\s+my\s+(?P<key>" + _PERSONAL_KEY + r")\s+to\s+"
@@ -649,6 +672,24 @@ def asks_not_to_forget(text: str) -> bool:
     """"don't forget to call mom at 5pm": a negation that asks for a reminder - and for
     nothing else (Codex's review of #194: the model routed it to `open url …mom.com`)."""
     return bool(_FORGET_IDIOM.match(strip_address(text)))
+
+
+# "remind me how to center a div", "can you remind me what a closure is": asked to be told
+# again, now. Read as a reminder they answered "I could not find a time in that." A time in
+# the words still makes one ("remind me what to buy at 5pm"), and "when" is left out, since
+# "remind me when I get home" asks for a reminder.
+_TELL_AGAIN = re.compile(_POLITE + r"remind\s+me\s+(?:again\s+)?(?:of\s+)?"
+                         r"(?:what|how|who|whom|whose|where|why|which|whether)\b", re.IGNORECASE)
+
+
+def asks_to_be_told(text: str) -> bool:
+    spoken = strip_address(text)
+    if not _TELL_AGAIN.match(spoken):
+        return False
+    try:
+        return parse_when(spoken, datetime.now().astimezone(), local=True) is None
+    except TimeParseError:
+        return True
 
 
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
@@ -1069,7 +1110,8 @@ class HeuristicPlannerProvider:
             r"\b(?:remind me|(?:set|create|add|make)\s+(?:a\s+|an\s+)?reminder)\b[,:]?\s*(.+)$",
             text, re.IGNORECASE,
         )
-        if add and not fact_question(text):    # "remind me of my wife's birthday" asks, it sets nothing
+        # "remind me of my wife's birthday" asks, it sets nothing; so does "remind me how".
+        if add and not fact_question(text) and not asks_to_be_told(text):
             rest = add.group(1).strip().strip("'\"")
             said_first = spoken_to_digits(_PREFIX_POLITE.sub("", text[: add.start()]).strip(" ,"))
             if said_first and _TIME_FIRST.fullmatch(said_first):
@@ -1115,7 +1157,7 @@ class HeuristicPlannerProvider:
         if _LISTS.match(text):
             return self._command("lists", "Show every list.", 0.86)
         fact = _MY_FACT.match(text)
-        if fact:
+        if fact and _plausible_fact(fact.group("key"), fact.group("value")):
             key = re.sub(r"\s+", "_", fact.group("key").strip().lower())
             return self._command(f"remember {key} = {fact.group('value').strip()}", "A fact about the user.", 0.86)
         called = _CALL_ME.match(text)

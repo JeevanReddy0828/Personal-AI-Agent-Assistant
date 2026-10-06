@@ -45,6 +45,7 @@ from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import (
     SMALL_TALK,
+    asks_to_be_told,
     fact_question,
     is_diagram_subject,
     asks_not_to_forget,
@@ -590,6 +591,10 @@ class AgentOrchestrator:
                   and not _REMINDER_CREATION.match(decision.command or "")):
                 decision = PlanDecision(action="chat", confidence=0.55,
                                         explanation="'Don't forget' asks for a reminder, not this.")
+            elif (decision.is_command and asks_to_be_told(command)
+                  and _REMINDER_CREATION.match(decision.command or "")):
+                decision = PlanDecision(action="chat", confidence=0.55,
+                                        explanation="'Remind me how/what' asks to be told now.")
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -2031,7 +2036,7 @@ class AgentOrchestrator:
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date",
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
-        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm",
+        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
     })
 
     def _reads_as_prose(self, command: str, lowered: str) -> bool:
@@ -2044,6 +2049,8 @@ class AgentOrchestrator:
             return True
         if verb in {"split", "windows", "arrange", "snap"}:
             return not parse_placements(command)
+        if verb == "remind":
+            return asks_to_be_told(command)
         # A typo in the command form ("schedule briefing", "email hello") still gets the
         # tool's usage message; English is recognised by how it goes on.
         if verb == "schedule":

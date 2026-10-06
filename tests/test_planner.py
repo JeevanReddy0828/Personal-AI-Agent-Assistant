@@ -382,6 +382,33 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_unread_email_still_routes_to_imap(self) -> None:
         self.assertEqual(self.plan("check unread emails").command, "email unread")
 
+    def test_a_situation_is_not_a_fact(self) -> None:
+        # Stored, "my name is on the list" put "on the list" into every chat prompt as the
+        # user's name.
+        for text in ("my name is on the list", "my phone is at 5 percent", "my favourite part is when the hero wins",
+                     "my phone is dead", "my birthday is coming up", "my name is not important",
+                     "my email is full", "my birthday is next week", "my birthday is in 3 days",
+                     "my address is changing next month"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith("remember"), text)
+
+    def test_remind_me_how_is_not_a_reminder(self) -> None:
+        for text in ("can you remind me what a closure is", "remind me how to center a div"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith(("reminder", "remind")), text)
+        self.assertEqual(self.plan("can you remind me what to buy at 5pm").command, "reminder add what to buy at 5pm")
+
+    def test_a_fact_is_still_remembered(self) -> None:
+        for text, expected in (("my name is jeevan", "remember name = jeevan"),
+                               ("my birthday is on march 3", "remember birthday = on march 3"),
+                               ("my birthday is in june", "remember birthday = in june"),
+                               ("my email is a@b.com", "remember email = a@b.com"),
+                               ("my phone number is 555-123-4567", "remember phone_number = 555-123-4567"),
+                               ("my favorite movie is the godfather", "remember favorite_movie = the godfather"),
+                               ("my address is 12 main street", "remember address = 12 main street")):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, expected)
+
     def test_file_search_needs_a_file_cue(self) -> None:
         # explicit "files" -> file search
         decision = self.plan("search files config in src")
