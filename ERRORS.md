@@ -72,6 +72,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   them up to the first verb that takes a path. Exempting only sentences that START with one
   folded "please read file Jeevan’s notes.txt" (Codex's review). Test input copied from a
   desktop keyboard hides the whole class. (10-05)
+- **`read file "C:\…\notes.txt"` → "File does not exist"**, and with "please" in front the chat
+  model answered → Windows' "Copy as path" quotes the path, and a `?` after it was read as
+  part of the name → `_clean_paths` unquotes a quoted span that looks like a path and drops a
+  `?` after one. A quote counts only at a word's edge, or the apostrophes in
+  `C:\Jeevan's docs\the kids' photos.txt` pair up. (10-05)
 - **Routed to the right tool, which then refused it** ("what's 70 fahrenheit in celsius" →
   "I don't know how to do that yet") → the router prefixes `convert` and the parser stripped
   it only before "how many" → strip it before every lead-in the parser reads. A contract that
@@ -113,6 +118,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "minimize" plus any word, and the `split`/`snap`/`arrange` prefixes only looked for a
   position → a whole sentence with a short name that no function word is part of, shared by
   the router and the prefixes (`asks_to_arrange`). (10-05)
+- **"give me a template for a follow up email" read the inbox** (14 of 18 sentences that
+  only mentioned email; MEDIUM, so no card) → `"new email" in lowered` and verb-anywhere /
+  "latest … email" regexes → `_MAIL_ASK` / `_MAIL_DIGEST_ASK`, the whole sentence asking for
+  your mail. The same sweep, applied to a route that reads private data. (10-05)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes

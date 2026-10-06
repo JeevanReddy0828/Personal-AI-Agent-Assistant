@@ -410,6 +410,35 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_unread_email_still_routes_to_imap(self) -> None:
         self.assertEqual(self.plan("check unread emails").command, "email unread")
 
+    def test_a_sentence_about_email_does_not_read_the_inbox(self) -> None:
+        # Matched as words anywhere, 14 of these read the inbox - a MEDIUM read, so in the
+        # web app it ran without asking and put private mail into the reply.
+        for text in (
+            "is there a new email standard for spam", "what's the latest email marketing trend",
+            "how do I write a new email in outlook", "any tips for writing a cover email",
+            "what are the most important email etiquette rules", "recent email scams to watch out for",
+            "how do I check my mail in thunderbird", "what is the priority inbox in gmail",
+            "show me how to set up an email signature", "give me a template for a follow up email",
+            "get me a list of email providers", "read me a poem about email", "summarize the history of email",
+            "what does an unread email look like in outlook", "how often should I check my email",
+            "write a new email to my landlord about the heater",
+            "explain the latest changes to the mail merge feature",
+        ):
+            command = self.plan(text).command or ""
+            self.assertFalse(command.startswith("email"), f"{text!r} -> {command!r}")
+
+    def test_asking_for_your_mail_reads_it(self) -> None:
+        for text, expected in (
+            ("do I have any new emails", "email unread"), ("is there a new email?", "email unread"),
+            ("any new mail?", "email unread"), ("check for new emails", "email unread"),
+            ("unread emails", "email unread"), ("check my email", "email digest"),
+            ("what's in my inbox", "email digest"), ("show me emails from the last 3 days", "email digest"),
+            ("read my latest emails", "email digest"), ("any important emails today", "email digest"),
+            ("can you check my inbox", "email digest"), ("summarize my emails from today", "email digest"),
+            ("give me my emails in gmail", "email api unread gmail"),
+        ):
+            self.assertEqual(self.plan(text).command, expected, text)
+
     def test_file_search_needs_a_file_cue(self) -> None:
         # explicit "files" -> file search
         decision = self.plan("search files config in src")
