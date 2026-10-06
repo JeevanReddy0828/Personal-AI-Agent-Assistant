@@ -38,6 +38,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.travel import TravelTool
+from laptop_agent.tools.translate import TranslateTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -111,6 +112,8 @@ class Everyday:
         self.orchestrator._news_tool_cache = NewsTool(backend=lambda url: FEED, page_reader=lambda url: "",
                                                       approval_gate=gate)
         self.orchestrator._youtube_tool_cache = YouTubeTool(transcript_backend=lambda video: [])
+        self.orchestrator._translate_tool_cache = TranslateTool(
+            backend=lambda texts, source, target: [f"({target}) {text}" for text in texts], approval_gate=gate)
 
     def _approve(self, request) -> bool:
         self.approvals.append((request.risk.value, request.action))
@@ -538,7 +541,8 @@ class DeclinedCommandTests(unittest.TestCase):
         self.assertEqual(self.everyday.searches, ["convert 100 usd to eur"])
 
     def test_anything_else_is_answered_as_conversation(self) -> None:
-        result, ran = self.everyday.say("translate hello to french")
+        # Was "translate hello to french", until translation became a tool.
+        result, ran = self.everyday.say("conjugate the verb to be in latin")
         self.assertTrue(result.ok, result.message)
         self.assertIsNone(ran)
         self.assertIn("answered]", result.message)
@@ -550,7 +554,7 @@ class InventedCommandTests(unittest.TestCase):
     typed. #167 answered only the echo as conversation; this is the same sentence's other door."""
 
     INVENTED = {"convert 100 usd to eur": "currency convert 100 usd eur",
-                "translate hello to french": "translate text hello french",
+                "conjugate the verb to be in latin": "conjugate verb be latin",
                 "show me nope.txt": "read file nope.txt"}
 
     def setUp(self) -> None:
@@ -567,10 +571,10 @@ class InventedCommandTests(unittest.TestCase):
         self.assertNotIn("currency convert", result.message)
 
     def test_anything_else_is_answered_as_conversation(self) -> None:
-        result, _ran = self.everyday.say("translate hello to french")
+        result, _ran = self.everyday.say("conjugate the verb to be in latin")
         self.assertTrue(result.ok, result.message)
         self.assertIn("answered]", result.message)
-        self.assertNotIn("translate text", result.message)
+        self.assertNotIn("conjugate verb", result.message)
 
     def test_a_real_command_that_fails_still_says_why(self) -> None:
         # Only a command no tool recognises becomes conversation; a tool's own failure is news.
