@@ -41,7 +41,7 @@ class EmailSearchPhrasingTests(unittest.TestCase):
                     result, ran = everyday.say(said, stream=False)
                     self.assertEqual(ran, "email digest")
                     self.assertTrue(result.ok, result.message)
-                    self.assertEqual(mailbox.queries, [])
+                    self.assertEqual(mailbox.queries[-1], "UNSEEN")
 
     def test_mentioning_new_email_does_not_read_inbox(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -55,6 +55,19 @@ class EmailSearchPhrasingTests(unittest.TestCase):
                     self.assertNotEqual(ran, "email unread")
                     self.assertTrue(result.ok, result.message)
                     self.assertEqual(mailbox.queries, [])
+
+    def test_explicit_unread_ask_and_possessive_sender_still_work(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            everyday = Everyday(Path(raw))
+            mailbox = _Mailbox()
+            object.__setattr__(everyday.orchestrator.context, "email", mailbox)
+            unread, ran = everyday.say("check unread emails", stream=False)
+            self.assertEqual(ran, "email unread")
+            self.assertTrue(unread.ok, unread.message)
+            sender, ran = everyday.say("find emails from my landlord", stream=False)
+            self.assertEqual(ran, 'email search from:"my landlord"')
+            self.assertTrue(sender.ok, sender.message)
+            self.assertEqual(mailbox.queries[-1], 'from:"my landlord"')
 
     def test_search_my_email_for_topic_reaches_mailbox(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

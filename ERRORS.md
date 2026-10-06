@@ -60,6 +60,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   but not the spoken possessive before "email" → accept "my/the" and assert the mailbox
   query and reply through `handle()`. The dictated "and then tell me what you find" must
   not be sent as literal search text. (10-05)
+- **"Emails from yesterday" searched for a sender named yesterday** → the sender search
+  ran before a period-based inbox read → reject a time span as a sender while preserving
+  "from my landlord". A mention such as "new email standard" is not an inbox-read
+  request; require a whole-sentence unread ask. (10-05)
 - **One phrasing routes, fourteen do not** → an exact-string route → match the shape, polite
   prefix included; reproduce a backlog item's scope first. (09-20)
 - **Every phrase with an apostrophe missed its tool from a phone** (8/8 contract phrases) →

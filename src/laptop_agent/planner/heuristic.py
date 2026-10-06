@@ -1912,7 +1912,15 @@ class HeuristicPlannerProvider:
             lowered,
         ):
             return self._command("email digest", "User wants a summary of their inbox.", 0.82)
-        if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
+        unread_ask = re.fullmatch(
+            r"\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?"
+            r"(?:(?:show|check|read|list|fetch|find|give)(?:\s+me)?(?:\s+my)?\s+"
+            r"|(?:do\s+i\s+have|are\s+there|is\s+there)\s+(?:any\s+)?)"
+            r"(?:new|unread)\s+e-?mails?"
+            r"(?:\s+(?:in|on)\s+(?:gmail|google|outlook|microsoft))?\s*[?.!]*",
+            text, re.IGNORECASE,
+        )
+        if unread_ask:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
@@ -1929,7 +1937,11 @@ class HeuristicPlannerProvider:
             r"(?P<sender>.+?)(?:\s+about\s+(?P<topic>.+?))?\s*[?.!]*$",
             search_text, re.IGNORECASE,
         )
-        if sender_search:
+        if sender_search and not re.fullmatch(
+            r"(?:today|yesterday|(?:the\s+)?(?:last|past)\s+\d+\s+(?:days?|weeks?|months?|years?)"
+            r"|(?:this|last|past)\s+(?:day|week|month|year))",
+            sender_search.group("sender").strip(), re.IGNORECASE,
+        ):
             sender = sender_search.group("sender").strip()
             topic = (sender_search.group("topic") or "").strip().rstrip("?.!")
             topic = re.sub(r"^(?:the|an?)\s+", "", topic, flags=re.IGNORECASE)
