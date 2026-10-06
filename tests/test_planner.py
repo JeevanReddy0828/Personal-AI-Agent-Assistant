@@ -133,6 +133,8 @@ class HeuristicPlannerTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         blobs = [(root / name).read_text(encoding="utf-8")
                  for name in ("CLAUDE.md", "README.md", "ERRORS.md") if (root / name).exists()]
+        # CLAUDE.md's detail moved to docs/design/ (2026-10-06); keep it in the corpus.
+        blobs += [path.read_text(encoding="utf-8") for path in sorted((root / "docs" / "design").glob("*.md"))]
         sentences = []
         for blob in blobs:
             sentences += [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", blob)

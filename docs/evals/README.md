@@ -52,6 +52,6 @@ the results and a short write-up whose first paragraph is the decision.
 
 ## Read next
 
-- `CLAUDE.md` → the `knowledge.py` entry in "Architecture (map)" (which ranking changes were
+- `docs/design/architecture-map.md` → the `knowledge.py` entry (which ranking changes were
   measured and rejected, and why).
 - `src/laptop_agent/README.md` for where `knowledge.py` sits.

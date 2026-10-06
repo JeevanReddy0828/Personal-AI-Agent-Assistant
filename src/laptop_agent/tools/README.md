@@ -120,7 +120,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 
 ## Read next
 
-- `CLAUDE.md` → "Architecture (map)": the reasoning and measurements behind most tools.
+- `docs/design/architecture-map.md`: the reasoning and measurements behind most tools.
 - `agents/README.md` for how commands reach a tool.
 - Tests: `test_<tool>.py` for nearly every module (for example `test_weather.py`,
   `test_windows.py`, `test_email_tool.py`).

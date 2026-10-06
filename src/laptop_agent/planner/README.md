@@ -54,8 +54,8 @@ must route and a near miss that must stay chat to the contract in `selfcheck.py`
 
 ## Read next
 
-- `CLAUDE.md` → "Non-negotiable conventions" item 5 (why heuristics come first and how
-  `is_plain_question` stays conservative), "Everyday requests", and "LLM brain — tiered
-  models".
+- `docs/design/conventions.md` item 5 (why heuristics come first and how
+  `is_plain_question` stays conservative), `docs/design/routing.md`, and
+  `docs/design/models.md`.
 - Tests: `test_planner.py`, `test_llm_planner.py`, `test_everyday_requests.py`,
   `test_selfcheck.py`.

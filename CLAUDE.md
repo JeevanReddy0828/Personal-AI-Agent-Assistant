@@ -79,7 +79,7 @@ non-negotiable conventions); flag any mismatch before proceeding.
 **One place per kind of knowledge, so nothing is re-derived:**
 - Something broken or odd → search the **symptom index** at the top of `ERRORS.md` first.
 - A decision future sessions must respect → `MEMORY.md`, dated.
-- How a subsystem works and why → this file. Agent hand-offs → `CHANGES_MADE.md` on
+- How a subsystem works and why → `docs/design/` (the table under "Where the detail is"). Agent hand-offs → `CHANGES_MADE.md` on
   `claude/pair-log`.
 - How Claude and Codex work together, and what neither may miss → `AGENTS.md`, which Codex
   loads itself and Claude Code loads through this import: @AGENTS.md
@@ -107,1530 +107,164 @@ layer — all behind an approval gate, with an LLM "brain" that streams replies.
   `voice`, `app`, `ocr`, `transcribe`, `stt`, `youtube`, `metrics`, `vision`).
 - GitHub: `JeevanReddy0828/Personal-AI-Agent-Assistant`. Owner: Jeevan (@JeevanReddy0828).
 
-## Non-negotiable conventions
+## How a request travels
 
-1. **Zero required deps.** New heavy capability → optional extra + graceful
-   fallback (return a clear `ToolResult.failure` with an install hint; never
-   crash). Follow the OCR/transcribe/metrics pattern.
-2. **Approval gate for anything risky.** Sending mail, writing/moving files,
-   downloads, launching apps, shell, browser state changes → go through
-   `safety.ApprovalGate` with the right `RiskLevel`. Read-only/local = LOW/none;
-   network read (web search, inbox read) = MEDIUM; external state change =
-   HIGH/CRITICAL. MEDIUM runs through in the web app; HIGH/CRITICAL raises an approval
-   card and waits (`approvals.py`). Getting the level right therefore decides whether a
-   demo stops for a click, so do not reach for HIGH on a read.
-3. **Tools return `ToolResult`** (`tools/base.py`): `ok`, `message`, `data`.
-4. **Testable network/IO.** Put network/engine calls behind an **injectable
-   backend** (see `transcribe.py`, `websearch.py`, `research.py`, the LLM
-   provider's transport) so the success path is unit-tested offline. Tests use
-   `unittest`, are dependency-free, and live in `tests/`.
-5. **Heuristic-first routing for latency.** Common requests route via
-   `planner/heuristic.py` with zero network cost; the LLM is the fallback.
-   `is_plain_question()` adds a second short-circuit: a question that asks for
-   knowledge and names nothing to act on (no tool word, no path/URL, not a decision)
-   skips the routing call entirely and is answered directly. It is deliberately
-   conservative — anything else falls through to the router, so tool routing cannot
-   regress. Measured: median time-to-first-token fell from 6.5-13.0s to 0.8-1.8s,
-   routing from ~1000ms to ~5ms, and it removed a real defect where the LLM router
-   sent ordinary questions to the `solve` research pipeline (21s, 24s, 82s, never
-   streaming a token). Verify changes here with `latency` / `/api/traces`.
-
-   **"Conservative" is a property of `_TOOL_SIGNALS`, and it had a hole in it.** The
-   alternation ends in `\b`, so `reminder\b` does not match "reminders", and only `files`,
-   `notes` and `jobs` were ever written in the plural. So "do i have any reminders /
-   drafts / documents / tasks / downloads / screenshots / workflows" were all classified
-   as plain knowledge and answered by the chat model, which cannot see any of them — the
-   exact regression this short-circuit is documented as unable to cause. `do i have any
-   notes` behaved, purely by accident of spelling. A trailing `s?` covers the whole list;
-   a false positive costs one routing call, which is the direction this must err in, and
-   measured over 20 genuine knowledge questions none flipped. **Adding a noun here means
-   adding it in the form the user says it.**
-
-   **A route matched by an exact set of strings is a route that does not exist.**
-   `_reminder` listed four literals, so fourteen ways of asking to see the list missed —
-   including "can you show me my reminders", which `strip_address` cannot help with since
-   it removes greetings and the wake word but not "can you". `_REMINDER_ASK` carries the
-   same polite prefix `_ARRANGE_ASK` already uses, and both `^`-anchor **inside the
-   pattern** rather than relying on the caller's `.match()`: left to the call site,
-   `.search("remind me to tell bob to check my reminders")` matched, so any later reuse
-   would have turned a creation into a listing and dropped the reminder. Two traps worth
-   keeping: read "due" **inside** the listing branch, because against the whole sentence
-   "remind me to pay the bill due friday" files as a listing; and require the plural (or
-   an explicit "my reminder") so "what is a reminder" stays a definition question.
-
-   **The routing call has its own deadline (`route_timeout`, 2.5s).** Measured over 300
-   recorded turns: 77% route `direct` at 0ms, 15% `heuristic` at a 2ms median, and the
-   remaining **8% reach the LLM router at a 951ms median, a 2492ms p90 and a 7954ms worst
-   case** - those turns take 4505ms end to end, because the classify call is spent *before*
-   the answer begins and the user is looking at nothing for all of it. It was bounded only
-   by the 45s ceiling shared with the answer itself. Past a couple of seconds the
-   heuristic's own answer beats waiting for a better one. A routing **timeout** now returns
-   `action=chat` with **no** response text so the chat ladder answers; it used to return
-   "I could not reach my language model", replacing a working answer with an error because
-   only the classify call ran out of time. A genuine connection failure still says so.
-   Both record to `failures.py`.
-
-   Measured in the same pass and deliberately **not** changed, so nobody repeats the work:
-   `build_context` costs 0.06ms memoized and 4.16ms cold on an 80-turn transcript, and a
-   whole local turn is 16.4ms whether the history holds 0, 20 or 80 turns - against a
-   1723ms median time-to-first-token, none of that is worth touching. The remaining TTFT
-   is the model answering, which is network, not ours.
-6. **Never commit secrets.** `.env` is gitignored. Scan staged diffs for
-   `nvapi-` (and the Gmail app password) before every push.
-7. **Match the surrounding style.** Concise comments, full type hints,
-   `from __future__ import annotations`.
-
-## Architecture (map)
-
-```
-Interfaces: CLI (cli.py) · Tkinter dashboard (dashboard.py/gui.py) · web app (webui.py)
-        |
-AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat reply
-        |
-Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
-        |
-Tools (tools/): files (`scan files <path> by size` lists the largest across the whole tree; "largest
-            files in my downloads" routes there instantly, and a place that is not a folder on this
-            machine is left to the model), file_processor (universal "process file" dispatcher),
-        web, websearch, research, browser, desktop, email ("find the email from Alex about
-            the budget" is a sender plus topic search, not an inbox digest; IMAP combines
-            FROM and TEXT criteria. A sender at `@gmail.com` does not select Gmail OAuth:
-            only an explicit "in Gmail/Outlook" suffix does. "Search my email for X" is
-            a search too; the possessive before "email" must not hide the topic, and
-            a spoken "and then tell me what you find" is not part of the query. A date
-            span after "from" asks for an inbox period, not a person; merely mentioning
-            "new email" must not read the mailbox),
-        music (a personal voicemail/messages request is not a YouTube song search;
-            the shared router/tool guard leaves actual songs named "Voicemail" playable.
-            "set the volume to fifty" uses the same spoken-number grammar as the
-            calculator, then sends numeric `media volume 50`; keep questions such as "how do I
-            set the volume" out of the action route),
-        weather (Open-Meteo, real forecast — no key),
-        news (`news [topic]` — real headlines, free and key-less. A generic web search for
-            "latest news" returns cnn.com and foxnews.com with their taglines, which is not
-            the news. Google News RSS gives breadth and arbitrary topic search; **its own
-            links are consent pages that fetch to 0 chars**, so publisher feeds (BBC) lead —
-            they carry real summaries and their article pages do fetch, and the top few are
-            enriched with `research.fetch_page_text`. Measured: 8 headlines, 3 with article
-            text, in ~0.7s. A topic search is Google-only, so it gives headline + source +
-            age without article text — still the story rather than a homepage.
-            **Asking for the news is the whole sentence** (`heuristic._NEWS_ASK`, fullmatch):
-            matched anywhere, "good news, i got the job" got the day's top stories and "fake
-            news is a problem" a search for "is a problem"; and a topic counted only with
-            nothing before it, so "latest tech news" lost "tech". A word only talk puts beside
-            the noun (`_NOT_A_TOPIC`: pronouns, verbs, good/bad/fake, prepositions) sends the
-            sentence to the router instead, which is the direction to err in),
-        document (`document <request> [as pdf|word|powerpoint|markdown]` — the model writes
-            Markdown, we render it: PDF through the same offline Chromium path as the resume
-            export (`render_html_to_pdf(..., single_page=False)`), Word through python-docx,
-            PowerPoint through python-pptx, or the Markdown itself. Saved under
-            `data_dir/documents/`, downloaded via `/api/document?name=`. Note: the abandoned
-            PyPI package named `docx` shadows python-docx and fails on import — the failure
-            message says so.
-            In "write up a one pager on remote work as a word doc", `write up` is one
-            verb: the heuristic strips both words before handing the topic to this tool.
-            **A deck names its format at the FRONT**, a document at the end. `split_format`
-            only ever looked for a tail ("… as a pdf"), so "create a ppt for sun and planets"
-            matched nothing, fell through to the default, and shipped a **PDF** for a request
-            that said PPT. `_DECK_HEAD` ("a ppt for X", "slides on X", "a deck for X") is
-            checked after the tail, and the same phrasing is mirrored in
-            `heuristic._DECK_ASK` — whose document route also required a trailing format, so
-            a deck request never routed instantly either. Keep its courtesy forms aligned
-            with `document._DECK_HEAD`: "could you make a slide deck about Mars" once routed
-            correctly but saved a PDF because only the tool missed `could you`. The heuristic
-            passes the **whole sentence** through as `document <text>` so the tool can read the format
-            off it. The heuristic and tool also recognize spoken verbs such as "throw
-            together slides about X" and "whip up slides on X"; a miss in either leaves
-            a chat answer or a PDF. A deck also gets its own prompt (`_DECK_PROMPT`): asked for slides
-            against the document prompt, the model writes essay paragraphs. `deck_outline`
-            turns `#` into the title slide and each `##` + bullets into a slide, drops a
-            heading with no body, and keeps a stray prose line as a bullet rather than
-            emitting an empty slide),
-        imagegen (text-to-image via NVIDIA's hosted FLUX endpoint. Two guards live in
-            `orchestrator._repair_image_command`, because the router does not resolve image
-            subjects reliably: it emitted a users/orders/products **ERD** for "create an
-            image for this" in a conversation about TCP congestion control — and again in
-            one about foxes, so it is copying its own few-shot example, not reading the
-            context. (1) A back-reference takes its subject from the latest assistant turn
-            (`context.topic_of`), never from the router. (2) A technical diagram
-            (`is_diagram_subject`) never reaches a diffusion model at all — it answers in
-            the reply as Mermaid or text, because FLUX renders diagram-shaped nonsense.
-            (3) A resolved referent is prose, not a prompt: handing the sentence "TCP
-            congestion control is a fundamental mechanism..." to FLUX produced a picture of
-            unreadable text, so `_visual_prompt` asks the fast tier to rewrite it as a
-            concrete scene, or to answer NONE when the idea cannot be drawn at all. A NONE
-            reply is returned **verbatim** (`_VERBATIM`), bypassing the chat ladder — asked
-            to phrase the refusal itself, the model claimed the app cannot generate images,
-            which is false. The repair runs on every route, not just the LLM one, because
-            the instant router turns "draw me a picture of this" into `image this`.
-            `_repair_target_command` is the same idea for every command that names a
-            concrete target (`open url`, `download`, `read file`, `process file`, …): the
-            router answered "how do I start the app in a browser tab" with
-            `open url http://localhost:3000`, a port nobody mentioned. A target whose
-            identifying token — host without www/TLD, or filename **stem**, never the
-            extension — appears in neither the message nor the last six turns is refused and
-            answered as chat. "open youtube" still expands to youtube.com, because the name
-            is in the request.
-            `image <description>`
-            plus a heuristic route for "draw me a picture of …"; the trailing word
-            square/landscape/portrait/wide/tall picks the resolution. Saves under
-            `data_dir/images/`, returns Markdown that embeds the picture, and the chat
-            renders it inline through `/api/image?name=`),
-        calculator (`calculate <expression>` - exact arithmetic, because a language model is
-            the wrong tool for it: `solve - 67458363*37834872` produced a decision framework
-            and never reached 2,552,278,529,434,536. A hand-written recursive-descent parser,
-            **never `eval`** (that would be arbitrary code execution on user text); integers
-            stay exact and division uses `Fraction`, so `1/3*3` is 1 and `754/86982` keeps
-            its exact form - the model's own answer to that was wrong from the 8th digit.
-            `looks_like_arithmetic` is strict on purpose so "should I use 2 or 3 replicas"
-            still reaches the advisor, and `solve` hands a sum straight to the calculator.
-            Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
-            inside power gave 4),
-        forecast (`forecast <column> in <file.csv> [by <date column>] [for N]` - a column of
-            the user's own CSV projected forward by `analytics/forecast.py` (Codex's
-            ANALYTICS-01, contract in `docs/forecasting.md`), never by a model.
-            `tools/forecast.py` owns what the core leaves to the tool: dates, spacing, gaps
-            and odd cells, each refused with a reason rather than guessed - a missing month is
-            named, two rows in one period are not added up, "1,5" is not fifteen. The period
-            comes from the **smallest** gap between dates: the median gap of Jan, Feb, Jun is
-            75.5 days and named no period at all. Quarters and years are counted on the
-            calendar the labels use (Codex's review): counting from the first date's month
-            took Mar 31, Jun 30, Oct 1, Dec 31 as four quarters in a row, labelled Q1, Q2,
-            Q4, Q4. The answer says what the core established and nothing more: **no number**
-            when it could not test a forecast (its points are then the last value repeated),
-            **no band** unless every lower *and* upper bound exists, and accuracy only from
-            the later stretches that played no part in choosing the method (`holdout_mae`) -
-            never the selection-block MASE, since the winner is chosen on that block and
-            beating the baseline there is guaranteed. A kept baseline is "not improved on by
-            enough", never "unbeaten": on few tests a smoother must win by a margin. In the
-            web reply `forecastChart` (app.js) draws it from the result's data, never the
-            text: recent history (eight times the steps ahead, 12-48 points - with all 48
-            behind three steps the band had 6% of the width), the dashed forecast, and the
-            band under the same every-bound rule, built as DOM nodes. One step is a capped
-            whisker (as a polygon its corners shared an x and it had no area), and a flat
-            series is padded by its own magnitude (1e20 + 1 is 1e20, which drew NaN). Only a
-            `.csv`/`.tsv` makes it a data
-            forecast: "forecast", "boston forecast" and "forecast for tomorrow" stay the
-            weather. The reverse holds too (review of #159): "forecast Revenue in sales.csv."
-            missed the grammar and got the weather at a place called sales.csv, so a sentence
-            that starts with "forecast" and names a table is answered with the usage when it
-            cannot be followed (`forecast_command`), and the weather heuristic declines any
-            sentence naming a `.csv`/`.tsv`. The clauses after the file come in either order,
-            a sentence may end in "." or "please", and `season N` states a cycle the user knows
-            - never inferred from the calendar, which the contract rules out; the reply suggests
-            it when none was found and the history holds two cycles. Numbers under 1 show three
-            significant figures: two decimals called an error rate's average miss 0. One reader
-            and one number parser serve this and `analyze spreadsheet` (`tools.files.read_rows`,
-            `parse_number`). Developer-only by default-deny, since it reads a file),
-        diagnostics (`what drives <column> in <file.csv> [using <col>, <col>] [by <date column>]`
-            and `anomalies in <column> in <file.csv> [by <label column>]` - Codex's ANALYTICS-04
-            core, contract in `docs/analytics.md`, over a CSV read exactly as `forecast` reads
-            one. Drivers ranks features by standardized association, says "association", never
-            cause, and gives accuracy only from the held-out last rows against the training
-            average; without `by` the rows are taken in file order and the reply says so, and a
-            column that is not all numbers is left out by name rather than silently. With MAD
-            zero a value that differs is listed as unscored - not an anomaly, not nothing - as
-            the contract requires. One dispatcher branch (`diagnostics_command`) serves both,
-            and like `forecast` a sentence naming a table it cannot follow gets the usage.
-            Developer-only by default-deny),
-        windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
-            "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
-            bottom, the four corners, thirds, centre, full. `parse_placements` finds the
-            POSITIONS first and reads the gaps between them as names, because splitting on
-            "and" cannot parse how this is actually said out loud - by voice it arrived as
-            "left side WhatsApp right side Chrome", position before name with no
-            conjunction.
-            **The parser was never the gap; the router was.** `parse_placements` read
-            "whatsapp on the left and chrome on the right" correctly all along, but with no
-            verb in it nothing routed there, so it went to the LLM. `_ARRANGE_PLACEMENTS`
-            takes the verb-less form, and matching a bare `<name> on the <position>` is
-            exactly as dangerous as it sounds - four rules hold it in, each chosen against a
-            sentence that breaks without it: every clause needs an explicit **preposition**
-            ("turn left and then right" is two placements otherwise); there must be **two or
-            more** clauses (a lone placement is where ordinary prose lives - "my keys are on
-            the right"); the pattern must consume the **whole sentence** ("the chrome finish
-            on the right handle is worn" leaves words over); and a clause whose **name ends
-            in a copula** is refused, because "the value is in the middle and the key is on
-            the left" satisfies the other three and no window is called "the value is".
-            Questions and decisions are refused outright - "should i put the legend on the
-            right" is a clean fullmatch and belongs to the advisor. This narrows the class
-            rather than closing it ("the answer lies in the middle..." still slips through),
-            and a false positive costs one harmless, self-reporting tool call.
-            The looser layout-feature phrase fallback also rejects definition questions;
-            those belong to chat, while a spoken imperative using the phrase can still
-            arrange a named window.
-            **`_POSITION_WORD` is derived from `LAYOUTS`/`_ALIASES`, never hand-written.**
-            The planner's copy had already drifted - `left` and `third` but no `top left`,
-            `bottom right`, `left third` or `right half` - so "notepad on the top left"
-            could not route against a parser that handles it perfectly. Same failure as
-            `_TOOL_SIGNALS`: a hand-maintained copy of a list fails by omission from the
-            copy. `windows.py` is stdlib-only at import, so the planner can import it.
-            A window matches on its title *or* its executable, since neither
-            alone is enough (Chrome is titled after the page it shows; WhatsApp's process is
-            `WhatsApp.Root.exe`). Ranked, not just filtered: a window matching in **both**
-            title and executable beats one matching in only one of them, then shortest
-            title. A plain substring test arranged **Live Caption** - a Chrome-hosted widget
-            also running as `chrome.exe`, whose title is shorter than "J.A.R.V.I.S - Google
-            Chrome" - when asked for "chrome"; the same rule picks the real
-            `WhatsApp.Root.exe` over the `msedgewebview2.exe` window of the same name.
-            Rects come from
-            `SPI_GETWORKAREA`, not the screen, so `full` does not hide behind the taskbar.
-            DWM-cloaked windows and three named shells are filtered - enumerating the real
-            desktop returned "Windows Input Experience", "NVIDIA GeForce Overlay" and
-            "Program Manager" alongside the six real apps. **MEDIUM, not HIGH**: moving a
-            window is local, reversible and sends nothing anywhere, and a HIGH would put an
-            approval click in front of every spoken "snap Chrome left", which is the point
-            of the feature. The ctypes layer is behind an injectable backend so the whole
-            success path is tested off-Windows; verified on the real desktop by snapping
-            Chrome to (0,0,960,1032) and restoring its exact original rect),
-        travel (maps: OSRM driving distance/ETA, multi-stop `trip` chaining legs +
-            totals, IP-geolocated "around me", `map` -> OpenStreetMap embed for the
-            web Map panel, + OpenStreetMap hotels/places — no key),
-        youtube (transcript -> summary, indexed for Q&A; `youtube` extra),
-        transcribe (OCR + STT. **OCR** prefers hosted `nvidia/nemotron-parse` when a key is
-            present and falls back to Tesseract — same shape as the speech path, chosen by
-            `LAPTOP_AGENT_OCR=auto|parse|tesseract`, reported as `ocr.engine` in
-            `/api/health`. Tesseract returns characters; parse returns a laid-out page as
-            typed, positioned regions, so a heading survives extraction as a heading
-            (measured: 453KB screenshot, 2.6s, 54 regions). The request carries the **image
-            alone** — a text part is rejected with "The model does not support text input" —
-            and the result arrives as a `markdown_bbox` **tool call** with `content: null`.
-            `task_prompt` from the API snippet is ignored here; it belongs to the self-hosted
-            NIM. `Caption` regions are **dropped because the model invents them**: that same
-            screenshot returned 37 captions for 2 pictures, one reading "Figure 1: The
-            S-color image of the alpha-ray diffraction pattern...", fabricated from training
-            data — dropping them took the extraction from 2121 characters to 901, all real.
-            Any failure, including a blank extraction, falls through to Tesseract.
-            **STT**: Vosk lightweight or Whisper, see below), webcam (vision extra),
-        obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
-            alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
-            for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
-Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tier and
-        fallback, ok — timings only, never prompts or replies; the only text kept is the
-        resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
-        `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the
-        right turn. Read it with `latency` or `/api/traces`. **History outlives the 300-turn
-        ring** (ANALYTICS-02): every turn also appends one line to `traces_timings.jsonl` -
-        when, kind, the tier *asked for* (so a fallback counts against the tier that failed
-        it), ok, fallback, total and first-token ms, no verb - pruned to 90 days once a day,
-        and `TraceStore.hourly()` folds it into hours with fixed latency buckets. An append,
-        not a rewrite: rewriting a 90-day rollup file on every turn measured 122ms at its
-        worst; the append is 0.4ms, against 19.8ms for the ring's own rewrite. A line that
-        cannot be read is skipped, since the log is read inside a turn whose caller guards
-        only `OSError`. That includes bytes that are not UTF-8 (Codex's review): the log is
-        read as bytes and decoded line by line, and the prune keeps no backup, because both
-        a whole-file decode and the backup's re-read raised `UnicodeDecodeError` - a
-        `ValueError` - for one bad byte anywhere. So is a time that parses but cannot be put
-        in UTC, which raises `OverflowError` or, on Windows, `OSError` instead),
-        embeddings.py (semantic retrieval: `nvidia/nemotron-3-embed-1b` on the chat host and
-            key — `OPENAI_EMBED_MODEL` / `OPENAI_EMBED_KEY` override. The model is
-            **asymmetric**: a document embeds as `passage`, a question as `query`; using one
-            type for both quietly costs accuracy. Every method returns None instead of
-            raising, so a dead network drops back to keyword scoring. Measured on six short
-            documents and five paraphrased questions: lexical 1/5 (three returned *nothing* —
-            no word overlapped), vectors 5/5),
-        knowledge.py (TF-IDF index + Q&A, fused with vectors when an `Embedder` is passed.
-            **The agent's own output does not outrank the user's documents, and does not
-            grow without limit.** `solve` files its analysis as `advice: …`, research files
-            the scraped page, a transcript lands as `youtube:…` — and measured on the real
-            store that had taken over: **30 of 31 documents were generated against ONE real
-            file**, with the scrapes averaging 20k characters to the advice dumps' 5k, so a
-            scrape outranked the README on any word they shared. `document_kind()` reads the
-            source prefix (inferred, so no migration) and `KIND_WEIGHTS` discounts generated
-            text — `file` 1.5, `advice` 0.9, `research`/`youtube` 0.8. Deliberately gentle,
-            and swept over 15 queries with a known answer: those values took top-1 from
-            12/15 to 13/15 and top-3 to 15/15, while a heavy hand (`file` x3) dropped top-1
-            back to 12/15. It only moves the **secondary** sort key — distinct terms matched
-            still decides first — so it breaks ties rather than overruling relevance.
-            `GENERATED_CAPS` (advice 12, research 8, youtube 12) trims the oldest of each
-            kind on every `add`, and `knowledge prune` applies it on demand and reports what
-            went. **A document the user indexed is never pruned.** Note when writing an eval
-            here: resolve the expected document by source substring, never by id. The README
-            was re-indexed and its id moved 47 -> 52, which made a harness report the right
-            answer as a miss and nearly bought a wrong conclusion ("kind weighting does
-            nothing" at 8/15, when the truth was 12/15 rising to 13/15).
-            **Nothing here re-reads or re-tokenizes the corpus per query.** A search parsed
-            1.6MB of JSON *and* tokenized all 282k characters every time: 41ms, of which
-            `_term_counts` was 72% and `_load` 21%. `_load` caches the parsed store keyed on
-            `(st_mtime_ns, st_size)` — the file's own identity, so an edit by Codex or
-            another process is still picked up — and `_counts_for` caches per-document term
-            counts, dropped whenever the store reloads. Every mutator calls `_invalidate()`
-            **before** touching anything, so a mutator that fails part way cannot leave a
-            dirty store for a reader. Three layers cover staleness (explicit invalidation,
-            `_save`, the mtime key), which is why removing any one of them does not show up
-            in the tests — break the mtime key to see the guard fire. `answer` also skips a
-            passage whose text contains no query term as a *substring* before tokenizing it
-            (a term cannot match as a token if it is absent as a substring, so the same
-            windows are skipped, just without paying for them). Measured: search 41ms ->
-            1.7ms, answer 102ms -> 24-38ms. `_prose_weight` uses `map(str.isalpha, …)`
-            rather than a genexpr calling two methods per character — that line alone was
-            46% of an answer; a regex was measured both slower *and* wrong on 1931 of 2000
-            passages, so do not "simplify" it back.
-            Documents embed once in `add()` and the vector is stored beside the text, so
-            search costs one query embedding and never re-embeds. The two rankings are
-            merged by **reciprocal rank fusion**, not by adding scores: a TF-IDF score and a
-            cosine are not comparable, and normalising them makes the blend depend on
-            whichever spread is wider. Keyword hits still win on exact tokens — filenames,
-            model ids, error codes. Documents saved before this existed have no vector:
-            `knowledge reindex` backfills them in batches, skipping a failed batch rather
-            than aborting, and is idempotent.
-            **A follow-up is looked up in its standalone form**, like every other path:
-            `ask knowledge which models does it use` queried the index with the pronoun and
-            answered out of an NVIDIA RAG scrape, because the README says "model" 26 times
-            and "models" once while the scrape says "models" 36. `_dispatch_knowledge`
-            already received `history_turns` and ignored them. But the rewritten query
-            carries the referent, which matches the README's opening blurb almost verbatim
-            — scoring passages with it answered the *referent* instead of the question — so
-            `answer(question, retrieval_query=…)` splits the two: **the referent picks the
-            document, the question picks the passage inside it.**
-            The answer is quoted from the highest-**ranked** document that has a usable
-            passage, not the one holding the highest-scoring passage; `pool` is built in
-            ranked order because `doc_index` decides that, and it was carrying document ids.
-            Ranking changes measured over 13 queries with a known-correct document and
-            **rejected**: BM25 length normalisation drops top-1 from 10/13 to 8/13, sorting
-            by score instead of matched-term count drops it to 9/13, and plural folding plus
-            a bigger stopword list is a wash (fixes one query, breaks another). The
-            `matched`-first sort key is right — do not "improve" it without re-measuring.
-            Known limit: "models" does not match `OPENAI_MODEL`, so the passage chosen
-            inside the README is not the model table; closing that needs stemming, which
-            measured as the wash above), tasks.py (parallel + retry),
-        workflows.py, autopilot.py (safe allowlist), reasoning.py (autonomous
-        agent loop — plan/act/observe/replan over any tool),
-        advisor.py (ProblemSolver: `solve <problem>` — web-grounded structured
-        analysis: framing, options w/ trade-offs, committed recommendation, action
-        plan; injected decide+research, indexed for recall. The LLM planner
-        auto-routes decision/problem questions here — no manual command needed —
-        via system-prompt guidance + a few-shot turn in planner/openai_compatible.py),
-        scheduler.py
-        (recurring jobs), copilot.py (JobCopilot: ports the Agentic-AI-JOB-CoPilot
-        logic — ATS scoring, keyword/claims extraction, grounding — onto our LLM
-        provider; `tailor_application()` → grounded bullets/cover letter/interview pack
-        via `/api/copilot`, PLUS `tailor_resume()` → a grounded one-page resume: the
-        model returns CONTENT as JSON, `render_resume_html()` lays it out in a FIXED
-        Caladea template so the format never drifts; name/contact/certs come from the
-        stored profile, project links are grounded in the candidate's real GitHub repos),
-        jobs.py (JobTracker: job pipeline — stages incl. a sourced `lead` stage,
-        funnel/response-rate stats, base-resume + tailoring persistence, JSON-persisted;
-        `job add/list/stage/remove` + `/api/jobs`. Every stage a job enters is kept as
-        `events` [{stage, at}], 50 per job, because `reached` keeps only the furthest stage
-        and the time to a reply cannot be read back from it. Records saved before 0.40.0
-        (2026-09-08) carry neither `events` nor `applied_at`: the fields did not exist when
-        they were made, so their history starts at their next change instead of being made up),
-        tools/jobright.py (JobrightTool: Playwright scraper ported from job-agent--Jarvis,
-        behind the `browser` extra — session-first login, API-interception + DOM-fallback
-        scrape, JD enrichment, then filters to early-career fit: seniority/years/PhD/
-        clearance/no-sponsorship + resume-relevance; returns leads + a `dropped`-with-reasons
-        list. `jobright pull` command → `import_leads` at the `lead` stage; schedule daily
-        via `schedule command "jobright pull"`),
-        tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
-        `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
-        agents/control_room.py (specialist roster), safety.py, audit.py,
-        failures.py (FailureLog: every `except` that swallows also records here -
-            `failures` command, `/api/failures`. This exists because graceful
-            degradation hid two outages: a tier returning HTTP 400 on every request
-            reported itself as *busy* (the provider caught URLError, returned None, and
-            the orchestrator reads None as congestion), and the same None became "the
-            model returned an empty document" when the API 503'd. The transport now
-            retries 5xx/429/timeouts three times and **never retries a 4xx** - the
-            request itself is wrong, and the ultra bug was a 400 on every attempt, so a
-            blind retry would have tripled its cost while hiding it just as well.
-            **Do not add an `except` that only returns a fallback: record the reason.**),
-        approvals.py (ApprovalBroker: bridges the blocking approval gate to an HTTP
-            answer so a risky action can be approved **in the web app**. The browser could
-            not answer the gate, so `_guarded_approval` auto-denied everything above
-            MEDIUM and downloads, shell commands, opening apps and sending mail simply did
-            not work there. A HIGH/CRITICAL request is registered, pushed to the page as an
-            SSE `approval` event, and the worker thread waits. Nothing is auto-approved,
-            an answer must name the exact request id, an id is single-use (so approving a
-            download cannot authorise the command behind it), `/api/approve` is a
-            token-checked mutation, and a **timeout denies** - silence is never consent.
-            With no listener attached it denies immediately rather than waiting: nobody
-            could answer, and waiting once took the test suite from 18s to 138s),
-        memory.py, token_vault.py (DPAPI. Like accounts and sessions it keeps no `.bak` and is
-            read strictly: `forget` left the token in the backup, and a damaged vault was read
-            back from it - the token the user removed, returned (Codex's review of #160). A
-            damaged vault is recorded and gives way to the next store or forget, so it cannot
-            refuse a reconnect for good), config.py,
-        terms.py (the one word splitter the retrieval paths share — `knowledge`, `context`,
-            `tools.obsidian`, `tools.files`. Four near-identical tokenizers meant a fix
-            applied to one never reached the others: `knowledge` learned to keep
-            "J.A.R.V.I.S" whole, while a vault search for that exact title returned
-            **nothing** — and phrased as "what is J.A.R.V.I.S" it fell back to ranking on
-            "what"/"is" and matched an unrelated note. Session retrieval had no term at all
-            (`terms()` returned `[]`), and a file Q&A came back empty. Only the *splitting*
-            is shared: each caller keeps its own stopword list and minimum length, which
-            are tuned differently on purpose. `tools.files` borrows `collapse_acronyms`
-            alone and keeps its `[A-Za-z']+` pattern — measured over this repo's prose,
-            moving it onto `words()` changed 53 of 134 paragraphs, gaining 130 kinds of
-            version number ("2026", "120b", "404") and losing 52 contractions, because
-            "can't" splits at the apostrophe. Collapsing also turns "e.g." into "eg",
-            which every 3+ character caller drops and which carries no ranking weight.
-            **It is also the one sentence splitter** (`sentences`), for the same reason: the
-            file summarizer and the knowledge base each flattened every line break and then
-            cut at full stops, which Markdown's badges, tables and code do not have — the
-            README summarized as 15 KB of one paragraph, and asked how to start the app the
-            knowledge base quoted 16,000 characters of image links and a table of contents.
-            Lines are read as lines: images, link targets, real HTML tags and rows of links
-            (navigation) go; headings, rules and blank lines end paragraphs; a run-on is cut
-            into 400-character pieces, none of it dropped. `structure=True` (knowledge) keeps
-            headings, table rows (as `cell: cell`) and code lines but never a ```mermaid
-            source, because the answer is often a row or a command; a summary skips them.
-            Measured on the repo's own docs over ten questions: answers went from 3,000-16,000
-            characters with up to 398 markup tokens to 700-1,700 with none. Two defects found on
-            the way. Terms start at two letters but the stopwords stop at three, so "do" and
-            "in" weighed like "browser" - and with one document indexed every term weighs the
-            same, so live, the README answered "how do i start the app in a browser tab" with
-            Google sign-in. `_FUNCTION_WORDS` now weigh `FUNCTION_WEIGHT` (0.2) of a word in
-            passage scoring only; document search is untouched. Not zero: as stopwords, a
-            follow-up's own document had no matching passage left and the answer came out of a
-            scrape (`test_the_referent_picks_the_document`). Swept over twelve questions whose
-            answer must OPEN the reply: README alone 4/12 at 1.0, 9/12 at 0.2 (8 at 0.1 and 0.3);
-            three documents 6/12 -> 7/12. And the substring pre-check before tokenizing read raw
-            text, where "jarvis" is not in "J.A.R.V.I.S". Left alone, as ranking: "what is
-            jarvis" finds the title's window, but a shorter one-mention window outscores it),
-        context.py (session context: chunks the chat transcript by Markdown structure, ranks
-            chunks against the new message, budgets one block for every model-facing prompt)
-Everyday layer (see "Everyday requests" below): tools/units.py (conversions),
-        tools/dates.py (days until / holidays / "what's today"), tools/chance.py (coin, dice,
-        numbers via `secrets`), timers/alarms/repeats in the orchestrator over reminders.py +
-        scheduler.py (`days` for weekdays / named days), lists and facts in memory.py
+```mermaid
+flowchart TD
+  A[Your message] --> CTX["Session context<br/>recent turns verbatim · older turns summarized · BM25 chunks"]
+  CTX --> B{"Exact command?"}
+  B -->|yes| LIM{"Allowed for<br/>this account?"}
+  B -->|no| C{"Instant router match?<br/>(heuristic, ~2 ms)"}
+  C -->|yes| LIM
+  C -->|no| Q{"Plain knowledge<br/>question?"}
+  Q -->|yes| G
+  Q -->|no| D{LLM configured?}
+  D -->|no| H0[Heuristic chat reply]
+  D -->|yes| E["LLM router<br/>(own 2.5 s deadline)"]
+  E -->|command| LIM
+  E -->|chat| F{Time-sensitive?}
+  LIM -->|yes| GATE{{"Approval gate<br/>by risk level"}}
+  LIM -->|no| REF[Refused, with the reason]
+  GATE --> RUN[Run the tool]
+  RUN --> HUM["Humanize the result locally<br/>(no extra LLM call)"]
+  F -->|yes| WEB[Web-grounded answer + citations]
+  F -->|no| G["Tiered chat<br/>fast → smart → ultra → OpenRouter"]
+  HUM --> OUT([Reply streamed to you])
+  WEB --> OUT
+  G --> OUT
 ```
 
-- **Everyday requests.** Driving three corpora of how people actually talk (timers, lists,
-  facts, dates, zones, "X and Y", follow-up answers) through `handle()`, then the live
-  server and the page, is what shaped this layer; `tests/test_everyday_requests.py` holds
-  the result as a routing **CONTRACT** (phrase → command that must run), **MUST_STAY_CHAT**
-  near misses, a never-crash sweep with and without a model, and a fuzz of every direct
-  prefix. Rules it established, each broken once:
-  - **One right answer is computed**: arithmetic, conversions, dates, zones, reminder
-    times, random draws. Anything not connected (calendar, smart home, phone) is said
-    plainly; currency goes to the live-search answer because no FX API could be verified.
-  - **Polite prefixes are one pattern** (`heuristic._POLITE`, "can you please",
-    "would you mind"), shared by every rule that needs it; a private copy drifted.
-  - **Prose guard**: a direct prefix whose words read as English ("schedule a meeting…",
-    "time for a break", "forget the timer") goes to the router instead (`_reads_as_prose`).
-  - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
-    timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
-    more than one asks first (HIGH).
-  - **Two requests in one sentence** split only where every part starts like a request and
-    routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
-    "search for flights and hotels in paris" stay whole.
-  - **A reply to our own question completes it** (`_follow_up`): "set a timer" → "How long
-    should the timer run?" → "10 minutes". Keyed to the exact question strings; history
-    arrives as `{"role", "text"}` - a test written with "content" passed while the page got
-    nothing. Refusals, questions, new requests and filler ("it's", "to") are not answers.
-  - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
-    gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
-    prefix fuzz before it existed.
-  - **A command handed back unchanged is conversation** (`_DECLINED`). The dispatch has
-    already declined that exact text, so a router naming the sentence itself as a command
-    used to end in "I don't know how to do that yet" - and "convert 100 usd to eur" never
-    reached the live rate that "how much is 100 dollars in euros" gets. Since #184 a routed
-    command that *differs* and matches nothing ("currency convert 100 usd eur") is answered
-    the same way; a real command that runs and fails still reports its failure.
-  - **A negated request is never turned into its positive** (`heuristic.is_negated`). Routes
-    match anywhere in a sentence, so "do not open youtube" opened it and "do not remind me to
-    call mom" set the reminder. A sentence that opens with a negation is not routed by the
-    instant router, and whatever command the model returns for it is answered rather than
-    run (`_route.decided`) - the model can still say `open url …`. Not negations: "never
-    mind the timer" (a cancellation), and "don't forget to…" / "don't let me forget/miss…",
-    which ask for a reminder and may become only that (`asks_not_to_forget`): the model routed
-    "don't forget to call mom at 5pm" to `open url …mom.com`, and "mom" was in the words.
-  - **The LLM router may not invent a shell command** (`_repair_shell_command`). For "change
-    my desktop background to blue" it wrote `reg add "HKCU\Control Panel\Colors" ...`. A
-    routed `run command` stands only when the words asked to run something, named a shell
-    to do it in, or contain the command itself; a question or a "don't run" is answered,
-    and anything else gets a fixed reply saying nothing was run. A question is read after
-    any courtesy in front of it, and "what does … do" / "how to run …" anywhere: checked
-    only at the very start, "please explain how to run npm install" raised an approval card.
-  - **Open limit, not accepted behaviour: the LLM router substitutes a nearby tool.**
-    Measured 2026-10-05 on 22 requests the app cannot do: 8 became a tool that changes state
-    or spends a call - "book me a table for two at 7pm" set a reminder, "set my wallpaper to
-    a beach photo" made a hosted picture, "text john" became an email, "get me an uber" a
-    reminder. A reminder nobody asked for is still a task persisted without consent. Not
-    fixed because every measured fix broke real requests: a keyword gate would lose the 12
-    of 18 indirect requests only the LLM understands ("ping me at 5", "whip up a sketch"); a
-    prompt rule made the model claim it cannot send email; the few-shot example alone copied
-    its own "7pm" into "call mom" (pair log 26e58bc). A second, narrow YES/NO call after the
-    LLM picked a state-changing tool ("does `<command>` do what was asked?") caught all 8
-    substitutions but refused 2-3 of 15 legitimate reminders ("ping me at 5…"), was no better
-    for being told when a reminder counts, found nothing to catch outside reminders, and
-    would add ~350 ms to every LLM-routed picture, email and document - not shipped, by
-    agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
-  - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
-    carries only today's, so every caller that reads the laptop's clock passes `local=True`
-    to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that
-    does not), and roll-forwards count calendar days, not hours. Tests put a named zone in
-    `timeparse.LOCAL_ZONE`: Windows cannot change a process's zone and CI runs in UTC. A
-    fixed-offset `now` without `local` parses exactly as before.
-    The ticker does the same for scheduled jobs (`claim_due_jobs(local=True)`), so a
-    01:30 job fires once, not twice, on the night the clocks go back.
-  Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
-  chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
-  here with the corpus harness pattern - through `handle()` *and* through the page.
+In code: `webui.py` / `cli.py` → `AgentOrchestrator.handle()` (`agents/orchestrator.py`) →
+direct dispatch (`_DISPATCH`) or `planner/heuristic.py` or `planner/openai_compatible.py` →
+a tool in `tools/` returning a `ToolResult`, or a chat answer from the model tiers. Every
+routed command is checked again before it runs (a negated request, an invented shell command,
+a target nobody named). `app.build_context()` is the one place tools and stores are wired.
 
-- `orchestrator.handle(text, _allow_planner, history, on_token)` is the core
-  entry. It checks direct command prefixes, then routes via heuristic → LLM.
-  Tool results are turned into plain language by `_humanize` (local, no extra
-  LLM call). Chat replies stream via the `on_token` callback when provided.
-- **Session context.** `history` is the whole session transcript (the web client sends
-  up to 80 turns per request; the CLI keeps its own list). `context.build_context(history,
-  query, budget=…)` follows the standard chat-memory hierarchy: when the whole transcript
-  fits the budget it goes in verbatim; otherwise the recent turns are quoted verbatim, the
-  older turns become a **rolling summary** written by the fast tier in the background
-  (`register_summarizer`, cached per transcript prefix and folded incrementally; a
-  heading outline stands in until it exists), and the best earlier chunks are retrieved
-  with **contextual BM25** (each Markdown chunk — fenced code kept whole — is indexed with
-  its turn's title and section heading). A follow-up ("build an ERD for this") is rewritten
-  into a standalone query for retrieval and for the advisor's web research
-  (`resolve_reference`), and the block ends with a note naming what "this" refers to. It feeds the router (`ROUTE_BUDGET`), the chat tiers
-  (`CHAT_BUDGET`), the autonomous agent (`AGENT_BUDGET`, via `AutonomousAgent.run(context=…)`)
-  and the advisor (`ADVISOR_BUDGET`, `ProblemSolver.solve(conversation=…)`). The router is
-  taught that a back-reference is a follow-up: resolve it from the transcript, emit a command
-  only when it names something actionable there, else `action=chat` with `response` possibly
-  null (`PlanDecision.is_chat` means `action == "chat"`; the fast tier answers a text-less
-  chat decision) — so "build an ERD for this" is answered from the schema in the conversation
-  instead of the agent scanning the filesystem. `/api/agent` takes `history` like
-  `/api/stream`; the web client stores a bounded digest of each reply's tool data (`extra`)
-  and the CLI appends one, so "summarize this" after `read file …` has the text. Results are
-  memoized per (history, query, budget), and a synthesized prompt (grounded news) passes
-  `context_query=` so the context is ranked on the user's own words.
-- **Freshness path.** Before answering a chat turn, `_needs_fresh_info` flags
-  time-sensitive questions (keywords + patterns like "did X end", recent years);
-  `_grounded_news_answer` then runs a web search (one retry for the flaky free
-  DDG endpoint) and synthesizes a cited answer from the results, preferring live
-  data over training knowledge. If search yields nothing it falls back to model
-  chat but appends a "may be out of date" disclaimer (`stale_warning` in data).
-- **Search backend.** `websearch.build_search_backend(provider, key)` returns a
-  resilient backend: a real API (Brave / Serper.dev / SerpApi — note the latter two
-  are different services — key-gated via `SEARCH_PROVIDER` / `SEARCH_API_KEY` /
-  `BRAVE_API_KEY` / `SERPER_API_KEY` / `SERPAPI_API_KEY`) with automatic DuckDuckGo
-  fallback, else DDG directly. `app.py` shares one backend across `websearch` and
-  `research`. API backends take an injectable HTTP transport (offline-tested).
-- **AgentContext** is a frozen dataclass of all tools/subsystems, wired in exactly one
-  place: `app.build_context(config, approval_callback)`. Adding a field means editing
-  **that function and nothing else** — the test builder starts from the same wiring and
-  `dataclasses.replace`s only the nine tools it needs to fake, so a new field reaches the
-  tests without being named there. Verified by doing it: a 25th field added to the
-  dataclass and to `build_context`, with the test builder untouched, leaves all 131
-  orchestrator tests passing. Forgetting `build_context` fails loudly and by name
-  (`TypeError: ... missing 1 required positional argument: 'probe_field'`), and
-  `test_one_place_wires_every_field_of_the_agent_context` is the single test that says so.
-  This used to be two files, and forgetting the second turned every orchestrator test into
-  the same TypeError — "the usual source of a wave of failures after a merge".
-  `build_context` is safe to call in a test: measured at 21ms with a temp config, touching
-  no network and creating only lock files.
-- **Two autonomy layers, don't conflate them.** `autopilot.py` runs a *static*
-  plan restricted to a safe read-only allowlist (blocks anything risky).
-  `reasoning.py`'s `AutonomousAgent` is the *LLM-driven* plan/act/observe/replan
-  loop that can use any command (risky ones still hit the approval gate). Its
-  reasoning brain is an injected `decide(prompt)->str` callable so the loop is
-  unit-tested offline; in `orchestrator._build_agent_brain` it's backed by
-  `provider.answer` on the smart (or fast) tier. Persisted via the `agent_runs`
-  AgentContext field.
-- **The agent trusts a reply only up to its first runnable ACTION** (`parse_agent_decision`).
-  The model writes ACTION, an OBSERVATION it made up and a FINAL built on it, all in one
-  reply, and FINAL used to win: runs ended on a README summary of a file that does not
-  exist, or on "[the content would be provided here after the action runs]". An
-  upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
-  and a reply with neither header is asked again once (`_ask_again`). Known limit: a
-  well-formed FINAL can still be wrong, which parsing cannot see.
+```mermaid
+flowchart TD
+  subgraph Interfaces
+    APP["Web app · native JARVIS.exe"]
+    TERM["CLI · Tkinter"]
+  end
+  APP --> SRV["Web server (webui.py)<br/>loopback · origin checks · per-process API token<br/>optional accounts, roles and LAN passcode"]
+  SRV --> ORC[AgentOrchestrator]
+  TERM --> ORC
+  ORC --> ROUTE{"Route the message<br/>direct command → instant router → LLM router"}
+  ROUTE --> TOOLS["Tools<br/>files · web · research · news · weather · travel · email<br/>vision · OCR · speech · images · documents · calculator<br/>windows · music · terminal · browser"]
+  ROUTE --> BRAIN[("Tiered brain<br/>fast → smart → ultra → OpenRouter")]
+  ORC --> SUBS["Subsystems<br/>knowledge · advisor · autonomous agent<br/>scheduler · reminders · tasks · control room"]
+  TOOLS --> GATE{{"Approval gate<br/>approval cards in the app"}}
+  SUBS --> MEM[("Memory<br/>Obsidian vault · profile, facts & lists · knowledge index")]
+  ORC -.-> OBS["Observability<br/>latency traces · failure log · model health · Setup"]
+```
 
-## ANALYTICS-04 update — 2026-10-01
+Every folder has a README (purpose, usage, contents, connections); start with
+`src/laptop_agent/README.md`.
 
-ANALYTICS-04 adds pure diagnostics in analytics/diagnostics.py. Read docs/analytics.md before wiring: prefix-only OLS, held-out R2/MAE, standardized associations (not causality), VIF/sample warnings, explicit singular refusals, and MAD-zero unscored deviations. No command or app-data prediction is added.
+## What works today
 
-## LLM brain — tiered models
+Tested, and exercised on the real app. Only these are claimed as working.
 
-Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexity:
-- `OPENAI_MODEL` — fast/simple (e.g. `meta/llama-3.1-8b-instruct`)
-- `OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`)
-- `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
-- `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
-- `OPENAI_IMAGE_MODEL` — text-to-image (`black-forest-labs/flux.2-klein-4b`), plus
-  `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL` (default
-  `https://ai.api.nvidia.com/v1/genai`) and an optional second model tried when the
-  first is queued: `OPENAI_IMAGE_FALLBACK_MODEL` / `OPENAI_IMAGE_FALLBACK_KEY`. The
-  model id is part of the **path**, not the body, and this is a **different host from
-  chat** — never point `OPENAI_BASE_URL` at it, or every chat turn breaks. The fallback
-  gets half the primary's timeout so a double failure doesn't double the wait.
-  Measured on the free tier: klein answers in ~2s, `flux.1-schnell` times out at 90s on
-  its own key, and `nemotron-3.5-lightning-30b-a3b` takes 6-14s per chat turn against
-  0.5-1.5s for `nemotron-3-super-120b-a12b` — so super stays on the fast tier.
-- `OPENAI_BASE_URL` (NVIDIA: `https://integrate.api.nvidia.com/v1`), `OPENAI_API_KEY`
+- **Chat** that streams, on tiered models (fast → smart → ultra, OpenRouter backup), with a
+  busy or misconfigured tier reported as such and skipped; long-session context; time-sensitive
+  questions answered from a live web search with citations.
+- **Instant routing** of everyday requests (~2 ms, no model call), with whole-sentence matching
+  so a sentence that merely mentions email, windows, research or the screen does not act.
+- **Everyday answers, computed:** arithmetic, unit conversions, dates and holidays, the time in
+  any zone, coin/dice/random numbers.
+- **Reminders, timers, alarms and repeats**, delivered as a card, chime and spoken alert;
+  recurring scheduled jobs; lists and remembered facts.
+- **Web:** search (DuckDuckGo, or Brave/Serper/SerpApi with a key), multi-source research
+  reports, real news headlines, weather (Open-Meteo), driving distance and multi-stop trips,
+  maps, opening URLs and downloads (asks first).
+- **Files and documents:** read, summarize, ask about, scan and search files; quoted Windows
+  paths; spreadsheet stats; CSV forecasts and drivers/anomalies; generated PDF, Word,
+  PowerPoint and Markdown documents.
+- **Knowledge:** an indexed knowledge base (keywords + semantic vectors) and the Obsidian vault.
+- **Email:** inbox unread, digest and search, including by sender; drafts and sends ask first.
+- **Pictures:** text-to-image (NVIDIA FLUX), and diagrams drawn as Mermaid in the reply.
+- **Laptop:** arranging windows by voice, screenshots and reading the screen (vision), media
+  keys and spoken volume levels, YouTube music, opening apps and shell commands (both ask first).
+- **Voice:** speech-to-text (Riva, Vosk, Whisper), offline text-to-speech, barge-in in the
+  desktop window.
+- **Advisor and agent mode:** `solve` for decisions (researched options and a plan), and an
+  autonomous plan/act/observe agent whose risky steps still ask.
+- **The app:** web page and native desktop window, Overview and Jobs pages, accounts with a
+  `dev` and a `personal` role, LAN access from a phone behind a passcode, Setup and health
+  panels, the packaged `JARVIS.exe`.
 
-The ultra tier is treated as an NVIDIA **reasoning** model: its provider is built with
-`reasoning=True` so `answer()`/`stream_answer()` send `chat_template_kwargs.enable_thinking`
-and read the separate streamed `reasoning_content` (kept internal — only the final answer is
-surfaced). Routing and narration stay thinking-OFF for speed/clean JSON. `answer()` takes a
-`max_tokens` param so long outputs (a full resume, 8000) aren't truncated at the chat default.
+Built but **not yet verified on the real app**, so not claimed above until tested: the webcam,
+Google sign-in, the Jobright lead pull and Pipeline tailoring, and voice recordings. Their notes
+stay in `docs/design/` for when they are.
 
-**How long a reply may run** (`OPENAI_MAX_OUTPUT_TOKENS`, `max_output_tokens` on the provider).
-Streamed chat was capped at 2,048 tokens: a long answer stopped after 701 words, mid-table, and
-the stream never read `finish_reason`, so nothing said it had been cut. Every NVIDIA model here
-accepts `max_tokens` up to 65,536 (measured on super, ultra and vision), so on NVIDIA's host the
-cap is 16,384 for streamed chat and 4,096 for `answer()` and agent turns. A **streamed** reply
-that still ends on `length` says so, once, after a real answer only (a reply that was all hidden
-reasoning stays empty, so the tier ladder still falls back), with an open code block closed
-first; `answer()`, documents and agent turns still end silently on `length`, and no note ever
-goes into a generated file. Elsewhere, including the OpenRouter fallback, the old caps stay unless
-the variable is set: a cap the endpoint rejects is a 400, which marks the tier broken. A
-non-streamed call waits `max(timeout, 15 + max_tokens/40)` s, capped at 300: at 66 tokens a
-second a 4,096-token reply outlasts the fast tier's 45 s, and a timeout reads as busy. That is
-the socket timeout of each attempt, not a total wall-clock deadline, and ultra keeps its 420 s
-(Codex's review of #177).
+## Rules that always apply
 
-**Never send `reasoning_budget`.** NVIDIA's endpoint moved to the V2 model runner and
-rejects it — `HTTP 400 ValueError: thinking_token_budget is not yet supported by the V2
-model runner` — on *every* ultra turn. Since an empty answer counts as congestion, the tier
-degraded down on every request and health reported `ultra: degraded`, so an invalid
-parameter was indistinguishable from a busy model. `OPENAI_REASONING_BUDGET` (default 16384)
-now only sizes `max_tokens` locally, which is all it was ever needed for. Measured: with the
-parameter every call 400s; without it the same question answers correctly and still returns
-`reasoning_content`. `kimi-k3` rejects it too, with a different message, so this holds for
-any future ultra model.
+1. **Zero required dependencies.** A heavy capability is an optional extra; without it the tool
+   returns `ToolResult.failure` with the install command, never a crash.
+2. **Risky actions ask first** through `safety.ApprovalGate`: a read is LOW, a network read
+   MEDIUM (runs), a change HIGH/CRITICAL (an approval card). Keep each level as the code sets it.
+3. **Tools return `ToolResult`** (`ok`, `message`, `data`).
+4. **Network and engines sit behind an injectable backend**, so the success path is tested
+   offline with `unittest` and no extra packages.
+5. **Instant routing first, the model second.** Match the whole request, never a word anywhere;
+   a false positive must fail toward the router, not toward acting.
+6. **Never commit secrets**: scan the staged diff for `nvapi-` and the Gmail app password. The
+   repository is public, so never paste live output (locations, inbox contents) into PRs.
+7. **Match the surrounding code**: `from __future__ import annotations`, full type hints, a
+   comment only where the reason is not obvious.
 
-**`/v1/models` is a catalog, not an entitlement list.** It advertises 80 models on this
-account and most are not callable: `llama3-chatqa-1.5-70b`, `codestral-22b`, `gemma-3-12b`,
-`nemotron-4-340b`, `llama-3.1-nemotron-ultra-253b`, `nemotron-nano-3-30b`, `gemma-3-4b`,
-`mistral-nemo-12b`, `minitron-8b`, `nemotron-51b`, `zamba2-7b`, `cosmos-reason2` and
-`phi-3-vision` return **404**; `llama-3.2-90b-vision`, `llama-guard-4-12b` and
-`mistral-nemotron` time out. Reachable and measured: `nemotron-3-super-120b` 1.7s,
-`nemotron-3-ultra-550b` 20s, `nemotron-parse` 2.6s, `nemotron-3.5-content-safety` 0.2s,
-`kimi-k3` 2.9s short / 61s hard, `deepseek-v4-pro` 10–21s. Call a model before wiring it in.
-There are **no rerankers** on this account, and `riva-translate-4b-instruct-v2` answers in
-0.5s but ignores its target language through this endpoint (four conventions produced
-Japanese, Russian, an echoed tag and Dutch for a Telugu request) — it needs Riva gRPC like
-Parakeet does. Pace live measurements ~12s apart: twelve turns back to back trip the 60s
-degradation cooldown on all four tiers, after which `_route` stops consulting the LLM and
-the measurement describes the throttle instead of the change.
+The reasoning and the measurements behind each rule: `docs/design/conventions.md`.
 
-Chat escalates fast→smart→ultra by `_complexity`, and **degrades gracefully**: if a
-higher tier is congested/unreachable (its `answer`/`stream_answer` yields nothing)
-the orchestrator falls back to the next tier down, tags the reply
-(`degraded=True` in data, plus `planner.requested_model` vs `planner.model`) with a
-short "_my smart model was busy_" note, and records the outcome in
-`orchestrator.model_status` (`model_status.py`, thread-safe per-tier ok/degraded).
-`health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the
-web pill shows "smart/ultra model busy" while the fast tier stays healthy.
-
-**A tier that is loaded and a tier that is misconfigured are different facts.** The whole
-fallback ladder used to decide from `bool(reply)`, and a retired model id (HTTP 410), a
-rejected key (401), a model the account cannot call (404), a refused parameter (400) and a
-genuinely overloaded endpoint (503) all arrive as the same empty reply. So a permanent
-misconfiguration was retried every 60s forever and reported as *busy* - advice to wait, for
-something that never recovers. ERRORS.md records that costing real time twice.
-`classify_failure` splits them: `DEGRADED` (429/503/timeout/network, 60s cooldown) from
-`BROKEN` (400/401/403/404/410/422, 900s, and wording that names the model to change).
-`ModelStatus.record(tier, ok, reason=, detail=)` keeps the reason, `broken_tiers()` and
-`reason()` read it back, and `/api/health` exposes `broken_tiers` + `tier_reasons` beside
-the existing `degraded_tier`. Three rules this must keep: an **unexplained** failure stays
-`DEGRADED`, because guessing "broken" would stop trying a tier that was only having a bad
-minute; `BROKEN_COOLDOWN` is long but **not** forever, since a key can be fixed while the
-app runs and a tier never retried can never be seen to recover; and the state string stays
-`"degraded"` - health, the web pill and the tests all read it, and `broken` is new
-information rather than a rename. The provider reports why through an optional
-`on_failure` **callback argument**, never a field on the provider: one provider serves
-every request thread. A caller that passes no sink behaves exactly as before, which is why
-the advisor, the document tool and the copilot needed no change. A caller that **records**
-the outcome must pass one: the keep-warm `ping` did not, so every failed ping was recorded
-as busy and demoted a tier a chat turn had found broken. `plan()` reports why on the
-decision it returns (`PlanDecision.failure`; a decision belongs to one call, so this is
-safe where a provider field is not), and the non-streaming fallback records it: that
-branch runs only when the route failed, and it marked a retired model id busy.
-
-**Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
-`data_dir/model_status.json`, so a retired model id or a rejected key is still known at
-startup instead of being rediscovered by failing a real chat turn while the user waits.
-Four decisions hold it together. Only `BROKEN` is written - reachability is ephemeral, and
-persisting "busy" would skip, at tomorrow's startup, a tier that was merely loaded for a
-minute yesterday. The file stores **wall clock, never `time.monotonic()`**, which counts
-from a point that restarts with the process: a persisted monotonic stamp compared against a
-fresh clock puts the cooldown anywhere between instantly-expired and centuries, so `_load`
-reconstructs the *remaining* wait from elapsed real time. The knowledge persists but the
-blocking does not outlive its cooldown, so a key fixed while the app was closed is proved
-on the next turn and the record clears on the first success. And the write happens only
-when the broken set changes, so an ordinary chat turn costs no IO.
-
-**The orchestrator has one `data_dir`, and everything it persists goes through it** -
-traces, tier health, generated images, generated documents. It is a constructor parameter,
-not `load_config()` at each use: that reads the process-wide config, so under the test
-runner every orchestrator shared one directory. A tier one test recorded as broken was
-still broken for the next, and generated files landed wherever the running app keeps its
-own - which is how 300 traces from a test run ended up in the live `.agent_data`. Persisted
-state that ignores its caller's own config is shared state. One handle means the next store
-added needs no parameter of its own, and
-`test_everything_persisted_lands_in_the_given_data_dir` sweeps the process-wide directory
-for anything that escaped, so the guard covers stores that do not exist yet rather than
-today's four.
-
-After all primary (e.g. NVIDIA) tiers, an optional **cross-provider fallback** is
-tried: `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`, default a free model;
-`OPENROUTER_BASE_URL`) builds an OpenRouter planner (`app._build_openrouter_planner`,
-passed as `AgentOrchestrator(..., fallback_planner=…)`). Since OpenRouter is a
-different backend, it can answer when NVIDIA is throttled; its reply is tagged
-`model="openrouter"` / degraded with a "_backup model_" note and tracked as the
-`openrouter` tier in `model_status`/health. Absent the key it's simply skipped.
-
-Routing uses few-shot **message turns** for reliability. The 8B alone won't route
-without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE) —
-which, when the request sets `voice:true`, also emits incremental `tts` sentence
-events (carved by `voice.SpeechChunker`) so the browser voice loop starts speaking
-the first sentence before generation finishes — streams autonomous-agent traces
-via `/api/agent`, exposes `/api/health`, serves a
-Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
-disable, routed through the same `schedule …` orchestrator commands), exposes
-read-only autonomous-agent run history via `/api/agent-runs`, serves a Map panel
-via `/api/map` (POST a place or `A to B` -> OpenStreetMap embed/bbox/directions,
-routed through the `map …` orchestrator command), serves a memory-vault browser
-via `/api/notes` (POST `read` -> Markdown + outlinks/backlinks, or `search`;
-rendered in a click-through note-viewer overlay with wiki-link chips), serves a
-Trip-planner panel via `/api/trip` (POST `stops[]` -> per-leg breakdown + totals +
-route geometry/bbox + multi-waypoint directions, routed through `trip …`; the panel
-adds/reorders stops and draws the route as an inline SVG), serves server-side
-voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
-background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
-avoid cold-start latency. Chat replies stream token-by-token; instant local command
-results (which arrive whole) are revealed with a JS `typewriter()` pass so both feel
-alive — skipped for >4k-char output and cancelled by Stop/Esc. Every render point goes
-through `setMd(el, text)` (render + `decorate()`), so a generated picture gets a **Save**
-control and a table gets **Copy**/**CSV**; both are built as DOM nodes, never markup, so
-nothing model-authored is interpolated into HTML. Chats in the rail have a delete control,
-and **Incognito chat** creates a session `saveSessions()` filters out of `localStorage` on
-both the normal and the over-quota retry path.
-
-**Maths is rendered, not printed raw.** `\( … \)`, `\[ … \]` and `$$ … $$` go through
-`mathToHtml`: `\frac` becomes a stacked fraction, `^`/`_` become scripts (Unicode where it
-exists, `<sup>`/`<sub>` otherwise), and a symbol table covers the operators and Greek that
-chat arithmetic uses. No KaTeX or MathJax, for the same CSP reason as the diagrams. A
-division once showed as literal `\[ \frac{754}{86982} \approx 0.008668 \]`.
-Conversion is **confined to the delimiters on purpose**: applying it to bare prose would
-eat a Windows path like `C:\new\table`, so the chat prompt asks the model to delimit
-instead, and undelimited LaTeX is shown as typed.
-
-**Diagrams are drawn, not described.** A fenced ```mermaid block is rendered to inline SVG
-by `mermaidSvg` in `webui_page.py` — not the Mermaid library: the CSP is
-`script-src 'nonce-…'` with **no `'self'`**, so no extra script can load, and vendoring
-3MB would fight the same "no chart CDN, offline-friendly" rule the Overview charts follow.
-It covers the two shapes that actually come up — `erDiagram` (entity boxes, columns,
-labelled relationships) and `flowchart`/`graph`/`stateDiagram` (nodes and labelled edges) —
-and anything else falls back to a readable code block rather than vanishing. Flow layering
-is breadth-first **from the entry point, ignoring back-edges**: longest-path layering put
-TCP's Slow Start at the bottom once the timeout edge closed the cycle. Markdown images are
-restricted to same-origin paths — a model sent a fabricated `data:image/png;base64` blob.
-
-**Why the chat tier is told what it CAN do.** `_NO_TOOL_CLAIMS` said only what the model
-must not claim, so it filled the gap by guessing and guessed low: "can you download
-something for me" was answered "I can't directly download files from the internet or
-access external resources", and "is it safe to run risky commands" with "I do not have
-direct access to your system's shell or file system". Both false. `_CAPABILITIES` now
-states what the tools actually do, that risky ones ask first, and that the app is
-`python -m laptop_agent.webui` on port **8770** — the persona previously asserted it was
-always a desktop window, which is how "how do I start the app in a browser tab" became
-"try http://localhost:3000". Two rules that wording has already broken once each: it must
-say what to ask for **only** for pictures and documents, because applied to a diagram it
-produced a loop ("I'll provide the Mermaid syntax for you to request the actual drawing.
-To draw this flowchart, please ask me to: draw a flowchart…" — handing the request back);
-a diagram is now explicitly the exception, drawn in that reply.
-
-**Why the chat tier is told it cannot make files.** A tool result reaches the next turn as
-part of the transcript — the web client appends a bounded digest of `result.data` to the
-assistant turn it sends back — so the model learned the tool's own output shape and
-reproduced it. After one generated picture it answered the next question with "Here is a
-diagram..." plus a Markdown image link to the *previous* turn's file and a fabricated JSON
-block: the page then showed a broken image and a Save control with nothing behind it, and
-the traces proved no image command ever ran (`kind=chat`). `_NO_TOOL_CLAIMS` in the chat
-system prompt (both `answer` and `stream_answer`) forbids claiming a file was made, writing
-an image link, or emitting tool JSON, and says a diagram belongs in a fenced code block.
-The digest is labelled in `dataDigest` for the same reason. The **routing** prompt is
-deliberately left alone — it must keep emitting JSON. Two things that wording must keep
-getting right, both learned by breaking them: it must **not** say the assistant cannot make
-images (the first version did, and the model started telling users so — it is false, the
-image tool exists), and it must say there is **no follow-up turn** (without that the model
-answered "Let me create that for you now" and then never did). `_referent_topic` also skips
-an assistant turn that only talks about itself, which is how a back-reference once resolved
-to `I read "this" as I can't generate or attach images directly...`.
-
-**Voice, and why it used to answer itself.** `clean_for_speech` (server) and `speakable()`
-(client, same rules) must drop embedded images, code fences and bare URLs *before* the
-punctuation strip breaks those constructs apart. Reading an image URL aloud produced
-"slash api slash image question mark name equals…", which the echo guard could not match,
-so the microphone heard it, counted it as a spoken interruption, and drew the picture
-again — one request became four. The echo guard compares against the **last six utterances
-individually, and each pair said back to back** (the microphone hears no sentence
-boundaries; never one accumulating blob, which matched almost any real sentence and ate the
-user's own interruptions), a barge-in needs three words, listening reopens only 800ms after
-a reply ends (Bluetooth speakers are still playing it), what is heard in an utterance's tail
-is ignored (400ms in the browser path, 800ms on the server-STT path), and a third spoken
-interruption inside 25s turns spoken barge-in off for the session. The server-STT listening turn also
-needs a quarter second of sound, with no quiet gap over 250ms, before it counts as the
-user: one loud frame, and later clicks seconds apart, were transcribed and answered. With
-open speakers full duplex is never fully reliable; Space is the manual fallback (the
-Interrupt button is in the hidden `#voice` panel, see below).
-
-**Stopping has to stop the turn, not just the sentence.** `stopSpeaking()` cleared the queue
-but the request was still streaming, and every later `tts` event was enqueued and spoken —
-so pressing Space silenced one sentence and the reply carried straight on with the next.
-Two things fix it and both are needed: `interruptNow()` now calls `stopGen()` as well (the
-spoken-barge-in path always did; the manual one never did), and a `ttsEpoch` counter,
-bumped by every stop, is captured when a turn starts streaming — `tts` events and
-`voiceTurnDone` from a superseded turn are dropped instead of spoken.
-
-**Barge-in in server-STT mode listens to level, not words.** `bargeStart` used to return
-immediately when `useServerStt()` was true, and since `setSttEngine` turns server STT on by
-default as soon as the server has an engine, *talking could not interrupt at all* — the gear
-note even promised "it cannot hear itself. Press Space to cut in." `serverBargeStart` now
-holds the microphone open (echoCancellation + noiseSuppression + autoGainControl) while
-J.A.R.V.I.S speaks, spends the first ~6 frames **of playback** learning how loud our own
-output still leaks through (learning before the audio arrived learned silence, and our own
-voice then cleared the bar), and treats **220ms of sustained sound above
-`max(bargeFloor, floor*2.2)`** as the user.
-On trigger it only **pauses** playback: until the words are heard, a loud moment may be a
-cough, the room or our own voice, and stopping outright cut a recipe off at "cilant". The
-capture keeps running — deliberately *not* `stopSpeaking()`, which would tear it down — and
-after ~1s of quiet is transcribed from ~0.6s before the trigger, not the 12s of our own
-reply the buffer held (that was once sent as a question). Only three words or more that are
-not our own speech commit: cancel speech, clear the queue, bump `ttsEpoch`, `stopGen()`,
-answer. Anything else resumes where it paused. The three-in-25s switch counts only
-interruptions that commit — counting every loud moment let three coughs switch spoken
-barge-in off for the session, silently — and false pauses get their own limit, since every
-sentence re-arms barge-in: after two in one reply the rest of it plays through, and
-`voiceTurnReset()` starts the next reply fresh. It works in the pywebview window too, which
-has no Web Speech API at all. Known gap: in a browser tab the pause is
-`speechSynthesis.pause()`, which some platforms ignore; only the app window's audio path has
-been tried on the laptop.
-
-`bargeFloor` (default 0.045) is the one number worth re-tuning from real rooms: too low and
-the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
-closure, and that is why the feature could be "fixed" twice and still reported as not
-working — nobody could see what the microphone was hearing or what it had to beat. Both are
-now on screen: a meter in `.stagedock` (at the foot of the presence panel, or above the
-composer wherever that panel is hidden) shows **peak / learned leak / threshold** live while
-barge-in is armed (square-rooted, because 0-0.15 is the whole interesting range and linearly
-it occupies the first eighth of the bar; repainted at most every 80ms, which is one paint
-per 4096-sample frame and keeps the audio callback cheap), and **Voice cut-in level** in the
-gear popover sets the floor, persisted in `localStorage`. Tune it against the meter, not
-against the source. Note the threshold is a `max`, so raising the slider below the learned
-leak changes nothing — that is deliberate, a threshold under our own echo would fire on
-every sentence we speak.
-
-**And for three months it metered into a hidden element.** The meter shipped inside
-`#voice`, but `f6a145d` had already dropped the written overlay in June: it removed
-`voice.classList.add('on')` from `startVoice`/`endVoice` and left `.voice.on{display:flex}`
-behind, so **`#voice` has been `display:none` ever since** — along with `vstate`, `vtrans`,
-`vdbg` and the Interrupt / End voice buttons, which are still in there and still dead. The
-test passed throughout, because it asserted `#vmeter.hidden` is false, and `hidden` is
-false on an element inside a `display:none` parent. **An element's own visibility
-attribute says nothing about whether it is on screen** — assert a box:
-`getBoundingClientRect().height > 0`. The meter now lives in `.stagedock`, a flex column
-holding it above the orb-focus voice toggle, so neither has to know whether the other is
-there. The panel stays hidden: the violet shift is the design f6a145d chose, and this
-restores the one piece of it that has to be readable, not the overlay.
-
-**The dock is fixed to the viewport, not parked in `.stage`.** Put at the foot of the
-presence panel it was still unreadable wherever that panel is `display:none` — under
-`body.compact`, below 1100px and below 700px — which is to say on a small laptop, on a
-phone, and for anyone using the compact-layout toggle: the same "fixed but still not
-visible" shape as the three months above, one level up. `.stagedock` is a sibling of
-`.stage` now and `--dock-x/-r/-w/-y` say where it lands: over the presence panel's own
-grid cell by default, spanning the window in orb focus, and 12px above the composer
-whenever the panel is off screen. `app.js` asks the **stage itself** whether it is
-displayed (`syncDock`, toggling `.app.stageless`) rather than restating the breakpoints in
-JS, so a breakpoint moved in the CSS alone cannot strand the meter again — and it
-publishes the composer's measured height as `--composer-h`, because the textarea grows as
-you type and a constant offset would put the meter over the box it is meant to sit above.
-Three things learned by breaking them: the class goes on `.app`, not `body`, because three
-orb-focus tests read `document.body.className` **whole**; the dock needs `z-index:40`,
-since orb focus makes `.stage` a `z-index:30` overlay and at the old 6 a sibling dock was
-painted over — a click on the voice toggle landed on the canvas; and the dock must be
-hidden off the chat view (`body:not([data-view="chat"])`), which hides the composer too,
-or it floats over the Overview page anchored to a composer of height 0. Docked above the
-composer the meter draws its own hairline-and-blur panel so it is readable against chat
-text; over the orb it stays bare. Verified at 1440 compact, 1000, 700 and 390 in headless
-Chromium, asserting a real box and that it clears the composer.
-
-**Voice notices go to the reminder tray.** The same hidden panel swallowed every voice
-notice written to `#vtrans`: voice interruption switching itself off, a blocked or missing
-microphone, the recognizer's errors — which end voice mode, so the pill just turned off —
-and a failed transcription. `voiceNotice()` puts them in `#remtray`, which is fixed to the
-window and so visible in every layout, orb focus and a phone included: one at a time, never
-chimed or spoken since the microphone may be listening, cleared by Dismiss, a voice restart
-or Space. Subtitles stay hidden; that was f6a145d's design. `/api/transcribe` answers
-`failed` on its own, because its `ok: false` also means "heard nothing" — the old code
-wrote that "nothing found" message as an error too, and only the hidden panel kept it from
-putting a card up after every quiet moment.
-
-## Running it
+## Running and testing
 
 ```powershell
 $env:PYTHONPATH="src"
-python -m laptop_agent.cli                                              # terminal
-python -m laptop_agent.webui --desktop                                  # desktop app window (or: laptop-agent-deck)
-python -m laptop_agent.webui                                            # browser tab
+python -m laptop_agent.cli                 # terminal
+python -m laptop_agent.webui               # web app, http://localhost:8770
+python -m laptop_agent.webui --desktop     # desktop window (or: laptop-agent-deck)
+python -B tests/run_tests.py               # the whole suite, ~5 minutes, isolated
+python -B tests/run_tests.py test_planner.py   # one file (only the first argument is read)
 ```
 
-**A throwaway instance needs `LAPTOP_AGENT_DATA_DIR`, not just `LAPTOP_AGENT_PORT`.** The
-port is the only thing a second port isolates: the data directory is still the real one, so
-anything the throwaway instance is told to remember, schedule or be reminded of lands in
-the user's own store. This has now happened twice — 20 `loadtest_N` keys in "what do you
-remember about me?", and three test reminders in the real reminder list. Always:
+- A **throwaway instance** needs both `LAPTOP_AGENT_PORT` and `LAPTOP_AGENT_DATA_DIR`; the port
+  alone writes into the real data. Two instances must never share a port.
+- Run the **full suite** before pushing a change to the orchestrator, a dispatcher, `access.py`
+  or `webui_assets/`. A fix comes with a test that fails without it; undo each guard once and
+  watch a test fail.
+- Browser tests are opt-in: `JARVIS_BROWSER_TESTS=1`.
 
-```powershell
-$env:LAPTOP_AGENT_PORT="8791"; $env:LAPTOP_AGENT_DATA_DIR="$env:TEMP\jarvis-scratch"
-```
+## Working with Codex
 
-**Two instances must never share a port.** `allow_reuse_address` is needed so TIME_WAIT
-does not block a restart, but on Windows it also lets a second process bind a port that is
-already being served. Two J.A.R.V.I.S ran at once, which one answered a request was luck,
-and because they hold separate approval state and LAN passcode sessions it presented as
-random flakiness (a phone unlocking, then being asked again). This happened twice in one
-session. `_refuse_if_running()` probes the port at both entry points and exits with a
-message naming `LAPTOP_AGENT_PORT`.
+Claude and Codex share this repository; how we split work, review and merge is in `AGENTS.md`
+(imported below), and hand-offs go in `CHANGES_MADE.md` on `claude/pair-log`.
 
-**A rejected POST must have its body read before it is answered.** Every rejecting path -
-403 untrusted, 401 locked, 404 unknown path, 429 too many attempts - used to answer without
-touching the body the client had already sent, and closing a socket that still holds unread
-data makes the OS reset the connection: the client's pending read fails instead of seeing
-the status. Measured on Windows, a 1MB POST to an unknown path raised
-`ConnectionAbortedError` **[WinError 10053] 6 times in 12**, and a bad token 3 in 12; a
-2-byte body never tripped it locally, so it only ever surfaced as an intermittently red CI
-test. `_drain_request_body()` runs at the single `_send` choke point and counts **bytes
-read, not a boolean** - `_pair` reads only the first 4096 bytes of a passcode POST, and a
-flag would call the rest consumed and reset exactly the path a phone uses to be told
-"Wrong passcode.". It is capped at `MAX_REQUEST_BYTES`, times out at 5s so a body that
-never arrives cannot hold a thread, and records to `failures.py` rather than swallowing.
+## Where the detail is
 
-**The page is rendered once and revalidated, not resent.** It is 179KB and every
-placeholder is fixed for the life of the process, yet it was re-rendered and sent in full
-on every load — and `Cache-Control: no-store` (added so a cached copy could not outlive its
-script nonce) made that unavoidable. `_rendered_page()` builds it once with an ETag over
-the bytes; the route answers `If-None-Match` with a 304. The ETag still changes on restart,
-which is exactly when the cached copy stops working.
+The paragraphs that used to fill this file moved here unchanged on 2026-10-06. Read the file
+for the area you are about to change before changing it.
 
-**That saved nothing at all until #121, and the measurement is why nobody noticed.**
-`end_headers` sent `Cache-Control: no-store` on **every** response, on top of whatever the
-route had chosen, so the page went out with two Cache-Control headers. Folded, `no-store`
-wins — and a browser forbidden to *store* the page has nothing to revalidate, so it never
-sends `If-None-Match` and the 304 can never fire. "183,536 bytes -> 0" was measured with
-curl passing the ETag by hand, which proves the server answers a conditional request and
-says nothing about whether a browser ever makes one. Measured in Chromium on a warm
-reload: no `If-None-Match`, 200, the full 196KB, every time. The same blanket also ate
-`private, max-age=86400` on `/api/image`, so every generated picture was re-fetched on
-every render. **Measure the thing the user's client actually does, not the thing your
-tool can be told to do.** A response now picks its caching through `_cache()` and
-`end_headers` fills in `no-store` only when nothing did, so the safe default still covers
-every dynamic API answer.
+| You are working on | Read |
+|---|---|
+| The rules above, and why | `docs/design/conventions.md` |
+| A module's role, tool by tool (the long map) | `docs/design/architecture-map.md` |
+| Routing everyday phrasing, follow-ups, negation, the shell backstop | `docs/design/routing.md` |
+| The orchestrator: context, freshness, search backend, `AgentContext`, agent mode | `docs/design/orchestrator.md` |
+| Model tiers, reply length, fallback, prompts for the chat tier | `docs/design/models.md` |
+| The web server: routes, caching, LAN mode, ports, Setup | `docs/design/web-server.md` |
+| Accounts, sessions, the `personal` role, Google identity | `docs/design/accounts.md` |
+| The page: rendering, design, orb, desktop window, pages | `docs/design/web-ui.md` |
+| Voice, barge-in, the meter, speech-to-text, recordings | `docs/design/voice.md` |
+| Forecasting and diagnostics | `docs/design/analytics.md`, `docs/analytics.md`, `docs/forecasting.md` |
+| GPU and system metrics | `docs/design/metrics.md` |
+| The test runner | `docs/design/testing.md`, `tests/README.md` |
+| Running instances safely | `docs/design/running.md` |
+| Open watch-outs and working notes | `docs/design/watch-outs.md` |
+| Something broken | the symptom index at the top of `ERRORS.md` |
 
-**Everything that opts out of `no-store` says `private`.** The page embeds the
-per-process API token — shell, files and mail on this laptop — and the two SSE streams
-carry the conversation. None of them were storable by anything while the blanket was
-winning, so `no-cache` alone cost nothing; the moment the route's own choice took effect
-it became a real exposure, on plain HTTP, with a phone on the same wifi.
-`test_nothing_user_specific_is_offered_to_a_shared_cache` reads the `_cache()` call sites
-out of the source rather than listing routes, so an opt-out added later is already
-covered.
+## Watch-outs
 
-**Reaching it from a phone (`LAN_MODE`).** The app refused any bind but loopback, and
-`_trusted_request` refused any Host but loopback, so a phone got a connection refused or a
-403 — measured: `Host: localhost:8770` 200, `Host: 192.168.4.68:8770` 403. Both now open
-**only together with a passcode**, because the page carries the API token and that token is
-shell, files and mail on this laptop:
-
-```powershell
-$env:LAPTOP_AGENT_HOST="0.0.0.0"; $env:LAPTOP_AGENT_LAN_PASSCODE="something-long"
-python -m laptop_agent.webui        # then http://<laptop-ip>:8770 on the phone
-```
-
-A bind outside loopback without an 8+ character passcode raises at import rather than
-starting. Any client that is not this machine gets a lock screen (deliberately plain — it
-must not say what it guards), exchanges the passcode at `/api/pair` for an HttpOnly
-`SameSite=Strict` session cookie held **in the process** (a restart re-asks), and is rate
-limited to 10 attempts with a 1s delay each. `/api/pair` is the one endpoint that runs
-before the API-token check, since a new device cannot have the token until it has the page.
-In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_literal`):
-DNS rebinding needs a domain the attacker controls, so refusing names is what makes
-widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
-
-**Accounts switch sign-in on (`accounts.py`, `sessions.py`).** With no accounts nothing
-changes. Once any account exists, a disabled one included, every request needs a session,
-loopback too: disabling the last account must not reopen the app. The first account is
-made from this machine only (the settings popover or `python -m laptop_agent.accounts`), is
-always `dev`, and `create(first=True)` decides "none yet" under the file lock, so two
-set-up requests cannot both win. The CLI is OS trust and the way back in for a locked-out
-owner. Decisions that each exist for a reason:
-- Passwords are stdlib scrypt at OWASP's N=2^17, r=8, p=1 (0.6s here). hashlib's default
-  `maxmem` of 32 MiB **refuses** those parameters, which a cheap-cost test never notices;
-  `test_the_real_cost_hashes_and_verifies` runs the real one. Hashing happens outside the
-  file lock: every request reads `accounts.json`, and a 0.6s hash under the lock stalled
-  them all. Every refusal runs exactly one hash (a dummy for an unknown user), so timing
-  does not say who exists.
-- **At most two hash at once** (`HASH_SLOTS`). A hash holds 128 MiB outside the GIL and
-  the server runs a thread per request: measured, four at once took the peak working set
-  from 21 MiB to 534 MiB, so fifty sign-in attempts from a phone on the same wifi would ask
-  for 6.4 GB. The backoff cannot stop that, because it counts a failure only once its hash
-  has finished. A request that gets no turn within `HASH_WAIT` is answered 503 with
-  `Retry-After`, and is **not** counted as a failure: nothing was checked, so treating it
-  as a wrong password would lock the owner out because someone else was flooding.
-- **Damaged sign-in storage fails closed** (Codex's review). `accounts.json` is read
-  strictly (`storage.read_json_strict`): only a *missing* file means "no accounts". Read the
-  generic way, a damaged file came back empty, which switched sign-in off and served the
-  app and its API token to anyone; a damaged or invalid one now answers every request 503
-  with how to recover. Neither store keeps a `.bak` or is ever read from one: a backup can
-  bring back a deleted account, an old password or role, or a session revoked since it was
-  written. A damaged `sessions.json` signs everyone out.
-- **Saved chats are kept per account** (`jarvis_sessions:<account id>` in the browser),
-  loaded only once `/api/me` says who is signed in: one origin-wide key let a personal
-  account reopen the owner's chats on the same browser. Keyed by id, not name, since a
-  name can be reused. Chats from before sign-in go to the first developer only, and a tab
-  reloads when another tab signs in as someone else. Separation, not secrecy: whoever uses
-  the browser profile can read its storage.
-- On `http://localhost` a cookie is sent to **every port** of the host, so any other web
-  server you run locally receives the session cookie. That is HTTP, not this code: the fix
-  is HTTPS with a `__Host-` cookie (TLS-01), which the browser scopes to one origin.
-- Sessions are server-side and persisted, keyed by the SHA-256 of the token, so a restart
-  does not sign the desktop window out and the file holds nothing usable as a cookie. The
-  store reloads when the file's stamp changes, because the CLI revokes from its own
-  process. Every request re-reads the account, so a disabled account or a new role applies
-  to the next request, not when the session ends.
-- **A session is bound to the credentials it was granted under.** A new password or a
-  disable moves the account's `epoch` on, every session records the epoch it was created
-  with, and `_principal` refuses an older one. Revoking alone could not close the race the
-  review found at the real hash cost: a sign-in checked against the old password finishes
-  its 0.6s hash after `revoke_account` has run, then creates its session, which also came
-  back after disable-then-enable. `create()` defaults to epoch 0, so a caller that leaves it
-  out fails closed; changing your own password rebinds only the session that proved it.
-  Every route reads the signed-in account through one check, `_signed_in_account()`: the
-  Google routes (#145) were written before the epoch and carried their own copy, which
-  merged cleanly and treated a session `/api/me` refused as signed in.
-  Work already running stops too (REVOKE-01). `_handle` asks the request's own session again
-  beside `check_cancelled()` (`access.ensure_signed_in`, bound by the web server with the
-  principal), so every turn and every step of an agent run, a workflow or a `multi` is
-  checked where Stop is; one that has ended raises `SignedOut`, a cancellation, and a JSON
-  request answers 401. Not in `_account_limits`: prose never reaches it, so a workflow step
-  that reads as prose was still routed and answered. `_run_many` asks again after its
-  `gather`, which turns a stopped subtask into a bare `CancelledError('')` (3.11 to 3.14),
-  or a batch answers "0 succeeded" instead of stopping. A loop that marks its steps in the
-  control room finishes the step on `OperationCancelled` before re-raising: the workflow and
-  autopilot loops caught only `Exception`, so a step that never ran stayed `working` for good
-  (Codex's review); a routed command does the same, since a session that ends during the
-  routing call stops the routed turn. A GET that dispatches (`/api/schedule`,
-  `/api/agent-runs`, `/api/vault`) answers 401 like a POST: unhandled, `SignedOut` killed
-  the worker thread and the client got no answer. Known limits: a command already inside a
-  tool finishes, and scheduled jobs have no owner to check.
-- `/auth/login` runs before the API-token check, like `/api/pair` (a new device has no
-  token until it has the page), behind the Origin checks, a 4 KB body cap and a backoff
-  per client and per username. The username key is scoped `local`/`lan`, so failures from
-  the wifi cannot lock the owner out of the laptop.
-- A signed-out `/` gets `signin.html`, a separate document, so the API token inside
-  `PAGE` never reaches anyone who has not signed in.
-- The page's fetch wrapper reloads on a **bare** 403 (a stale token after a restart), so a
-  final refusal must say so: role and wrong-password 403s carry `X-Jarvis-Denied`, or a
-  `personal` account would reload-loop on every developer route. A 401 now reloads too,
-  and the server answers with the sign-in page.
-- Tests swap `webui.ACCOUNTS`, `SESSIONS` and `_SIGNIN_LIMIT` for their own. One account
-  written into the data directory the runner shares would put every other web test
-  behind a sign-in page.
-
-**A `personal` account is the assistant, not the machine (`access.py`).** It never acts on
-the laptop itself (files, the screen, the camera, apps, windows, the shell, the browser,
-music), never reaches the owner's mail, notes, indexed documents or job search, never sees
-the internals, and never starts anything that acts on its own. The web server sets the
-principal per request (`acting_as`, a ContextVar, which `asyncio.to_thread` carries into the
-task runner). Four checks, because each covers a path the others miss:
-- **The gate** refuses it HIGH and CRITICAL before anyone is asked: an approval card it could
-  click through is no control. `ApprovalRequest(everyday=True)` marks the one HIGH action it
-  may still take (clearing several reminders at once), asked as for anyone.
-- **The orchestrator** checks the command *about to be dispatched* (`_account_limits`),
-  inside the branch that dispatches. The first draft checked the top of `_handle` and was
-  wrong twice. `_follow_up` rebuilds the command afterwards from history the *client* sends,
-  so `[user: "email unread", assistant: "I could not find a time in that."]` plus "5pm"
-  became `email unread 5pm` — and an inbox read is MEDIUM, which the gate lets through. And
-  it refused prose the prose guard sends to the router ("schedule a meeting with bob").
-  Routed and split commands come back through the same line as commands of their own. A
-  developer form is refused with a reason; past that it is **default-deny where a command
-  is claimed**, Codex's review of #140: only what is marked everyday (`access.EVERYDAY_*`,
-  plus the pattern-chosen branches in `AgentOrchestrator._everyday`) is dispatched. Free
-  text that matches none of it goes to the router, and a command the router made that is
-  not everyday is refused — so a command added later without a decision is refused where
-  it runs, not only in CI.
-- **The approval broker** gives an account only its own cards. It broadcast every card to
-  every open stream, so another account read the command, recipient or path and could
-  answer it. A card the machine asked for itself (the ticker) goes to a developer.
-- **The web server** lets it use an allow-list of routes (`_PERSONAL_ROUTES`), so a route
-  added later is closed to it until decided. The deny-list it replaced missed
-  `/api/pipeline`, whose resume loader reads any path.
-
-Both lists are copies of what the dispatchers match, and a copy fails by omission.
-`DispatchMirrorTests` reads every literal form out of `_DISPATCH` with `ast`: each must be
-refused, or listed everyday *as itself* — never merely covered by a broader everyday prefix,
-or `list secrets` added under `list ` would be dispatched for a personal account — and every
-listed form must be one the dispatchers match (a phantom `knowledge` prefix would refuse
-"knowledge is power"). It counts the branches chosen by a pattern, which it cannot read, and
-`PersonalContractTests` plus one phrase per pattern branch hold `_everyday` to them: each of
-its eight patterns was removed in turn and caught, the routing contract alone missed two.
-Every rule here was broken on purpose and every break was caught. `read file` is LOW, which
-is why files are on the list at all: without it a personal account could `read file .env`.
-Data is shared on purpose: the personal account is the owner in a safer everyday mode, not
-another person (Jeevan's answer, 2026-09-28). So reminders, timers, lists, remembered facts,
-generated pictures and documents stay one store, the chat prompt carries the owner's facts,
-and per-account data is not planned; what it is refused limits scope, not privacy. The
-page hides `.devonly` controls under `body[data-role="personal"]` and greets the account by
-its own name; the server is the enforcement. Known limits: the gate's prompt lock serialises
-approvals across accounts, and attachments are developer-only, because every use of one is a
-file command.
-
-**Accounts are managed from this computer** (`GET`/`POST /api/accounts`, the Accounts panel in
-the System status drawer, "Manage accounts" in the settings popover). Developer-only by the
-route allow-list and again in `_account_admin`, and loopback-only like setting sign-in up, so
-a session carried to a phone cannot add a developer. Every change asks for the developer's
-own password again (the same backoff as sign-in), so a session left signed in cannot mint
-another account. Nobody demotes, disables or deletes themselves here; the command line
-stays the way back in. The store refuses, under its lock, any web change that would leave
-no enabled developer (`keep_developer=True`), since two developers demoting each other at
-once would otherwise both succeed; the command line does not pass it. Disabling, resetting
-or deleting ends that account's sessions: a disabled account is refused on its next request
-anyway, but without the revoke a cookie taken before the disable came back to life when the
-account was enabled again, which is the one test that could tell.
-
-**Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
-Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,
-not set up), `missing` (a package or engine it needs is absent), `busy` (a tier loaded or
-unreachable) or `broken` (a tier misconfigured, with its reason), and for anything not
-ready the next step as an environment variable *name* or an install command, never a value,
-a path or a model id (a test puts secrets in every config field and asserts none reach the
-report). Offline and cheap: packages are checked with `find_spec` and programs with `which`,
-both injected, so nothing heavy is imported and nothing goes over the network; Tesseract's
-package without its program counts as `missing`, since the engine probe only checks the
-package. Two rules from Codex's review: Playwright is ready only when the Chromium revision
-its own `browsers.json` names is in its browsers directory, finished (its `INSTALLATION_COMPLETE`
-marker and a browser executable inside: an interrupted install leaves the folders empty) — the
-package alone said ready with no browser, and an upgrade leaves the old revision behind — and a
-broken tier's advice is
-rebuilt from the HTTP status, never passed through, because the stored reason names the
-model id. Developer-only by the route allow-list and `.devonly`.
-
-**Nothing in the page may assume a secure context.** `http://<ip>` is not one, so the
-browser removes `crypto.randomUUID`, `navigator.clipboard` and `navigator.mediaDevices`
-outright. `send()` called `crypto.randomUUID()` on its first line, threw
-`TypeError: crypto.randomUUID is not a function`, and the send button did nothing at all —
-no request, no error, no clue — which is exactly how it was reported. `uuid()` falls back
-to `crypto.getRandomValues` (which *is* available on http) and `copyText()` to the
-`execCommand('copy')` selection trick; use those, never the originals. Note the test trap:
-`randomUUID` lives on `Crypto.prototype`, so `delete crypto.randomUUID` does nothing and a
-guard written that way passes against the bug — shadow it on the instance with
-`Object.defineProperty`.
-
-Voice still will not work: `getUserMedia` has no fallback, only HTTPS or `localhost`
-qualify, and a self-signed certificate is not enough for the microphone. The failure now
-says so instead of blaming permissions, which sent people to a settings screen that cannot
-fix it. And both HTML pages are
-sent `Cache-Control: no-store`, because they carry a per-process script nonce: a cached
-copy outlives the process, and after a restart every script on the page is silently
-blocked by the CSP — the unlock form simply stopped responding to Enter, with nothing in
-the console but the request that never happened.
-
-The desktop window prefers a true native **pywebview** window (`app` extra; no
-Edge browser, its own taskbar entry) and falls back to a frameless Chrome/Edge
-`--app` window when pywebview is absent. Because Edge WebView2 (pywebview's
-Windows backend) ships no Web Speech API, the native window does voice
-**server-side**: it sets `?app=1`, records the mic, transcribes via `/api/transcribe`
-(local `TranscribeTool`/Whisper), and plays sentences from `/api/tts` (offline
-pyttsx3). The Chrome/Edge fallback still uses the in-browser Web Speech API.
-`packaging/` bundles all this into a standalone `JARVIS.exe` via PyInstaller.
-
-**The page lives in `src/laptop_agent/webui_assets/` as `app.html` (15KB), `app.css` (47KB)
-and `app.js` (121KB).** `webui_page.py` is now a 75-line loader that stitches them together
-into `PAGE` at import (it was a 2529-line module holding all of it as one raw string, where
-nothing could lint or highlight it and a stray backslash in a regex was indistinguishable
-from a deliberate escape — a mistake that has cost real time here). The extraction was
-verified **byte-identical** against a snapshot of the old string, which is the whole safety
-argument for the refactor.
-
-It is still served as **one inlined document** — that is deliberate, not unfinished work.
-The CSP is `script-src 'nonce-…'` with no `'self'`, so a `<script src>` would be blocked
-outright, and a linked stylesheet would need `style-src 'self'`; a test fails if someone
-"completes" the split by linking them. So this is a source-level split only: the bytes on
-the wire are unchanged.
-
-Two things it added, both already trodden on once in this repo: a packaged build needs
-`--add-data` for `webui_assets` (both `packaging/*.ps1` carry it, and `_asset_dir()` checks
-`sys._MEIPASS` as well as beside the module — the same trap that hid the bundled Vosk
-model), and a wheel needs `[tool.setuptools.package-data]`. The source-integrity guard now
-scans `*.js`/`*.css`/`*.html` under `src/` too, since that is where the regex-heavy code
-lives now.
-
-The web UI (`PAGE`; `webui.py` keeps the server and routes
-and imports it, and the server reads it at import, so CSS/JS
-edits need a restart) is a calm dark workspace: a slim left rail (New chat, recent
-conversations, a status row), an assistant-presence panel holding the animated particle
-**orb** — the only glowing element; `setCore` stamps `body[data-core]` so the ambient
-glow behind it brightens while listening/thinking/speaking — and a wide, quiet
-conversation column with a rounded composer (attach · agent mode · text · dictate ·
-**Voice** pill · send). Models, GPU/CPU/memory, the memory-vault browser and the tool
-panels (tool activity, scheduled jobs, agent runs, map, trip planner) live in a
-right-hand **System status** drawer (`#sysDrawer`, opened from the header status pill or
-the rail footer; Esc closes). Design tokens are the CSS variables at the top of the
-`<style>` block: one cyan accent for interactive/active states, green only for healthy or
-positive status (health dots, high ATS scores), sans-serif body type (Segoe UI Variable → system stack; the CSP is
-`font-src 'self'`, so no web fonts), monospace reserved for model names, timings and
-diagnostics, 150–250 ms motion that honours `prefers-reduced-motion`. Third-party CSS
-(e.g. uiverse.io elements, MIT) is **adapted, never pasted**: re-express its colours as
-the tokens, drop any glow so the orb stays the only glowing element, size it for the
-surface it lands on, and credit the author in a comment above the rule. Tailwind
-variants are unusable here — no Tailwind, and the CSP blocks CDNs. Browser
-regression tests depend on these ids/classes: `#nav [data-view]`, `#ta`, `#newChat`,
-`#mobileChats`, `.scard`, `.msg`, `#rsContact`/`#rsCerts`/`#rsProfileSave`, `#pipeMsg`,
-`#orbBtn`/`#orbFocusSw`/`#orbVoiceBtn`, `#vmeter`, `#core`.
-
-The header gear popover holds the **adaptive-HUD** settings: a compact-layout toggle
-(chat only — hides the rail and the presence panel), its mirror image **Focus the orb**
-(orb only — hides the chat and the rail; also a button in the header, and Esc comes back),
-an always-on-top switch and a transparency slider — all persisted in `localStorage`.
-
-**Orb focus animates the sphere, not the layout.** The obvious implementation — transition
-`grid-template-columns` — does not work: measured in a real page, the stage jumped 374px to
-1440px in a single frame with a 500ms transition sitting on it, and every sampled frame read
-the end value. So the layout snaps and the **canvas** does the animation. `focus` eases 0..1
-over `--focus-ms` (CSS owns that number; `app.js` reads it, so the two cannot drift), and
-`drawSphere` interpolates the sphere's **centre and radius** from the docked rect to the
-window's. `dockRect()` measures the docked position by taking the class off and putting it
-back inside one synchronous block, so nothing is painted in between and it stays correct
-after a resize.
-
-**Orb focus needs its own voice control.** It hides the whole chat column
-(`body.orbfocus main.chatcol{opacity:0;pointer-events:none}`) and the Voice pill lives in
-the composer, so voice could not be **started** while the orb was focused — a click at the
-pill's own coordinates landed on `#core`. `#orbVoiceBtn` sits in `.stagedock`, the one
-surface orb focus leaves standing, and toggles both ways rather than handing off to the
-`.voice` panel's End voice / Interrupt, which are not on screen to hand off to (see the
-voice section). It shares one click handler and one `paintVoiceButtons` with the composer
-pill — the availability check (`!SR && !NATIVE`) is the part that must not be duplicated,
-and both surfaces must show the same state, since switching view or leaving focus swaps
-which one is visible mid-session.
-
-**Two classes, and the split is what makes leaving smooth.** `orbstage` is the mechanism —
-the stage as a fixed overlay — and must stay until the sphere has finished shrinking.
-`orbfocus` is the **intent**, and flips on the click in both directions, so the chat and
-the ambient glow move *with* the orb. Carrying both on one class meant leaving cost 1100ms
-against 500ms to enter, with the chat still invisible for the first 520ms; and the glow,
-sized as a percentage of a `.stage` whose box changes when the overlay drops, snapped
-760px to 248px in a single frame. `.stage::before` is therefore sized off `--presence-w`
-and `vw`, **never a percentage of `.stage`**. Measured after: 500ms each way, and the glow
-reaches its docked 307px before the overlay is released. Three things learned by breaking them: **a focused orb needs more points AND bigger ones**
-(measured at 1440x900: the focused sphere is 2.5x wider, so 6.7x the surface area. Scaling
-the dots alone magnifies a point cloud but cannot restore the docked glow, which comes from
-dots OVERLAPPING under `lighter` compositing; tripling the count alone leaves them small and
-the golden-angle spiral visibly bands when subsampled. So `NP` is 2280, every third point is
-the docked sphere and the rest fade in with `focus`, and `magnify` scales each dot by the
-real ratio `R/(dockSpan*ORB_R)`. The docked orb still draws exactly its original 760); landing the layout must **not**
-depend on a frame being drawn, because `requestAnimationFrame` is throttled to nothing when
-the window is occluded (measured in an embedded pane: 0 frames in 300ms with
-`visibilityState` still `'visible'`), so a `setTimeout` finishes it or the class sticks on
-with the chat at `opacity:0` and no way back; and switching to a view that hides the stage
-has to land it **immediately** for the same reason — the loop stops, so the easing never
-would. `reduced_motion` takes the instant path by design, which is why the orb-focus tests
-build their own Playwright context: the shared one is `reduced_motion="reduce"`. Real window effects
-(alpha + topmost) run via `window_fx.apply_window_effects` (Windows `ctypes`,
-targeting only a top-level window owned by *our own* process AND titled J.A.R.V.I.S
-— so a same-named third-party app is never touched; graceful no-op elsewhere)
-behind a desktop-gated `/api/window`
-POST (`_DESKTOP_MODE`, set only by `run_desktop`, so a normal browser is never
-touched). In a browser the slider still fades the app visually via CSS.
-
-Speech-to-text has three engines, chosen by `LAPTOP_AGENT_STT` (default `auto`):
-**Riva** (hosted NVIDIA Parakeet, `riva` extra) is the accurate one — ~1s against Whisper's
-~10s on the same clip, with punctuation. It is **gRPC, not REST**: the API catalog's
-`/v1/audio/transcriptions` returns 404 on both hosts, so it needs `nvidia-riva-client`
-against `grpc.nvcf.nvidia.com:443` with a `function-id` metadata header (that id selects
-the model; `RIVA_SERVER` / `RIVA_ASR_FUNCTION_ID` / `RIVA_API_KEY` override, and the key
-falls back to `OPENAI_API_KEY`). It takes PCM WAV only, so `auto` skips it for other media,
-and a failed cloud call falls through to a local engine — losing the network costs quality,
-not the transcription. `/api/health` reports the chosen engine as `stt.engine`, and the web
-page uses that to record-and-post instead of trusting the browser's recognizer (a gear
-toggle overrides; server speech has no recognizer running while we talk, so it barges in on
-microphone **level** instead — see below). The two local engines:
-**Vosk** (lightweight — ~50MB model, no PyTorch/ffmpeg; reads the 16kHz mono WAV the
-browser encodes via Web Audio) and **Whisper** (accurate, heavy). `auto` prefers Vosk
-when a model is present in `models/` (or `VOSK_MODEL`), else Whisper. `build_app_small.ps1`
-bundles the Vosk path for a far smaller `JARVIS.exe`.
-
-**A packaged app searches `sys._MEIPASS` too.** `--onefile` extracts `--add-data
-"models;models"` into the temporary `_MEIPASS` directory, *not* next to the executable, so
-`_resolve_vosk_model_path` looked only beside the .exe and never found the model the build
-had just bundled. Since the small build ships Vosk **instead of** Whisper/PyTorch, that
-left it with no working speech-to-text at all — and it is invisible to the unit suite,
-because it only exists in a frozen build. Verified against a real artifact: the model is an
-entry *inside* the exe and `dist/` holds nothing but `JARVIS.exe`. Order matters — a model
-the user drops beside the .exe still wins over the bundled one. Measured on a build with
-`torch`/`whisper` excluded: 3m40s to build, 162MB, boots and serves `/api/health` in 3s.
-Use `LAPTOP_AGENT_PORT` to test a packaged build without colliding with a running app.
-
-Riva selects its model by **function id**, never by a model name — an `OPENAI_SPEECH_MODEL`
-style variable reaches nothing. `parakeet-1.1b-rnnt-multilingual-asr`
-(`71203149-d3b7-4460-8231-1be2543a1fca`) is available and works, but measured on an English
-clip it is *worse* than the English default: "comm music" for "calm music", and it drops
-proper-noun casing ("youtube", "readme" where English gives "YouTube", "README"). Both ran
-in ~0.9s. So English stays the default and `RIVA_ASR_FUNCTION_ID` / `RIVA_ASR_LANGUAGE`
-switch to multilingual for dictating in another language. It has **not** been tested on
-non-English audio — this machine has English-only voices to synthesise a clip with, so
-someone needs to record themselves before claiming it helps.
-
-The web app is now **multi-page**: a header nav + hash router (`#/chat`, `#/overview`,
-`#/jobs`, `#/pipeline`) toggles `body[data-view]` to swap full-width routed pages (Chat
-stays default). **The nav shows only Chat and Overview** — Jobs and Pipeline keep their
-pages, routes and APIs and stay reachable by hash, but have no buttons (the nav version is
-preserved on `feature/jobs-pipeline-nav`), so browser tests drive those two views through
-`location.hash` rather than a click. The **Overview** and **Job Tracker** pages render stat cards + **inline-SVG
-charts** (funnel, apps/week — no chart CDN, offline-friendly) from `/api/jobs`/`/api/health`/
-`/api/metrics`; the Job Tracker page adds/edits applications and changes stage inline.
-
-The **Pipeline** page (`#/pipeline`, `/api/pipeline`) is the live job-search board: a
-base-resume panel (paste text or load a PDF/DOCX/TXT path), a **Pull from Jobright** button,
-a **Clear leads** button, a stage board (lead → applied → … → offer) whose cards show a
-live **ATS score** (local, no LLM) and per-job **Tailor** → grounded one-page resume, then
-**PDF** (download via `/api/resume-pdf?id=`) + **Preview** (inline iframe). Tailoring runs
-on-demand through the resume CoPilot; PDFs render via Chromium under `data_dir/resumes/`.
-
-Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
-
-**The runner makes `os.startfile`, `webbrowser.open` and `keybd_event` inert** — they
-succeed and do nothing (the music tool also pressed the real volume keys). A URL handed to the OS is fetched by the browser, not by the test process, so the
-socket guard never saw it: the routing contract opened a real YouTube video on this laptop
-on every run, and a sweep rerunning it 48 times was reported as an automation. A test that
-needs to see what was opened still injects its own fake (`test_music.py`,
-`test_web_targets.py`). Known limit: on macOS and Linux, `desktop.py` (and `web.py` on
-macOS) launch `open`/`xdg-open` through `subprocess`, which this does not touch.
-
-**A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
-deleted on the next clean run so a stale report cannot mislead) holding each test id and
-traceback plus the interpreter, platform and argv. `TextTestRunner` already prints all of
-that — *above* the summary — so it is the first thing lost to `| tail -3`, a scrolled
-terminal or a CI log view that keeps only the end, which is how this repo acquired "one
-unreproduced test error: `FAILED (errors=1)` with no name captured". The path is printed
-as the **last** line, after the summary, so a tail still shows where the detail went.
-**The console is not a durable record.** Twelve consecutive local runs of the full unit
-suite (36.8–39.9s each) did not reproduce the original error, so it remains unexplained —
-the file does not diagnose it, it only guarantees the next one cannot be lost the same
-way. If it does recur, `test_approvals.py` is where to look first: its timeouts are 0.2s
-and 0.3s against 2.0s joins, which is the shape that only fires on a loaded machine.
-
-## Working alongside another agent (Codex)
-
-Both Claude and Codex edit this repo. To avoid collisions:
-- **Work on a branch**, not `main` (e.g. `claude/<feature>`, `codex/<feature>`).
-- `git pull` / rebase before a batch; merge to `main` between sessions.
-- Expect to reconcile the shared **test builder** and **control-room roster
-  count** when the other agent adds an `AgentContext` field or a specialist.
-
-## Outstanding / watch-outs
-
-- **Rotate the NVIDIA API key and Gmail app password** (both were pasted in chat;
-  they live only in gitignored `.env`).
-- GPU metrics now fall back from `nvidia-smi` to non-elevated Windows counters (GPU-01).
-  Counters report the busiest **3D** engine per adapter LUID and dedicated memory usage;
-  they do not measure compute/copy/video engines. DXGI names/capacity are matched by LUID;
-  a powered-down or unmatched card keeps a generic name and unknown capacity. A cold
-  Windows metrics read has unknown fields until the background refresh completes; stale
-  reads keep the prior snapshot. Missing/localized counters degrade gracefully and log
-  each cause once per process. Do not recommend running the whole app as administrator
-  just to show GPU usage.
-- `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
-  "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
-- The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
-  discard those changes (`git checkout -- docs/review`) unless a review PR wants new evidence.
-- The user keeps durable project memory in an Obsidian vault. **The vault root is
-  `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem`** — that is where `.obsidian`
-  lives and what `OBSIDIAN_VAULT` is set to (53 notes). This project's notes are the ten
-  in its `Personal AI Agent\` subfolder; keep those in sync when shipping features.
-  Do **not** point `ObsidianVault` at that subfolder to audit it: wiki-links resolve
-  vault-wide in Obsidian, so links into `Concepts\` and `Agent Memory\` are reported as
-  broken when the tool only sees one folder. That mistake invented four broken links
-  that were never broken.
-
-## Recorder integration (REC-01, 2026-09-28)
-
-- `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
-  mono, 16-bit, nonempty, at most 120 seconds). `recording_enabled` is a client capability;
-  webui enables it, CLI/Tkinter do not. `record <seconds>` returns `data.record`.
-- `/api/recordings` saves only; `/api/recordings/transcribe` explicitly requests speech
-  processing; `/api/recording?name=...` serves same-origin private/no-store audio.
-  Preserve the shared token/origin gate and filename confinement for these routes.
-- Kept recordings are not disposable `/api/transcribe` uploads or retention artifacts.
-  Browser capture owns its own microphone lifecycle and releases voice-chat resources.
-  Save and transcript results stay with the original session across chat changes.
-- The planner strips `_POLITE` and turns spoken numbers into digits before
-  `recording_seconds`, so "can you record my voice for up to twenty seconds?" routes; the
-  chat prompt names recording as a tool, or the model asks permission it cannot act on.
-- AUTH-01 integration: keep recording commands/routes developer-only until artifacts
-  have account ownership. A recording filename is not an authorization boundary.
-- Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
-  and `RecordingBrowserTests` in the existing opt-in browser CI suite.
-
-## Riva deadline (VOICE-03, 2026-09-28)
-
-`_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
-blocking helper accepts no timeout. Poll `result(timeout=...)` in at most 100 ms slices,
-check operation cancellation, and always cancel the future/close its channel. Do not
-replace this with a background Python thread that leaves the RPC running after timeout.
-`_riva_timeout` scales with WAV duration and accepts `RIVA_ASR_TIMEOUT_SECONDS` in (0,600].
-A real deadline becomes TimeoutError, which auto mode can pass to the local fallback;
-OperationCancelled bypasses ordinary errors, including a Stop racing an RPC failure.
-Tests use a fake SDK/future; a separate real-SDK silent-loopback probe validates teardown.
-This is independent of VOICE-02's broader grpc exception fallback and does not import
-those stacked commits. It does not edit REC-01, health, auth, reminders or approval code.
-
-
-## ANALYTICS-01 forecasting core — 2026-10-01
-
-Forecasting (ANALYTICS-01) lives in analytics/forecast.py: pure stdlib, no app data or IO.
-Read docs/forecasting.md before integrating. Default season detection and parameter tuning
-use only an initial prefix; separate chronological blocks select against both baselines
-and calibrate horizon-specific empirical intervals. Unsupported data/intervals must be
-shown as such, not narrated as a confident prediction. Calendar frequency is not a season.
-CSV commands, charts, OLS/MAD and job/tier predictions remain separate work.
-
-
-### AUTH-01 phase 2a — Google identity handoff (Codex, 2026-09-28)
-
-Branch `codex/google-signin` starts at auth-admin `1327dea`; it is intentionally stacked
-on #142, not main. `google_oidc.py` owns at most 32 in-memory, ten-minute flows and four
-concurrent code exchanges. Each has PKCE S256, nonce, single-use launch/state, a separate
-external-browser Lax cookie, and an initiating-window HttpOnly Strict proof cookie.
-Callback only verifies identity and marks a result ready. Completion in the original
-window checks its proof, session and entire account snapshot before issuing a session.
-Only our fixed HTTPS token exchange supplies an ID token; never accept a browser JWT.
-Tokens are discarded after claim checks; no Google refresh/access token is persisted.
-
-`/auth/google/start|complete|cancel|unlink` use small JSON bodies and existing origin
-checks before sign-in. Only launch/callback GETs accept cross-site navigation, on the
-canonical loopback host, with one-time tickets or state plus browser binding. Existing
-API token checks stay in place. Link/unlink require a password step-up under
-`_SIGNIN_LIMIT`; account-only Google recovery uses the documented local CLI password reset.
-Failures are recorded, never the request (Claude, landing #145): the token request carries
-the authorization code and the client secret, and a reply can carry tokens, so
-`google/token` keeps only the HTTP status and the OAuth `error` code, `google/id-token` the
-name of the claim check that refused (`time` is a wrong laptop clock), and
-`google/callback` / `google/browser` an exception's type, never its text. A refused client
-(`invalid_client`, `unauthorized_client`, `redirect_uri_mismatch`) names the settings to
-check; "Start again" would be advice to retry something that cannot work.
-No Gmail policy is widened. Phase 2b must add account-scoped encrypted credentials,
-fail-closed revocation and narrow mailbox approvals before exposing personal mail.
-
-UI integration is in Settings and the sign-in document, leaving Claude's health/status
-drawer regions untouched. `google_auth.js` is inlined into both documents under the
-existing CSP nonce. Provider opener isolation can sever a popup reference; `popup.closed`
-is not proof of cancellation. Use bound completion, explicit Cancel and expiry instead.
-The browser CI entry now runs `test_browser_*.py`, including auth/account suites and the
-new fake-Google suite. Shared review and decisions remain in `claude/pair-log`.
-
-
-### GPU-01 review follow-up (2026-10-01)
-
-GPU-01 review: one-shot system status and briefing use force=True for fresh data; the
-polled HTTP path alone serves stale snapshots. Fallback bars are explicitly labelled 3D.
-Unknown dedicated usage is n/a, even when capacity is known.
-
-
-## GPU adapter labels — 2026-10-02
-
-GPU labels follow-up: Overview and status drawer share gpuLabel. Keep the full matched adapter name, preserve existing generic names, use GPU <index> for missing/blank names, and append (3D) only for the counter source. Escape names before HTML assembly.
+- Rotate the NVIDIA API key and the Gmail app password (both were pasted in chat).
+- The Chromium regression test rewrites `docs/review/*.png`; discard those unless a PR wants them.
+- Durable project notes live in the Obsidian vault rooted at
+  `F:\obsidian\Claude mem-Obsidian main memory\Claude Mem` (`Personal AI Agent\`).
+- The rest: `docs/design/watch-outs.md`.

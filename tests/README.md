@@ -66,6 +66,6 @@ every outside effect faked; reuse it to probe how a sentence is handled end to e
 
 ## Read next
 
-- `CLAUDE.md` → "The runner makes `os.startfile` … inert" and "A failing run writes
-  `test-failures.log`".
+- `docs/design/testing.md` → "The runner makes `os.startfile` … inert" and "A failing run
+  writes `test-failures.log`".
 - `AGENTS.md` → "Testing and verifying".
