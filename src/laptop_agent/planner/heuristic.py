@@ -755,7 +755,11 @@ def asks_to_arrange(text: str) -> bool:
         # "should i put the legend on the right" is a clean fullmatch and is a decision for
         # the advisor; "what is on the left and what is on the right" is a question.
         return not (_ASKING.match(probe) or _DECIDING.search(probe))
-    return bool(_ARRANGE_ASK.match(probe) or _ARRANGE_PHRASE.search(probe))
+    # The loose phrase fallback keeps spoken imperatives, but "what does split screen
+    # mean" and "how do I use snap layout" ask for an explanation, not a window move.
+    return bool(_ARRANGE_ASK.match(probe) or (
+        _ARRANGE_PHRASE.search(probe) and not (_ASKING.match(probe) or _DECIDING.search(probe))
+    ))
 
 
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
