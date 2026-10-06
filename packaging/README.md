@@ -1,5 +1,22 @@
 # Packaging J.A.R.V.I.S as a desktop app
 
+## What is in this folder and how it connects
+
+| File | What it does |
+|---|---|
+| `build_app.ps1` | Full build: PyInstaller `--onefile --noconsole` → `dist/JARVIS.exe`, with pywebview, offline text-to-speech (pyttsx3), time zones and Whisper speech-to-text (PyTorch, so it is large). |
+| `build_app_small.ps1` | Small build: the same app with the lightweight Vosk speech model in place of Whisper/PyTorch; bundles `models/` when it exists. |
+| `jarvis_app.py` | The executable's entry point: starts the local engine and opens the desktop window. |
+| `README.md` | This guide. |
+
+Both scripts bundle `src/laptop_agent` around `jarvis_app.py` and copy
+`src/laptop_agent/webui_assets/` with `--add-data`, because the web page is read from
+those files at import. A one-file build unpacks bundled files into a temporary
+`sys._MEIPASS` folder, so the app looks there for the page and for the Vosk model (a model
+placed beside the `.exe` still wins). `tests/test_packaging.py` checks that every build
+keeps the time-zone data, that the package still declares no dependencies, and how the
+model is found. The rest of this guide covers building, the window, voice and notes.
+
 ## ANALYTICS-04 update — 2026-10-01
 
 ANALYTICS-04 uses only stdlib in analytics/diagnostics.py. No new bundled asset, provider, DLL or optional dependency is needed. Preserve null diagnostics and warnings in later consumers; this slice adds no packaged command.

@@ -410,6 +410,33 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_unread_email_still_routes_to_imap(self) -> None:
         self.assertEqual(self.plan("check unread emails").command, "email unread")
 
+    def test_a_situation_is_not_a_fact(self) -> None:
+        # Stored, "my name is on the list" put "on the list" into every chat prompt as the
+        # user's name.
+        for text in ("my name is on the list", "my phone is at 5 percent", "my favourite part is when the hero wins",
+                     "my phone is dead", "my birthday is coming up", "my name is not important",
+                     "my email is full", "my birthday is next week", "my birthday is in 3 days",
+                     "my address is changing next month"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith("remember"), text)
+
+    def test_remind_me_how_is_not_a_reminder(self) -> None:
+        for text in ("can you remind me what a closure is", "remind me how to center a div"):
+            with self.subTest(text=text):
+                self.assertFalse((self.plan(text).command or "").startswith(("reminder", "remind")), text)
+        self.assertEqual(self.plan("can you remind me what to buy at 5pm").command, "reminder add what to buy at 5pm")
+
+    def test_a_fact_is_still_remembered(self) -> None:
+        for text, expected in (("my name is jeevan", "remember name = jeevan"),
+                               ("my birthday is on march 3", "remember birthday = on march 3"),
+                               ("my birthday is in june", "remember birthday = in june"),
+                               ("my email is a@b.com", "remember email = a@b.com"),
+                               ("my phone number is 555-123-4567", "remember phone_number = 555-123-4567"),
+                               ("my favorite movie is the godfather", "remember favorite_movie = the godfather"),
+                               ("my address is 12 main street", "remember address = 12 main street")):
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text).command, expected)
+
     def test_a_sentence_about_email_does_not_read_the_inbox(self) -> None:
         # Matched as words anywhere, 14 of these read the inbox - a MEDIUM read, so in the
         # web app it ran without asking and put private mail into the reply.
@@ -436,6 +463,9 @@ class HeuristicPlannerTests(unittest.TestCase):
             ("read my latest emails", "email digest"), ("any important emails today", "email digest"),
             ("can you check my inbox", "email digest"), ("summarize my emails from today", "email digest"),
             ("give me my emails in gmail", "email api unread gmail"),
+            # A time span is a period of the inbox, not a sender (#196).
+            ("show me emails from last week", "email digest"),
+            ("any emails from the past 2 months", "email digest"),
         ):
             self.assertEqual(self.plan(text).command, expected, text)
 
