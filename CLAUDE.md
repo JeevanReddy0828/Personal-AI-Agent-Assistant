@@ -201,7 +201,10 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             span after "from" asks for an inbox period, not a person; merely mentioning
             "new email" must not read the mailbox),
         music (a personal voicemail/messages request is not a YouTube song search;
-            the shared router/tool guard leaves actual songs named "Voicemail" playable),
+            the shared router/tool guard leaves actual songs named "Voicemail" playable.
+            "set the volume to fifty" uses the same spoken-number grammar as the
+            calculator, then sends numeric `media volume 50`; keep questions such as "how do I
+            set the volume" out of the action route),
         weather (Open-Meteo, real forecast — no key),
         news (`news [topic]` — real headlines, free and key-less. A generic web search for
             "latest news" returns cnn.com and foxnews.com with their taglines, which is not
