@@ -63,7 +63,7 @@ def nothing(module):
 
 class SetupReportTests(unittest.TestCase):
     def report(self, orch=None, cfg=None, **kwargs):
-        options = dict(llm_reachable=True, stt_engine="vosk", ocr_engine="tesseract", sign_in=True, lan_mode=True,
+        options = dict(llm_reachable=True, stt_engine="vosk", tts_engine="pyttsx3", ocr_engine="tesseract", sign_in=True, lan_mode=True,
                        find_spec=everything, which=lambda name: "/usr/bin/" + name, browser_engine=lambda: True)
         options.update(kwargs)
         rows = setup_report(orch or orchestrator(), cfg or config(), **options)
@@ -77,7 +77,7 @@ class SetupReportTests(unittest.TestCase):
 
     def test_a_fresh_install_says_what_to_do_for_each_missing_piece(self):
         rows = self.report(orchestrator(model=False, smart=False, ultra=False, vision=False, vault=False),
-                           SimpleNamespace(), llm_reachable=None, stt_engine=None, ocr_engine=None,
+                           SimpleNamespace(), llm_reachable=None, stt_engine=None, tts_engine=None, ocr_engine=None,
                            sign_in=False, lan_mode=False, find_spec=nothing, which=lambda name: None)
         states = {key: row["state"] for key, row in rows.items()}
         self.assertEqual(states["chat"], "off")
@@ -103,7 +103,7 @@ class SetupReportTests(unittest.TestCase):
     def test_no_secret_path_or_model_id_reaches_the_report(self):
         # Compared without case: the search row once title-cased what it echoed, which an
         # exact-case check does not see ("Nvapi-Secret-..." for a key typed into the wrong field).
-        for rows in (self.report(), self.report(find_spec=nothing, stt_engine=None, ocr_engine=None),
+        for rows in (self.report(), self.report(find_spec=nothing, stt_engine=None, tts_engine=None, ocr_engine=None),
                      self.report(cfg=config(search_api_key=None)), self.report(cfg=config(search_provider=SECRETS[0]))):
             text = json.dumps(list(rows.values())).lower()
             for secret in SECRETS:
@@ -116,6 +116,17 @@ class SetupReportTests(unittest.TestCase):
 
         rows = self.report(find_spec=broken)
         self.assertEqual(rows["browser"]["state"], "missing")
+
+    def test_the_voice_row_names_the_voice_and_claims_a_fallback_only_when_there_is_one(self):
+        hosted = self.report(tts_engine="riva:magpie")["tts"]
+        self.assertEqual(hosted["state"], "ready")
+        self.assertIn("Magpie", hosted["detail"])
+        self.assertIn("offline voice behind it", hosted["detail"])
+        alone = self.report(tts_engine="riva:magpie", find_spec=nothing)["tts"]
+        self.assertNotIn("behind it", alone["detail"])
+        missing = self.report(tts_engine=None)["tts"]
+        self.assertEqual(missing["state"], "missing")
+        self.assertIn("laptop-agent[riva]", missing["next"])
 
     def test_tesseract_needs_its_program_not_just_the_package(self):
         self.assertEqual(self.report(which=lambda name: None)["ocr"]["state"], "missing")

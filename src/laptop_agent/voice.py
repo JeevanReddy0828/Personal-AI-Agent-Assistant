@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
+import os
 import re
 
+from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
 
@@ -144,21 +147,116 @@ def _pyttsx3_wav(text: str) -> bytes:
             pass
 
 
+# NVIDIA's hosted Magpie voice, on the same Riva gRPC host as Parakeet speech recognition.
+# The function id is what selects the model, so it is overridable like the ASR one.
+RIVA_TTS_FUNCTION_ID = "877104f7-e885-42b9-8de8-f6e4c6303969"
+_MAGPIE_RATE = 22050
+
+
+def _magpie_timeout(text: str) -> float:
+    # Measured at about 4.6x faster than real time; a long sentence must not be cut off,
+    # and a stalled call must hand over to the offline voice before the listener gives up.
+    return min(30.0, 5.0 + len(text) / 50)
+
+
+def _magpie_wav(text: str) -> bytes:
+    """Hosted NVIDIA Magpie over Riva gRPC: a natural voice in ~0.4s per sentence."""
+    import io
+    import wave
+
+    import grpc  # type: ignore
+    import riva.client  # type: ignore
+
+    from laptop_agent.tools.transcribe import RIVA_SERVER, _riva_key
+
+    key = _riva_key()
+    if not key:
+        raise RuntimeError("The hosted voice needs an NVIDIA API key in RIVA_API_KEY or OPENAI_API_KEY.")
+    server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
+    function_id = os.environ.get("RIVA_TTS_FUNCTION_ID", RIVA_TTS_FUNCTION_ID).strip() or RIVA_TTS_FUNCTION_ID
+    voice = os.environ.get("RIVA_TTS_VOICE", "").strip() or None
+    language = os.environ.get("RIVA_TTS_LANGUAGE", "en-US").strip() or "en-US"
+    auth = riva.client.Auth(
+        uri=server,
+        use_ssl=True,
+        metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
+    )
+    pending = None
+    try:
+        pending = riva.client.SpeechSynthesisService(auth).synthesize(
+            text, voice_name=voice, language_code=language, sample_rate_hz=_MAGPIE_RATE,
+            encoding=riva.client.AudioEncoding.LINEAR_PCM, future=True,
+        )
+        try:
+            audio = pending.result(timeout=_magpie_timeout(text)).audio
+        except grpc.FutureTimeoutError as exc:
+            raise TimeoutError("The hosted voice did not answer in time.") from exc
+    finally:
+        try:
+            if pending is not None:
+                pending.cancel()
+        finally:
+            auth.channel.close()
+    if not audio:
+        raise RuntimeError("The hosted voice returned no audio.")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(_MAGPIE_RATE)
+        wav.writeframes(audio)
+    return out.getvalue()
+
+
+def _tts_choice() -> str:
+    return os.environ.get("LAPTOP_AGENT_TTS", "auto").strip().lower()
+
+
+def _default_tts_backend(text: str) -> bytes:
+    """LAPTOP_AGENT_TTS=riva|offline, or 'auto' (default): the hosted voice when it is
+    usable, and the offline one when it is not or a call fails, so losing the network
+    costs the voice its quality, never its speech."""
+    from laptop_agent.tools.transcribe import _riva_available
+
+    engine = _tts_choice()
+    if engine == "riva":
+        return _magpie_wav(text)
+    if engine != "offline" and _riva_available():
+        try:
+            return _magpie_wav(text)
+        except Exception as exc:
+            record_failure("tts/magpie", exc)
+    return _pyttsx3_wav(text)
+
+
+def tts_engine_name() -> str | None:
+    """Which voice /api/tts would use, or None if it has none."""
+    from laptop_agent.tools.transcribe import _riva_available
+
+    engine = _tts_choice()
+    if engine != "offline" and _riva_available():
+        return "riva:magpie"
+    if engine != "riva" and importlib.util.find_spec("pyttsx3") is not None:
+        return "pyttsx3"
+    return None
+
+
 def synthesize_wav(text: str, backend=None) -> bytes | None:
-    """Return spoken-audio WAV bytes for ``text`` server-side (offline TTS).
+    """Return spoken-audio WAV bytes for ``text`` server-side.
 
     Returns None when the text is empty or no engine is available, so the web
     layer can fall back gracefully instead of crashing. The engine call sits
-    behind an injectable ``backend`` so tests run without pyttsx3 installed.
+    behind an injectable ``backend`` so tests run without a speech engine installed.
     """
     cleaned = (text or "").strip()
     if not cleaned:
         return None
-    render = backend or _pyttsx3_wav
+    render = backend or _default_tts_backend
     try:
         data = render(cleaned)
     except ImportError:
         return None
-    except Exception:  # pragma: no cover - depends on the live engine.
+    except Exception as exc:  # pragma: no cover - depends on the live engine.
+        record_failure("tts/render", exc)
         return None
     return data or None

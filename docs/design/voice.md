@@ -153,6 +153,18 @@ switch to multilingual for dictating in another language. It has **not** been te
 non-English audio — this machine has English-only voices to synthesise a clip with, so
 someone needs to record themselves before claiming it helps.
 
+**The app window's voice is hosted Magpie, with the offline one behind it** (2026-10-06).
+`synthesize_wav` (behind `/api/tts`) asks `_default_tts_backend`: `LAPTOP_AGENT_TTS=auto`
+uses NVIDIA's `magpie-tts-multilingual` over the same Riva gRPC host as Parakeet, selected
+by function id (`RIVA_TTS_FUNCTION_ID`), and falls back to `pyttsx3` on any failure,
+recorded as `tts/magpie`. Measured on the real route: 0.65-0.79s a sentence, 22.05 kHz mono
+PCM wrapped as WAV here, since Riva returns raw samples. The call uses the SDK's future
+with a wait of `5 + len(text)/50` s, capped at 30, so a stalled call hands over to the
+offline voice instead of leaving the window silent. `offline` never sends a reply's text
+anywhere; `riva` uses Magpie alone. Known limits: a browser tab still speaks with
+`speechSynthesis`, and the packaged builds do not bundle `nvidia-riva-client`, so
+`JARVIS.exe` speaks (and transcribes) with its local engines only.
+
 ## Recorder integration (REC-01, 2026-09-28)
 
 - `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
