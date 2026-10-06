@@ -29,11 +29,11 @@ _POSITION_WORD = "(?:" + "|".join(
 # css", "move the decimal point two places to the left" - and each got "no window matches".
 # A word no window is named after ends the name, so "minimize the number of api calls" and
 # "put the most important point at the top" are not names.
-_NOT_A_NAME = (r"(?:a|an|the|my|your|our|their|his|her|its|this|that|these|those|it|me|you|us|them|"
+_NOT_IN_A_WINDOW_NAME = (r"(?:a|an|the|my|your|our|their|his|her|its|this|that|these|those|it|me|you|us|them|"
                r"yourself|myself|while|with|for|to|of|in|on|at|by|from|about|given|into|onto|and|or|but|"
                r"so|if|when|then|than|as|is|are|was|were|be|over|under|up|down|forward|back|number|most)")
-_WINDOW_NAME = (r"(?:(?:the|my)\s+)?(?!" + _NOT_A_NAME + r"\b)[a-z0-9][\w.+#-]*"
-                r"(?:\s+(?!" + _NOT_A_NAME + r"\b)[a-z0-9][\w.+#-]*){0,2}")
+_WINDOW_NAME = (r"(?:(?:the|my)\s+)?(?!" + _NOT_IN_A_WINDOW_NAME + r"\b)[a-z0-9][\w.+#-]*"
+                r"(?:\s+(?!" + _NOT_IN_A_WINDOW_NAME + r"\b)[a-z0-9][\w.+#-]*){0,2}")
 _PLACE_AT = (r"(?:\s+(?:to|on|at|in|into|onto)(?:\s+the)?)?\s+" + _POSITION_WORD
              + r"(?:\s+(?:side|half|third|corner))?(?:\s+(?:of|on)\s+(?:the|my)\s+(?:screen|monitor|display))?")
 _ARRANGE_VERB = r"(?:put|move|place|send|shift|drag|split|snap|arrange|resize|tile)"
