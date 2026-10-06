@@ -431,6 +431,18 @@ class ProseIsNotACommandTests(unittest.TestCase):
         self.assertTrue(any("email draft to bob@example.com" in action for _risk, action in self.everyday.approvals),
                         self.everyday.approvals)
 
+    def test_a_window_word_and_a_position_are_not_a_window_request(self) -> None:
+        # The prefixes accepted any sentence with a position word in it.
+        for text in ("snap a photo of the bottom of the page", "arrange the flowers in the center of the table",
+                     "split the data into a left and right subtree"):
+            with self.subTest(text=text):
+                _result, ran = self.everyday.say(text)
+                self.assertFalse((ran or "").startswith(("window", "split", "snap", "arrange")), f"{text!r} ran {ran!r}")
+        for text in ("snap chrome to the left and notepad to the right", "arrange chrome left and notepad right"):
+            with self.subTest(text=text):
+                _result, ran = self.everyday.say(text)
+                self.assertEqual(ran, text)
+
     def test_a_typo_in_the_command_form_still_gets_its_usage_message(self) -> None:
         result, _ran = self.everyday.say("schedule briefing")
         self.assertFalse(result.ok)
