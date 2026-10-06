@@ -186,8 +186,8 @@ Tested, and exercised on the real app. Only these are claimed as working.
 - **Pictures:** text-to-image (NVIDIA FLUX), and diagrams drawn as Mermaid in the reply.
 - **Laptop:** arranging windows by voice, screenshots and reading the screen (vision), media
   keys and spoken volume levels, YouTube music, opening apps and shell commands (both ask first).
-- **Voice:** speech-to-text (Riva, Vosk, Whisper), offline text-to-speech, barge-in in the
-  desktop window.
+- **Voice:** speech-to-text (Riva, Vosk, Whisper), text-to-speech in the desktop window
+  (NVIDIA Magpie hosted, the offline voice behind it), barge-in in the desktop window.
 - **Advisor and agent mode:** `solve` for decisions (researched options and a plan), and an
   autonomous plan/act/observe agent whose risky steps still ask.
 - **The app:** web page and native desktop window, Overview and Jobs pages, accounts with a

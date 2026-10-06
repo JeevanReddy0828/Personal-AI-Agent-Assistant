@@ -87,7 +87,8 @@ _NEXT = {
     "pictures": "Set OPENAI_IMAGE_KEY (or OPENAI_API_KEY) to draw pictures.",
     "stt": "pip install laptop-agent[stt] and put a Vosk model in models/ (light), or "
            "pip install laptop-agent[transcribe] for Whisper.",
-    "tts": "pip install laptop-agent[voice] for spoken replies in the app window.",
+    "tts": "pip install laptop-agent[voice] for an offline voice in the app window, or "
+           "laptop-agent[riva] with OPENAI_API_KEY for NVIDIA's hosted one.",
     "ocr": "pip install laptop-agent[ocr] and install Tesseract, or set OPENAI_API_KEY for hosted parsing.",
     "docs": "pip install laptop-agent[docs]",
     "browser": "pip install laptop-agent[browser], then python -m playwright install chromium",
@@ -104,6 +105,8 @@ _NEXT = {
 }
 _STT = {"riva:parakeet": "NVIDIA Parakeet, hosted, with a local engine behind it",
         "vosk": "Vosk, on this computer", "whisper": "Whisper, on this computer"}
+_TTS = {"riva:magpie": "NVIDIA Magpie, hosted",
+        "pyttsx3": "An offline voice on this computer"}
 _OCR = {"nemotron-parse": "NVIDIA parse, hosted, with Tesseract behind it", "tesseract": "Tesseract, on this computer"}
 
 
@@ -175,7 +178,7 @@ def _installed(revision: Path) -> bool:
 
 
 def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, stt_engine: str | None,
-                 ocr_engine: str | None, sign_in: bool, lan_mode: bool, find_spec=None,
+                 tts_engine: str | None, ocr_engine: str | None, sign_in: bool, lan_mode: bool, find_spec=None,
                  which=None, browser_engine=None) -> list[dict[str, object]]:
     """Each capability, whether it is ready and what to do if not. States: `ready`, `off`
     (optional and not set up), `missing` (a package or engine it needs is absent), `busy` (a
@@ -264,9 +267,10 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
 
     rows.append(_row("stt", "Speech to text", "ready" if stt_engine else "missing",
                      _STT.get(stt_engine or "", "No engine here: voice uses the browser's own recognizer.")))
-    tts = has("pyttsx3")
-    rows.append(_row("tts", "Spoken replies in the app window", "ready" if tts else "missing",
-                     "An offline voice on this computer." if tts else "The browser tab still speaks."))
+    voice = _TTS.get(tts_engine or "", "No voice here: the browser tab still speaks.")
+    if tts_engine == "riva:magpie" and has("pyttsx3"):
+        voice += ", with the offline voice behind it"
+    rows.append(_row("tts", "Spoken replies in the app window", "ready" if tts_engine else "missing", voice))
     if ocr_engine == "tesseract" and not which("tesseract"):
         rows.append(_row("ocr", "Reading text in images", "missing", "The Tesseract program is not installed.",
                          "Install Tesseract and put it on PATH."))
