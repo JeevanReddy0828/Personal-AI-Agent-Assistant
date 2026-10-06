@@ -62,6 +62,7 @@ data.
 ### Wiring and settings
 | File | What it does |
 |---|---|
+| `__init__.py` | The package version (`__version__`). |
 | `app.py` | `build_context()` wires every tool and store; `build_orchestrator()` adds the model tiers. |
 | `config.py` | `AppConfig` and `load_config()`: reads environment variables and `.env`. |
 
