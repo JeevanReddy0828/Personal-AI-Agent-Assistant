@@ -140,6 +140,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   your mail. The same sweep, applied to a route that reads private data. (10-05)
 - **"stop the alarm" deleted a schedule** → an ambiguous verb wired to the destructive
   action → the safe reading wins and says how to ask for the other. (09-26)
+- **"remind me how to center a div" → "I could not find a time in that"** → "remind me" was
+  always a reminder, on the direct prefix, the instant router and the model's route →
+  `asks_to_be_told`: "remind me what/how/who/where/why…" with no time in it is answered,
+  on all three. "remind me what to buy at 5pm" is still a reminder. (10-06)
+- **"my name is on the list" stored the user's name as "on the list"**, which every chat
+  prompt then carried → `_MY_FACT` took any value → `_plausible_fact`: a phone needs
+  digits, an email an `@`, a date may start with "on"/"in" but not "next"/"coming", and
+  any other value may not start with a preposition or "when/that/not". (10-06)
 - **"do not open youtube" opened YouTube** ("do not remind me…" set the reminder) → routes
   match anywhere, so a leading negation was skipped → `is_negated` holds EVERY route, since
   the model may still answer with the positive; "don't forget to…" asks for the thing and is
