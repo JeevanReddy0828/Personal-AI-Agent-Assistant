@@ -210,6 +210,35 @@ _SCREEN_ASK = re.compile(
     )),
     re.IGNORECASE,
 )
+# Asking for your own mail, as a whole sentence. Matched as words anywhere, 14 of 18
+# sentences that only mentioned email read the inbox: "give me a template for a follow up
+# email", "summarize the history of email", "write a new email to my landlord".
+_MAIL = r"(?:e-?mails?|mail|inbox)"
+_MAIL_KIND = r"(?:(?:new|unread|latest|recent|important|priority)\s+)*"
+_MAIL_TAIL = (
+    r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week))"
+    r"|\s+(?:from|in|over|for)\s+the\s+(?:last|past)\s+(?:\d+\s+|few\s+|couple\s+(?:of\s+)?)?(?:days?|hours?|weeks?))?"
+    r"(?:\s+(?:in|on)\s+(?:gmail|google|outlook|microsoft(?:\s+mail)?))?[\s?.!]*$"
+)
+_MAIL_LEAD = _POLITE + r"(?:for\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?\s*[-,:]\s*)?"
+_MAIL_ASK = re.compile(
+    "|".join(_MAIL_LEAD + branch + _MAIL_TAIL for branch in (
+        r"(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+get|are\s+there|is\s+there|got)\s+(?:any\s+|an?\s+)?"
+        + _MAIL_KIND + _MAIL + r"(?:\s+(?:for\s+me|in\s+my\s+inbox))?",
+        r"any\s+" + _MAIL_KIND + _MAIL,
+        r"(?:new|unread)\s+" + _MAIL_KIND + _MAIL,
+        r"(?:check|read|show|get|give|fetch|find|pull\s+up|bring\s+up)\s+(?:me\s+)?(?:for\s+)?"
+        r"(?:my\s+|the\s+|all\s+(?:my\s+|the\s+)?)?(?:any\s+)?" + _MAIL_KIND + _MAIL,
+        r"what(?:'s|s|\s+is)\s+(?:new\s+)?in\s+my\s+" + _MAIL,
+    )),
+    re.IGNORECASE,
+)
+_MAIL_DIGEST_ASK = re.compile(
+    _MAIL_LEAD + r"(?:summari[sz]e|recap|digest|tl;?dr(?:\s+of)?"
+    r"|give\s+me\s+(?:a|an)\s+(?:quick\s+)?(?:summary|digest|overview|recap)\s+of)\s+"
+    r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
+    re.IGNORECASE,
+)
 # A time said BEFORE "remind me": "every monday at 9 remind me to file my timesheet". Only
 # the words after "remind me" were kept, so the reminder lost its time and was refused.
 # Nothing but time words may stand there; anything else keeps the old reading.
@@ -1931,30 +1960,16 @@ class HeuristicPlannerProvider:
     def _email_search(self, text: str) -> PlanDecision | None:
         lowered = text.lower()
         api_provider = self._email_api_provider(lowered)
-        # Require the summarise verb to be *near* the inbox noun on the same line, so a
-        # message that merely happens to say "summarize X" and "write an email" in
-        # separate sentences no longer misroutes to the inbox (and IMAP).
-        if re.search(
-            r"\b(?:summari[sz]e|digest|overview|recap|catch me up on|tl;?dr)\b[^\n]{0,25}?\b(?:inbox|emails?|mail)\b",
-            lowered,
-        ):
+        if _MAIL_DIGEST_ASK.match(text):
             return self._command("email digest", "User wants a summary of their inbox.", 0.82)
-        if any(phrase in lowered for phrase in ("unread email", "unread emails", "new email", "new emails")):
+        ask = _MAIL_ASK.match(text)
+        if ask and re.search(r"\b(?:new|unread)\b", ask.group(0), re.IGNORECASE):
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants unread OAuth-backed mailbox messages.", 0.78)
             return self._command("email unread", "User wants unread inbox messages.", 0.78)
-        # General "show/give/get me my (important/recent) emails" or "emails from the last
-        # N days" -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
+        # The rest -> the IMAP digest (categorised inbox). Keep this on the local IMAP path,
         # not OAuth, unless the user explicitly names a provider — OAuth reads are gated.
-        general_read = re.search(
-            r"\b(?:show|give|get|fetch|read|check|find|pull up|bring up)\s+(?:me|my|all|the|up)\b.*\b(emails?|inbox|mail)\b", lowered
-        ) or re.search(
-            r"\b(?:important|recent|latest|priority|any)\b[\w\s,'-]*\b(emails?|inbox|mail)\b", lowered
-        ) or re.search(
-            r"\b(emails?|inbox|mail)\b[\w\s,'-]*\b(?:from|in|over|for|the)\b[\w\s,'-]*\b(?:last|past|recent|today|yesterday|days?|hours?|week)\b",
-            lowered,
-        )
-        if general_read and not re.search(r"\b(?:send|draft|write|compose|reply|delete)\b", lowered):
+        if ask:
             if api_provider:
                 return self._command(f"email api unread {api_provider}", "User wants OAuth-backed mailbox messages.", 0.76)
             return self._command("email digest", "User wants a look at their important inbox mail.", 0.8)
