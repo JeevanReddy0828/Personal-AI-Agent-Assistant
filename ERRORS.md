@@ -48,6 +48,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"translate this into French: …", "say good night in Hindi", "how to say X in Korean" went
+  to the chat model** → the translation routes knew only a closing language and "how do you
+  say" → a colon form in `parse_translation` (read first, since the text may end in a
+  language), "how to say", "say X in Y", the language first; "say something / say that
+  again" stay chat. A probe of 50 phrasings through `handle()` found them. (10-07)
 - **A question defining a tiling feature tried to arrange a window** → the loose
   layout-phrase fallback bypassed the question guard used by explicit placements →
   keep that fallback for spoken imperatives but reject questions and decisions. (10-06)

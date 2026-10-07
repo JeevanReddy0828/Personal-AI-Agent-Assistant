@@ -51,6 +51,13 @@ _REQUEST = re.compile(
     rf"(?:\s+from\s+(?P<src2>{_LANGUAGE}))?(?:\s+please)?[\s?.!]*$",
     re.IGNORECASE,
 )
+# "this into French: the meeting is at noon" - the language first, then the text after a colon.
+# Read before the form above, since the text may itself end in a language ("...: I speak English").
+_LEADING = re.compile(
+    rf"^(?:(?:this|that|it|the\s+following)\s+)?(?:from\s+(?P<src1>{_LANGUAGE})\s+)?(?:to|into|in)\s+"
+    rf"(?P<target>{_LANGUAGE})(?:\s+from\s+(?P<src2>{_LANGUAGE}))?(?:\s+please)?\s*:\s*(?P<text>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
 _QUOTES = "\"'“”‘’"
 
 # Scripts that name their language, so a translation into English needs no model to guess
@@ -86,10 +93,11 @@ def language_name(code: str) -> str:
 
 
 def parse_translation(text: str) -> tuple[str, str, str | None] | None:
-    """`<text> to|into|in <language> [from <language>]`, or `<text> from <language> to
-    <language>`, as (text, target, source). None when no language closes the sentence, so a
-    sentence that only starts with "translate" can go to the router instead."""
-    found = _REQUEST.match((text or "").strip())
+    """`<text> to|into|in <language> [from <language>]`, `<text> from <language> to
+    <language>`, or `to <language>: <text>`, as (text, target, source). None when no language
+    closes the sentence or leads a colon, so a sentence that only starts with "translate" can
+    go to the router instead."""
+    found = _LEADING.match((text or "").strip()) or _REQUEST.match((text or "").strip())
     if not found:
         return None
     body = found.group("text").strip()

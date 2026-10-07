@@ -613,15 +613,35 @@ _WORLD_NEWS = re.compile(
 # copied here: a hand-kept list drifts from what the tool accepts, as the window positions did.
 _LANGUAGE_NAME = "|".join(sorted((re.escape(name) for name in (*_LANGUAGES, *_UNSUPPORTED_LANGUAGES)),
                                  key=len, reverse=True))
-_TRANSLATE_ASK = re.compile(_POLITE + r"translate\s+(?P<rest>.+?)[\s?.!]*", re.IGNORECASE)
+_TRANSLATE_ASK = re.compile(_POLITE + r"translate\s+(?P<rest>.+?)[\s?.!]*", re.IGNORECASE | re.DOTALL)
 # "what's the best way to say sorry in japanese" asks for advice, not the phrase translated.
+# A bare "say X in Y" is how it is said aloud ("say good night in hindi", and "can you say that
+# in german" once _POLITE is off), but "say something in french" asks to be talked to and
+# "say that again in english" to be repeated, so neither is a phrase to translate.
 _SAY_IN = re.compile(
-    _POLITE + r"(?:how\s+(?:do|would|can|should)\s+(?:you|i|we|one)\s+say"
+    _POLITE + r"(?:how\s+(?:(?:do|would|can|should)\s+(?:you|i|we|one)\s+|to\s+)say|say"
     r"|what(?:'s|s|\s+is)(?:\s+the\s+(?:word|phrase)\s+for)?)\s+"
     r"(?!(?:the|a)\s+(?:best|good|nice|polite|right|proper|correct)\s+way\b)"
+    r"(?!(?:some|any)thing\b|a\s+(?:few\s+words|word|sentence|joke|poem|story|prayer)\b)(?!.*\bagain\b)"
     r"(?P<text>.+?)\s+in\s+(?P<lang>" + _LANGUAGE_NAME + r")[\s?.!]*",
     re.IGNORECASE,
 )
+# The language named first: "in spanish, how do you say good luck".
+_IN_LANGUAGE_SAY = re.compile(
+    _POLITE + r"in\s+(?P<lang>" + _LANGUAGE_NAME + r")\s*,?\s*how\s+(?:(?:do|would|can|should)\s+(?:you|i|we|one)"
+    r"\s+|to\s+)say\s+(?P<text>.+?)[\s?.!]*",
+    re.IGNORECASE,
+)
+# "what's the french word for apple". A word or a short phrase only (`_WORD_FOR_WORDS`): "the
+# english word for when you're tired of something" describes a feeling for the model to name,
+# which no translation can do.
+_LANGUAGE_WORD_FOR = re.compile(
+    _POLITE + r"what(?:'s|s|\s+is)\s+(?:the\s+)?(?P<lang>" + _LANGUAGE_NAME + r")\s+(?:(?:word|phrase|term)\s+)?for\s+"
+    r"(?!(?:when|where|how|what|why|who|someone|somebody|something|people|a\s+person|the\s+feeling)\b)"
+    r"(?P<text>.+?)[\s?.!]*",
+    re.IGNORECASE,
+)
+_WORD_FOR_WORDS = 4
 _NEWS_ASK = re.compile(
     _POLITE
     + r"(?:(?:what(?:'s|s|\s+is)\s+(?:new|(?:the\s+)?latest)\s+in"
@@ -1089,10 +1109,15 @@ class HeuristicPlannerProvider:
         asked = _TRANSLATE_ASK.fullmatch(raw.strip())
         if asked:
             rest = asked.group("rest")
+            if ":" in rest:     # after a colon the punctuation is the text's own: "...: where is it?"
+                rest = raw.strip()[asked.start("rest"):]
             if parse_translation(rest):
                 return self._command(f"translate {rest}", "User asked for a translation.", 0.9)
             return None
-        say = _SAY_IN.fullmatch(raw.strip())
+        say = _SAY_IN.fullmatch(raw.strip()) or _IN_LANGUAGE_SAY.fullmatch(raw.strip())
+        word = _LANGUAGE_WORD_FOR.fullmatch(raw.strip())
+        if word and len(word.group("text").split()) <= _WORD_FOR_WORDS:
+            say = word
         if say:
             return self._command(f"translate {say.group('text')} to {say.group('lang').lower()}",
                                  "User asked how something is said in another language.", 0.88)
