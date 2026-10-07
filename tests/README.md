@@ -29,12 +29,17 @@ python -B tests/run_tests.py                       # the whole suite, about 5 mi
 python -B tests/run_tests.py test_planner.py       # one file (only the FIRST argument is read)
 python -B tests/run_tests.py "test_webui*.py"      # a glob
 $env:JARVIS_BROWSER_TESTS="1"; python -B tests/run_tests.py "test_browser_*.py"   # browser suites
+python -B tests/measure_nonstreamed_speech.py         # offline fake-TTS latency/completeness corpus
 ```
 
 The browser suites need `pip install playwright pypdf` and
 `python -m playwright install chromium`. A failing run also writes `test-failures.log` at
 the repository root with every failing test and its traceback (the last line printed says
 where), and a clean run deletes it.
+
+The separate speech measurement uses a throwaway localhost page, intercepts `/api/tts`
+with a length-scaled fake, and blocks external page requests. It makes no model or NVIDIA
+call; `LAPTOP_AGENT_PORT` and `LAPTOP_AGENT_DATA_DIR` are set for its temporary instance.
 
 Run the **full** suite before pushing changes to the orchestrator, a dispatcher,
 `access.py` or `webui_assets/`: their structural guards live in other files. When fixing a

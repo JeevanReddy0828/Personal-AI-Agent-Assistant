@@ -48,7 +48,7 @@ def clean_for_speech(text: str) -> str:
     t = _MD_IMAGE.sub(" ", t)
     t = _MD_LINK.sub(lambda m: m.group(1), t)
     t = _BARE_URL.sub(" ", t)
-    t = re.sub(r"^\s*[-*•·]\s+", "", t)          # leading bullet markers
+    t = re.sub(r"(?m)^[ \t]*[-*•·][ \t]+", "", t)  # bullet markers on every line
     t = _ARROW.sub(" to ", t)
     t = _SPEAK_STRIP.sub(" ", t)                  # inline markdown markers
     t = re.sub(r"={2,}|-{3,}|\.{4,}|~{2,}", " ", t)  # leftover decorative runs
@@ -67,8 +67,9 @@ class SpeechChunker:
     one-word utterances. Call ``flush`` once the stream ends to get the tail.
     """
 
-    def __init__(self, min_chars: int = 8) -> None:
+    def __init__(self, min_chars: int = 8, max_chars: int | None = None) -> None:
         self.min_chars = max(0, min_chars)
+        self.max_chars = max(1, max_chars) if max_chars is not None else None
         self._buf = ""
         self._pending = ""
 
@@ -79,9 +80,17 @@ class SpeechChunker:
         out: list[str] = []
         while True:
             match = _BOUNDARY.search(self._buf)
-            if not match:
+            if self.max_chars is not None and len(self._buf) > self.max_chars and (
+                match is None or match.end() > self.max_chars
+            ):
+                # A punctuation-free tool result still needs bounded TTS requests.
+                end = self._buf.rfind(" ", 0, self.max_chars + 1)
+                if end <= 0:
+                    end = self.max_chars
+            elif match:
+                end = match.end()
+            else:
                 break
-            end = match.end()
             piece = self._buf[:end].strip()
             self._buf = self._buf[end:]
             self._pending = f"{self._pending} {piece}".strip() if self._pending else piece

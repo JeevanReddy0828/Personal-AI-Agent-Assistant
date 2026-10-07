@@ -998,7 +998,8 @@ class BrowserRegressions(unittest.TestCase):
             tab.log.push('ask ' + text);
             return new Promise(r => setTimeout(() => r(tab.fail.has(text)
                 ? new Response('{"ok":false}', { status: 503 })
-                : new Response(text, { status: 200 })), tab.delay));
+                : new Response(text, { status: 200 })),
+                typeof tab.delay === 'function' ? tab.delay(text) : tab.delay));
         };
         // Which sentence an audio element carries: its bytes are the text, read as the blob is made.
         const RealBlob = window.Blob, realCreate = URL.createObjectURL, named = {};
@@ -1233,6 +1234,81 @@ class BrowserRegressions(unittest.TestCase):
         # take either first; the order they PLAY in is the queue's, held by the fake-rig test.
         self.assertEqual(sorted(asked), ["First sentence.", "Second sentence."])
         self.assertEqual(outcome["log"], ["listen"], "a sentence did not play through: " + repr(outcome))
+
+    def test_long_tool_reply_uses_server_chunks_with_prefetch_and_browser_fallback(self):
+        """A real voice SSE turn hands each final-result sentence to the existing page queue."""
+        first = "The first section records the work completed and the tests that passed."
+        second = "The second section explains the remaining risk and who will review it."
+        third = "The third section gives the next action and the expected user result."
+        fourth = "The final section confirms that every relevant sentence was heard in order."
+        reply = " ".join((first, second, third, fourth, first, third))
+
+        async def instant(*args, **kwargs):
+            return ToolResult.success(reply)
+
+        self._magpie_tab()
+        self.page.evaluate(self._MAGPIE_RIG)
+        with patch.object(webui._orchestrator, "handle", instant):
+            outcome = self.page.evaluate(
+                """async ({reply, second}) => {
+                    const tab=window.__tab;
+                    tab.delay=text=>20+2*text.length;
+                    tab.fail.add(second);
+                    voiceActive=true;
+                    const ending=setInterval(()=>{
+                      for(const a of tab.audios){
+                        if(!a.paused&&!a.ended){a.ended=true;setTimeout(()=>{if(a.onended)a.onended();},70);}
+                      }
+                    },5);
+                    const t0=performance.now();
+                    const turn=send('offline tool result');
+                    while(!tab.log.some(l=>l.startsWith('play '))&&performance.now()-t0<5000)
+                      await tab.wait(5);
+                    const firstMs=Math.round(performance.now()-t0), duringFirst=tab.log.slice();
+                    await turn;
+                    while(!tab.log.includes('listen')&&performance.now()-t0<9000)await tab.wait(10);
+                    clearInterval(ending);
+                    const spoken=tab.log.filter(l=>l.startsWith('play ')||l.startsWith('browser '))
+                                        .map(l=>l.replace(/^(play|browser) /,''));
+                    const result={firstMs, duringFirst, spoken, log:tab.log.slice()};
+                    voiceActive=false;return result;
+                }""",
+                {"reply": reply, "second": second},
+            )
+        self.assertLess(outcome["firstMs"], 800, outcome)
+        self.assertEqual([entry for entry in outcome["log"] if entry.startswith("ask ")],
+                         ["ask " + sentence for sentence in (first, second, third, fourth, first, third)],
+                         "the final done message was synthesized again")
+        self.assertIn("ask " + second, outcome["duringFirst"], "the next sentence was not prefetched")
+        self.assertIn("browser " + second, outcome["log"], "a failed sentence lost its fallback")
+        self.assertEqual(" ".join(outcome["spoken"]).split(), reply.split())
+
+    def test_stop_drops_a_long_tool_reply_whose_first_chunk_is_still_fetching(self):
+        reply = "A long tool result should be spoken sentence by sentence. " * 12
+
+        async def instant(*args, **kwargs):
+            return ToolResult.success(reply)
+
+        self._magpie_tab()
+        self.page.evaluate(self._MAGPIE_RIG)
+        with patch.object(webui._orchestrator, "handle", instant):
+            outcome = self.page.evaluate(
+                """async () => {
+                    const tab=window.__tab;
+                    tab.delay=300;
+                    voiceActive=true;
+                    const turn=send('offline tool result');
+                    while(!tab.log.some(l=>l.startsWith('ask ')))await tab.wait(5);
+                    interruptNow();
+                    await turn;await tab.wait(450);
+                    const result={log:tab.log.slice(), speaking, queued:ttsQueue.length};
+                    voiceActive=false;return result;
+                }"""
+            )
+        self.assertTrue(any(entry.startswith("ask ") for entry in outcome["log"]))
+        self.assertFalse(any(entry.startswith(("play ", "browser ")) for entry in outcome["log"]))
+        self.assertFalse(outcome["speaking"])
+        self.assertEqual(outcome["queued"], 0)
 
     # The voice notice, if one is showing: its text, and whether it is really on screen -
     # a box, inside the window, and not painted over by anything else.

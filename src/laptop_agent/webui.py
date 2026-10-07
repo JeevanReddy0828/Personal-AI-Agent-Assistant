@@ -1540,8 +1540,12 @@ class Handler(BaseHTTPRequestHandler):
         # `tts` event the moment it completes, so the browser starts speaking the
         # first sentence instead of waiting for the whole reply (low time-to-audio).
         chunker = SpeechChunker() if voice else None
+        streamed_tokens = False
 
         def on_token(token: str) -> None:
+            nonlocal streamed_tokens
+            if token:
+                streamed_tokens = True
             emit({"type": "token", "text": token})
             if chunker is not None:
                 for sentence in chunker.feed(token):
@@ -1550,6 +1554,8 @@ class Handler(BaseHTTPRequestHandler):
                         emit({"type": "tts", "text": spoken})
 
         def reset_tokens():
+            nonlocal streamed_tokens
+            streamed_tokens = False
             if chunker is not None:
                 chunker.flush()
             emit({"type": "reset"})
@@ -1568,6 +1574,21 @@ class Handler(BaseHTTPRequestHandler):
                 tail = clean_for_speech(chunker.flush() or "")
                 if tail:
                     emit({"type": "tts", "text": tail})
+                if not streamed_tokens:
+                    spoken = clean_for_speech(result.message)
+                    if spoken:
+                        # Keep the fast, short tool-result path as one utterance. A long
+                        # result uses the same sentence rules as streamed model text,
+                        # with a word-boundary cap below the browser fallback's 800 chars.
+                        final_chunker = SpeechChunker(max_chars=360) if len(spoken) > 360 else None
+                        if final_chunker is None:
+                            emit({"type": "tts", "text": spoken})
+                        else:
+                            for sentence in final_chunker.feed(spoken):
+                                emit({"type": "tts", "text": sentence})
+                            final_tail = final_chunker.flush()
+                            if final_tail:
+                                emit({"type": "tts", "text": final_tail})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
         except SignedOut as exc:

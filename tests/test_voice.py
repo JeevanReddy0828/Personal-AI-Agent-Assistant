@@ -14,6 +14,8 @@ class CleanForSpeechTests(unittest.TestCase):
         self.assertEqual(clean_for_speech("**Possible Sources**"), "Possible Sources")
         self.assertEqual(clean_for_speech("# Heading"), "Heading")
         self.assertEqual(clean_for_speech("- Government databases"), "Government databases")
+        self.assertEqual(clean_for_speech("Tasks:\n- Back up the project.\n- Run the tests."),
+                         "Tasks: Back up the project. Run the tests.")
 
     def test_keeps_plain_text(self) -> None:
         self.assertEqual(clean_for_speech("Agent Greg"), "Agent Greg")
@@ -52,6 +54,27 @@ class SpeechChunkerTests(unittest.TestCase):
         chunker.feed("Tail text")
         self.assertEqual(chunker.flush(), "Tail text")
         self.assertIsNone(chunker.flush())
+
+    def test_optional_bound_splits_unpunctuated_text_without_losing_words(self) -> None:
+        text = "the running notes cover each decision and every test result " * 18
+        chunker = SpeechChunker(max_chars=120)
+        chunks = chunker.feed(text)
+        tail = chunker.flush()
+        if tail:
+            chunks.append(tail)
+        self.assertGreater(len(chunks), 2)
+        self.assertTrue(all(len(chunk) <= 120 for chunk in chunks))
+        self.assertEqual(" ".join(chunks).split(), text.split())
+
+    def test_optional_bound_preserves_a_single_long_token(self) -> None:
+        text = "x" * 901
+        chunker = SpeechChunker(max_chars=120)
+        chunks = chunker.feed(text)
+        tail = chunker.flush()
+        if tail:
+            chunks.append(tail)
+        self.assertTrue(all(len(chunk) <= 120 for chunk in chunks))
+        self.assertEqual("".join(chunks), text)
 
 
 class SpeechEchoLoopTests(unittest.TestCase):

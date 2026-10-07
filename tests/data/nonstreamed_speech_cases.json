@@ -1,0 +1,13 @@
+{
+  "_why": "Frozen tool-result corpus for measuring the one-chunk voice path and checking split speech. The repeat count is part of the frozen input.",
+  "cases": [
+    {"name": "short", "reply": "Done."},
+    {"name": "abbreviations", "reply": "Dr. Patel reviewed the U.S. report. E.g. the first chart says the service is stable. The second chart explains why the change is safe."},
+    {"name": "decimals_versions", "reply": "Version 2.0 is ready. The measured error rate is 3.14 percent. Version 2.1 will add a separate warning."},
+    {"name": "links", "reply": "Read [the setup guide](https://example.com/guide) before you begin. The release notes are at https://example.com/v2.0/notes. Then restart the app."},
+    {"name": "bullets", "reply": "Tasks:\n- Back up the project before editing.\n- Review the latest changes with your teammate.\n- Run the tests before you publish."},
+    {"name": "table", "reply": "| Item | Status |\n| --- | --- |\n| Camera | Ready |\n| Microphone | Needs permission |\n| Speaker | Ready |\nThe microphone is the only item needing attention."},
+    {"name": "long_sentences", "reply": "The report explains the completed work, the remaining risks, and the next action for the team. The first section describes the user-visible change. The second section gives the measured result. The final section lists the checks that passed. ", "repeat": 5},
+    {"name": "unpunctuated", "reply": "the running notes cover the deployment plan the recovery steps the user impact the test evidence and the next review for every service in the workspace ", "repeat": 9}
+  ]
+}

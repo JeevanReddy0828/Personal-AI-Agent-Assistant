@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import threading
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui
+from laptop_agent.voice import clean_for_speech
 from laptop_agent.tools.base import ToolResult
 
 
@@ -63,6 +65,50 @@ class VoiceStreamTests(unittest.TestCase):
         events = self._stream({"command": "hi", "history": []})
         self.assertFalse([e for e in events if e.get("type") == "tts"])
         self.assertTrue(any(e.get("type") == "token" for e in events))
+
+    def test_short_nonstreamed_result_stays_one_utterance(self) -> None:
+        async def instant(*args, **kwargs):
+            return ToolResult.success("Done.")
+
+        webui._orchestrator.handle = instant
+        events = self._stream({"command": "status", "voice": True})
+        self.assertEqual([e["text"] for e in events if e.get("type") == "tts"], ["Done."])
+
+    def test_long_nonstreamed_results_are_bounded_and_complete(self) -> None:
+        cases = json.loads((Path(__file__).parent / "data" / "nonstreamed_speech_cases.json").read_text(encoding="utf-8"))["cases"]
+        for case in cases:
+            reply = case["reply"] * case.get("repeat", 1)
+
+            async def instant(*args, **kwargs):
+                return ToolResult.success(reply)
+
+            webui._orchestrator.handle = instant
+            with self.subTest(case=case["name"]):
+                events = self._stream({"command": "tool result", "voice": True})
+                chunks = [e["text"] for e in events if e.get("type") == "tts"]
+                expected = clean_for_speech(reply)
+                self.assertEqual(" ".join(chunks).split(), expected.split())
+                self.assertTrue(all(len(chunk) <= 360 for chunk in chunks))
+                if len(expected) > 360:
+                    self.assertGreater(len(chunks), 1)
+                else:
+                    self.assertEqual(chunks, [expected])
+
+    def test_final_result_is_cleaned_before_splitting_and_reset_discards_old_text(self) -> None:
+        reply = ("The user-facing report is ready. " * 14) + "\n```python\nsecret_code()\n```\nThe final check passed."
+
+        async def fallback(*args, on_token=None, **kwargs):
+            on_token("Old draft that should be reset. ")
+            on_token.reset()
+            return ToolResult.success(reply)
+
+        webui._orchestrator.handle = fallback
+        events = self._stream({"command": "report", "voice": True})
+        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
+        chunks = [e["text"] for e in after_reset if e.get("type") == "tts"]
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(" ".join(chunks).split(), clean_for_speech(reply).split())
+        self.assertNotIn("secret_code", " ".join(chunks))
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@
   "Use `code` inline and _emphasis_ here.": "Use code inline and emphasis here.",
   "> A quoted line.": "A quoted line.",
   "- a bullet point": "a bullet point",
+  "Tasks:\n- Back up the project.\n- Run the tests.": "Tasks: Back up the project. Run the tests.",
   "* another bullet": "another bullet",
   "Nothing special at all.": "Nothing special at all.",
   "English → Spanish:\n\nBuenos días.": "English to Spanish: Buenos días.",

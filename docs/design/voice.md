@@ -186,6 +186,27 @@ release `activeAudio`, which the tests now drive through a Magpie tab. Verified 
 Chromium, with a real `/api/tts` WAV through a real audio element and fakes for the rest; not
 yet heard on the laptop's own browser, nor against live Magpie in a tab.
 
+**Long tool replies use the streamed voice queue too** (2026-10-07). A local tool result
+has no token deltas, so it used to reach `voiceTurnDone` as one utterance. A tab or app
+window waited for Magpie to synthesize the entire reply, while the browser's own voice
+stopped after 800 characters. For a voice `/api/stream` turn with no tokens since its last
+reset, the server now cleans the complete final message first (so a fenced code block or
+Markdown link cannot be exposed by a sentence boundary), then sends `tts` events through
+the existing `SpeechChunker`. Results of at most 360 speakable characters stay one event;
+longer ones use punctuation boundaries and cap unpunctuated spans at a word boundary.
+The client still owns Stop via `ttsEpoch`, one-ahead prefetch and failed-sentence fallback;
+streamed model replies retain their original incremental path. Multiline bullet markers
+are removed before whitespace is flattened, matching the page's cleaner.
+
+The frozen offline corpus and runner are in `tests/data/nonstreamed_speech_cases.json` and
+`tests/measure_nonstreamed_speech.py`; `/api/tts` is faked to wait `20 + 2*len(text)` ms,
+with no NVIDIA calls. The fair SSE comparison against pre-change #232 measured first
+fake-Magpie audio for a 1,209-character result at 2,469 ms before and 240 ms after, and
+for a 1,367-character unpunctuated result at 2,785 ms before and 776 ms after. Browser
+voice spoke 126/190 and 137/234 words before, versus all 190 and 234 after; the short
+`Done.` reply remained one request and measured 141 ms before versus 116 ms after. These
+are local fake-backend measurements, not a claim about live Magpie performance.
+
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
 functions too, so `nvidia-riva-client` and `grpc` are bundled without any `--collect-all`,
