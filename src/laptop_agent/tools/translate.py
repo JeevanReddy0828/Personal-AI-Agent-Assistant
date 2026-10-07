@@ -238,7 +238,8 @@ class TranslateTool:
                                       "(or install this app's 'riva' extra).")
         except Exception as exc:
             record_failure("translate", exc)
-            return ToolResult.failure(f"The translation service failed: {exc}")
+            return ToolResult.failure(nvcf.describe(exc, "NVIDIA's translation service")
+                                      or f"The translation service failed: {exc}")
         if len(out) != len(flat):
             error = RuntimeError(f"expected {len(flat)} translations, got {len(out)}")
             record_failure("translate/shape", error)

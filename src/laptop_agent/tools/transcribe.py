@@ -99,8 +99,10 @@ class TranscribeTool:
             result = self._asr_backend(target)
         except MissingDependencyError as exc:
             return ToolResult.failure(str(exc))
-        except Exception as exc:  # pragma: no cover - depends on the live engine.
-            return ToolResult.failure(f"Transcription failed: {exc}")
+        except Exception as exc:
+            record_failure("transcribe", exc, file=target.name)
+            return ToolResult.failure(nvcf.describe(exc, "NVIDIA's speech recognition")
+                                      or f"Transcription failed: {exc}")
 
         text = str(result.get("text", "")).strip()
         segments = result.get("segments") or []

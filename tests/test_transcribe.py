@@ -151,6 +151,27 @@ class SttEngineSelectionTests(unittest.TestCase):
                 transcribe_module._default_asr_backend(Path("clip.wav"))
         self.assertEqual(self.calls, ["riva"])
 
+    def test_a_hosted_failure_is_told_plainly_and_recorded(self) -> None:
+        class Rendezvous(Exception):
+            def code(self):
+                return types.SimpleNamespace(name="PERMISSION_DENIED")
+
+            def __str__(self):
+                return "<_MultiThreadedRendezvous of RPC that terminated with:\n\tstatus = ...>"
+
+        def refused(target):
+            raise Rendezvous()
+
+        with tempfile.TemporaryDirectory() as folder:
+            clip = Path(folder) / "clip.wav"
+            clip.write_bytes(b"RIFF")
+            with patch.object(transcribe_module, "record_failure") as record:
+                result = TranscribeTool(asr_backend=refused).transcribe_media(str(clip))
+        self.assertFalse(result.ok)
+        self.assertNotIn("Rendezvous", result.message)
+        self.assertIn("refused the API key (PERMISSION_DENIED)", result.message)
+        self.assertEqual(record.call_args[0][0], "transcribe")
+
     def test_riva_without_a_key_or_client_explains_itself(self) -> None:
         saved_key = {name: os.environ.pop(name, None) for name in ("RIVA_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY")}
         try:
