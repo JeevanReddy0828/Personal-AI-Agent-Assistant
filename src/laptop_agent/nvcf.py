@@ -42,14 +42,41 @@ def _list_functions(key: str) -> list[dict]:
         return list(json.loads(response.read().decode("utf-8")).get("functions") or [])
 
 
-def is_stale(error: BaseException) -> bool:
+def status(error: BaseException) -> str | None:
+    """A gRPC error's status name (`NOT_FOUND`, `UNAVAILABLE`, ...), or None for anything else."""
     code = getattr(error, "code", None)
     if not callable(code):
-        return False
+        return None
     try:
-        return getattr(code(), "name", None) == "NOT_FOUND"
+        name = getattr(code(), "name", None)
     except Exception:
-        return False
+        return None
+    return name if isinstance(name, str) else None
+
+
+def is_stale(error: BaseException) -> bool:
+    return status(error) == "NOT_FOUND"
+
+
+_PLAIN = {
+    "UNAVAILABLE": ("is unreachable or overloaded right now", "try again in a minute"),
+    "DEADLINE_EXCEEDED": ("did not answer in time", "try again in a minute"),
+    "RESOURCE_EXHAUSTED": ("is rate-limiting this key", "try again in a minute"),
+    "PERMISSION_DENIED": ("refused the API key", "check RIVA_API_KEY or OPENAI_API_KEY"),
+    "UNAUTHENTICATED": ("refused the API key", "check RIVA_API_KEY or OPENAI_API_KEY"),
+    "NOT_FOUND": ("does not know the model id in use", "check the RIVA_*_FUNCTION_ID settings"),
+}
+
+
+def describe(error: BaseException, service: str) -> str | None:
+    """A sentence for the user about a gRPC failure, or None if `error` is not one. Its own
+    text is a multi-line `_MultiThreadedRendezvous` dump, and for NOT_FOUND it carries the
+    NVIDIA account id, so only the status is shown; `failures` keeps the whole error."""
+    code = status(error)
+    if code is None:
+        return None
+    what, advice = _PLAIN.get(code, ("failed", "try again, and see `failures` if it keeps happening"))
+    return f"{service} {what} ({code}); {advice}."
 
 
 def _lookup(name: str, key: str) -> str | None:

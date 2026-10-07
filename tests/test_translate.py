@@ -182,6 +182,24 @@ class ToolTests(unittest.TestCase):
         self.assertIn("did not answer in time", result.message)
         record.assert_called_once()
 
+    def test_a_service_failure_is_told_plainly_not_as_a_grpc_dump(self):
+        class Rendezvous(Exception):
+            def code(self):
+                return SimpleNamespace(name="UNAVAILABLE")
+
+            def __str__(self):
+                return "<_MultiThreadedRendezvous of RPC that terminated with:\n\tstatus = ...>"
+
+        def dead(texts, source, target):
+            raise Rendezvous()
+
+        with patch.object(translate, "record_failure") as record:
+            result = TranslateTool(backend=dead).translate("hello", "french")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.message, "NVIDIA's translation service is unreachable or overloaded right now "
+                                         "(UNAVAILABLE); try again in a minute.")
+        record.assert_called_once()
+
     def test_a_short_answer_is_not_passed_off_as_the_translation(self):
         with patch.object(translate, "record_failure") as record:
             result = TranslateTool(backend=lambda texts, s, t: []).translate("hello", "french")

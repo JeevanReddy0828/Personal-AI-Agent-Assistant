@@ -135,5 +135,32 @@ class RediscoveryTests(unittest.TestCase):
         self.assertEqual(self.lists, 1)
 
 
+class DescribeTests(unittest.TestCase):
+    """What the user is told. A gRPC error's text is a multi-line dump, and NOT_FOUND's carries
+    the NVIDIA account id."""
+
+    def test_each_failure_reads_as_a_sentence_with_what_to_do(self):
+        cases = {"UNAVAILABLE": "try again in a minute", "DEADLINE_EXCEEDED": "try again in a minute",
+                 "PERMISSION_DENIED": "OPENAI_API_KEY", "NOT_FOUND": "RIVA_*_FUNCTION_ID",
+                 "INTERNAL": "failures"}
+        for code, advice in cases.items():
+            with self.subTest(code):
+                # Shaped like the real dump, which carries the details - and the account id.
+                error = type("Rendezvous", (RpcError,), {"__str__": lambda self: (
+                    f"<_MultiThreadedRendezvous of RPC that terminated with:\n\tstatus = StatusCode.{code}"
+                    "\n\tdetails = \"Function 'x': Not found for account 'secret-account'\">")})(code)
+                text = nvcf.describe(error, "NVIDIA's translation service")
+                self.assertTrue(text.startswith("NVIDIA's translation service "))
+                self.assertIn(f"({code})", text)
+                self.assertIn(advice, text)
+                self.assertNotIn("secret-account", text)
+                self.assertNotIn("\n", text)
+
+    def test_anything_that_is_not_a_grpc_error_is_left_to_the_caller(self):
+        for error in (TimeoutError("did not answer"), ValueError("x"), nvcf.StaleFunctionError("set it")):
+            with self.subTest(type(error).__name__):
+                self.assertIsNone(nvcf.describe(error, "NVIDIA's translation service"))
+
+
 if __name__ == "__main__":
     unittest.main()
