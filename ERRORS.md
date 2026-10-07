@@ -197,6 +197,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   what the router drops (#173, #176). (10-02)
 
 ### Models and providers
+- **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list
+  discovery made a separate 15-second blocking HTTP call between two bounded gRPC waits →
+  poll discovery against the same deadline and cancellation signal, leaving a slow lookup
+  on a daemon thread rather than delaying the request or launching local speech after Stop.
+  (10-06)
 - **A translation or transcription failure shows `<_MultiThreadedRendezvous of RPC ...>`** →
   the tools printed the gRPC error's own text, a multi-line dump whose NOT_FOUND details
   carry the NVIDIA account id → `nvcf.describe()` states the status and what to do; the

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 import wave
@@ -164,6 +166,60 @@ class RivaDeadlineTests(unittest.TestCase):
         self.assertEqual(used, [transcribe.RIVA_ASR_FUNCTION_ID, 'current-id'])
         self.assertTrue(retired.cancelled and current.cancelled)
         self.assertEqual(self.channel.close.call_count, 2)
+
+    def test_a_stalled_id_lookup_stays_inside_the_riva_deadline(self):
+        class NotFound(Exception):
+            def code(self):
+                return types.SimpleNamespace(name='NOT_FOUND')
+
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.pending.error = NotFound()
+        nvcf._reset()
+        self.addCleanup(nvcf._reset)
+
+        def stalled(key):
+            entered.set()
+            release.wait(2)
+            return [{'name': transcribe.RIVA_ASR_NAME, 'id': 'current-id',
+                     'status': 'ACTIVE', 'createdAt': '2026-10-07'}]
+
+        started = time.perf_counter()
+        with patch.dict(os.environ, {'RIVA_ASR_TIMEOUT_SECONDS': '.05', 'RIVA_ASR_FUNCTION_ID': ''}), \
+             patch.object(transcribe.time, 'monotonic', time.perf_counter), \
+             patch.object(nvcf, '_list_functions', stalled), self.assertRaises(TimeoutError):
+            transcribe._riva_asr_backend(self.clip)
+        self.assertTrue(entered.is_set())
+        self.assertLess(time.perf_counter() - started, 1)
+
+    def test_stop_during_id_lookup_does_not_start_a_local_fallback(self):
+        class NotFound(Exception):
+            def code(self):
+                return types.SimpleNamespace(name='NOT_FOUND')
+
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.pending.error = NotFound()
+        nvcf._reset()
+        self.addCleanup(nvcf._reset)
+
+        def stalled(key):
+            entered.set()
+            cancel('riva-lookup-stop')
+            release.wait(2)
+            return []
+
+        started = time.perf_counter()
+        with patch.dict(os.environ, {'LAPTOP_AGENT_STT': 'auto', 'RIVA_ASR_FUNCTION_ID': ''}), \
+             patch.object(transcribe.time, 'monotonic', time.perf_counter), \
+             patch.object(transcribe, '_riva_available', return_value=True), \
+             patch.object(transcribe, '_vosk_asr_backend') as local, \
+             patch.object(nvcf, '_list_functions', stalled), operation('riva-lookup-stop'), \
+             self.assertRaises(OperationCancelled):
+            transcribe._default_asr_backend(self.clip)
+        self.assertTrue(entered.is_set())
+        self.assertLess(time.perf_counter() - started, 1)
+        local.assert_not_called()
 
     def test_default_budget_grows_with_audio_and_has_a_ceiling(self):
         with patch.dict(os.environ, {'RIVA_ASR_TIMEOUT_SECONDS': ''}):

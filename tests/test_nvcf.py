@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 import unittest
 import urllib.error
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from laptop_agent import nvcf
+from laptop_agent.cancellation import OperationCancelled
 
 NAME = "ai-riva-translate-1_6b"
 PINNED = "pinned-id"
@@ -98,6 +101,13 @@ class RediscoveryTests(unittest.TestCase):
         self.assertEqual(self.failed, ["nvcf/lookup"])
         self.assertEqual(self.attempts, [PINNED])
 
+    def test_an_http_timeout_still_keeps_the_stale_id_hint(self):
+        self.functions = TimeoutError("network stalled")
+        with self.assertRaises(nvcf.StaleFunctionError) as raised:
+            self.call()
+        self.assertIsInstance(raised.exception.__cause__, RpcError)
+        self.assertEqual(self.failed, ["nvcf/lookup"])
+
     def test_a_failed_lookup_is_not_repeated_on_every_call(self):
         self.functions = urllib.error.HTTPError(nvcf.LIST_URL, 403, "Forbidden", {}, None)
         for _ in range(3):
@@ -133,6 +143,50 @@ class RediscoveryTests(unittest.TestCase):
             self.call()
         self.assertEqual(self.attempts, [PINNED, "fresh-id"])
         self.assertEqual(self.lists, 1)
+
+    def test_a_stalled_lookup_cannot_outlive_the_call_deadline(self):
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def stalled(key):
+            entered.set()
+            release.wait(2)
+            return self.functions
+
+        started = time.monotonic()
+        with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(TimeoutError):
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=started + .05)
+        self.assertTrue(entered.is_set())
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_an_expired_deadline_does_not_start_another_network_request(self):
+        with patch.object(nvcf, "_list_functions") as listing, self.assertRaises(TimeoutError):
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
+                      deadline=time.monotonic() - 1)
+        listing.assert_not_called()
+
+    def test_stop_interrupts_a_stalled_lookup(self):
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        checks = 0
+
+        def stalled(key):
+            entered.set()
+            release.wait(2)
+            return self.functions
+
+        def check_stop():
+            nonlocal checks
+            checks += 1
+            if checks > 1:
+                raise OperationCancelled()
+
+        started = time.monotonic()
+        with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(OperationCancelled):
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
+                      deadline=started + 3, check_cancelled=check_stop)
+        self.assertTrue(entered.is_set())
+        self.assertLess(time.monotonic() - started, 1)
 
 
 class DescribeTests(unittest.TestCase):
