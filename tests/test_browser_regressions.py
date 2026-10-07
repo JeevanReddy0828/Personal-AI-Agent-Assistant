@@ -1229,7 +1229,9 @@ class BrowserRegressions(unittest.TestCase):
                     return { log, ms: Math.round(performance.now() - t0) };
                 }"""
             )
-        self.assertEqual(asked, ["First sentence.", "Second sentence."])
+        # Both requests are out at once (the second is fetched ahead), so the threaded server may
+        # take either first; the order they PLAY in is the queue's, held by the fake-rig test.
+        self.assertEqual(sorted(asked), ["First sentence.", "Second sentence."])
         self.assertEqual(outcome["log"], ["listen"], "a sentence did not play through: " + repr(outcome))
 
     # The voice notice, if one is showing: its text, and whether it is really on screen -
