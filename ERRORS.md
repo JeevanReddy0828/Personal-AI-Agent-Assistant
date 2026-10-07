@@ -52,8 +52,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 
 ### Routing and the chat model
 - **"How hot will it be in my oven" gave an outdoor forecast** → the future-weather
-  location tail accepted household objects as places → leave possessive locations and
-  article-prefixed household objects to the router; keep Austin and the UK fast. (10-07)
+  location tail accepted household objects as places → leave possessive locations, any
+  "a/an" ("in a sauna", "in a desert" - no list needed) and "the" + a household object to the
+  router; keep Austin and the UK fast. (10-07)
 - **"translate this into French: …", "say good night in Hindi", "how to say X in Korean" went
   to the chat model** → the translation routes knew only a closing language and "how do you
   say" → a colon form in `parse_translation` (read first, since the text may end in a
