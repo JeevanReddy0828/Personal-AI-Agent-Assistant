@@ -58,7 +58,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Stores and memory | `test_knowledge*.py`, `test_embeddings.py`, `test_terms.py`, `test_reminders.py`, `test_reminder_delivery.py`, `test_scheduler*.py`, `test_timeparse.py`, `test_daylight_saving.py`, `test_retention.py`, `test_personal_life.py` |
 | Autonomy and jobs | `test_reasoning.py`, `test_autopilot.py`, `test_workflows.py`, `test_tasks.py`, `test_advisor.py`, `test_control_room.py`, `test_jobs.py`, `test_copilot.py`, `test_jobright.py` |
 | Analytics | `test_forecast.py`, `test_analytics_diagnostics.py` |
-| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py` |
+| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py` |
 | `data/` | Shared fixtures; see its README. |
 
 `test_everyday_requests.py` also defines `Everyday`, a harness that wires the whole app with

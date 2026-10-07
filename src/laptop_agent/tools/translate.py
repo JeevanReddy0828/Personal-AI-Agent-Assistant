@@ -7,6 +7,7 @@ import os
 import re
 from collections.abc import Callable
 
+from laptop_agent import nvcf
 from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
@@ -15,6 +16,7 @@ from laptop_agent.tools.base import ToolResult
 # speech ones. riva-translate-4b-instruct-v2 ignores its target language through this
 # endpoint and megatron-1b-nmt is not callable on this account (both measured 2026-10-06).
 RIVA_NMT_FUNCTION_ID = "0778f2eb-b64d-45e7-acae-7dd9b9b35b4d"
+RIVA_NMT_NAME = "ai-riva-translate-1_6b"
 
 # Every language the model reports in its own config, by the names people say. There is no
 # source detection on the service: an empty or "auto" source is refused.
@@ -156,27 +158,30 @@ def _riva_translate(texts: list[str], source: str, target: str) -> list[str]:
     if not key:
         raise RuntimeError("Translation needs an NVIDIA API key in RIVA_API_KEY or OPENAI_API_KEY.")
     server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
-    function_id = os.environ.get("RIVA_NMT_FUNCTION_ID", RIVA_NMT_FUNCTION_ID).strip() or RIVA_NMT_FUNCTION_ID
-    auth = riva.client.Auth(
-        uri=server,
-        use_ssl=True,
-        metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
-    )
-    pending = None
-    try:
-        pending = riva.client.NeuralMachineTranslationClient(auth).translate(
-            texts, "", source, target, future=True)
+
+    def attempt(function_id: str) -> list[str]:
+        auth = riva.client.Auth(
+            uri=server,
+            use_ssl=True,
+            metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
+        )
+        pending = None
         try:
-            response = pending.result(timeout=_TIMEOUT)
-        except grpc.FutureTimeoutError as exc:
-            raise TimeoutError("The translation service did not answer in time.") from exc
-    finally:
-        try:
-            if pending is not None:
-                pending.cancel()
+            pending = riva.client.NeuralMachineTranslationClient(auth).translate(
+                texts, "", source, target, future=True)
+            try:
+                response = pending.result(timeout=_TIMEOUT)
+            except grpc.FutureTimeoutError as exc:
+                raise TimeoutError("The translation service did not answer in time.") from exc
         finally:
-            auth.channel.close()
-    return [item.text for item in response.translations]
+            try:
+                if pending is not None:
+                    pending.cancel()
+            finally:
+                auth.channel.close()
+        return [item.text for item in response.translations]
+
+    return nvcf.call(RIVA_NMT_NAME, RIVA_NMT_FUNCTION_ID, "RIVA_NMT_FUNCTION_ID", key, attempt)
 
 
 class TranslateTool:

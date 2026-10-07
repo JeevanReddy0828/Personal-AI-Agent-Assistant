@@ -4,6 +4,7 @@ import importlib.util
 import os
 import re
 
+from laptop_agent import nvcf
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
@@ -150,6 +151,7 @@ def _pyttsx3_wav(text: str) -> bytes:
 # NVIDIA's hosted Magpie voice, on the same Riva gRPC host as Parakeet speech recognition.
 # The function id is what selects the model, so it is overridable like the ASR one.
 RIVA_TTS_FUNCTION_ID = "877104f7-e885-42b9-8de8-f6e4c6303969"
+RIVA_TTS_NAME = "ai-magpie-tts-multilingual"
 _MAGPIE_RATE = 22050
 
 
@@ -173,30 +175,33 @@ def _magpie_wav(text: str) -> bytes:
     if not key:
         raise RuntimeError("The hosted voice needs an NVIDIA API key in RIVA_API_KEY or OPENAI_API_KEY.")
     server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
-    function_id = os.environ.get("RIVA_TTS_FUNCTION_ID", RIVA_TTS_FUNCTION_ID).strip() or RIVA_TTS_FUNCTION_ID
     voice = os.environ.get("RIVA_TTS_VOICE", "").strip() or None
     language = os.environ.get("RIVA_TTS_LANGUAGE", "en-US").strip() or "en-US"
-    auth = riva.client.Auth(
-        uri=server,
-        use_ssl=True,
-        metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
-    )
-    pending = None
-    try:
-        pending = riva.client.SpeechSynthesisService(auth).synthesize(
-            text, voice_name=voice, language_code=language, sample_rate_hz=_MAGPIE_RATE,
-            encoding=riva.client.AudioEncoding.LINEAR_PCM, future=True,
+
+    def attempt(function_id: str) -> bytes:
+        auth = riva.client.Auth(
+            uri=server,
+            use_ssl=True,
+            metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
         )
+        pending = None
         try:
-            audio = pending.result(timeout=_magpie_timeout(text)).audio
-        except grpc.FutureTimeoutError as exc:
-            raise TimeoutError("The hosted voice did not answer in time.") from exc
-    finally:
-        try:
-            if pending is not None:
-                pending.cancel()
+            pending = riva.client.SpeechSynthesisService(auth).synthesize(
+                text, voice_name=voice, language_code=language, sample_rate_hz=_MAGPIE_RATE,
+                encoding=riva.client.AudioEncoding.LINEAR_PCM, future=True,
+            )
+            try:
+                return pending.result(timeout=_magpie_timeout(text)).audio
+            except grpc.FutureTimeoutError as exc:
+                raise TimeoutError("The hosted voice did not answer in time.") from exc
         finally:
-            auth.channel.close()
+            try:
+                if pending is not None:
+                    pending.cancel()
+            finally:
+                auth.channel.close()
+
+    audio = nvcf.call(RIVA_TTS_NAME, RIVA_TTS_FUNCTION_ID, "RIVA_TTS_FUNCTION_ID", key, attempt)
     if not audio:
         raise RuntimeError("The hosted voice returned no audio.")
     out = io.BytesIO()
