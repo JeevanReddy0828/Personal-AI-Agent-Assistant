@@ -197,6 +197,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   what the router drops (#173, #176). (10-02)
 
 ### Models and providers
+- **Voice input fails with `Transcription failed: <_MultiThreadedRendezvous ...>`** → in
+  `auto`, the hosted-speech fallback caught RuntimeError/OSError, but the SDK raises
+  `grpc.RpcError` (a 502, a retired function id, a rejected key), and the test faked a
+  RuntimeError → `_hosted_failures()` adds RpcError and records `transcribe/riva`; fake the
+  error type the real library raises. (10-06)
 - **A long unpunctuated translation fails despite being under 5,000 characters** →
   sentence-only splitting sent one oversized request to the hosted model → bound every
   piece at 400 characters, split at word spaces when possible, and remember whether a

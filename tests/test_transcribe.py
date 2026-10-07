@@ -6,8 +6,12 @@ from pathlib import Path
 
 import importlib.util
 import os
+import sys
+import types
+from unittest.mock import patch
 
 import laptop_agent.tools.transcribe as transcribe_module
+from laptop_agent.cancellation import OperationCancelled
 from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool, warm_stt, warm_whisper
 
 
@@ -108,6 +112,44 @@ class SttEngineSelectionTests(unittest.TestCase):
         finally:
             transcribe_module._vosk_available = saved
         self.assertEqual(self.calls, ["riva", "vosk"])
+
+    def test_the_sdks_own_error_falls_back_too_and_is_recorded(self) -> None:
+        # The test above fakes a RuntimeError, which the real SDK never raises: its errors are
+        # grpc.RpcError, and a 502 or a retired model id ended the transcription.
+        grpc = types.ModuleType("grpc")
+
+        class RpcError(Exception):
+            pass
+
+        grpc.RpcError = RpcError
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+
+        def dead(target):
+            self.calls.append("riva")
+            raise RpcError("NOT_FOUND: Function not found")
+
+        transcribe_module._riva_asr_backend = dead
+        with patch.dict(sys.modules, {"grpc": grpc}), \
+                patch.object(transcribe_module, "_vosk_available", lambda: True), \
+                patch.object(transcribe_module, "record_failure") as record:
+            transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["riva", "vosk"])
+        self.assertEqual(record.call_args[0][0], "transcribe/riva")
+
+    def test_a_stop_during_the_cloud_call_is_not_turned_into_a_fallback(self) -> None:
+        os.environ["LAPTOP_AGENT_STT"] = "auto"
+        transcribe_module._riva_available = lambda: True
+
+        def stopped(target):
+            self.calls.append("riva")
+            raise OperationCancelled()
+
+        transcribe_module._riva_asr_backend = stopped
+        with patch.object(transcribe_module, "_vosk_available", lambda: True):
+            with self.assertRaises(OperationCancelled):
+                transcribe_module._default_asr_backend(Path("clip.wav"))
+        self.assertEqual(self.calls, ["riva"])
 
     def test_riva_without_a_key_or_client_explains_itself(self) -> None:
         saved_key = {name: os.environ.pop(name, None) for name in ("RIVA_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY")}
