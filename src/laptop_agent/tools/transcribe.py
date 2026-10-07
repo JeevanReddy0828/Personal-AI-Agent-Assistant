@@ -522,7 +522,8 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
             finally:
                 auth.channel.close()
 
-    response = nvcf.call(RIVA_ASR_NAME, RIVA_ASR_FUNCTION_ID, "RIVA_ASR_FUNCTION_ID", key, attempt)
+    response = nvcf.call(RIVA_ASR_NAME, RIVA_ASR_FUNCTION_ID, "RIVA_ASR_FUNCTION_ID", key, attempt,
+                         deadline=deadline, check_cancelled=check_cancelled)
     text = " ".join(
         result.alternatives[0].transcript for result in response.results if result.alternatives
     ).strip()

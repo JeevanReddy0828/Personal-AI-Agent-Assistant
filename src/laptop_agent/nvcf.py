@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import threading
 import time
 import urllib.request
@@ -36,10 +37,50 @@ class StaleFunctionError(RuntimeError):
     """The pinned function id is gone and no current one could be found."""
 
 
+class LookupDeadlineExceeded(TimeoutError):
+    """The caller's deadline expired while discovery was still waiting on HTTP."""
+
+
 def _list_functions(key: str) -> list[dict]:
     request = urllib.request.Request(LIST_URL, headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=15) as response:
         return list(json.loads(response.read().decode("utf-8")).get("functions") or [])
+
+
+def _list_with_deadline(key: str, deadline: float | None,
+                        check_cancelled: Callable[[], None] | None) -> list[dict]:
+    if deadline is None:
+        return _list_functions(key)
+    if check_cancelled is not None:
+        check_cancelled()
+    if deadline <= time.monotonic():
+        raise LookupDeadlineExceeded("NVIDIA function lookup exceeded the speech deadline.")
+    # urllib can block longer than the speech deadline, including during DNS or a socket
+    # read. Keep that one lookup on a daemon thread and poll Stop while waiting for it.
+    result: queue.Queue[tuple[list[dict] | None, BaseException | None]] = queue.Queue(maxsize=1)
+
+    def fetch() -> None:
+        try:
+            result.put((_list_functions(key), None))
+        except BaseException as exc:
+            result.put((None, exc))
+
+    threading.Thread(target=fetch, daemon=True, name="nvcf-function-lookup").start()
+    while True:
+        if check_cancelled is not None:
+            check_cancelled()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise LookupDeadlineExceeded("NVIDIA function lookup exceeded the speech deadline.")
+        try:
+            functions, error = result.get(timeout=min(0.1, remaining))
+        except queue.Empty:
+            continue
+        if check_cancelled is not None:
+            check_cancelled()
+        if error is not None:
+            raise error
+        return functions or []
 
 
 def status(error: BaseException) -> str | None:
@@ -79,7 +120,8 @@ def describe(error: BaseException, service: str) -> str | None:
     return f"{service} {what} ({code}); {advice}."
 
 
-def _lookup(name: str, key: str) -> str | None:
+def _lookup(name: str, key: str, deadline: float | None = None,
+            check_cancelled: Callable[[], None] | None = None) -> str | None:
     now = time.monotonic()
     with _lock:
         last = _looked.get(name)
@@ -87,10 +129,19 @@ def _lookup(name: str, key: str) -> str | None:
             return None
         _looked[name] = now
     try:
-        functions = _list_functions(key)
+        functions = _list_with_deadline(key, deadline, check_cancelled)
+    except LookupDeadlineExceeded as exc:
+        # Keep the failed-lookup cooldown: otherwise every new voice turn waits out its
+        # deadline and starts another HTTP request while this endpoint is slow.
+        record_failure("nvcf/lookup", exc)
+        raise
     except Exception as exc:  # a key without list scope (403), or the network
         record_failure("nvcf/lookup", exc)
         return None
+    except BaseException:
+        with _lock:
+            _looked.pop(name, None)
+        raise
     active = [item for item in functions
               if item.get("name") == name and item.get("status") == "ACTIVE" and item.get("id")]
     if not active:
@@ -99,7 +150,9 @@ def _lookup(name: str, key: str) -> str | None:
     return str(max(active, key=lambda item: str(item.get("createdAt") or ""))["id"])
 
 
-def call(name: str, pinned: str, variable: str, key: str, attempt: Callable[[str], T]) -> T:
+def call(name: str, pinned: str, variable: str, key: str, attempt: Callable[[str], T],
+         *, deadline: float | None = None,
+         check_cancelled: Callable[[], None] | None = None) -> T:
     """`attempt(function_id)`, with one retry on a current id if the one used has gone."""
     override = os.environ.get(variable, "").strip()
     if override:
@@ -111,7 +164,7 @@ def call(name: str, pinned: str, variable: str, key: str, attempt: Callable[[str
     except Exception as exc:
         if not is_stale(exc):
             raise
-        fresh = _lookup(name, key)
+        fresh = _lookup(name, key, deadline, check_cancelled)
         if not fresh or fresh == function_id:
             raise StaleFunctionError(
                 f"NVIDIA no longer finds {name} at the id this app uses. Set {variable} to its "
