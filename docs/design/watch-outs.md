@@ -26,6 +26,12 @@ Both Claude and Codex edit this repo. To avoid collisions:
   reads keep the prior snapshot. Missing/localized counters degrade gracefully and log
   each cause once per process. Do not recommend running the whole app as administrator
   just to show GPU usage.
+- **Riva function IDs are pinned, and NVIDIA says they rotate per release.** Parakeet
+  (`RIVA_ASR_FUNCTION_ID`), Magpie (`RIVA_TTS_FUNCTION_ID`) and translation
+  (`RIVA_NMT_FUNCTION_ID`) each carry a constant the variable overrides. A rotation shows
+  up as `translate`, `tts/magpie` or a transcription fallback in `failures`; the fix is
+  the new id from `https://api.nvcf.nvidia.com/v2/nvcf/functions` (see
+  `.agents/skills/nemotron-speech/references/nmt.md`). Resolving ids by name is open.
 - `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
   "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;
