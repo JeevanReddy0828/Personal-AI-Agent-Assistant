@@ -105,7 +105,7 @@ _NEXT = {
 }
 _STT = {"riva:parakeet": "NVIDIA Parakeet, hosted, with a local engine behind it",
         "vosk": "Vosk, on this computer", "whisper": "Whisper, on this computer"}
-_TTS = {"riva:magpie": "NVIDIA Magpie, hosted",
+_TTS = {"riva:magpie": "NVIDIA Magpie, hosted, in the app window and the browser tab",
         "pyttsx3": "An offline voice on this computer"}
 _OCR = {"nemotron-parse": "NVIDIA parse, hosted, with Tesseract behind it", "tesseract": "Tesseract, on this computer"}
 

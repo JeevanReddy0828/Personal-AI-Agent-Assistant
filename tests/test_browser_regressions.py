@@ -963,6 +963,275 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(outcome["afterTail"], [], "the tail of our own reply was answered as the user")
         self.assertEqual(outcome["afterUser"], ["and what about tomorrow"], "the user was not heard after the tail")
 
+    def _magpie_tab(self, engine="riva:magpie", query=""):
+        """The page as a browser tab sees it when /api/health names `engine` as the server's
+        voice. The recognizer is inert (`window.__recs` holds each one made) and the speech
+        engine stays the browser's, so nothing here touches a real microphone."""
+        self.page.add_init_script("""
+            window.SpeechRecognition = window.webkitSpeechRecognition = class {
+                constructor() { (window.__recs = window.__recs || []).push(this); }
+                start() {} stop() {} abort() {}
+            };""")
+
+        def health(route):
+            response = route.fetch()
+            body = response.json()
+            body["tts"] = {"engine": engine}
+            body["stt"] = {"engine": None}
+            route.fulfill(response=response, json=body)
+
+        self.page.route("**/api/health", health)
+        self.page.goto(self.url + "/" + query)
+        self.wait_js("e => ttsEngine === e", arg=engine)
+
+    # /api/tts and the audio element, faked and left on window.__tab: each request is logged
+    # as `ask <text>` and answered after `tab.delay` ms (503 for a text in `tab.fail`); each
+    # audio element made is kept in `tab.audios` with the text it carries, and plays until
+    # the test ends it. The browser's own voice logs `browser <text>` and ends at once.
+    _MAGPIE_RIG = """() => {
+        const tab = { log: [], audios: [], delay: 50, fail: new Set(), refuse: false };
+        tab.wait = ms => new Promise(r => setTimeout(r, ms));
+        const realFetch = window.fetch;
+        window.fetch = (url, init) => {
+            if (String(url).indexOf('/api/tts') < 0) return realFetch(url, init);
+            const text = JSON.parse(init.body).text;
+            tab.log.push('ask ' + text);
+            return new Promise(r => setTimeout(() => r(tab.fail.has(text)
+                ? new Response('{"ok":false}', { status: 503 })
+                : new Response(text, { status: 200 })), tab.delay));
+        };
+        // Which sentence an audio element carries: its bytes are the text, read as the blob is made.
+        const RealBlob = window.Blob, realCreate = URL.createObjectURL, named = {};
+        window.Blob = function (parts, opts) {
+            const blob = new RealBlob(parts, opts);
+            try { blob.text_ = new TextDecoder().decode(parts[0]); } catch (e) {}
+            return blob;
+        };
+        URL.createObjectURL = blob => { const url = realCreate(blob); named[url] = blob.text_; return url; };
+        window.Audio = function (src) {
+            const a = { src: src, text: named[src], paused: true, currentTime: 0, onended: null, onerror: null,
+                play() {
+                    if (tab.refuse) return Promise.reject(new DOMException('no gesture', 'NotAllowedError'));
+                    if (this.currentTime === 0) tab.log.push('play ' + this.text);   // not a resume
+                    this.paused = false; this.currentTime = 0.1;
+                    return Promise.resolve();
+                },
+                pause() { this.paused = true; } };
+            tab.audios.push(a);
+            return a;
+        };
+        tab.end = i => { const a = tab.audios[i]; if (a && a.onended) a.onended(); };
+        speechSynthesis.speak = u => { tab.log.push('browser ' + u.text); setTimeout(() => { if (u.onend) u.onend(); }, 5); };
+        listen = () => { tab.log.push('listen'); };
+        window.__tab = tab;
+    }"""
+
+    def test_a_tab_speaks_through_magpie_and_fetches_the_next_sentence_ahead(self):
+        """A tab spoke with speechSynthesis even when the server had NVIDIA's Magpie, which
+        only the app window used. Each Magpie sentence costs ~0.7s, so the next one is
+        fetched while the current one plays instead of after it ends."""
+        self._magpie_tab()
+        self.page.evaluate(self._MAGPIE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const tab = window.__tab;
+                voiceActive = true; voiceTurnReset();
+                enqueueTTS('First sentence.'); enqueueTTS('Second sentence.'); enqueueTTS('Third sentence.');
+                voiceTurnDone('', ttsEpoch);
+                await tab.wait(200);
+                const whilePlayingFirst = tab.log.slice();
+                tab.end(0); await tab.wait(10);    // the second is already here: no wait for it
+                const rightAfterFirst = tab.log.slice();
+                tab.end(1); await tab.wait(200); tab.end(2); await tab.wait(1000);
+                const out = { whilePlayingFirst, rightAfterFirst, log: tab.log.slice() };
+                voiceActive = false;
+                return out;
+            }"""
+        )
+        self.assertEqual(outcome["whilePlayingFirst"], ["ask First sentence.", "ask Second sentence.", "play First sentence."])
+        self.assertEqual(outcome["rightAfterFirst"][-2:], ["ask Third sentence.", "play Second sentence."],
+                         "the second sentence waited to be fetched: " + repr(outcome["rightAfterFirst"]))
+        self.assertEqual(outcome["log"], [
+            "ask First sentence.", "ask Second sentence.", "play First sentence.", "ask Third sentence.",
+            "play Second sentence.", "play Third sentence.", "listen"])
+
+    def test_the_voice_follows_the_server_engine(self):
+        """Magpie is used in a tab; the offline pyttsx3 voice is not (the browser's are
+        better), so a tab keeps its own voice. The app window has no other voice at all."""
+        cases = {}
+        for engine, query in (("pyttsx3", ""), (None, "?app=1")):
+            self._magpie_tab(engine, query)
+            self.page.evaluate(self._MAGPIE_RIG)
+            cases[(engine, query)] = self.page.evaluate(
+                """async () => {
+                    const tab = window.__tab;
+                    voiceActive = true; voiceTurnReset();
+                    enqueueTTS('Hello there.');
+                    await tab.wait(150);
+                    voiceActive = false;
+                    return tab.log;
+                }"""
+            )
+        self.assertEqual(cases[("pyttsx3", "")], ["browser Hello there."])
+        self.assertEqual(cases[(None, "?app=1")], ["ask Hello there.", "play Hello there."])
+
+    def test_a_sentence_magpie_cannot_voice_is_said_by_the_browser(self):
+        """A failed /api/tts used to skip the sentence, which is all the app window can do.
+        A tab has a voice of its own, so that one sentence is said in it, and the next goes
+        back to Magpie. The same when the tab refuses to play audio at all."""
+        self._magpie_tab()
+        self.page.evaluate(self._MAGPIE_RIG)
+        outcome = self.page.evaluate(
+            """async () => {
+                const tab = window.__tab;
+                tab.fail.add('Second sentence.');
+                voiceActive = true; voiceTurnReset();
+                enqueueTTS('First sentence.'); enqueueTTS('Second sentence.'); enqueueTTS('Third sentence.');
+                await tab.wait(200); tab.end(0);
+                await tab.wait(200); tab.end(1);
+                await tab.wait(200);
+                const failed = tab.log.filter(l => !l.startsWith('ask '));
+                tab.log.length = 0; tab.refuse = true; voiceTurnReset();
+                enqueueTTS('Autoplay is refused.');
+                await tab.wait(200);
+                const refused = tab.log.filter(l => !l.startsWith('ask '));
+                voiceActive = false;
+                return { failed, refused, speaking };
+            }"""
+        )
+        self.assertEqual(outcome["failed"], ["play First sentence.", "browser Second sentence.", "play Third sentence."])
+        self.assertEqual(outcome["refused"], ["browser Autoplay is refused."])
+
+    def test_a_stop_drops_hosted_audio_already_on_its_way(self):
+        """Space cleared the queue and moved the epoch on, but the sentence whose audio was
+        still being fetched was not checked against either, so it played after the stop,
+        over the listening turn. Holds in the app window too, which had the same gap."""
+        for query in ("", "?app=1"):
+            with self.subTest(window=query or "tab"):
+                self._magpie_tab("riva:magpie", query)
+                self.page.evaluate(self._MAGPIE_RIG)
+                outcome = self.page.evaluate(
+                    """async () => {
+                        const tab = window.__tab;
+                        voiceActive = true; voiceTurnReset();
+                        tab.delay = 200;
+                        enqueueTTS('A sentence still being made.');
+                        await tab.wait(50);
+                        interruptNow();                   // Space, while its audio is on the way
+                        await tab.wait(400);
+                        const duringFetch = tab.log.filter(l => l.startsWith('play') || l.startsWith('browser'));
+                        tab.delay = 30; voiceTurnReset();
+                        enqueueTTS('One sentence playing.'); enqueueTTS('The next, already fetched.');
+                        await tab.wait(150);
+                        const playing = tab.audios[tab.audios.length - 1];
+                        interruptNow();                   // Space, while it plays
+                        await tab.wait(300);
+                        const out = { duringFetch, paused: playing.paused, speaking,
+                                      played: tab.log.filter(l => l.startsWith('play') || l.startsWith('browser')) };
+                        voiceActive = false;
+                        return out;
+                    }"""
+                )
+                self.assertEqual(outcome["duringFetch"], [], "audio fetched before the stop was played after it")
+                self.assertTrue(outcome["paused"])
+                self.assertFalse(outcome["speaking"])
+                self.assertEqual(outcome["played"], ["play One sentence playing."])
+
+    def test_talking_over_magpie_in_a_tab_stops_it(self):
+        """Barge-in both ways while Magpie plays in a tab: the browser recognizer, and the
+        server-STT microphone level, which pauses the audio element and resumes it on noise.
+        The sentence fetched ahead must not play after either."""
+        self._magpie_tab()
+        self.page.evaluate(self._MAGPIE_RIG)
+        recognizer = self.page.evaluate(
+            """async () => {
+                const tab = window.__tab, sent = [];
+                send = async q => { sent.push(q); };
+                voiceActive = true; voiceTurnReset(); bargeReset();
+                enqueueTTS('The first sentence of a long answer.'); enqueueTTS('A second that must never play.');
+                await tab.wait(150);
+                barge.onresult({ results: [[{ transcript: 'stop and tell me the weather' }]] });
+                await tab.wait(400);
+                const out = { paused: tab.audios[0].paused, speaking, sent,
+                              played: tab.log.filter(l => l.startsWith('play') || l.startsWith('browser')) };
+                voiceActive = false;
+                return out;
+            }"""
+        )
+        self.assertEqual(recognizer["sent"], ["stop and tell me the weather"])
+        self.assertTrue(recognizer["paused"])
+        self.assertFalse(recognizer["speaking"])
+        self.assertEqual(recognizer["played"], ["play The first sentence of a long answer."])
+
+        self._magpie_tab()
+        self.page.evaluate(self._VOICE_RIG)
+        self.page.evaluate(self._MAGPIE_RIG)
+        level = self.page.evaluate(
+            """async () => {
+                const rig = window.__rig, tab = window.__tab;
+                voiceActive = true; voiceTurnReset(); bargeReset();
+                enqueueTTS('Here is the first part of the recipe.'); enqueueTTS('And this part must never play.');
+                await rig.wait(150);
+                const audio = tab.audios[0];
+                rig.feed(0.06, 6);                       // our own voice, learned as the floor
+                rig.feed(0.35, 4);                       // something loud
+                const paused = audio.paused && speaking;
+                rig.heard = 'G men.'; await rig.say(0.001, 1);
+                const resumed = !audio.paused && speaking;
+                await rig.wait(80);
+                rig.heard = 'stop and tell me the weather';
+                rig.feed(0.06, 6); await rig.say(0.35, 4);
+                await rig.wait(300);
+                const out = { paused, resumed, stopped: audio.paused && !speaking, sent: rig.sent.slice(),
+                              played: tab.log.filter(l => l.startsWith('play') || l.startsWith('browser')) };
+                try { bargeStop(); } catch (e) {}
+                voiceActive = false;
+                return out;
+            }"""
+        )
+        self.assertTrue(level["paused"], "a loud moment did not pause Magpie's audio")
+        self.assertTrue(level["resumed"], "noise did not resume the reply")
+        self.assertTrue(level["stopped"], "talking over the reply did not stop it")
+        self.assertEqual(level["sent"], ["stop and tell me the weather"])
+        self.assertEqual(level["played"], ["play Here is the first part of the recipe."])
+
+    def test_a_real_hosted_reply_plays_to_the_end_in_a_tab(self):
+        """End to end in Chromium, nothing faked on the page: the real /api/tts returns a
+        real WAV and a real audio element plays each sentence through and moves on."""
+        import wave
+
+        asked = []
+
+        def backend(text):
+            asked.append(text)
+            out = io.BytesIO()
+            with wave.open(out, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(22050)
+                wav.writeframes(b"\x00\x08" * 5512)     # a quarter second
+            return out.getvalue()
+
+        with patch.object(webui, "_TTS_BACKEND", backend):
+            self._magpie_tab()
+            self.page.locator("#ta").click()            # a real gesture, as clicking Voice would be
+            outcome = self.page.evaluate(
+                """async () => {
+                    const log = [];
+                    speechSynthesis.speak = u => { log.push('browser ' + u.text); setTimeout(() => { if (u.onend) u.onend(); }, 5); };
+                    listen = () => { log.push('listen'); };
+                    voiceActive = true; voiceTurnReset();
+                    enqueueTTS('First sentence.'); enqueueTTS('Second sentence.');
+                    voiceTurnDone('', ttsEpoch);
+                    const t0 = performance.now();
+                    while (!log.includes('listen') && performance.now() - t0 < 5000) await new Promise(r => setTimeout(r, 25));
+                    voiceActive = false;
+                    return { log, ms: Math.round(performance.now() - t0) };
+                }"""
+            )
+        self.assertEqual(asked, ["First sentence.", "Second sentence."])
+        self.assertEqual(outcome["log"], ["listen"], "a sentence did not play through: " + repr(outcome))
+
     # The voice notice, if one is showing: its text, and whether it is really on screen -
     # a box, inside the window, and not painted over by anything else.
     _VOICE_NOTICE = """() => {

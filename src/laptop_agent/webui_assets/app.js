@@ -1823,6 +1823,7 @@
   /* health / first-run */
   async function loadHealth(){try{const h=await (await fetch('/api/health')).json();
     setSttEngine(h.stt&&h.stt.engine);
+    ttsEngine=(h.tts&&h.tts.engine)||null;
     const pill=healthPill;
     let label=HEALTH_LABEL[h.overall]||'Unknown';
     const busy=Object.entries((h.llm&&h.llm.tiers)||{}).filter(([k,v])=>v==='degraded').map(([k])=>k);
@@ -1859,6 +1860,11 @@
   let sttChosen=false;
   try{sttChosen=!!localStorage.getItem('jarvis_stt');}catch(e){}
   function useServerStt(){return NATIVE||(sttServer&&!!sttEngine);}
+  // Replies are spoken by /api/tts in the app window, which has no speechSynthesis, and in a
+  // tab whenever the server has Magpie: hosted Magpie beats the browser's voices, the offline
+  // pyttsx3 one does not, and LAPTOP_AGENT_TTS=offline reports pyttsx3, so it keeps a tab local.
+  let ttsEngine=null;
+  function useServerTts(){return NATIVE||ttsEngine==='riva:magpie';}
   function setSttEngine(name){
     sttEngine=name||null;
     // Nothing was chosen yet: prefer the server whenever the server has an engine, since
@@ -1935,7 +1941,7 @@
     if(!spokeAny){ if(reply){enqueueTTS(reply);} else { afterTurn(); } }   // no streamed sentences (e.g. a tool result) — speak the whole reply
     else pumpTTS();                                                        // resume check in case the queue already drained
   }
-  function enqueueTTS(text){const t=(text||'').trim();if(!t)return;spokeAny=true;ttsQueue.push(t);pumpTTS();}
+  function enqueueTTS(text){const t=(text||'').trim();if(!t)return;spokeAny=true;ttsQueue.push(t);pumpTTS();prefetchTTS();}
   function pumpTTS(){
     if(!voiceActive){ttsQueue=[];return;}
     if(speaking)return;                                  // one utterance at a time
@@ -2375,36 +2381,65 @@
     };
     try{srcN.connect(proc);proc.connect(sink);sink.connect(ac.destination);vmark('mic-on');}catch(e){recognizing=false;cleanup();}
   }
-  async function playTTS(text){
-    const generation=voiceGeneration;
-    speaking=true;
-    bargeStart();                                        // the app window can be interrupted by voice too
-    const clean=speakable(text);
-    if(!clean){speaking=false;pumpTTS();return;}
-    rememberSpoken(clean);
-    setCore('speaking');vSet('speaking','Speaking');if(voiceActive)vtrans.textContent=clean.slice(0,240);
-    try{
-      const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})});
-      if(!r.ok)throw new Error('tts '+r.status);
-      const bytes=await r.arrayBuffer();if(!voiceActive||generation!==voiceGeneration)return;
-      releaseAudio();activeAudioURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));const a=activeAudio=new Audio(activeAudioURL);
-      a.onended=a.onerror=()=>{if(barged)return;releaseAudio();speechEndedAt=performance.now();speaking=false;pumpTTS();};
-      vmark('speak');await a.play();
-    }catch(e){speaking=false;pumpTTS();}
+  // Hosted speech costs ~0.7s a sentence, and fetching each one only after the one before had
+  // finished put that silence between every two sentences, so the next sentence in the queue
+  // is fetched while this one plays. A prefetch is used only by the same epoch and voice
+  // session that asked for it: a stop clears the queue, but not a request already out.
+  let ttsAhead=null;
+  function fetchTTS(clean){
+    return fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})})
+      .then(r=>{if(!r.ok)throw new Error('tts '+r.status);return r.arrayBuffer();});
+  }
+  function prefetchTTS(){
+    if(!voiceActive||!useServerTts()||!ttsQueue.length)return;
+    const clean=speakable(ttsQueue[0]);
+    if(!clean||(ttsAhead&&ttsAhead.clean===clean&&ttsAhead.epoch===ttsEpoch&&ttsAhead.generation===voiceGeneration))return;
+    const audio=fetchTTS(clean);audio.catch(()=>{});     // a failure is dealt with when its sentence comes up
+    ttsAhead={clean,epoch:ttsEpoch,generation:voiceGeneration,audio};
+  }
+  function takeTTS(clean){
+    const ahead=ttsAhead;ttsAhead=null;
+    return ahead&&ahead.clean===clean&&ahead.epoch===ttsEpoch&&ahead.generation===voiceGeneration?ahead.audio:fetchTTS(clean);
+  }
+  async function playTTS(clean){
+    const generation=voiceGeneration, epoch=ttsEpoch;
+    const pending=takeTTS(clean);
+    prefetchTTS();
+    let bytes=null;
+    try{bytes=await pending;}catch(e){}
+    // Stopped while the audio was on its way. The stop cleared the queue and moved the epoch
+    // on, but this request was already out, and its sentence played over the listening turn.
+    const stale=()=>!voiceActive||generation!==voiceGeneration||epoch!==ttsEpoch;
+    if(stale())return;
+    if(!bytes)return speakFallback(clean);
+    releaseAudio();activeAudioURL=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));const a=activeAudio=new Audio(activeAudioURL);
+    a.onended=()=>{if(barged)return;if(!useServerStt())bargeStop();releaseAudio();speechEndedAt=performance.now();speaking=false;pumpTTS();};
+    a.onerror=()=>{if(barged)return;releaseAudio();speakFallback(clean);};
+    vmark('speak');
+    try{await a.play();}
+    catch(e){if(!stale()&&activeAudio===a&&!barged){releaseAudio();speakFallback(clean);}}   // e.g. autoplay refused
+  }
+  // A sentence /api/tts could not voice. A tab says it in the browser's own voice; the app
+  // window has none, so it goes on to the next.
+  function speakFallback(clean){
+    if(!NATIVE&&window.speechSynthesis)return speakBrowser(clean);
+    speaking=false;pumpTTS();
   }
   function speakChunk(text){
-    if(NATIVE)return playTTS(text);   // the app window has no Web Speech API
-    try{
+    const clean=speakable(text);
+    if(!clean){pumpTTS();return;}
     speaking=true; try{rec&&rec.stop();}catch(e){}      // stop the main turn recognizer
     bargeStart();                                       // …but keep a barge recognizer alive so speech can be interrupted
-    try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
-    if(!ttsVoice)pickVoice();
-    const clean=speakable(text);
-    if(!clean){speaking=false;pumpTTS();return;}
     rememberSpoken(clean);
-    const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     setCore('speaking');vSet('speaking','Speaking');
     if(voiceActive)vtrans.textContent=clean.slice(0,240);                  // static, readable subtitles
+    if(useServerTts())playTTS(clean);else speakBrowser(clean);
+  }
+  function speakBrowser(clean){
+    try{
+    try{speechSynthesis.resume();}catch(e){}            // defeat Chrome's "paused engine" bug that silently swallows speak()
+    if(!ttsVoice)pickVoice();
+    const u=new SpeechSynthesisUtterance(clean.slice(0,800));if(ttsVoice)u.voice=ttsVoice;u.rate=1.0;u.pitch=1.0;
     u.onstart=()=>vmark('speak');
     u.onboundary=(e)=>{if(voiceActive&&e.charIndex!=null){const end=e.charIndex+(e.charLength||0);const start=Math.max(0,end-240);vtrans.textContent=(start>0?'…':'')+clean.slice(start,start+240);}};
     // Keep the server-mode barge microphone open across sentences: reopening it per

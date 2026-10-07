@@ -7,6 +7,7 @@ import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 import laptop_agent.webui as webui
 from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool
@@ -98,6 +99,18 @@ class VoiceIoApiTests(unittest.TestCase):
         data = resp.read()
         self.assertTrue(data.startswith(b"RIFF"))
         self.assertIn(b"All systems online.", data)
+
+    def test_health_names_the_voice_so_a_tab_can_choose_it(self) -> None:
+        # A browser tab speaks through /api/tts only when this says Magpie.
+        saved = webui._LLM_STATUS.pop("tts", None)
+        try:
+            with patch.object(webui, "tts_engine_name", return_value="riva:magpie"):
+                body = json.loads(urllib.request.urlopen(self.base + "/api/health", timeout=15).read())
+        finally:
+            webui._LLM_STATUS.pop("tts", None)
+            if saved is not None:
+                webui._LLM_STATUS["tts"] = saved
+        self.assertEqual(body["tts"], {"engine": "riva:magpie"})
 
     def test_tts_unavailable_engine_returns_503(self) -> None:
         webui._TTS_BACKEND = lambda text: None  # simulate no engine / failure
