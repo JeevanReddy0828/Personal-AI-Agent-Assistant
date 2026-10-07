@@ -135,6 +135,38 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(lines[-1].endswith("Last line."))
         self.assertEqual(len(lines), 4)
 
+    def test_a_long_unpunctuated_sentence_is_bounded_without_changing_its_words(self):
+        text = " ".join(["translation"] * 95)
+        pieces_seen = []
+
+        def bounded_backend(texts, source, target):
+            pieces_seen.extend(texts)
+            if any(len(piece) > 400 for piece in texts):
+                raise ValueError("piece too long")
+            return texts
+
+        result = TranslateTool(backend=bounded_backend).translate(text, "french")
+        self.assertTrue(result.ok, result.message)
+        self.assertGreater(len(pieces_seen), 1)
+        self.assertTrue(all(piece.startswith("translation") and piece.endswith("translation")
+                            for piece in pieces_seen))
+        self.assertEqual(result.data["translation"], text)
+
+    def test_an_unbroken_token_is_bounded_without_inserting_spaces(self):
+        text = "a" * 1000
+        pieces_seen = []
+
+        def bounded_backend(texts, source, target):
+            pieces_seen.extend(texts)
+            if any(len(piece) > 400 for piece in texts):
+                raise ValueError("piece too long")
+            return texts
+
+        result = TranslateTool(backend=bounded_backend).translate(text, "french")
+        self.assertTrue(result.ok, result.message)
+        self.assertGreater(len(pieces_seen), 1)
+        self.assertEqual(result.data["translation"], text)
+
     def test_too_long_is_refused_before_anything_is_sent(self):
         self.assertFalse(self.tool.translate("a" * 5001, "french").ok)
         self.assertEqual(self.asked, [])
