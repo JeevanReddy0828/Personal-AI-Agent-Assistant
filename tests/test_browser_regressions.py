@@ -1274,6 +1274,9 @@ class BrowserRegressions(unittest.TestCase):
                 {"reply": reply, "second": second},
             )
         self.assertLess(outcome["firstMs"], 800, outcome)
+        self.assertEqual([entry for entry in outcome["log"] if entry.startswith("ask ")],
+                         ["ask " + sentence for sentence in (first, second, third, fourth, first, third)],
+                         "the final done message was synthesized again")
         self.assertIn("ask " + second, outcome["duringFirst"], "the next sentence was not prefetched")
         self.assertIn("browser " + second, outcome["log"], "a failed sentence lost its fallback")
         self.assertEqual(" ".join(outcome["spoken"]).split(), reply.split())
