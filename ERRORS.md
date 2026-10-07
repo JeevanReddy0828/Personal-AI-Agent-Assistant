@@ -292,6 +292,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **A long tool reply waits to speak, or the browser reads only its first 800 characters** →
+  no streamed tokens meant `voiceTurnDone` sent the entire result as one TTS request. The
+  server now emits bounded `tts` events for the cleaned final result through the same
+  `SpeechChunker`; short results remain one event. (10-07)
 - **The voice says "rightward arrow" (offline) or skips it (Magpie) for `→`** → neither
   speech cleaner touched arrows, and `->` lost its `>` to the markdown strip → both read an
   arrow as "to" (`voice._ARROW`, `speakable()`), cases in `tests/data/speech_cases.json`.
