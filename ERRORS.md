@@ -56,6 +56,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   say" → a colon form in `parse_translation` (read first, since the text may end in a
   language), "how to say", "say X in Y", the language first; "say something / say that
   again" stay chat. A probe of 50 phrasings through `handle()` found them. (10-07)
+- **"how hot will it be in Austin on Saturday" and "a bit louder" went to the chat model** →
+  only "how hot is it" and a bare "louder" were known → the future tense as a whole sentence
+  (a short place and day words only: "how hot will it be if i add more chili" stays chat), and
+  a volume step with its size before or after it. Found by an offline probe. (10-07)
 - **A question defining a tiling feature tried to arrange a window** → the loose
   layout-phrase fallback bypassed the question guard used by explicit placements →
   keep that fallback for spoken imperatives but reject questions and decisions. (10-06)
@@ -256,6 +260,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"what day is july 4th this year" answered 2027; "christmas next year" answered this
+  December** → holidays and calendar dates always took the next occurrence, ignoring a stated
+  year → `dates._pinned_year` reads "this/next year", "this year's" and 19xx/20xx for those two
+  readings only ("end of this year" keeps its own), and a past date is said as "was … ago",
+  never "-95 days until". Found by an offline probe through `handle()`. (10-07)
 - **"next friday" said on a Thursday meant tomorrow** → `next <weekday>` was only "the coming
   one" → it is that weekday in the next Monday-Sunday week (Jeevan's reading); one parser
   serves reminders and the dates tool, and a sweep tests all seven days. (10-06)

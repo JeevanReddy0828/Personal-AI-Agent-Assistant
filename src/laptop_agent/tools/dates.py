@@ -72,8 +72,22 @@ def next_holiday(name: str, today: date) -> date | None:
     return this_year if this_year >= today else finder(today.year + 1)
 
 
-def _month_day(text: str, today: date) -> date | None:
-    """"june 5", "5th of june", "12/25": the next time that date comes round."""
+def _pinned_year(text: str, today: date) -> tuple[str, int | None]:
+    """The text without a stated year, and that year. "july 4th this year" is the one that has
+    passed, "christmas next year" is not this December's, and "july 4th 2030" is in 2030: all
+    three used to get the next time the date came round."""
+    leading = re.fullmatch(r"(this|next)\s+year'?s\s+(.+)", text, re.IGNORECASE)
+    if leading:
+        return leading.group(2), today.year + (leading.group(1).lower() == "next")
+    trailing = re.fullmatch(r"(.+?),?\s+(?:(?:of\s+)?(this|next)\s+year|(?:in\s+)?((?:19|20)\d\d))", text, re.IGNORECASE)
+    if trailing:
+        year = int(trailing.group(3)) if trailing.group(3) else today.year + (trailing.group(2).lower() == "next")
+        return trailing.group(1), year
+    return text, None
+
+
+def _month_day(text: str, today: date, year: int | None = None) -> date | None:
+    """"june 5", "5th of june", "12/25": the next time that date comes round, or in `year`."""
     months = "|".join(sorted(MONTHS, key=len, reverse=True))
     written = re.search(rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<m1>{months})"
                         rf"|(?P<m2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b", text, re.IGNORECASE)
@@ -83,6 +97,8 @@ def _month_day(text: str, today: date) -> date | None:
     month = MONTHS[(groups["m1"] or groups["m2"]).lower()]
     day = int(groups["d1"] or groups["d2"])
     try:
+        if year is not None:
+            return date(year, month, day)
         candidate = date(today.year, month, day)
         return candidate if candidate >= today else date(today.year + 1, month, day)
     except ValueError:
@@ -93,12 +109,14 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     """(the date, what to call it) for a holiday, a remembered date, or any date phrase."""
     today = now.date()
     cleaned = re.sub(r"^\s*(?:the\s+)?", "", (text or "").strip().rstrip("?.!")).strip()
-    holiday = re.fullmatch(rf"(?:this\s+year'?s\s+|next\s+)?({_HOLIDAY})(?:\s+(?:this|next)\s+year)?", cleaned,
-                           re.IGNORECASE)
+    # Only the holiday and calendar-date readings take a stated year: "end of this year" has its own.
+    base, year = _pinned_year(cleaned, today)
+    holiday = re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", base, re.IGNORECASE)
     if holiday:
-        found = next_holiday(holiday.group(1), today)
+        name = holiday.group(1).lower()
+        found = _HOLIDAYS[name](year) if year is not None else next_holiday(name, today)
         if found:
-            return found, " ".join(word[:1].upper() + word[1:] for word in holiday.group(1).lower().split())
+            return found, " ".join(word[:1].upper() + word[1:] for word in name.split())
     relative = _OFFSETS.get(" ".join(cleaned.lower().split()))
     if relative is not None:
         return today + timedelta(days=relative), cleaned.lower()
@@ -107,15 +125,15 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+month", cleaned, re.IGNORECASE):
         return date(today.year + (today.month == 12), today.month % 12 + 1, 1) - timedelta(days=1), "the end of the month"
     # "my birthday", "my wife's birthday", "our anniversary": a date the user told us.
-    personal = re.fullmatch(r"(?:my|our)\s+(.+)", cleaned, re.IGNORECASE)
+    personal = re.fullmatch(r"(?:my|our)\s+(.+)", base, re.IGNORECASE)
     if personal and profile:
         wanted = re.sub(r"[^a-z0-9]+", " ", personal.group(1).lower()).strip()
         for key, value in profile.items():
             if re.sub(r"[^a-z0-9]+", " ", str(key).lower()).strip() == wanted:
-                found = _month_day(str(value), today)
+                found = _month_day(str(value), today, year)
                 if found:
                     return found, f"your {personal.group(1)}"
-    found = _month_day(cleaned, today)
+    found = _month_day(base, today, year)
     if found:
         return found, found.strftime("%B %d").replace(" 0", " ")
     try:

@@ -346,6 +346,11 @@ def nameless_list_edit(text: str) -> tuple[str, str] | None:
 # through the real orchestrator; those four were the only media commands it produced.
 # "next"/"skip" need their noun: "next" alone is as likely to mean the next question.
 _MEDIA_NOUN = r"(?:the\s+|this\s+|my\s+|that\s+)?(?:music|song|track|video|playback|audio|player|tune)"
+# "a bit louder", "turn it up a little": the step said with how big it is, which only "louder"
+# alone used to reach. The key press is the same one; there is no smaller step to give.
+_A_BIT = r"(?:a\s+)?(?:little\s+bit|bit|little|tad|touch|notch)"
+_BEFORE_STEP = rf"(?:(?:{_A_BIT}|slightly|even|make\s+it)\s+)?"
+_AFTER_STEP = rf"(?:\s+(?:{_A_BIT}(?:\s+more)?|some|slightly))?"
 _MEDIA_END = r"(?:\s+please)?\s*[.!]*\s*$"
 _MEDIA_KEYS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(_POLITE + pattern + _MEDIA_END, re.IGNORECASE), key)
@@ -357,10 +362,10 @@ _MEDIA_KEYS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"(?:play\s+(?:the\s+)?)?(?:previous|last|prior)\s+(?:song|track|video)|go\s+back\s+a\s+(?:song|track)",
          "previous"),
         (rf"stop\s+(?:playing|{_MEDIA_NOUN})", "stop"),
-        (r"(?:volume\s+up|turn\s+(?:it|the\s+(?:volume|music|sound))\s+up|louder"
-         r"|(?:increase|raise)\s+(?:the\s+)?volume)", "volumeup"),
-        (r"(?:volume\s+down|turn\s+(?:it|the\s+(?:volume|music|sound))\s+down|quieter|softer"
-         r"|(?:decrease|lower|reduce)\s+(?:the\s+)?volume)", "volumedown"),
+        (rf"(?:(?:volume\s+up|turn\s+(?:it|the\s+(?:volume|music|sound))\s+up){_AFTER_STEP}|{_BEFORE_STEP}louder"
+         rf"|(?:increase|raise)\s+(?:the\s+)?volume{_AFTER_STEP})", "volumeup"),
+        (rf"(?:(?:volume\s+down|turn\s+(?:it|the\s+(?:volume|music|sound))\s+down){_AFTER_STEP}"
+         rf"|{_BEFORE_STEP}(?:quieter|softer)|(?:decrease|lower|reduce)\s+(?:the\s+)?volume{_AFTER_STEP})", "volumedown"),
         (r"(?:mute|unmute)(?:\s+(?:it|the\s+(?:sound|audio|volume|music)))?", "mute"),
     )
 )
@@ -573,6 +578,11 @@ _WEATHER_ASK = re.compile(
     r"|(?:going|gonna)\s+to)\s+(?:be\s+)?(?:rain|snow|hail|storm|drizzl|pour|sunny|cloudy|windy|hot"
     r"|cold|warm|chilly|freezing|humid|clear)\w*\b"
     r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+is\s+it\b"
+    # The whole sentence: "how hot will it be if i add more chili" is about the pot.
+    r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+will\s+it\s+(?:be|get)"
+    r"(?:\s+(?:today|tonight|tomorrow|later|outside|next\s+week|this\s+(?:week(?:end)?|morning|afternoon|evening)"
+    r"|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day"
+    r"|(?:in|at|near|around)\s+[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?))*\s*[?.!]*$"
     r"|^\s*(?:do|should|will)\s+i\s+(?:need|bring|take|wear|pack|grab)\s+(?:an?\s+|my\s+)?"
     r"(?:umbrella|jacket|coat|raincoat|sunscreen|sweater|hoodie|layers?|shorts|boots|gloves|scarf)\b"
     r"|^\s*what\s+should\s+i\s+wear(?:\s+(?:today|tonight|tomorrow|outside|this\s+(?:morning|afternoon|evening)))?"
