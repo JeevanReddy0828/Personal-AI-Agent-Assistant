@@ -51,6 +51,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"translate this into French: …", "say good night in Hindi", "how to say X in Korean" went
+  to the chat model** → the translation routes knew only a closing language and "how do you
+  say" → a colon form in `parse_translation` (read first, since the text may end in a
+  language), "how to say", "say X in Y", the language first; "say something / say that
+  again" stay chat. A probe of 50 phrasings through `handle()` found them. (10-07)
 - **"how hot will it be in Austin on Saturday" and "a bit louder" went to the chat model** →
   only "how hot is it" and a bare "louder" were known → the future tense as a whole sentence
   (a short place and day words only: "how hot will it be if i add more chili" stays chat), and
