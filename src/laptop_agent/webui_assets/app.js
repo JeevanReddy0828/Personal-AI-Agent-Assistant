@@ -1958,6 +1958,7 @@
     t=t.replace(/(?:https?:\/\/|www\.)\S+/gi,' ');
     t=t.replace(/(^|\s)\/\S*\/\S+/g,' ');           // bare paths like /api/image?name=…
     t=t.replace(/^\s*[-*•·]\s+/gm,'');   // a leading bullet marker is not a word
+    t=t.replace(/\s*(?:→|->)\s*/g,' to ');   // an arrow reads as "to" (voice.py's _ARROW)
     t=t.replace(/[`*#_>\[\]()|~]+/g,' ');
     return t.replace(/\s+/g,' ').replace(/ ([.,!?;:])/g,'$1').trim();
   }

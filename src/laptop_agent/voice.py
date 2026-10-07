@@ -26,6 +26,10 @@ _MD_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 # Fenced code is not speech.
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+# An arrow reads as "to": the offline voice said "English rightward arrow Spanish" for a
+# translation's heading and Magpie dropped it ("English, Spanish"), measured by sending each
+# voice's audio back through Parakeet. "->" lost its ">" to the strip below and read as a dash.
+_ARROW = re.compile(r"\s*(?:→|->)\s*")
 # Bare URLs and paths, wherever they survive the above.
 _BARE_URL = re.compile(r"(?:https?://|www\.)\S+|(?<![\w.])/\S*/\S+", re.IGNORECASE)
 
@@ -45,6 +49,7 @@ def clean_for_speech(text: str) -> str:
     t = _MD_LINK.sub(lambda m: m.group(1), t)
     t = _BARE_URL.sub(" ", t)
     t = re.sub(r"^\s*[-*•·]\s+", "", t)          # leading bullet markers
+    t = _ARROW.sub(" to ", t)
     t = _SPEAK_STRIP.sub(" ", t)                  # inline markdown markers
     t = re.sub(r"={2,}|-{3,}|\.{4,}|~{2,}", " ", t)  # leftover decorative runs
     t = re.sub(r"\s+", " ", t)

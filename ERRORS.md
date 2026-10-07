@@ -270,6 +270,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **The voice says "rightward arrow" (offline) or skips it (Magpie) for `→`** → neither
+  speech cleaner touched arrows, and `->` lost its `>` to the markdown strip → both read an
+  arrow as "to" (`voice._ARROW`, `speakable()`), cases in `tests/data/speech_cases.json`.
+  To hear what a voice says without ears, send its audio back through Parakeet. (10-06)
 - **A feature shipped but never on screen** → it lived in a `display:none` panel → assert
   boxes; deleting the code that shows a thing leaves its styles looking healthy. (09-19)
 - **A popover under another layer despite a higher z-index** → an ancestor makes a stacking
