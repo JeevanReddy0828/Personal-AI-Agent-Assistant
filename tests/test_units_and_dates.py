@@ -77,6 +77,23 @@ class DateTests(unittest.TestCase):
         self.assertEqual(next_holiday("labor day", today), date(2027, 9, 6))         # 2026's has passed
         self.assertEqual(next_holiday("memorial day", date(2026, 1, 1)), date(2026, 5, 25))  # last Monday
 
+    def test_a_stated_year_is_the_year(self) -> None:
+        # Each of these got the next time the date came round, whatever year was said.
+        for text, expected in (("july 4th this year", date(2026, 7, 4)), ("easter this year", date(2026, 4, 5)),
+                               ("this year's easter", date(2026, 4, 5)), ("christmas next year", date(2027, 12, 25)),
+                               ("thanksgiving next year", date(2027, 11, 25)), ("july 4th 2030", date(2030, 7, 4)),
+                               ("christmas 2030", date(2030, 12, 25)), ("the 4th of july 2028", date(2028, 7, 4)),
+                               ("june 5 this year", date(2026, 6, 5)), ("june 5, 2027", date(2027, 6, 5))):
+            with self.subTest(text):
+                self.assertEqual(resolve(text, NOW)[0], expected)
+        # Unchanged: no year said is the next one, and "end of this year" keeps its own reading.
+        self.assertEqual(resolve("easter", NOW)[0], date(2027, 3, 28))
+        self.assertEqual(resolve("next easter", NOW)[0], date(2027, 3, 28))
+        self.assertEqual(resolve("end of this year", NOW)[0], date(2026, 12, 31))
+        self.assertIsNone(resolve("february 29 2027", NOW))
+        profile = {"birthday": "march 3"}
+        self.assertEqual(resolve("my birthday next year", NOW, profile)[0], date(2027, 3, 3))
+
     def test_the_users_own_dates(self) -> None:
         profile = {"wife's_birthday": "june 5", "birthday": "march 3"}
         self.assertEqual(resolve("my wife's birthday", NOW, profile), (date(2027, 6, 5), "your wife's birthday"))
@@ -141,6 +158,16 @@ class ThroughTheAssistantTests(unittest.TestCase):
             message = self.say("how many weeks until christmas")[0].message
             self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
             self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
+
+    def test_a_date_already_past_is_said_in_the_past(self) -> None:
+        # With a stated year a date can be behind us: "until" said "-84 days" and "is on" a past day.
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            self.assertEqual(self.say("how many days until july 4th this year")[0].message,
+                             "July 4th was **84 days ago** (Saturday 4 July 2026).")
+            self.assertEqual(self.say("what day is july 4th this year")[0].message,
+                             "July 4th was on Saturday, 4 July 2026 — 84 days ago.")
+            self.assertEqual(self.say("what day is christmas next year")[0].message,
+                             "Christmas is on Saturday, 25 December 2027 — 455 days from today.")
 
     def test_today_and_tomorrow_by_name(self) -> None:
         # "what's today" went to a web search for the sentence; "what day is tomorrow" said
