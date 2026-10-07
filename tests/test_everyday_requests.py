@@ -154,6 +154,19 @@ class RoutingContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.everyday = Everyday(Path(self.tmp.name))
 
+    def test_future_weather_does_not_treat_household_objects_as_places(self) -> None:
+        for text in ("how hot will it be in my oven", "how hot will it be in the car",
+                     "how hot will it be in a kitchen"):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertIsNone(ran, (text, ran, result.message))
+        for text, expected in (("how hot will it be in austin on saturday", "weather austin"),
+                               ("how hot will it be in the uk on saturday", "weather the uk"),
+                               ("how hot will it be at the beach", "weather the beach")):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertTrue(reached(ran, expected), (text, ran, result.message))
+
     def test_each_phrasing_runs_the_command_it_names(self) -> None:
         for text, expected in CONTRACT:
             with self.subTest(text=text):

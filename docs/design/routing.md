@@ -17,6 +17,10 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     plainly; currency goes to the live-search answer because no FX API could be verified.
   - **Polite prefixes are one pattern** (`heuristic._POLITE`, "can you please",
     "would you mind"), shared by every rule that needs it; a private copy drifted.
+  - **Future-weather locations stay places.** The fast path accepts a short place and day,
+    but an indoor object after a determiner is not an outdoor forecast location. A
+    possessive location or an article-prefixed household object goes to the router;
+    article-prefixed places such as the UK and the beach still use the fast path.
   - **Prose guard**: a direct prefix whose words read as English ("schedule a meeting…",
     "time for a break", "forget the timer") goes to the router instead (`_reads_as_prose`).
   - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running

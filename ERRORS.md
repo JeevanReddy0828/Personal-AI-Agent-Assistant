@@ -51,6 +51,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"How hot will it be in my oven" gave an outdoor forecast** → the future-weather
+  location tail accepted household objects as places → leave possessive locations and
+  article-prefixed household objects to the router; keep Austin and the UK fast. (10-07)
 - **"how hot will it be in Austin on Saturday" and "a bit louder" went to the chat model** →
   only "how hot is it" and a bare "louder" were known → the future tense as a whole sentence
   (a short place and day words only: "how hot will it be if i add more chili" stays chat), and
