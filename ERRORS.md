@@ -197,6 +197,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   what the router drops (#173, #176). (10-02)
 
 ### Models and providers
+- **A translation or transcription failure shows `<_MultiThreadedRendezvous of RPC ...>`** →
+  the tools printed the gRPC error's own text, a multi-line dump whose NOT_FOUND details
+  carry the NVIDIA account id → `nvcf.describe()` states the status and what to do; the
+  whole error goes to `failures`. Fake an error whose text holds what the real one does,
+  or a test that echoes it passes. (10-06)
 - **Voice input fails with `Transcription failed: <_MultiThreadedRendezvous ...>`** → in
   `auto`, the hosted-speech fallback caught RuntimeError/OSError, but the SDK raises
   `grpc.RpcError` (a 502, a retired function id, a rejected key), and the test faked a
