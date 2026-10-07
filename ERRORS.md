@@ -26,6 +26,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   one file per invocation; full suite for orchestrator, dispatch, `access.py` or page changes. (10-01)
 - **CI red for one obvious reason** → fail-fast marks the other jobs `cancelled`, not
   failed → read every job; read a branch's CI after its first push. (09-17, 09-26)
+- **A browser test failed on one CI run and passed on the other, same commit** → it asserted
+  the order a threaded server received two requests the page sends at once (Magpie prefetch)
+  → assert what was asked; order is the client's to prove. (10-07)
 - **Browser test passes here, fails on CI** → the page re-derives state from its own polls
   (`/api/health` every 12s), or the test counts frames tuned to this laptop → hold state
   against the polls; assert shape, never a frame count or duration. (09-26, 09-17)
