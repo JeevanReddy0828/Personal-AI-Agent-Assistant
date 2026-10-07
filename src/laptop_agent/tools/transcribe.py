@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent import nvcf
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
@@ -403,6 +404,7 @@ def _vosk_asr_backend(target: Path) -> dict[str, object]:
 # identifies the model (this one is parakeet-tdt-0.6b-v2).
 RIVA_SERVER = "grpc.nvcf.nvidia.com:443"
 RIVA_ASR_FUNCTION_ID = "d3fe9151-442b-4204-a70d-5fcc597fd610"
+RIVA_ASR_NAME = "ai-parakeet-tdt-0_6b-v2"
 
 
 def _riva_key() -> str:
@@ -470,51 +472,55 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
         raise RuntimeError("That audio file is empty.")
 
     server = os.environ.get("RIVA_SERVER", RIVA_SERVER).strip() or RIVA_SERVER
-    function_id = os.environ.get("RIVA_ASR_FUNCTION_ID", RIVA_ASR_FUNCTION_ID).strip() or RIVA_ASR_FUNCTION_ID
     language = os.environ.get("RIVA_ASR_LANGUAGE", "en-US").strip() or "en-US"
     check_cancelled()
+    # One deadline for the call and any retry on a looked-up id, so the wait stays bounded.
     deadline = time.monotonic() + budget
-    auth = riva.client.Auth(
-        uri=server,
-        use_ssl=True,
-        metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
-    )
-    pending = None
-    try:
-        config = riva.client.RecognitionConfig(
-            encoding=riva.client.AudioEncoding.LINEAR_PCM,
-            language_code=language,
-            max_alternatives=1,
-            enable_automatic_punctuation=True,
-            sample_rate_hertz=rate,
-            audio_channel_count=channels,
+
+    def attempt(function_id: str):
+        auth = riva.client.Auth(
+            uri=server,
+            use_ssl=True,
+            metadata_args=[["function-id", function_id], ["authorization", f"Bearer {key}"]],
         )
-        check_cancelled()
-        # The SDK's blocking helper has no timeout parameter. Its future supports bounded
-        # waits and cancellation; cancel the RPC itself, not just a waiting Python thread.
-        pending = riva.client.ASRService(auth).offline_recognize(audio, config, future=True)
-        while True:
-            check_cancelled()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                error = TimeoutError(f"Riva speech recognition exceeded its {budget:g}-second deadline.")
-                record_failure("transcribe/riva-timeout", error)
-                raise error
-            try:
-                response = pending.result(timeout=min(0.1, remaining))
-                check_cancelled()
-                break
-            except grpc.FutureTimeoutError:
-                continue
-    except Exception:
-        check_cancelled()  # Stop racing an RPC error must not start a local fallback.
-        raise
-    finally:
+        pending = None
         try:
-            if pending is not None:
-                pending.cancel()
+            config = riva.client.RecognitionConfig(
+                encoding=riva.client.AudioEncoding.LINEAR_PCM,
+                language_code=language,
+                max_alternatives=1,
+                enable_automatic_punctuation=True,
+                sample_rate_hertz=rate,
+                audio_channel_count=channels,
+            )
+            check_cancelled()
+            # The SDK's blocking helper has no timeout parameter. Its future supports bounded
+            # waits and cancellation; cancel the RPC itself, not just a waiting Python thread.
+            pending = riva.client.ASRService(auth).offline_recognize(audio, config, future=True)
+            while True:
+                check_cancelled()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    error = TimeoutError(f"Riva speech recognition exceeded its {budget:g}-second deadline.")
+                    record_failure("transcribe/riva-timeout", error)
+                    raise error
+                try:
+                    response = pending.result(timeout=min(0.1, remaining))
+                    check_cancelled()
+                    return response
+                except grpc.FutureTimeoutError:
+                    continue
+        except Exception:
+            check_cancelled()  # Stop racing an RPC error must not start a local fallback.
+            raise
         finally:
-            auth.channel.close()
+            try:
+                if pending is not None:
+                    pending.cancel()
+            finally:
+                auth.channel.close()
+
+    response = nvcf.call(RIVA_ASR_NAME, RIVA_ASR_FUNCTION_ID, "RIVA_ASR_FUNCTION_ID", key, attempt)
     text = " ".join(
         result.alternatives[0].transcript for result in response.results if result.alternatives
     ).strip()

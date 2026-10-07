@@ -27,7 +27,6 @@ The skill says to look these up rather than trust its text; for this app's NVIDI
   `grpc.nvcf.nvidia.com:443`. `riva-translate-4b-instruct-v2` ignored its target language and
   `megatron-1b-nmt` was not callable.
 - Translation has no source-language detection: an empty or `auto` source is refused.
-- The skill warns that **function IDs rotate per release**. The app pins them
-  (`RIVA_ASR_FUNCTION_ID`, `RIVA_TTS_FUNCTION_ID`, `RIVA_NMT_FUNCTION_ID` override them), so a
-  rotation shows up as a failed translation or the voice falling back to the offline one,
-  recorded in `failures`.
+- The skill warns that **function IDs rotate per release**. The app pins one per model and,
+  when it answers NOT_FOUND, looks the model up by name once (`src/laptop_agent/nvcf.py`);
+  `RIVA_ASR_FUNCTION_ID`, `RIVA_TTS_FUNCTION_ID` and `RIVA_NMT_FUNCTION_ID` still override.

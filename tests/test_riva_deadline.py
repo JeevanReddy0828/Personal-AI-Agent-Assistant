@@ -9,6 +9,7 @@ import wave
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from laptop_agent import nvcf
 from laptop_agent.cancellation import OperationCancelled, cancel, operation
 from laptop_agent.tools import transcribe
 
@@ -138,6 +139,31 @@ class RivaDeadlineTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn('deadline', result.message)
             local.assert_not_called()
+
+    def test_a_retired_model_id_is_looked_up_and_retried_with_both_rpcs_released(self):
+        class NotFound(Exception):
+            def code(self):
+                return types.SimpleNamespace(name='NOT_FOUND')
+
+        used = []
+        client = sys.modules['riva.client']
+        client.Auth = lambda **kw: (used.append(dict(kw['metadata_args'])['function-id']),
+                                    types.SimpleNamespace(channel=self.channel))[1]
+        transcript = types.SimpleNamespace(results=[types.SimpleNamespace(
+            alternatives=[types.SimpleNamespace(transcript='found again')])])
+        retired, current = Pending(self.clock, error=NotFound()), Pending(self.clock, result=transcript)
+        pendings = iter([retired, current])
+        client.ASRService = lambda auth: types.SimpleNamespace(
+            offline_recognize=lambda audio, config, future=False: next(pendings))
+        listing = [{'name': transcribe.RIVA_ASR_NAME, 'id': 'current-id', 'status': 'ACTIVE', 'createdAt': '2026-10-06'}]
+        nvcf._reset()
+        self.addCleanup(nvcf._reset)
+        with patch.object(nvcf, '_list_functions', lambda key: listing):
+            result = transcribe._riva_asr_backend(self.clip)
+        self.assertEqual(result['text'], 'found again')
+        self.assertEqual(used, [transcribe.RIVA_ASR_FUNCTION_ID, 'current-id'])
+        self.assertTrue(retired.cancelled and current.cancelled)
+        self.assertEqual(self.channel.close.call_count, 2)
 
     def test_default_budget_grows_with_audio_and_has_a_ceiling(self):
         with patch.dict(os.environ, {'RIVA_ASR_TIMEOUT_SECONDS': ''}):

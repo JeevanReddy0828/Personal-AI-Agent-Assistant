@@ -26,12 +26,15 @@ Both Claude and Codex edit this repo. To avoid collisions:
   reads keep the prior snapshot. Missing/localized counters degrade gracefully and log
   each cause once per process. Do not recommend running the whole app as administrator
   just to show GPU usage.
-- **Riva function IDs are pinned, and NVIDIA says they rotate per release.** Parakeet
-  (`RIVA_ASR_FUNCTION_ID`), Magpie (`RIVA_TTS_FUNCTION_ID`) and translation
-  (`RIVA_NMT_FUNCTION_ID`) each carry a constant the variable overrides. A rotation shows
-  up as `translate`, `tts/magpie` or a transcription fallback in `failures`; the fix is
-  the new id from `https://api.nvcf.nvidia.com/v2/nvcf/functions` (see
-  `.agents/skills/nemotron-speech/references/nmt.md`). Resolving ids by name is open.
+- **Riva function IDs rotate per release, so a pinned one is looked up when it goes**
+  (`nvcf.py`, agreed with Codex 2026-10-06). Parakeet, Magpie and translation each pin an
+  id; only a NOT_FOUND answer - what an unknown or INACTIVE id returns, measured - looks
+  the model up by exact name in the function list and retries once with the newest
+  ACTIVE id, kept for the process. An outage (UNAVAILABLE, DEADLINE_EXCEEDED) never
+  triggers a lookup, an id set in `RIVA_*_FUNCTION_ID` is never replaced, and a lookup
+  that fails (a key without list scope gets 403) is not repeated for 30 minutes and
+  raises `StaleFunctionError` naming the variable to set; `nvcf/lookup` in `failures`.
+  Measured with a retired pin: translation recovers in 1.4 s, Magpie 1.1 s, Parakeet 1.8 s.
 - `copilot.extract_keywords` keeps its own token pattern on purpose (it must preserve
   "node.js", "c++", "c#"). It is the one word-splitter outside `terms.py` — leave it there.
 - The Chromium regression test rewrites `docs/review/desktop.png` / `mobile.png` on every run;

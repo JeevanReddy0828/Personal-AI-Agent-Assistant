@@ -80,6 +80,7 @@ data.
 | `cancellation.py` | Cooperative Stop: long work checks it and ends cleanly. |
 | `tracing.py` | Per-turn timings (never the text) for `latency` and `/api/traces`. |
 | `failures.py` | Every swallowed error is recorded here (`failures`, `/api/failures`). |
+| `nvcf.py` | Finds the current function id of a hosted NVIDIA speech model (Parakeet, Magpie, translation) when the pinned one answers NOT_FOUND: one lookup by exact name, one retry. |
 | `selfcheck.py` | `selfcheck`: does routing actually reach the right tools? |
 
 ### Safety, accounts and sign-in
