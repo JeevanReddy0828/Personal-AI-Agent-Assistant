@@ -323,6 +323,24 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertEqual(result.data["matches"][0]["line"], 1)
 
+    def test_search_files_keeps_a_query_of_several_words(self) -> None:
+        # Split at the first space, "find the readme in this folder" searched for "the" in a
+        # folder called "readme ." and answered that it did not exist.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "my notes"
+            root.mkdir()
+            (root / "note.md").write_text("see the readme first\nthe other line\n", encoding="utf-8")
+            orchestrator = self.build(Path(raw) / "data")
+            for said in (f"search files the readme {root}", f'search files "the readme" {root}'):
+                with self.subTest(said):
+                    result = asyncio.run(orchestrator.handle(said))
+                    self.assertTrue(result.ok, result.message)
+                    self.assertEqual([match["line"] for match in result.data["matches"]], [1])
+            # A folder that is not there is still named as itself, not with the query's words.
+            missing = asyncio.run(orchestrator.handle(f"search files the readme {root / 'gone'}"))
+            self.assertFalse(missing.ok)
+            self.assertTrue(missing.message.endswith(f"does not exist: {(root / 'gone').resolve()}"), missing.message)
+
     def test_summarize_file_command(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

@@ -787,6 +787,17 @@ def asks_to_arrange(text: str) -> bool:
     ))
 
 
+# "what's in my downloads folder", "show me my desktop files": a home folder by name, as the
+# whole sentence. `_folder_path` decides whether it is a folder on this machine, so "what's in
+# my shopping list" is left to the list route and "what's in my calendar" to the model. A
+# "show"/"list" ask needs "files" or "folder" said, since "show me my desktop" may mean the screen.
+_FOLDER_LISTING = re.compile(
+    _POLITE + r"(?:(?P<what>what(?:'s|s|\s+is)\s+in|what\s+do\s+i\s+have\s+in)"
+    r"|(?:show|list|give)(?:\s+me)?(?:\s+(?:the|all)(?:\s+the)?)?(?:\s+files\s+(?:in|on))?)\s+"
+    r"(?P<where>(?:my|the)\s+\w+(?:\s+(?:folder|directory))?)(?:\s+files)?[\s?.!]*",
+    re.IGNORECASE,
+)
+
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
 # "what's taking up space in my downloads". The LLM router turned the first into a plain
 # `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
@@ -868,6 +879,12 @@ class HeuristicPlannerProvider:
         largest = self._largest_files(raw)
         if largest:
             return largest
+
+        listing = _FOLDER_LISTING.fullmatch(raw)
+        if listing and (listing.group("what") or re.search(r"\b(?:files|folder|directory)\b", raw, re.IGNORECASE)):
+            root = _folder_path(listing.group("where"))
+            if root:
+                return self._command(f"scan files {root}", "User wants to see what is in a folder.", 0.85)
 
         casual = self._casual(lowered)
         if casual:
