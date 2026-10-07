@@ -43,8 +43,22 @@ class ParseTests(unittest.TestCase):
             with self.subTest(raw):
                 self.assertEqual(parse_translation(raw), expected)
 
+    def test_the_language_can_lead_a_colon(self):
+        # "translate this into french: the meeting is at noon" went to the chat model. The text
+        # after the colon is taken whole, even when it ends in a language of its own.
+        cases = {
+            "this into french: the meeting is at noon": ("the meeting is at noon", "french", None),
+            "to spanish: where is the train station?": ("where is the train station?", "spanish", None),
+            "the following into german: I speak English": ("I speak English", "german", None),
+            "from english to italian: 'good night'": ("good night", "italian", "english"),
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw):
+                self.assertEqual(parse_translation(raw), expected)
+
     def test_a_sentence_no_language_closes_is_not_a_request(self):
-        for raw in ("this into a plan of action", "the meeting notes", "to spanish", "my notes to klingon", ""):
+        for raw in ("this into a plan of action", "the meeting notes", "to spanish", "to spanish:",
+                    "my notes to klingon", "this into klingon: hello", ""):
             with self.subTest(raw):
                 self.assertIsNone(parse_translation(raw))
 
@@ -317,6 +331,12 @@ class RoutingTests(unittest.TestCase):
         "what's the word for library in german": "translate library to german",
         "what is love in italian": "translate love to italian",
         "translate hello to telugu": "translate hello to telugu",
+        # After a colon the question mark is the text's own, so it is kept.
+        "translate to spanish: where is the station?": "translate to spanish: where is the station?",
+        "how to say i love you in korean": "translate i love you to korean",
+        "can you say good morning in italian please": "translate good morning to italian",
+        "in japanese how would i say nice to meet you": "translate nice to meet you to japanese",
+        "what is the spanish phrase for good luck": "translate good luck to spanish",
     }
     STAY = (
         "what's the best way to say sorry in japanese",  # advice, not the phrase translated
@@ -325,6 +345,13 @@ class RoutingTests(unittest.TestCase):
         "what is a noun in german grammar",
         "do not translate this to french",
         "how do you say no to your boss",
+        "say something nice in spanish",
+        "say a few words in french",
+        "say it again in english",
+        "what's the english word for when you're sad",
+        "what is the french word for the feeling of being homesick",
+        "what's the spanish word for a man who sells fish",
+        "in french class we learned how to say hello",
     )
 
     def test_requests_route_instantly(self):
@@ -368,6 +395,18 @@ class OrchestratorTranslationTests(unittest.TestCase):
         result = self.say("translate that to spanish", history)
         self.assertTrue(result.ok, result.message)
         self.assertEqual(self.asked[0][0], ["Good evening, everyone."])
+
+    def test_saying_that_in_a_language_means_the_reply_above(self):
+        # Asked aloud the follow-up is "can you say that in german", which went to the chat model.
+        history = [{"role": "user", "text": "when is the meeting"},
+                   {"role": "assistant", "text": "The meeting moved to Friday at 3pm."}]
+        for asked in ("can you say that in german", "say it in german"):
+            with self.subTest(asked):
+                self.asked.clear()
+                result = self.say(asked, history)
+                self.assertTrue(result.ok, result.message)
+                self.assertEqual(self.asked[0][0], ["The meeting moved to Friday at 3pm."])
+                self.assertEqual(self.asked[0][2], "de")
 
     def test_that_with_nothing_above_says_so(self):
         result = self.say("translate that to spanish")
