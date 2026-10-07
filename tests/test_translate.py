@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from laptop_agent import nvcf
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
@@ -258,6 +259,29 @@ class RivaBackendTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             translate._riva_translate(["hello"], "en", "es-US")
         self.channel.close.assert_called_once()
+
+    def test_a_retired_model_id_is_looked_up_and_the_call_retried(self):
+        class NotFound(Exception):
+            def code(self):
+                return SimpleNamespace(name="NOT_FOUND")
+
+        retired = translate.RIVA_NMT_FUNCTION_ID
+        answer = self.pending.result
+
+        def result(timeout=None):
+            if dict(self.auth_args[-1]["metadata_args"])["function-id"] == retired:
+                raise NotFound()
+            return answer(timeout)
+
+        self.pending.result = result
+        listing = [{"name": translate.RIVA_NMT_NAME, "id": "current-id", "status": "ACTIVE", "createdAt": "2026-10-06"}]
+        nvcf._reset()
+        self.addCleanup(nvcf._reset)
+        with patch.object(nvcf, "_list_functions", lambda key: listing):
+            self.assertEqual(translate._riva_translate(["hello"], "en", "fr"), ["hola"])
+        used = [dict(call["metadata_args"])["function-id"] for call in self.auth_args]
+        self.assertEqual(used, [retired, "current-id"])
+        self.assertEqual(self.channel.close.call_count, 2)
 
     def test_the_model_can_be_chosen(self):
         os.environ["RIVA_NMT_FUNCTION_ID"] = "other-function"
