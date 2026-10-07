@@ -10,7 +10,9 @@ Routing uses few-shot **message turns** for reliability. The 8B alone won't rout
 without them. The web app (`webui.py`) streams chat via `/api/stream` (SSE) —
 which, when the request sets `voice:true`, also emits incremental `tts` sentence
 events (carved by `voice.SpeechChunker`) so the browser voice loop starts speaking
-the first sentence before generation finishes — streams autonomous-agent traces
+the first sentence before generation finishes. A long non-streamed tool result emits
+bounded `tts` events through that same chunker, after whole-message speech cleaning;
+short results remain one event. The server also streams autonomous-agent traces
 via `/api/agent`, exposes `/api/health`, serves a
 Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
 disable, routed through the same `schedule …` orchestrator commands), exposes
@@ -22,7 +24,7 @@ rendered in a click-through note-viewer overlay with wiki-link chips), serves a
 Trip-planner panel via `/api/trip` (POST `stops[]` -> per-leg breakdown + totals +
 route geometry/bbox + multi-waypoint directions, routed through `trip …`; the panel
 adds/reorders stops and draws the route as an inline SVG), serves server-side
-voice for the native window (`/api/transcribe` STT, `/api/tts` offline TTS), and runs a 60s
+voice for the native window (`/api/transcribe` STT, `/api/tts` Magpie or offline TTS), and runs a 60s
 background `_schedule_ticker` for due scheduled jobs; it keeps the model warm to
 avoid cold-start latency. Chat replies stream token-by-token; instant local command
 results (which arrive whole) are revealed with a JS `typewriter()` pass so both feel
