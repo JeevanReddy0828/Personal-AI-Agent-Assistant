@@ -1869,6 +1869,10 @@ class AgentOrchestrator:
         day, name = found
         if kind == "until":
             days = (day - today).days
+            if days < 0:    # a stated year can be behind us: "until july 4th this year" said "-95 days"
+                return ToolResult.success(f"{name[:1].upper() + name[1:]} was **{-days} day{'s' if days != -1 else ''} "
+                                          f"ago** ({day:%A %d %B %Y}).".replace(" 0", " "), days=days,
+                                          date=day.isoformat())
             count = f"{days} day{'s' if days != 1 else ''}"
             if other == "weeks" and days >= 7:
                 weeks, spare = divmod(days, 7)
@@ -1881,7 +1885,8 @@ class AgentOrchestrator:
             stamp = day.strftime("%A, %d %B %Y").replace(" 0", " ")
             verb = "was" if day < today else "is"
             return ToolResult.success(f"{name[:1].upper() + name[1:]} {verb} **{stamp}**.", date=day.isoformat())
-        return ToolResult.success(f"{name[:1].upper() + name[1:]} is on {describe_day(day, today)}.",
+        verb = "was" if day < today else "is"
+        return ToolResult.success(f"{name[:1].upper() + name[1:]} {verb} on {describe_day(day, today)}.",
                                   date=day.isoformat())
 
     def _lists(self) -> ToolResult:
