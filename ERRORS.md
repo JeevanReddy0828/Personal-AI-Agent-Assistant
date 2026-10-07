@@ -279,6 +279,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   speech cleaner touched arrows, and `->` lost its `>` to the markdown strip → both read an
   arrow as "to" (`voice._ARROW`, `speakable()`), cases in `tests/data/speech_cases.json`.
   To hear what a voice says without ears, send its audio back through Parakeet. (10-06)
+- **Space stopped the reply, then one more sentence played** (app window, and now a Magpie
+  tab) → `playTTS` checked only `voiceGeneration` when its fetch returned, and a stop moves
+  `ttsEpoch` → capture the epoch with the request and check it on return; a prefetch carries
+  its own (`test_a_stop_drops_hosted_audio_already_on_its_way`). (10-06)
 - **A feature shipped but never on screen** → it lived in a `display:none` panel → assert
   boxes; deleting the code that shows a thing leaves its styles looking healthy. (09-19)
 - **A popover under another layer despite a higher z-index** → an ancestor makes a stacking

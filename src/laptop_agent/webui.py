@@ -1324,6 +1324,8 @@ class Handler(BaseHTTPRequestHandler):
             # The page decides between its own recognizer and posting audio here.
             report["stt"] = {"engine": _stt_engine()}
             report["ocr"] = {"engine": _ocr_engine()}
+            # And between its own voice and /api/tts: a tab speaks through Magpie when it is here.
+            report["tts"] = {"engine": _tts_engine()}
             self._json(200, report)
         elif path == "/api/setup":
             # Developer-only by the route allow-list: it describes this installation.

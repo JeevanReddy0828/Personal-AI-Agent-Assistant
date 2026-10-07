@@ -51,9 +51,9 @@ interruptions that commit — counting every loud moment let three coughs switch
 barge-in off for the session, silently — and false pauses get their own limit, since every
 sentence re-arms barge-in: after two in one reply the rest of it plays through, and
 `voiceTurnReset()` starts the next reply fresh. It works in the pywebview window too, which
-has no Web Speech API at all. Known gap: in a browser tab the pause is
-`speechSynthesis.pause()`, which some platforms ignore; only the app window's audio path has
-been tried on the laptop.
+has no Web Speech API at all. Known gap: a tab speaking in its own voice pauses with
+`speechSynthesis.pause()`, which some platforms ignore; a tab speaking Magpie pauses an audio
+element as the app window does. Only the app window's audio path has been tried on the laptop.
 
 `bargeFloor` (default 0.045) is the one number worth re-tuning from real rooms: too low and
 the app hears itself, too high and a quiet voice cannot cut in. It was a constant in a
@@ -161,8 +161,30 @@ recorded as `tts/magpie`. Measured on the real route: 0.65-0.79s a sentence, 22.
 PCM wrapped as WAV here, since Riva returns raw samples. The call uses the SDK's future
 with a wait of `5 + len(text)/50` s, capped at 30, so a stalled call hands over to the
 offline voice instead of leaving the window silent. `offline` never sends a reply's text
-anywhere; `riva` uses Magpie alone. Known limit: a browser tab still speaks with
-`speechSynthesis`.
+anywhere; `riva` uses Magpie alone.
+
+**A browser tab speaks Magpie too** (2026-10-06, Jeevan's decision). `/api/health` reports
+`tts.engine`, and when it is `riva:magpie` a tab plays `/api/tts` audio exactly as the app
+window does. Any other engine leaves the tab its own `speechSynthesis`: the browser's voices
+beat the offline pyttsx3 one, and `LAPTOP_AGENT_TTS=offline` reports pyttsx3, so it still
+keeps a reply's text on the laptop. Three things it needed, each with a test that fails
+without it:
+- **The next sentence is fetched while this one plays** (`prefetchTTS`, one ahead). Each
+  costs ~0.7s to synthesize, and fetching it only after the one before had ended put that
+  silence between every two sentences.
+- **A sentence `/api/tts` cannot voice is said by the browser** - a 503, the network, an
+  audio element that fails, or a `play()` the tab refuses - and the next goes back to
+  Magpie. The app window has no other voice, so there it is still skipped.
+- **A stop reaches audio already on its way.** `playTTS` checked only `voiceGeneration` when
+  its fetch returned, and Space moves `ttsEpoch`, not the generation: a sentence still being
+  fetched when Space was pressed played over the listening turn, in the app window too. The
+  epoch is captured with the request and checked on return, and a prefetch is used only by
+  the epoch and voice session that asked for it.
+
+Barge-in needed nothing new: the recognizer path and the level path both already pause or
+release `activeAudio`, which the tests now drive through a Magpie tab. Verified in headless
+Chromium, with a real `/api/tts` WAV through a real audio element and fakes for the rest; not
+yet heard on the laptop's own browser, nor against live Magpie in a tab.
 
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
