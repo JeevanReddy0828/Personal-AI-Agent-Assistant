@@ -48,6 +48,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"how hot will it be in Austin on Saturday" and "a bit louder" went to the chat model** →
+  only "how hot is it" and a bare "louder" were known → the future tense as a whole sentence
+  (a short place and day words only: "how hot will it be if i add more chili" stays chat), and
+  a volume step with its size before or after it. Found by an offline probe. (10-07)
 - **A question defining a tiling feature tried to arrange a window** → the loose
   layout-phrase fallback bypassed the question guard used by explicit placements →
   keep that fallback for spoken imperatives but reject questions and decisions. (10-06)
