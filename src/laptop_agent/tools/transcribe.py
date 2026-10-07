@@ -521,6 +521,19 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
     return {"text": text, "segments": [], "language": language, "engine": "riva:parakeet"}
 
 
+def _hosted_failures() -> tuple[type[BaseException], ...]:
+    """What a hosted call raises when it fails. The SDK's own errors are `grpc.RpcError` - a
+    502, a retired model id, a rejected key - which is none of the others, so it used to end
+    the transcription instead of reaching the local engine."""
+    failures: tuple[type[BaseException], ...] = (MissingDependencyError, RuntimeError, OSError)
+    try:
+        import grpc  # type: ignore
+    except ImportError:
+        return failures
+    rpc_error = getattr(grpc, "RpcError", None)
+    return (*failures, rpc_error) if isinstance(rpc_error, type) else failures
+
+
 def _default_asr_backend(target: Path) -> dict[str, object]:
     """Pick the STT engine: LAPTOP_AGENT_STT=riva|vosk|whisper, or 'auto' (default),
     which prefers hosted Parakeet when it is usable, then the lightweight Vosk when a
@@ -539,8 +552,8 @@ def _default_asr_backend(target: Path) -> dict[str, object]:
     if target.suffix.lower() == ".wav" and _riva_available():
         try:
             return _riva_asr_backend(target)
-        except (MissingDependencyError, RuntimeError, OSError):
-            pass
+        except _hosted_failures() as exc:
+            record_failure("transcribe/riva", exc)
     if _vosk_available():
         return _vosk_asr_backend(target)
     return _builtin_asr_backend(target)
