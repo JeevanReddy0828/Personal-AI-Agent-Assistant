@@ -161,9 +161,17 @@ recorded as `tts/magpie`. Measured on the real route: 0.65-0.79s a sentence, 22.
 PCM wrapped as WAV here, since Riva returns raw samples. The call uses the SDK's future
 with a wait of `5 + len(text)/50` s, capped at 30, so a stalled call hands over to the
 offline voice instead of leaving the window silent. `offline` never sends a reply's text
-anywhere; `riva` uses Magpie alone. Known limits: a browser tab still speaks with
-`speechSynthesis`, and the packaged builds do not bundle `nvidia-riva-client`, so
-`JARVIS.exe` speaks (and transcribes) with its local engines only.
+anywhere; `riva` uses Magpie alone. Known limit: a browser tab still speaks with
+`speechSynthesis`.
+
+**The packaged app carries the Riva client whenever the build machine has it.** This note
+once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
+functions too, so `nvidia-riva-client` and `grpc` are bundled without any `--collect-all`,
+provided the `riva` extra is installed where the exe is built. Measured 2026-10-06 with a
+one-file probe built the way the app is (`--paths src --collect-submodules laptop_agent`),
+once without and once with explicit `--collect-all riva --collect-all grpc`: both ran Magpie,
+selected Parakeet and translated, at the same size. Without the extra on the build machine,
+the exe falls back to its local engines as before.
 
 ## Recorder integration (REC-01, 2026-09-28)
 
