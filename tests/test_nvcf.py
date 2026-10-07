@@ -147,8 +147,11 @@ class RediscoveryTests(unittest.TestCase):
     def test_a_stalled_lookup_cannot_outlive_the_call_deadline(self):
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
+        lookups = 0
 
         def stalled(key):
+            nonlocal lookups
+            lookups += 1
             entered.set()
             release.wait(2)
             return self.functions
@@ -158,6 +161,10 @@ class RediscoveryTests(unittest.TestCase):
             nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=started + .05)
         self.assertTrue(entered.is_set())
         self.assertLess(time.monotonic() - started, 1)
+        with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(nvcf.StaleFunctionError):
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
+                      deadline=time.monotonic() + .05)
+        self.assertEqual(lookups, 1, "the next turn must use the cooldown instead of stalling again")
 
     def test_an_expired_deadline_does_not_start_another_network_request(self):
         with patch.object(nvcf, "_list_functions") as listing, self.assertRaises(TimeoutError):

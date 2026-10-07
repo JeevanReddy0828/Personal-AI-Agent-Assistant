@@ -131,8 +131,8 @@ def _lookup(name: str, key: str, deadline: float | None = None,
     try:
         functions = _list_with_deadline(key, deadline, check_cancelled)
     except LookupDeadlineExceeded as exc:
-        with _lock:
-            _looked.pop(name, None)
+        # Keep the failed-lookup cooldown: otherwise every new voice turn waits out its
+        # deadline and starts another HTTP request while this endpoint is slow.
         record_failure("nvcf/lookup", exc)
         raise
     except Exception as exc:  # a key without list scope (403), or the network
