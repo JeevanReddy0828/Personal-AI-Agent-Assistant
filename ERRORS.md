@@ -287,6 +287,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
+  "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
+  direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)
 - **"convert 2:30am new york to utc" on 8 March answered 7:30 UTC; 1:30 AM on 1 November
   silently took the first of two** (Codex's review of #243) → a wall time was attached to a zone
   without checking it → try both readings (fold 0 and 1) and keep those that round-trip through

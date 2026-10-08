@@ -226,6 +226,13 @@ class ThroughTheAssistantTests(unittest.TestCase):
                                ("how many days left in the year", 96)):
                 with self.subTest(text):
                     self.assertTrue(self.say(text)[0].message.startswith(f"**{days} days**"), self.say(text)[0].message)
+            # A weekday has no year to step back to (Codex's review of #244): on this Saturday,
+            # "since friday" is yesterday, not the coming Friday six days ahead.
+            for text, start in (("how many days since friday", "**1 day** between friday (Friday 25 September 2026)"),
+                                ("how many days between friday and today", "**1 day** between friday (Friday 25"),
+                                ("how many days since monday", "**5 days** between monday (Monday 21 September 2026)")):
+                with self.subTest(text):
+                    self.assertTrue(self.say(text)[0].message.startswith(start), self.say(text)[0].message)
             self.assertEqual(self.say("what day of the week was july 4 1776")[0].message.split(" — ")[0],
                              "July 4 was on Thursday, 4 July 1776")
             self.assertEqual(self.say("what was the date 2 weeks ago")[0].message,
