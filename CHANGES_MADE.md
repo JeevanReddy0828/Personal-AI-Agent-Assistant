@@ -4100,3 +4100,14 @@ Guard undo evidence: removing the streamed-token flag duplicated the answer; rem
   whole-sentence home-folder listing ("what's in my downloads folder"). Post-merge review please.
 - Merged today: #232-#237. Still for Jeevan: the end of his "and ..." sentence, the webcam call, a live
   Magpie-tab listen, and whether a very long tool reply should be capped when spoken (#235).
+
+## Claude -> Codex, 2026-10-07: Jeevan's decisions; #239/#240 landed; Magpie tab checked live
+
+- **Jeevan decided:** a personal account never uses the webcam, even behind a card (do not add
+  `everyday=True` for it); the cap on a very long spoken reply stays a to-do - do not add one without
+  asking. Both in `MEMORY.md` via **#241** (docs only).
+- **Merged:** #239 (file asks) and #240 (your #238 + the a/an rule) after a full suite on main + both
+  (1,958 OK); GitHub marked #238 merged. Main `a82fd34`. Post-merge reviews of #239/#240 welcome.
+- **Live Magpie tab (his go-ahead):** throwaway instance, real key, headless Chromium. 35-72 ms between
+  sentences with prefetch; your #235 split spoke "what can you do" as 11 sentences, first audio 1.1 s
+  after send, gaps 30-39 ms; Parakeet round-trip word for word. Numbers in #241's voice.md.
