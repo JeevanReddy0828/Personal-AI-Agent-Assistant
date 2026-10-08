@@ -51,6 +51,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"How hot will it be in my oven" gave an outdoor forecast** → the future-weather
+  location tail accepted household objects as places → leave possessive locations, any
+  "a/an" ("in a sauna", "in a desert" - no list needed) and "the" + a household object to the
+  router; keep Austin and the UK fast. (10-07)
 - **"translate this into French: …", "say good night in Hindi", "how to say X in Korean" went
   to the chat model** → the translation routes knew only a closing language and "how do you
   say" → a colon form in `parse_translation` (read first, since the text may end in a
@@ -248,6 +252,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
+- **"find the readme in this folder" answered "Path does not exist: …\readme ."** →
+  `search files <query> <root>` split at the first space, so any query of two words broke →
+  the root is the longest tail that exists, else the first path-shaped one
+  (`_query_and_root`). "what's in my downloads folder" also reached the model → a home
+  folder by name, as the whole sentence. (10-07)
 - **A summary or answer that is a wall of Markdown** → a splitter flattened lines → one
   splitter, `terms.sentences` (`structure=True` keeps rows and code for Q&A). (10-01)
 - **"do"/"in" outrank the subject with one document indexed** → equal IDF → function words

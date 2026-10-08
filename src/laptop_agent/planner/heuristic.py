@@ -568,6 +568,11 @@ _JOBS_ASK = re.compile(
 )
 _JOBRIGHT_ASK = re.compile(r"^\s*(?:pull|get|fetch|grab|check)\s+(?:new\s+|the\s+latest\s+)?(?:jobs|leads|job\s+leads)"
                            r"\s+(?:from|on)\s+jobright\b", re.IGNORECASE)
+# An indoor object after a determiner is not a forecast location. Article-prefixed real
+# places ("the UK", "the beach") still take the fast route; possessives fall back to the router,
+# and so does any "a"/"an": a place is not named that way, so "in a sauna", "in a tent tonight"
+# and "in a desert" (a general question) all need no list to stay out.
+_WEATHER_OBJECT = r"(?:oven|car|kitchen|room|bedroom|bathroom|house|home|attic|basement|garage|microwave|fridge|freezer|pan|pot)"
 # A question about the weather, with or without a place in it.
 _WEATHER_ASK = re.compile(
     r"^\s*(?:what(?:'s|s| is)|how(?:'s| is)|show\s+me|give\s+me|check|get)\s+(?:the\s+)?"
@@ -582,7 +587,8 @@ _WEATHER_ASK = re.compile(
     r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+will\s+it\s+(?:be|get)"
     r"(?:\s+(?:today|tonight|tomorrow|later|outside|next\s+week|this\s+(?:week(?:end)?|morning|afternoon|evening)"
     r"|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day"
-    r"|(?:in|at|near|around)\s+[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?))*\s*[?.!]*$"
+    rf"|(?:in|at|near|around)\s+(?!(?:my|your|our|his|her|their|a|an)\b|the\s+{_WEATHER_OBJECT}\b)"
+    r"[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?))*\s*[?.!]*$"
     r"|^\s*(?:do|should|will)\s+i\s+(?:need|bring|take|wear|pack|grab)\s+(?:an?\s+|my\s+)?"
     r"(?:umbrella|jacket|coat|raincoat|sunscreen|sweater|hoodie|layers?|shorts|boots|gloves|scarf)\b"
     r"|^\s*what\s+should\s+i\s+wear(?:\s+(?:today|tonight|tomorrow|outside|this\s+(?:morning|afternoon|evening)))?"
@@ -807,6 +813,17 @@ def asks_to_arrange(text: str) -> bool:
     ))
 
 
+# "what's in my downloads folder", "show me my desktop files": a home folder by name, as the
+# whole sentence. `_folder_path` decides whether it is a folder on this machine, so "what's in
+# my shopping list" is left to the list route and "what's in my calendar" to the model. A
+# "show"/"list" ask needs "files" or "folder" said, since "show me my desktop" may mean the screen.
+_FOLDER_LISTING = re.compile(
+    _POLITE + r"(?:(?P<what>what(?:'s|s|\s+is)\s+in|what\s+do\s+i\s+have\s+in)"
+    r"|(?:show|list|give)(?:\s+me)?(?:\s+(?:the|all)(?:\s+the)?)?(?:\s+files\s+(?:in|on))?)\s+"
+    r"(?P<where>(?:my|the)\s+\w+(?:\s+(?:folder|directory))?)(?:\s+files)?[\s?.!]*",
+    re.IGNORECASE,
+)
+
 # "what are the largest files in my downloads", "show me the 5 biggest files on my desktop",
 # "what's taking up space in my downloads". The LLM router turned the first into a plain
 # `scan files ~/Downloads`, dropping "largest", and the reply listed the first 200 of 1214
@@ -888,6 +905,12 @@ class HeuristicPlannerProvider:
         largest = self._largest_files(raw)
         if largest:
             return largest
+
+        listing = _FOLDER_LISTING.fullmatch(raw)
+        if listing and (listing.group("what") or re.search(r"\b(?:files|folder|directory)\b", raw, re.IGNORECASE)):
+            root = _folder_path(listing.group("where"))
+            if root:
+                return self._command(f"scan files {root}", "User wants to see what is in a folder.", 0.85)
 
         casual = self._casual(lowered)
         if casual:

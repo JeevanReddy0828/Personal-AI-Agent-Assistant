@@ -8,6 +8,7 @@ import errno
 import html
 import hashlib
 import json
+import os
 import re
 import tempfile
 import urllib.error
@@ -249,6 +250,23 @@ _QUOTED = re.compile(
     r"(?=[\s.,;:?!]|$)"
 )
 _PATH_LIKE = re.compile(r"[\\/]|^~|\.[A-Za-z0-9]{1,5}$")
+
+
+def _query_and_root(rest: str) -> tuple[str, str] | None:
+    """`search files <query> <root>`, where either may hold spaces: the root is the longest
+    tail that exists on disk. Split at the first space, "find the readme in this folder"
+    searched for "the" in a folder called "readme ." and said it did not exist. With no tail
+    on disk the root starts at the first thing shaped like a path, so a missing folder is
+    named as itself; failing that, at the first space as before."""
+    cuts = [space.end() for space in re.finditer(r"\s+", rest)]
+    if not cuts:
+        return None
+    for cut in cuts:
+        root = rest[cut:].strip()
+        if root and os.path.exists(os.path.expanduser(root)):   # False, not an error, for a name Windows refuses
+            return rest[:cut].strip().strip("'\"“”"), root
+    cut = next((cut for cut in cuts if re.match(r"[A-Za-z]:|[~./\\]", rest[cut:])), cuts[0])
+    return rest[:cut].strip().strip("'\"“”"), rest[cut:].strip()
 
 
 def _clean_paths(command: str) -> str:
@@ -1390,11 +1408,10 @@ class AgentOrchestrator:
             return self.context.files.organize(target, apply=apply)
 
         if lowered.startswith("search files "):
-            rest = command[len("search files ") :].strip()
-            parts = rest.split(maxsplit=1)
-            if len(parts) < 2:
+            split = _query_and_root(command[len("search files ") :].strip())
+            if split is None:
                 return ToolResult.failure("Use: search files <query> <root>")
-            return self.context.files.search_text(parts[0], parts[1])
+            return self.context.files.search_text(*split)
         return None
 
     async def _dispatch_research(self, command: str, lowered: str, history_turns) -> ToolResult | None:
