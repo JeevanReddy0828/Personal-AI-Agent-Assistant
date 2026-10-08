@@ -173,7 +173,9 @@ class RoutingContractTests(unittest.TestCase):
     def test_future_weather_does_not_treat_household_objects_as_places(self) -> None:
         for text in ("how hot will it be in my oven", "how hot will it be in the car",
                      "how hot will it be in a kitchen", "how hot will it be in a sauna",
-                     "how cold will it be in a tent tonight", "how hot will it be in a desert"):
+                     "how cold will it be in a tent tonight", "how hot will it be in a desert",
+                     "how hot will it be on the stove this friday", "how hot will it be in my oven on saturday",
+                     "how cold will it be in a tent saturday night"):
             with self.subTest(text=text):
                 result, ran = self.everyday.say(text)
                 self.assertIsNone(ran, (text, ran, result.message))

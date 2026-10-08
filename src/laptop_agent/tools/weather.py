@@ -38,15 +38,21 @@ def _urllib_json(url: str) -> dict:
 # command, reached the geocoder as "in london" - and then, trimmed by the fallback below,
 # as "in"; `weather today` asked it for a town called Today. Every caller gets this, the
 # direct command, the instant router and the LLM router alike.
+# A day named with the place: "austin on saturday" reached the geocoder whole, so "how hot will
+# it be in austin on saturday" found no place. At the start only before "in/at/for/near", since
+# Friday Harbor is a town.
+_PART_OF_DAY = r"(?:\s+(?:morning|afternoon|evening|night))?"
+_WEEKDAY = rf"(?:(?:on\s+)?(?:this|next|coming)\s+|on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day{_PART_OF_DAY}"
 _PLACE_HEAD = re.compile(
     r"^(?:(?:the\s+)?(?:weather|forecast|temperature)|like|in|for|at|near|around|of|today|tonight"
-    r"|tomorrow|now|right\s+now|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week)\s+",
+    r"|tomorrow|now|right\s+now|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week"
+    rf"|{_WEEKDAY}(?=\s+(?:in|at|for|near)\s))\s+",
     re.IGNORECASE,
 )
 _PLACE_TAIL = re.compile(
-    r"(?:^|\s+)(?:today|tonight|tomorrow|now|right\s+now|currently|outside|like|please|at\s+the\s+moment"
-    r"|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week|for\s+the\s+week"
-    r"|(?:for|over)\s+the\s+next\s+(?:few|couple(?:\s+of)?|\d+)\s+days)\s*$",
+    rf"(?:^|\s+)(?:today|tonight|tomorrow{_PART_OF_DAY}|now|right\s+now|currently|outside|like|please|at\s+the\s+moment"
+    r"|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week|for\s+the\s+week|(?:on|over)\s+the\s+weekend"
+    rf"|{_WEEKDAY}|(?:for|over)\s+the\s+next\s+(?:few|couple(?:\s+of)?|\d+)\s+days)\s*$",
     re.IGNORECASE,
 )
 _NOT_A_PLACE = {"in", "for", "at", "near", "around", "of", "the", "like", "here", "there", "outside",

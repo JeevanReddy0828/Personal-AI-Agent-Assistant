@@ -65,6 +65,12 @@ class PlaceCleaningTests(unittest.TestCase):
             "for Dallas tomorrow": "Dallas", "this weekend in denver": "denver",
             "like in paris right now": "paris", "near me": "", "Austin, TX": "Austin, TX",
             "Tomorrowland": "Tomorrowland", "Fort Worth": "Fort Worth",
+            # A day said with the place reached the geocoder whole: "austin on saturday".
+            "austin on saturday": "austin", "tokyo friday": "tokyo", "paris next monday": "paris",
+            "on sunday in london": "london", "boston on the weekend": "boston",
+            "Friday Harbor": "Friday Harbor", "Sunday Harbour in maine": "Sunday Harbour in maine",
+            "chicago saturday night": "chicago", "denver tomorrow morning": "denver",
+            "saturday night in chicago": "chicago",
         }
         for raw, expected in cases.items():
             self.assertEqual(clean_place(raw), expected, raw)

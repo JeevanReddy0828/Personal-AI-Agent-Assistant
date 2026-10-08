@@ -12,7 +12,7 @@ from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
 from laptop_agent.tools.translate import LANGUAGES as _LANGUAGES, UNSUPPORTED as _UNSUPPORTED_LANGUAGES
 from laptop_agent.tools.translate import parse_translation
-from laptop_agent.tools.weather import clean_place
+from laptop_agent.tools.weather import _PART_OF_DAY, _WEEKDAY, clean_place
 from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
 
 # Built from the tool's own vocabulary, never hand-written. The previous list here was a
@@ -597,8 +597,8 @@ _WEATHER_ASK = re.compile(
     r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+is\s+it\b"
     # The whole sentence: "how hot will it be if i add more chili" is about the pot.
     r"|^\s*how\s+(?:hot|cold|warm|chilly|humid|windy)\s+will\s+it\s+(?:be|get)"
-    r"(?:\s+(?:today|tonight|tomorrow|later|outside|next\s+week|this\s+(?:week(?:end)?|morning|afternoon|evening)"
-    r"|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day"
+    rf"(?:\s+(?:today|tonight|tomorrow{_PART_OF_DAY}|later|outside|next\s+week|this\s+(?:week(?:end)?|morning|afternoon|evening)"
+    rf"|(?:on|over)\s+the\s+weekend|{_WEEKDAY}"
     rf"|(?:in|at|near|around)\s+(?!(?:my|your|our|his|her|their|a|an)\b|the\s+{_WEATHER_OBJECT}\b)"
     r"[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?))*\s*[?.!]*$"
     r"|^\s*(?:do|should|will)\s+i\s+(?:need|bring|take|wear|pack|grab)\s+(?:an?\s+|my\s+)?"
