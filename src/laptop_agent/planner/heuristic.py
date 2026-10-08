@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from laptop_agent.memory import KNOWN_LISTS as _KNOWN_LISTS
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
@@ -416,6 +417,17 @@ _LIST_NAME = r"(?:my|the|our)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+lis
 _LIST_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)?|stick(?:ing)?|writ(?:e|ing))\s+"
                        r"(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+"
                        + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
+# "add milk and bread to groceries", "take bread off the shopping": a list named without the
+# word "list", only by a name memory.py already knows - so "add salt to the soup" is no list.
+# Not "task" or "shop" alone: "add a comment to the task" means one task, "the shop" a place.
+_BARE_LIST = (r"(?:(?:my|the|our)\s+)?(?P<name>"
+              + "|".join(sorted((re.escape(name).replace(r"\ ", r"\s+") for name in _KNOWN_LISTS - {"task", "shop"}),
+                                key=len, reverse=True))
+              + r")")
+_LIST_ADD_BARE = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)?|stick(?:ing)?|writ(?:e|ing))\s+"
+                            r"(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+" + _BARE_LIST + r"\s*[.!]*$", re.IGNORECASE)
+_LIST_REMOVE_BARE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
+                               r"(?:off(?:\s+of)?|from)\s+" + _BARE_LIST + r"\s*[.!]*$", re.IGNORECASE)
 _LIST_SHOW = re.compile(_POLITE + r"(?:what(?:'s|s|\s+is|\s+are)?\s+(?:on|in)|show(?:\s+me)?|read(?:\s+me)?"
                         r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on)\s+" + _LIST_NAME + r"\s*[?.!]*$",
                         re.IGNORECASE)
@@ -1304,7 +1316,7 @@ class HeuristicPlannerProvider:
         if changed:
             key = re.sub(r"\s+", "_", changed.group("key").strip().lower())
             return self._command(f"remember {key} = {changed.group('value').strip()}", "A fact, corrected.", 0.86)
-        added = _LIST_ADD.match(text)
+        added = _LIST_ADD.match(text) or _LIST_ADD_BARE.match(text)
         if added:
             return self._command(f"list {added.group('name')} add {added.group('items')}", "Add to a list.", 0.88)
         shown = _LIST_SHOW.match(text)
@@ -1312,7 +1324,7 @@ class HeuristicPlannerProvider:
             return self._command(f"list {shown.group('name')} show", "Read a list.", 0.88)
         if _STORE_ASK.match(text):
             return self._command("list shopping show", "What to buy is the shopping list.", 0.86)
-        removed = _LIST_REMOVE.match(text)
+        removed = _LIST_REMOVE.match(text) or _LIST_REMOVE_BARE.match(text)
         if removed:
             return self._command(f"list {removed.group('name')} remove {removed.group('items')}", "Remove from a list.", 0.88)
         cleared = _LIST_CLEAR.match(text)
