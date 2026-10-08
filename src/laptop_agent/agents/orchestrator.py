@@ -1870,9 +1870,15 @@ class AgentOrchestrator:
                     if earlier is not None and earlier[0] <= today:
                         first = earlier
                         break
+                # A weekday has no year to go back to: "since friday" on a Saturday is yesterday,
+                # and it answered 6 days, to the coming Friday (Codex's review of #244).
+                if first[0] > today and re.fullmatch(r"\s*(?:last\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day\s*",
+                                                     what, re.IGNORECASE):
+                    while first[0] > today:
+                        first = (first[0] - timedelta(days=7), first[1])
             days = abs((second[0] - first[0]).days)
             return ToolResult.success(
-                f"**{days} days** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
+                f"**{days} day{'s' if days != 1 else ''}** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
                 f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
         upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?\s*", what, re.IGNORECASE)
         if kind != "between" and upcoming:

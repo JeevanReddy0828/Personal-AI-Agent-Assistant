@@ -37,6 +37,11 @@ _WORDS = (
 # A bare "%" stays modulo ("10 % 3" is 1); only these shapes mean a percentage.
 _NUMBER = r"(\d+(?:\.\d+)?)"
 _MONEY = r"(?:\s+(?:dollars?|bucks|euros?|pounds?|rupees?))?"
+
+
+def _mean(listed: str) -> str:
+    numbers = re.findall(r"\d+(?:\.\d+)?", listed)
+    return f"(({'+'.join(numbers)})/{len(numbers)})"
 _PHRASES = (
     # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45"
     (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+)?(?:of|on|for)\s+{_NUMBER}", r"(\1/100*\2)"),
@@ -62,7 +67,36 @@ _PHRASES = (
     # "double 25", "twice 40", "triple 12"
     (rf"\b(?:double|twice)\s+{_NUMBER}", r"(2*\1)"),
     (rf"\b(?:triple|thrice)\s+{_NUMBER}", r"(3*\1)"),
+    # "the average of 4, 8 and 15", "mean of 3 and 5" - kept exact, so 10/3 stays 10/3.
+    (rf"\b(?:the\s+)?(?:average|mean)\s+of\s+({_NUMBER[1:-1]}(?:\s*,\s*(?:and\s+)?{_NUMBER[1:-1]}|\s+and\s+{_NUMBER[1:-1]})+)",
+     lambda m: _mean(m.group(1))),
+    # "round 3.14159 to 2 decimals", "round 7.5 to the nearest whole number"
+    (rf"\bround\s+(?:off\s+)?{_NUMBER}\s+to\s+(\d+)\s+(?:decimal\s+places?|decimals?|places?|dp|digits?)",
+     r"round(\1, \2)"),
+    (rf"\bround\s+(?:off\s+)?{_NUMBER}(?:\s+to\s+the\s+nearest\s+(?:whole\s+number|integer|one))?(?=\s*$)", r"round(\1)"),
+    # "5 factorial", "the factorial of 10"
+    (rf"\b(?:the\s+)?factorial\s+of\s+{_NUMBER}|{_NUMBER}\s+factorial\b",
+     lambda m: f"factorial({m.group(1) or m.group(2)})"),
 )
+
+
+def _round(value, places=0):
+    """Half up, on the decimal digits as written: Python's round is the banker's - 6.5 is 6 -
+    and works on the binary float, so round(2.675, 2) is 2.67. People expect 7 and 2.68."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    if not float(places).is_integer():
+        raise ValueError("the number of places must be whole")
+    exact = Decimal(str(value)).quantize(Decimal(1).scaleb(-int(places)), rounding=ROUND_HALF_UP)
+    return int(exact) if int(places) <= 0 else float(exact)
+
+
+def _factorial(n):
+    if not float(n).is_integer() or n < 0:
+        raise ValueError("factorial needs a whole number that is not negative")
+    if n > 3000:                         # 3000! has 9,131 digits; past that it only costs time
+        raise ValueError("that factorial is too large to compute safely")
+    return math.factorial(int(n))
 
 # Dictated numbers: "five plus five", "twelve times twelve", "one hundred and twenty".
 _UNITS = {
@@ -105,11 +139,11 @@ _TOKEN = re.compile(
 )
 
 _FUNCTIONS = {
-    "sqrt": math.sqrt, "abs": abs, "round": round, "floor": math.floor, "ceil": math.ceil,
+    "sqrt": math.sqrt, "abs": abs, "round": _round, "floor": math.floor, "ceil": math.ceil,
     "log": math.log, "log10": math.log10, "log2": math.log2, "exp": math.exp,
     "sin": math.sin, "cos": math.cos, "tan": math.tan,
     "asin": math.asin, "acos": math.acos, "atan": math.atan,
-    "min": min, "max": max,
+    "min": min, "max": max, "factorial": _factorial,
 }
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 # About 300,000 digits: computes in milliseconds, prints in scientific form.
@@ -303,10 +337,10 @@ def looks_like_arithmetic(text: str) -> bool:
     advisor.
     """
     cleaned = normalize(text)
-    probe = cleaned.replace("sqrt(", "(")
+    probe = re.sub(r"\b(?:sqrt|round|factorial)\(", "(", cleaned)
     if not probe or not _LOOKS_ARITHMETIC.match(probe):
         return False
-    operated = bool(re.search(r"[+\-*/%^]", probe)) or "sqrt(" in cleaned
+    operated = bool(re.search(r"[+\-*/%^]", probe)) or probe != cleaned
     return operated and bool(re.search(r"\d", probe))
 
 
@@ -365,10 +399,35 @@ def evaluate(expression: str):
     return _Parser(_tokenize(cleaned)).parse()
 
 
+# "is 97 a prime number": yes or no, with the factors when it is no. Not a sum, so it is
+# asked as a whole sentence of its own; checked by trial division up to a trillion.
+_PRIME_ASK = re.compile(r"^\s*is\s+(?P<n>\d+)\s+(?:a\s+)?prime(?:\s+number)?\s*$", re.IGNORECASE)
+_PRIME_LIMIT = 10**12
+
+
+def prime_question(text: str) -> int | None:
+    """The number asked about in "is N (a) prime (number)", else None."""
+    asked = _PRIME_ASK.match(normalize(text))
+    return int(asked.group("n")) if asked else None
+
+
+def _factors(number: int) -> list[int]:
+    found, divisor = [], 2
+    while divisor * divisor <= number:
+        while number % divisor == 0:
+            found.append(divisor)
+            number //= divisor
+        divisor += 1 if divisor == 2 else 2
+    return found + ([number] if number > 1 else [])
+
+
 class CalculatorTool:
     """`calculate <expression>` — read-only and local, so no approval gate."""
 
     def compute(self, expression: str) -> ToolResult:
+        number = prime_question(expression)
+        if number is not None:
+            return self._prime(number)
         try:
             value = evaluate(expression)
         except CalculatorError as exc:
@@ -382,3 +441,17 @@ class CalculatorTool:
             result=shown,
             value=_as_float(value) if isinstance(value, (int, float, Fraction)) else None,
         )
+
+    @staticmethod
+    def _prime(number: int) -> ToolResult:
+        shown = _int_text(number)
+        if number < 2:
+            return ToolResult.success(f"No — **{shown} is not prime**: a prime is a whole number above 1 "
+                                      f"divisible only by 1 and itself.", prime=False)
+        if number > _PRIME_LIMIT:
+            return ToolResult.failure("That is too large to check here; I check numbers up to a trillion.")
+        factors = _factors(number)
+        if factors == [number]:
+            return ToolResult.success(f"Yes — **{shown} is prime**.", prime=True)
+        return ToolResult.success(f"No — **{shown} is not prime**: {' × '.join(_int_text(f) for f in factors)}.",
+                                  prime=False, factors=factors)

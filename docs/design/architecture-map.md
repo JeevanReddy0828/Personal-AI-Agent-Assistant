@@ -130,7 +130,10 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             `looks_like_arithmetic` is strict on purpose so "should I use 2 or 3 replicas"
             still reaches the advisor, and `solve` hands a sum straight to the calculator.
             Note the grammar: unary minus sits **above** power, so `-2**2` is -4; putting it
-            inside power gave 4),
+            inside power gave 4. Also "is N prime" (factors when it is not; trial division up to
+            a trillion), an average kept exact, "round X to N decimals" **half up on the digits
+            written** (Python's round is the banker's and works on the binary float, so 6.5 was
+            6 and 2.675 was 2.67), and factorial up to 3000),
         forecast (`forecast <column> in <file.csv> [by <date column>] [for N]` - a column of
             the user's own CSV projected forward by `analytics/forecast.py` (Codex's
             ANALYTICS-01, contract in `docs/forecasting.md`), never by a model.

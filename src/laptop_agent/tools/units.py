@@ -107,13 +107,36 @@ _HOW_MANY = re.compile(
 )
 
 
+# Amounts said as fractions: "a quarter cup", "half a cup", "three quarters of a cup", "one and
+# a half cups", "a cup and a half", "3/4 cup". Rewritten only where an amount stands - just
+# before a unit - so a "half" anywhere else in the sentence is left alone. Number words are
+# digits by the time this runs ("three quarters" arrives as "3 quarters").
+_BEFORE_UNIT = rf"(?=\s*{_UNIT}\b)"
+_FRACTION_AMOUNTS = (
+    (r"\b(\d+)\s+and\s+(?:a\s+)?half\s+", lambda m: f"{int(m.group(1)) + 0.5:g} "),
+    (r"\b(\d+)\s*/\s*(\d+)\s+", lambda m: f"{int(m.group(1)) / int(m.group(2)):.10g} " if int(m.group(2)) else m.group(0)),
+    (r"\b(?:3\s+(?:quarters|fourths))(?:\s+of\s+an?)?\s+", lambda m: "0.75 "),
+    (r"\b(?:2\s+thirds)(?:\s+of\s+an?)?\s+", lambda m: f"{2 / 3:.10g} "),
+    (r"\b(?:(?:a|an|1)\s+)?half(?:\s+(?:of\s+)?an?)?\s+", lambda m: "0.5 "),
+    (r"\b(?:(?:a|an|1)\s+)?(?:quarter|fourth)(?:\s+(?:of\s+)?an?)?\s+", lambda m: "0.25 "),
+    (r"\b(?:(?:a|an|1)\s+)?third(?:\s+(?:of\s+)?an?)?\s+", lambda m: f"{1 / 3:.10g} "),
+)
+
+
+def _fraction_amounts(text: str) -> str:
+    text = re.sub(rf"\ban?\s+({_UNIT})\s+and\s+a\s+half\b", r"1.5 \1", text, flags=re.IGNORECASE)
+    for pattern, value in _FRACTION_AMOUNTS:
+        text = re.sub(pattern + _BEFORE_UNIT, value, text, flags=re.IGNORECASE)
+    return text
+
+
 def _unit(word: str) -> str | None:
     return _LOOKUP.get(word.lower().strip())
 
 
 def parse(text: str) -> tuple[float, str, str] | None:
     """(amount, from-unit, to-unit) for a conversion request, or None."""
-    cleaned = _NUMBER_WORD.sub(lambda m: _words_to_number(m.group(0)), text or "")
+    cleaned = _fraction_amounts(_NUMBER_WORD.sub(lambda m: _words_to_number(m.group(0)), text or ""))
     # The router hands over `convert <what was said>`, and "how many ounces in a pound" or
     # "what's 70 fahrenheit in celsius" only reads as a conversion from its own first word.
     cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much)\b|what\b)", "", cleaned,
