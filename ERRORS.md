@@ -34,7 +34,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   against the polls; assert shape, never a frame count or duration. (09-26, 09-17)
 - **A test fails at certain hours** → a time with no date, or a day word counted from now
   near midnight → give every time a day; stop the clock (`StoppedClock`); reproduce with
-  `TZ=XXX-04:39:10`. (09-26, 09-27)
+  `TZ=XXX-04:39:10`. (09-26, 09-27) **On certain days of the week** too: "the date on friday" is
+  "— tomorrow" every Thursday, which broke CI on a docs-only PR → the same stopped clock; sweep a
+  date test file over all seven weekdays by patching `orchestrator.datetime`. (10-08)
 - **Unit tests green, the page does nothing** → the fixture used a remembered shape
   (`content`) where the client sends `{"role", "text"}` → copy fixtures from the client's
   code; use the feature through the page. (09-26)
