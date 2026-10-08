@@ -1597,8 +1597,10 @@ class HeuristicPlannerProvider:
 
         Routed to the web this answered 1:00 PM against a real local time of 6:26 PM,
         then invented a citation to defend it."""
-        from laptop_agent.tools.clock import asks_the_time
+        from laptop_agent.tools.clock import asks_the_time, zone_question
 
+        if zone_question(text):     # "convert 9am pst to ist", "how many hours ahead is tokyo"
+            return self._command(f"time {text.strip()}", "A time between zones, computed.", 0.95)
         if not asks_the_time(text):
             return None
         return self._command(f"time {text.strip()}", "Asking what time or date it is.", 0.95)
