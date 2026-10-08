@@ -77,6 +77,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("is 9991 a prime number", "calculate", "a yes or no a model gets wrong: 97 x 103"),
     ("what's the average of 4, 8 and 15", "calculate", "an average, kept exact"),
     ("round 3.14159 to two decimals", "calculate", "rounding, half up"),
+    ("how many tablespoons in a quarter cup", "convert", "an amount said as a fraction"),
+    ("how many teaspoons in half a cup", "convert", "same"),
     ("what's 2 to the power of 10", "calculate", "was rewritten to '2 **2 10'"),
     ("what is five plus five", "calculate", "dictated numbers"),
     ("what's 1/4 of 200", "calculate", "a fraction of"),

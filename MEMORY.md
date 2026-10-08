@@ -19,6 +19,15 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-07: **A personal account may not use the webcam, even behind an approval card
+  (Jeevan's decision).** It stays refused before any card, as `access.py` already does: an
+  approval click proves the person asking agreed, not the person in front of the camera, and
+  from a phone a personal session would film whoever is at the laptop. Developer accounts keep
+  capturing without a card (his 2026-10-06 call). Do not add `everyday=True` for it.
+- 2026-10-07: **A browser tab speaks Magpie too (Jeevan's decision, built in #232), and long
+  spoken replies are split by the server (#235, Codex).** Whether a very long tool reply
+  should be capped when spoken (it is read in full; Space stops it) is undecided - Jeevan
+  asked for it to be kept as a to-do, not changed.
 - 2026-10-06: **NVIDIA's speech skills: a hosted voice, translation, and the agent skill
   (Jeevan chose all three from build.nvidia.com/skills, Claude built them).** The app
   window speaks with hosted Magpie by default (`LAPTOP_AGENT_TTS=auto`), the offline voice
