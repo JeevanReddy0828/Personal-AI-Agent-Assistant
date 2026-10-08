@@ -190,6 +190,80 @@ def _requested_zone(text: str) -> tuple[str | None, str | None]:
     return None, candidate or None
 
 
+# Converting a time between zones, and the gap between two zones: "convert 9am pst to ist",
+# "what's 3pm london time in new york", "what time is it in tokyo when it's 9am here", "how
+# many hours ahead is tokyo". One right answer, which daylight saving makes easy to get
+# wrong, so it is computed here from the zone database; these went to the chat model. The
+# whole sentence must be one of these shapes, and both zones must be known, or it is left
+# to the router.
+_TIME_OF_DAY = (r"(?P<h>\d{1,2})(?::(?P<m>[0-5]\d))?\s*(?P<ap>a\.?\s?m\.?|p\.?\s?m\.?)?"
+                r"|(?P<word>noon|midday|midnight)")
+_ZONE_PHRASE = r"[a-z][a-z .'/_-]{0,30}?"
+_HERE = {"here", "local", "local time", "my time", "my local time", "me", "mine", "where i am", "my end"}
+_ZONE_ASKS = (
+    re.compile(rf"(?:convert\s+|what(?:'s|s|\s+is)\s+|when\s+is\s+)?(?:{_TIME_OF_DAY})(?:\s+(?P<src>{_ZONE_PHRASE}))?"
+               rf"\s+(?:to|in|into)\s+(?P<dst>{_ZONE_PHRASE})", re.IGNORECASE),
+    re.compile(rf"what\s+time\s+(?:is\s+it|will\s+it\s+be)\s+in\s+(?P<dst>{_ZONE_PHRASE})\s+(?:when\s+it(?:'s|s|\s+is)|at)"
+               rf"\s+(?:{_TIME_OF_DAY})(?:\s+(?:in\s+)?(?P<src>{_ZONE_PHRASE}))?", re.IGNORECASE),
+)
+_GAP_ASKS = (
+    re.compile(rf"how\s+many\s+hours\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
+               rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?", re.IGNORECASE),
+    re.compile(rf"how\s+far\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
+               rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?", re.IGNORECASE),
+    re.compile(rf"what(?:'s|s|\s+is)\s+the\s+time\s+difference\s+(?:between\s+(?P<a>{_ZONE_PHRASE})"
+               rf"\s+and\s+(?P<b>{_ZONE_PHRASE})|(?:with|to)\s+(?P<a2>{_ZONE_PHRASE}))", re.IGNORECASE),
+)
+
+
+def _zone_named(phrase: str | None) -> tuple[str | None, str] | None:
+    """(IANA zone, as said), (None, as said) for the laptop's own zone, or None if unknown."""
+    said = (phrase or "here").strip().lower()
+    if said in _HERE:
+        return None, said
+    said = re.sub(r"\s+time$", "", said).strip()
+    if said in _ZONE_WORDS:
+        return _ZONE_WORDS[said], said
+    if "/" in said:
+        return said.replace(" ", "_").title().replace("_/_", "/"), said
+    city = _iana_city(said)
+    return (city, said) if city else None
+
+
+def zone_question(text: str) -> dict[str, object] | None:
+    """A conversion or a gap between zones, read from the whole sentence, else None."""
+    candidate = re.sub(r"^\s*(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)|,?\s+please$", "",
+                       (text or "").strip().rstrip("?.!").strip(), flags=re.IGNORECASE)
+    for pattern in _ZONE_ASKS:
+        asked = pattern.fullmatch(candidate)
+        if not asked:
+            continue
+        if asked.group("word"):
+            hour, minute = (0 if asked.group("word").lower() == "midnight" else 12), 0
+        else:
+            hour, minute, half = int(asked.group("h")), int(asked.group("m") or 0), (asked.group("ap") or "").lower()
+            if not half and asked.group("m") is None:
+                return None                      # "9 pst" could be morning or night
+            if half and not 1 <= hour <= 12 or hour > 23:
+                return None
+            if half:
+                hour = hour % 12 + (12 if half.startswith("p") else 0)
+        source, target = _zone_named(asked.group("src")), _zone_named(asked.group("dst"))
+        if source is None or target is None or source[0] == target[0]:
+            return None
+        return {"kind": "convert", "hour": hour, "minute": minute, "source": source, "target": target}
+    for pattern in _GAP_ASKS:
+        asked = pattern.fullmatch(candidate)
+        if not asked:
+            continue
+        groups = asked.groupdict()
+        first, second = _zone_named(groups.get("a") or groups.get("a2")), _zone_named(groups.get("b"))
+        if first is None or second is None or first[0] is None:
+            return None
+        return {"kind": "gap", "first": first, "second": second}
+    return None
+
+
 def _load_zone(name: str):
     from zoneinfo import ZoneInfo  # stdlib; the data may still be missing on Windows
 
@@ -213,6 +287,9 @@ class ClockTool:
 
     def now(self, request: str = "") -> ToolResult:
         local = self._now()
+        between = zone_question(request)
+        if between is not None:
+            return self._between_zones(between, local)
         zone_name, asked_as = _requested_zone(request)
 
         if zone_name is None and asked_as:
@@ -249,6 +326,38 @@ class ClockTool:
             lines.append("")
             lines.append(f"Where you are it is **{self._clock(local)}** ({local.strftime('%Z')}).")
         return ToolResult.success(NL.join(lines), **self._data(moment, local, zone=zone_name))
+
+    def _between_zones(self, asked: dict[str, object], local: datetime) -> ToolResult:
+        """A time said in one zone, read in another; or how far apart two zones are now."""
+        first, second = (asked["source"], asked["target"]) if asked["kind"] == "convert" else (asked["first"], asked["second"])
+        try:
+            zone_a, zone_b = ((_load_zone(name) if name else local.tzinfo) for name, _said in (first, second))
+        except Exception as exc:
+            return ToolResult.failure(f"I cannot look up that time zone on this machine ({type(exc).__name__}). "
+                                      f"Time zone data needs: pip install tzdata.")
+        label_a, label_b = (name or "your computer" for name, _said in (first, second))
+        place_a, place_b = ("here" if name is None else f"in `{name}`" for name, _said in (first, second))
+        if asked["kind"] == "convert":
+            day = local.astimezone(zone_a).date()
+            start = datetime(day.year, day.month, day.day, int(asked["hour"]), int(asked["minute"]), tzinfo=zone_a)
+            end = start.astimezone(zone_b)
+            shift = {1: " the next day", -1: " the day before"}.get((end.date() - start.date()).days, "")
+            lines = [f"**{self._clock(start)} {start.strftime('%Z')}** {place_a} is "
+                     f"**{self._clock(end)} {end.strftime('%Z')}**{shift} {place_b}."]
+            notes = [self._standard_time_note(first[1], start), self._standard_time_note(second[1], end)]
+            lines += ["", *(note for note in notes if note)] if any(notes) else []
+            return ToolResult.success(NL.join(lines), source=start.isoformat(), target=end.isoformat(),
+                                      source_zone=label_a, target_zone=label_b)
+        now_a, now_b = local.astimezone(zone_a), local.astimezone(zone_b)
+        minutes = int(((now_a.utcoffset() or timedelta(0)) - (now_b.utcoffset() or timedelta(0))).total_seconds() // 60)
+        hours, spare = divmod(abs(minutes), 60)
+        size = " ".join(part for part in (f"{hours} hour{'s' if hours != 1 else ''}" if hours else "",
+                                          f"{spare} minutes" if spare else "") if part)
+        relation = "the same time as" if minutes == 0 else f"**{size} {'ahead of' if minutes > 0 else 'behind'}**"
+        other = "you" if second[0] is None else f"`{label_b}`"
+        text = (f"`{label_a}` is {relation} {other} right now: it is {self._clock(now_a)} {now_a.strftime('%Z')} "
+                f"there and {self._clock(now_b)} {now_b.strftime('%Z')} {place_b}.")
+        return ToolResult.success(text, minutes=minutes, first_zone=label_a, second_zone=label_b)
 
     @staticmethod
     def _clock(moment: datetime) -> str:
