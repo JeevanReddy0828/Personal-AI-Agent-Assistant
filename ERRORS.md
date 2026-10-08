@@ -287,6 +287,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"convert 2:30am new york to utc" on 8 March answered 7:30 UTC; 1:30 AM on 1 November
+  silently took the first of two** (Codex's review of #243) → a wall time was attached to a zone
+  without checking it → try both readings (fold 0 and 1) and keep those that round-trip through
+  UTC: none is a time the clocks skip, said so; two different ones are both given. (10-08)
 - **"convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model** →
   the clock knew only "the time in X" → `clock.zone_question` reads a conversion or a gap as
   the whole sentence, both zones known, and computes it from the zone database for the day

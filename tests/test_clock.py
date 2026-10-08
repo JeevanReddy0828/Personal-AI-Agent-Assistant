@@ -128,6 +128,26 @@ class BetweenZonesTests(unittest.TestCase):
         self.assertIn("is **2:00 PM UTC**", self.say("convert 9am est to utc", january))
         self.assertIn("is **1:00 PM UTC**", self.say("convert 9am est to utc"))     # September: EDT
 
+    def test_a_time_the_clocks_skip_or_repeat(self) -> None:
+        # Codex's review of #243: 2:30 AM never happens in New York on 8 March 2026 and was
+        # answered 7:30 UTC; 1:30 AM happens twice on 1 November and the first was picked silently.
+        from zoneinfo import ZoneInfo
+
+        new_york = ZoneInfo("America/New_York")
+        spring, autumn = datetime(2026, 3, 8, 0, 30, tzinfo=new_york), datetime(2026, 11, 1, 0, 30, tzinfo=new_york)
+        missing = ClockTool(now=lambda: spring).now("convert 2:30am new york to utc")
+        self.assertFalse(missing.ok)
+        self.assertIn("2:30 AM does not happen in `America/New_York` on Sunday 8 March", missing.message)
+        twice = self.say("convert 1:30am new york to utc", autumn)
+        self.assertIn("1:30 AM happens twice", twice)
+        self.assertIn("**1:30 AM EDT** is **5:30 AM UTC**", twice)
+        self.assertIn("**1:30 AM EST** is **6:30 AM UTC**", twice)
+        # Either side of the change, an ordinary hour is one answer.
+        self.assertIn("**3:30 AM EDT** in `America/New_York` is **7:30 AM UTC**",
+                      self.say("convert 3:30am new york to utc", spring))
+        self.assertIn("**3:30 AM EST** in `America/New_York` is **8:30 AM UTC**",
+                      self.say("convert 3:30am new york to utc", autumn))
+
     def test_how_far_apart_two_zones_are(self) -> None:
         self.assertIn("`Asia/Tokyo` is **13 hours ahead of** you right now", self.say("how many hours ahead is tokyo"))
         self.assertIn("`Asia/Kolkata` is **9 hours 30 minutes ahead of** you", self.say("how far ahead is india"))
