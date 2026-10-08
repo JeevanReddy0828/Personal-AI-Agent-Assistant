@@ -57,6 +57,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   chat model** → the volume route read only numbers, the previous-track key only "previous
   song" / "go back a song" → the two ends of the range in words, and "back to the last/previous
   song", as whole sentences ("the last song was great" stays chat). (10-08)
+- **"average of 1,000 and 2,000" said 0.75; "15% of 1,500" and "split 1,200 between 4" failed;
+  a 5,000-digit "is N prime" raised** (Codex's review of #246) → thousands separators came out
+  after the phrases had read the numbers, and `int()` refuses a numeral over 4,300 digits → the
+  separators go first; a numeral longer than the prime limit is refused by its length. (10-08)
 - **"add milk and bread to groceries" went to the chat model** → the list routes needed "my X
   list" → a bare list name is accepted when memory.py knows it (`KNOWN_LISTS`, read from its
   aliases, not copied), never "task" or "shop" alone ("add a comment to the task"), and "add
