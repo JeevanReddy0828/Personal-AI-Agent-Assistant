@@ -40,6 +40,20 @@ class MoreEverydayMathTests(unittest.TestCase):
         self.assertIn("= **9**", self.say("what's the average of 4, 8 and 15"))
         self.assertIn("= **1.5 (exactly 3/2)**", self.say("the mean of 1 and 2"))
 
+    def test_a_number_written_with_commas_is_one_number_in_every_phrase(self) -> None:
+        # Codex's review of #246: the separators came out after the phrases had read the
+        # numbers, so "average of 1,000 and 2,000" was 0.75 and "15% of 1,500" failed.
+        self.assertIn("= **1,500**", self.say("average of 1,000 and 2,000"))
+        self.assertIn("= **225**", self.say("15% of 1,500"))
+        self.assertIn("= **300**", self.say("split 1,200 between 4 people"))
+        self.assertIn("Yes — **1,000,003 is prime**", self.say("is 1,000,003 prime"))
+
+    def test_a_numeral_too_long_to_read_is_refused_not_raised(self) -> None:
+        # int() refuses a numeral over 4,300 digits; it raised before the size reply.
+        result = CalculatorTool().compute("is " + "7" * 5000 + " prime")
+        self.assertFalse(result.ok)
+        self.assertIn("too large to check", result.message)
+
     def test_rounding_is_half_up_on_the_digits_written(self) -> None:
         # Python's round is the banker's (6.5 -> 6) and works on the binary float (2.675 -> 2.67).
         self.assertIn("= **7**", self.say("round 6.5 to the nearest whole number"))
