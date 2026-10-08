@@ -94,6 +94,31 @@ class DateTests(unittest.TestCase):
         profile = {"birthday": "march 3"}
         self.assertEqual(resolve("my birthday next year", NOW, profile)[0], date(2027, 3, 3))
 
+    def test_a_count_of_days_weeks_months_or_years_from_today(self) -> None:
+        # "what was the date 2 weeks ago", "what day will it be in 3 months" went to the model.
+        for text, expected in (("2 weeks ago", date(2026, 9, 12)), ("a month ago", date(2026, 8, 26)),
+                               ("in 3 months", date(2026, 12, 26)), ("10 days from now", date(2026, 10, 6)),
+                               ("in two years", date(2028, 9, 26)), ("christmas last year", date(2025, 12, 25)),
+                               ("last year's easter", date(2025, 4, 20)), ("july 4 1776", date(1776, 7, 4))):
+            with self.subTest(text):
+                self.assertEqual(resolve(text, NOW)[0], expected)
+        # A month back from 31 March is the end of February, not 3 March.
+        self.assertEqual(resolve("a month ago", datetime(2026, 3, 31, 12, 0))[0], date(2026, 2, 28))
+        self.assertIsNone(resolve("a few weeks ago", NOW))
+
+    def test_since_left_and_the_past_tense_are_date_questions(self) -> None:
+        for text, expected in (("how many days since march 1", ("between", "march 1", "today")),
+                               ("how long has it been since christmas", ("between", "christmas", "today")),
+                               ("how many days left in the year", ("until", "end of the year", "")),
+                               ("how many weeks are left in this month", ("until", "end of the month", "weeks")),
+                               ("what day of the week was july 4 1776", ("when", "july 4 1776", "")),
+                               ("what day will it be in 10 days", ("when", "in 10 days", "")),
+                               ("what was the date 2 weeks ago", ("when", "2 weeks ago", "")),
+                               ("when was christmas last year", ("when", "christmas last year", ""))):
+            with self.subTest(text):
+                self.assertEqual(date_question(text), expected)
+        self.assertFalse(answerable("how many days since the update", NOW))
+
     def test_the_users_own_dates(self) -> None:
         profile = {"wife's_birthday": "june 5", "birthday": "march 3"}
         self.assertEqual(resolve("my wife's birthday", NOW, profile), (date(2027, 6, 5), "your wife's birthday"))
@@ -161,6 +186,23 @@ class ThroughTheAssistantTests(unittest.TestCase):
             message = self.say("how many weeks until christmas")[0].message
             self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
             self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
+
+    def test_a_span_up_to_today_starts_from_the_last_time_the_date_came_round(self) -> None:
+        # "between march 1 and today" counted to NEXT March (145 days for an answer of 220), and
+        # "since christmas" to this December. Looking ahead ("between today and march 1") keeps
+        # the next one. On the stopped clock, Saturday 26 September 2026.
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            for text, days in (("how many days between march 1 and today", 209), ("how many days since march 1", 209),
+                               ("how long has it been since christmas", 275),
+                               ("how many days between today and march 1", 156),
+                               ("how many days between march 1 2027 and today", 156),   # a year said is kept
+                               ("how many days left in the year", 96)):
+                with self.subTest(text):
+                    self.assertTrue(self.say(text)[0].message.startswith(f"**{days} days**"), self.say(text)[0].message)
+            self.assertEqual(self.say("what day of the week was july 4 1776")[0].message.split(" — ")[0],
+                             "July 4 was on Thursday, 4 July 1776")
+            self.assertEqual(self.say("what was the date 2 weeks ago")[0].message,
+                             "2 weeks ago was on Saturday, 12 September 2026 — 14 days ago.")
 
     def test_a_date_already_past_is_said_in_the_past(self) -> None:
         # With a stated year a date can be behind us: "until" said "-84 days" and "is on" a past day.

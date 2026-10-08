@@ -76,14 +76,55 @@ def _pinned_year(text: str, today: date) -> tuple[str, int | None]:
     """The text without a stated year, and that year. "july 4th this year" is the one that has
     passed, "christmas next year" is not this December's, and "july 4th 2030" is in 2030: all
     three used to get the next time the date came round."""
-    leading = re.fullmatch(r"(this|next)\s+year'?s\s+(.+)", text, re.IGNORECASE)
+    step = {"last": -1, "this": 0, "next": 1}
+    leading = re.fullmatch(r"(this|next|last)\s+year'?s\s+(.+)", text, re.IGNORECASE)
     if leading:
-        return leading.group(2), today.year + (leading.group(1).lower() == "next")
-    trailing = re.fullmatch(r"(.+?),?\s+(?:(?:of\s+)?(this|next)\s+year|(?:in\s+)?((?:19|20)\d\d))", text, re.IGNORECASE)
+        return leading.group(2), today.year + step[leading.group(1).lower()]
+    # Any year from 1000: "what day of the week was july 4 1776" is a fair question.
+    trailing = re.fullmatch(r"(.+?),?\s+(?:(?:of\s+)?(this|next|last)\s+year|(?:in\s+)?([12]\d{3}))", text, re.IGNORECASE)
     if trailing:
-        year = int(trailing.group(3)) if trailing.group(3) else today.year + (trailing.group(2).lower() == "next")
+        year = int(trailing.group(3)) if trailing.group(3) else today.year + step[trailing.group(2).lower()]
         return trailing.group(1), year
     return text, None
+
+
+def says_a_year(text: str, today: date) -> bool:
+    """Whether a date phrase pins its year ("this year", "next year's", "2030")."""
+    cleaned = re.sub(r"^\s*(?:the\s+)?", "", (text or "").strip().rstrip("?.!")).strip()
+    return _pinned_year(cleaned, today)[1] is not None
+
+
+_COUNT = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+          "eight": 8, "nine": 9, "ten": 10, "twelve": 12}
+# "2 weeks ago", "in 3 months", "10 days from now": counted from today on the calendar, so a
+# month back from 31 March is the end of February, not 3 March.
+_SHIFTED = re.compile(
+    r"(?:in\s+(?P<n1>\d+|[a-z]+)\s+(?P<u1>day|week|month|year)s?(?:\s+(?:from\s+)?(?:now|today|time))?"
+    r"|(?P<n2>\d+|[a-z]+)\s+(?P<u2>day|week|month|year)s?\s+(?P<dir>ago|from\s+(?:now|today)))",
+    re.IGNORECASE,
+)
+
+
+def _shifted(text: str, today: date) -> date | None:
+    asked = _SHIFTED.fullmatch(text)
+    if not asked:
+        return None
+    said, unit = (asked.group("n1") or asked.group("n2")).lower(), (asked.group("u1") or asked.group("u2")).lower()
+    count = int(said) if said.isdigit() else _COUNT.get(said)
+    if count is None:
+        return None
+    if (asked.group("dir") or "").lower() == "ago":
+        count = -count
+    if unit in {"day", "week"}:
+        return today + timedelta(days=count * (7 if unit == "week" else 1))
+    index = today.month - 1 + count * (12 if unit == "year" else 1)
+    year, month = today.year + index // 12, index % 12 + 1
+    from calendar import monthrange
+
+    try:
+        return date(year, month, min(today.day, monthrange(year, month)[1]))
+    except ValueError:      # out of range for a calendar
+        return None
 
 
 def _month_day(text: str, today: date, year: int | None = None) -> date | None:
@@ -120,6 +161,9 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     relative = _OFFSETS.get(" ".join(cleaned.lower().split()))
     if relative is not None:
         return today + timedelta(days=relative), cleaned.lower()
+    shifted = _shifted(cleaned, today)
+    if shifted is not None:
+        return shifted, cleaned.lower()
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+year", cleaned, re.IGNORECASE):
         return date(today.year, 12, 31), "the end of the year"
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+month", cleaned, re.IGNORECASE):
@@ -163,14 +207,29 @@ _UNTIL = re.compile(
     re.IGNORECASE,
 )
 # "when is thanksgiving", "what day is christmas", "what date is easter this year"
+# Past and future tense too: "what day was july 4 1776", "what day will it be in 10 days",
+# "what was the date 2 weeks ago" went to the chat model.
 _WHEN = re.compile(
-    r"^\s*(?:when(?:'s|s|\s+is)|what\s+(?:day|date)\s+(?:is|does)|what\s+day\s+of\s+the\s+week\s+is"
-    r"|what(?:'s|s|\s+is)\s+the\s+(?:date|day)(?:\s+(?:on|of))?)\s+"
+    r"^\s*(?:when(?:'s|s|\s+is|\s+was|\s+will\s+be)|what\s+(?:day|date)\s+(?:will\s+it\s+be|was\s+it|is\s+it|is|does|was)"
+    r"|what\s+day\s+of\s+the\s+week\s+(?:is|was)"
+    r"|what(?:'s|s|\s+is|\s+was|\s+will\s+be)\s+the\s+(?:date|day)(?:\s+(?:on|of))?)\s+"
     r"(?P<what>.+?)(?:\s+(?:fall|land)\s+on)?\s*[?.!]*$",
     re.IGNORECASE,
 )
 _BETWEEN = re.compile(
     r"^\s*(?:how\s+many\s+days\s+(?:are\s+there\s+)?|days\s+)between\s+(?P<a>.+?)\s+and\s+(?P<b>.+?)\s*[?.!]*$",
+    re.IGNORECASE,
+)
+# "how many days since march 1": the span from then to today.
+_SINCE = re.compile(
+    r"^\s*(?:how\s+many\s+days\s+(?:has\s+it\s+been\s+|have\s+passed\s+|is\s+it\s+)?|how\s+long\s+(?:has\s+it\s+been\s+)?"
+    r"|days\s+)since\s+(?P<a>.+?)\s*[?.!]*$",
+    re.IGNORECASE,
+)
+# "how many days left in the year", "how many weeks are left in this month".
+_LEFT_IN = re.compile(
+    r"^\s*how\s+many\s+(?:more\s+)?(?P<unit>days|weeks)\s+(?:are\s+)?(?:left|remaining)\s+(?:in|of)\s+(?:the|this)\s+"
+    r"(?P<span>year|month)\s*[?.!]*$",
     re.IGNORECASE,
 )
 # "what's today", "what's the date tomorrow", "what's tomorrow's date": the date of a day
@@ -189,6 +248,12 @@ def date_question(text: str) -> tuple[str, str, str] | None:
     relative = _RELATIVE_DAY.match(text or "")
     if relative:
         return "when", relative.group("what").lower(), ""
+    left = _LEFT_IN.match(text or "")
+    if left:
+        return "until", f"end of the {left.group('span').lower()}", "weeks" if left.group("unit").lower() == "weeks" else ""
+    since = _SINCE.match(text or "")
+    if since:
+        return "between", since.group("a"), "today"
     for kind, pattern in (("between", _BETWEEN), ("until", _UNTIL), ("when", _WHEN)):
         match = pattern.match(text or "")
         if match:

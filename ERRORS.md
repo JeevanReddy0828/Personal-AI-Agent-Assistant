@@ -275,6 +275,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"how many days between march 1 and today" said 145 (next March); "since christmas" counted
+  to this December** → a bare date was always its next occurrence → a span up to today starts
+  from the last time the date came round (this year's, else last year's); "between today and
+  march 1" still looks ahead, and a stated year is kept. Also "since", "2 weeks ago", "in 3
+  months" (calendar months, clamped), "days left in the year", "was"/"will be", years from 1000.
+  Found by an offline probe. (10-08)
 - **"convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model** →
   the clock knew only "the time in X" → `clock.zone_question` reads a conversion or a gap as
   the whole sentence, both zones known, and computes it from the zone database for the day
