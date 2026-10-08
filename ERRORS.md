@@ -61,6 +61,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   only digits as an amount → a fraction said just before a unit ("half a cup", "three quarters
   of a cup", "one and a half cups", "a cup and a half", "3/4 cup") is rewritten to a decimal;
   a "half" anywhere else is left alone. (10-08)
+- **"Say never again in French" went to chat; "French word for a man who sings" translated
+  the whole description** → an `again` check rejected literal phrases, while a four-word
+  limit admitted a relative-clause definition → reject only repeat requests (`that/it
+  again`) and leave `who/that/which` descriptions to the model. (10-08)
 - **"How hot will it be in my oven" gave an outdoor forecast** → the future-weather
   location tail accepted household objects as places → leave possessive locations, any
   "a/an" ("in a sauna", "in a desert" - no list needed) and "the" + a household object to the

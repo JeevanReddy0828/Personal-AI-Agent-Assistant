@@ -154,6 +154,20 @@ class RoutingContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.everyday = Everyday(Path(self.tmp.name))
 
+    def test_literal_again_translates_but_a_short_definition_does_not(self) -> None:
+        for text, expected in (("say never again in french", "translate never again to french"),
+                               ("how do you say again in french", "translate again to french"),
+                               ("what's the french phrase for good luck", "translate good luck to french")):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertEqual(ran, expected, (text, result.message))
+                self.assertTrue(result.ok, result.message)
+        for text in ("say that again in french", "what's the french word for a man who sings",
+                     "what's the french word for a person that cooks"):
+            with self.subTest(text=text):
+                result, ran = self.everyday.say(text)
+                self.assertIsNone(ran, (text, ran, result.message))
+
     def test_future_weather_does_not_treat_household_objects_as_places(self) -> None:
         for text in ("how hot will it be in my oven", "how hot will it be in the car",
                      "how hot will it be in a kitchen", "how hot will it be in a sauna",
