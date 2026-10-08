@@ -53,6 +53,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"turn the volume all the way up", "max volume" and "go back to the last song" went to the
+  chat model** → the volume route read only numbers, the previous-track key only "previous
+  song" / "go back a song" → the two ends of the range in words, and "back to the last/previous
+  song", as whole sentences ("the last song was great" stays chat). (10-08)
 - **"average of 1,000 and 2,000" said 0.75; "15% of 1,500" and "split 1,200 between 4" failed;
   a 5,000-digit "is N prime" raised** (Codex's review of #246) → thousands separators came out
   after the phrases had read the numbers, and `int()` refuses a numeral over 4,300 digits → the
