@@ -434,7 +434,9 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         context.py (session context: chunks the chat transcript by Markdown structure, ranks
             chunks against the new message, budgets one block for every model-facing prompt)
 Everyday layer (see "Everyday requests" in routing.md): tools/units.py (conversions),
-        tools/dates.py (days until / holidays / "what's today"), tools/chance.py (coin, dice,
+        tools/dates.py (days until / since / between, holidays, "what's today", "2 weeks ago", "in 3
+        months", "days left in the year", a stated year incl. "last year" and 1776; a span up to
+        today starts from the last time a date came round), tools/chance.py (coin, dice,
         numbers via `secrets`), timers/alarms/repeats in the orchestrator over reminders.py +
         scheduler.py (`days` for weekdays / named days), lists and facts in memory.py
 ```
