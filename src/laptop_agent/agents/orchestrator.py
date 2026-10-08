@@ -59,7 +59,7 @@ from laptop_agent.planner.heuristic import (
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
-from laptop_agent.timeparse import TimeParseError, describe, parse_when, spoken_to_digits
+from laptop_agent.timeparse import TimeParseError, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
 from laptop_agent.tasks import TaskRecord, TaskTracker
@@ -1100,6 +1100,9 @@ class AgentOrchestrator:
 
         if lowered in {"reminders", "reminders list", "show reminders"}:
             return self._reminders_list()
+
+        if lowered.startswith("reminders on "):
+            return self._reminders_list(command[len("reminders on ") :].strip())
 
         if lowered in {"reminders due", "due reminders", "show due reminders"}:
             return self._reminders_due()
@@ -3205,9 +3208,36 @@ class AgentOrchestrator:
         return [job for job in self.context.scheduler.list_jobs()
                 if job.kind == "command" and job.spec.lower().startswith("reminder add now ")]
 
-    def _reminders_list(self) -> ToolResult:
+    def _reminders_list(self, day_text: str = "") -> ToolResult:
         now = datetime.now().astimezone()
         reminders = self.context.reminders.list()
+        if day_text:
+            resolved = resolve_date(day_text, now)
+            if resolved is None:
+                return ToolResult.failure(f"I could not read the day in {day_text!r}.")
+            selected = []
+            for item in reminders:
+                try:
+                    due = datetime.fromisoformat(str(item["due_at"]))
+                    if on_laptop_clock(due, now.tzinfo).date() == resolved[0]:
+                        selected.append(item)
+                except (KeyError, ValueError) as exc:
+                    record_failure("orchestrator.reminders_list", exc)
+            repeating = [job for job in self._repeating_reminders()
+                         if job.enabled and (job.schedule.kind != "daily" or not job.schedule.days
+                                             or resolved[0].weekday() in job.schedule.days)]
+            if not selected and not repeating:
+                return ToolResult.success(f"You have no reminders for {day_text}.", reminders=[], repeating=[])
+            lines = [_reminder_line(item, now) for item in selected[:20]]
+            if len(selected) > 20:
+                lines.append(f"- … and {len(selected) - 20} more after these")
+            lines += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}"
+                      for job in repeating]
+            count = len(selected) + len(repeating)
+            return ToolResult.success(
+                f"You have {count} reminder{'s' if count != 1 else ''} for {day_text}:\n"
+                + "\n".join(lines), reminders=selected, repeating=[job.to_dict() for job in repeating],
+            )
         repeating = self._repeating_reminders()
         if not reminders and not repeating:
             return ToolResult.success("You have no reminders set.", reminders=[])

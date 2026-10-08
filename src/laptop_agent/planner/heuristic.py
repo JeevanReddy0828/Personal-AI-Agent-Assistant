@@ -162,6 +162,15 @@ _REMINDER_ASK = re.compile(
 )
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
                             re.IGNORECASE)
+_REMINDER_DAY_TAIL = re.compile(
+    r"\s*(?:(?:do\s+i\s+have|have\s+i\s+got|are\s+there|have\s+i\s+set|are)\s+)?"
+    r"(?:(?:for|on|due|scheduled\s+for)\s+)?"
+    r"(?P<day>today|tomorrow|yesterday|(?:(?:this|next)\s+)?"
+    r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{4}-\d{1,2}-\d{1,2})\s*[?.!]*",
+    re.IGNORECASE,
+)
 # How a request is softened before it starts, said every way at once: "can you please set
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
@@ -1227,6 +1236,9 @@ class HeuristicPlannerProvider:
         # reminder" a definition question rather than a listing.
         ask = _REMINDER_ASK.match(lowered)
         if ask:
+            day = _REMINDER_DAY_TAIL.fullmatch(lowered[ask.end():])
+            if day:
+                return self._command(f"reminders on {day.group('day')}", "User wants reminders for a day.", 0.86)
             # Checked inside the listing branch, never on the bare word: "remind me to
             # pay the bill due friday" contains "due" and is an ADD.
             if re.search(r"\b(?:due|overdue|outstanding)\b", lowered):

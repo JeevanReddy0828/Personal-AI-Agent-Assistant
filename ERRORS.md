@@ -165,6 +165,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   leading run of time words (`_TIME_FIRST`); "tell me at 3pm to…" starts like a question, so
   it needs its own route (`_TELL_ME_AT`). Found by an indirect-phrasing corpus, not the
   contract: a prefix check cannot see a dropped time. (10-05)
+- **"What reminders do I have tomorrow" read every reminder** → the list route dropped
+  the named day → preserve it as `reminders on <day>`, resolve it on the laptop clock,
+  filter one-off due instants by their local date and include repeating jobs scheduled
+  for the day; omitting those falsely said "no reminders". Sweep all seven weekdays. (10-08)
 - **The model asks "May I…?" and never acts** → the prompt quoted the forbidden replies
   (17/25 → 1/25 reworded) → state the rule, never the bad example. (10-01)
 - **The model says it cannot do something it can** → the prompt said only what it cannot →

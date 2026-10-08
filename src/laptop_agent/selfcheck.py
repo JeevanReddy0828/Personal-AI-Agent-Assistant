@@ -47,6 +47,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what are my reminders", "reminders", "the phrasing the backlog reported"),
     ("do i have any reminders", "reminders", "no 'my', so it reached no router at all"),
     ("what reminders do i have", "reminders", "same, and it was answered by a guess"),
+    ("what reminders do i have tomorrow", "reminders on tomorrow", "a day must narrow the listing"),
     ("can you show me my reminders", "reminders", "politeness `strip_address` cannot remove"),
     ("remind me to call mom at 6pm", "reminder add", "a creation must beat a listing"),
     ("remind me to pay the bill due friday", "reminder add",
