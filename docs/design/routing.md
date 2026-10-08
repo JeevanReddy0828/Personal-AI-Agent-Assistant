@@ -82,3 +82,7 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   Reminders are **delivered**: `/api/reminders` (polled, with `next_in`) raises a card,
   chime, notification and in voice mode speech; the CLI has a watcher thread. Verify changes
   here with the corpus harness pattern - through `handle()` *and* through the page.
+  A listing that names today, tomorrow, a weekday or a date filters one-off reminders by
+  their due instant on the laptop's local calendar day; an unqualified listing still shows
+  all active reminders and repeating jobs. A creation such as "remind me to pay the bill
+  due friday" must never become a list request.

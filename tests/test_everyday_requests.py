@@ -23,7 +23,10 @@ import tempfile
 import time
 import unittest
 from dataclasses import replace
+from datetime import date, datetime, time as clock_time, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.app import build_context
@@ -773,6 +776,69 @@ class TellMeAgainTests(unittest.TestCase):
                 result, _ran = self.everyday.say(text)
                 self.assertTrue(result.ok, result.message)
         self.assertEqual(len(self.reminders.list()), 3)
+
+
+class ReminderDayTests(unittest.TestCase):
+    """A named day narrows the listing without changing an ordinary list or add."""
+
+    def test_day_queries_on_every_weekday(self) -> None:
+        class StoppedClock(datetime):
+            day = date(2026, 9, 21)
+
+            @classmethod
+            def now(cls, tz=None):
+                noon = datetime.combine(cls.day, clock_time(12))
+                return noon if tz is None else noon.astimezone(tz)
+
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+                patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc):
+            for offset in range(7):
+                with self.subTest(weekday=offset), tempfile.TemporaryDirectory() as tmp:
+                    StoppedClock.day = date(2026, 9, 21) + timedelta(days=offset)
+                    everyday = Everyday(Path(tmp))
+                    store = everyday.orchestrator.context.reminders
+                    for day_offset, message in ((0, "today item"), (1, "tomorrow item"), (2, "later item")):
+                        due = datetime.combine(StoppedClock.day + timedelta(days=day_offset),
+                                               clock_time(9), tzinfo=timezone.utc)
+                        self.assertTrue(store.add(due.isoformat(), message)["ok"])
+                    tomorrow = StoppedClock.day + timedelta(days=1)
+                    for request in ("what reminders do i have tomorrow",
+                                    f"show me my reminders for {tomorrow:%A}",
+                                    f"list my reminders on {tomorrow:%B} {tomorrow.day}"):
+                        result, ran = everyday.say(request, stream=False)
+                        self.assertIn("tomorrow item", result.message, request)
+                        self.assertNotIn("today item", result.message, request)
+                        self.assertNotIn("later item", result.message, request)
+                        self.assertEqual(len(result.data["reminders"]), 1, (request, ran))
+                    ordinary, _ = everyday.say("what are my reminders", stream=False)
+                    self.assertEqual(len(ordinary.data["reminders"]), 3)
+                    today, _ = everyday.say("what reminders do i have today", stream=False)
+                    self.assertEqual([item["message"] for item in today.data["reminders"]], ["today item"])
+
+    def test_a_creation_with_due_friday_is_not_a_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            result, _ = everyday.say("remind me to pay the bill due friday", stream=False)
+            self.assertIn("Reminder #1 set", result.message)
+            self.assertEqual(len(everyday.orchestrator.context.reminders.list()), 1)
+
+    def test_filter_uses_the_due_dates_laptop_offset(self) -> None:
+        class StoppedClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                noon = datetime(2026, 9, 26, 12)
+                return noon if tz is None else noon.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+                patch("laptop_agent.timeparse.LOCAL_ZONE", ZoneInfo("America/New_York")):
+            everyday = Everyday(Path(tmp))
+            store = everyday.orchestrator.context.reminders
+            # Both are Monday in UTC; the first is still Sunday on the laptop.
+            store.add("2026-09-28T01:00:00+00:00", "Sunday local")
+            store.add("2026-09-28T10:00:00+00:00", "Monday local")
+            sunday, _ = everyday.say("what reminders do i have tomorrow", stream=False)
+            self.assertEqual([item["message"] for item in sunday.data["reminders"]], ["Sunday local"])
 
 
 if __name__ == "__main__":
