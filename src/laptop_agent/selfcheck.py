@@ -79,6 +79,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("round 3.14159 to two decimals", "calculate", "rounding, half up"),
     ("how many tablespoons in a quarter cup", "convert", "an amount said as a fraction"),
     ("how many teaspoons in half a cup", "convert", "same"),
+    ("how tall is 6 foot 2 in cm", "convert", "a height in two units; reached a chat model"),
+    ("what's 2 pounds 4 ounces in grams", "convert", "same, a weight"),
     ("what's 2 to the power of 10", "calculate", "was rewritten to '2 **2 10'"),
     ("what is five plus five", "calculate", "dictated numbers"),
     ("what's 1/4 of 200", "calculate", "a fraction of"),

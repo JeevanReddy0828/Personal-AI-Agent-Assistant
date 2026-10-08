@@ -374,6 +374,8 @@ def _present(value) -> str:
             return _int_text(value.numerator)
         exact = f"{_int_text(value.numerator)}/{_int_text(value.denominator)}"
         approx = _as_float(value)
+        if approx is not None and Fraction(f"{approx:.10g}") == value:
+            return f"{approx:.10g}"   # 63/5 is 12.6: "12.6 (exactly 63/5)" said it twice
         return f"{approx:.10g} (exactly {exact})" if approx is not None else exact
     if isinstance(value, int):
         return _int_text(value)

@@ -53,6 +53,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"what's 5 feet 10 inches in cm" reached the chat model; a 15% tip said "12.6 (exactly
+  63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
+  its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,
+  2 h 30 min) one, keeps it as said, and answers "to feet and inches" in both; "convert how
+  tall is…" from the router parses too. A fraction is shown only when the decimal is not
+  exact. (10-08)
 - **"turn the volume all the way up", "max volume" and "go back to the last song" went to the
   chat model** → the volume route read only numbers, the previous-track key only "previous
   song" / "go back a song" → the two ends of the range in words, and "back to the last/previous

@@ -93,6 +93,29 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(parse("convert how many ounces in a pound"), (1.0, "pound", "ounce"))
         self.assertAlmostEqual(convert(212, "fahrenheit", "celsius"), 100)
 
+    def test_an_amount_in_two_units(self) -> None:
+        """A height or a weight said in two units reached a chat model."""
+        tool = UnitTool()
+        for text, expected in (
+            ("what's 5 feet 10 inches in cm", "5 feet 10 inches = **177.8 centimetres**"),
+            ("convert 5 ft 10 in to cm", "5 feet 10 inches = **177.8 centimetres**"),
+            ("what is 5'10\" in cm", "5 feet 10 inches = **177.8 centimetres**"),
+            ("how tall is 6 foot 2 in cm", "6 feet 2 inches = **187.96 centimetres**"),
+            ("what's 2 pounds 4 ounces in grams", "2 pounds 4 ounces = **1,020.58 grams**"),
+            ("how many minutes is 2 hours 30 minutes", "2 hours 30 minutes = **150 minutes**"),
+            ("convert 180 cm to feet and inches", "180 centimetres = **5 feet 10.87 inches**"),
+            ("convert 152.4 cm to feet and inches", "152.4 centimetres = **5 feet**"),
+            ("convert 150 minutes to hours and minutes", "150 minutes = **2 hours 30 minutes**"),
+        ):
+            with self.subTest(text):
+                self.assertTrue(looks_like_conversion(text))
+                self.assertEqual(tool.convert(text).message, expected)
+        # Two units that are not one amount stay out: no unit says what 10 is here.
+        for text in ("i am 5 feet 10 away", "remind me in 2 hours 30 minutes", "what is 2 hours 30 minutes from now",
+                     "convert 5 feet 10 pounds to cm"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_conversion(text))
+
 
 class DateTests(unittest.TestCase):
     def test_holidays_fixed_and_floating(self) -> None:
