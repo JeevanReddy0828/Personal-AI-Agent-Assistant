@@ -53,6 +53,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"is 97 a prime number", "the average of 4, 8 and 15", "round 3.14 to 1 decimal", "5
+  factorial" went to the chat model** → the calculator knew only operators → phrase rewrites
+  and a prime check, as whole sentences ("round trip to boston" stays chat). `round` is half
+  up on the written digits now: Python's gave 6 for 6.5 and 2.67 for 2.675. (10-08)
 - **"How hot will it be in my oven" gave an outdoor forecast** → the future-weather
   location tail accepted household objects as places → leave possessive locations, any
   "a/an" ("in a sauna", "in a desert" - no list needed) and "the" + a household object to the

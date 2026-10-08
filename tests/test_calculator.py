@@ -12,6 +12,57 @@ from laptop_agent.tools.calculator import (
 )
 
 
+class MoreEverydayMathTests(unittest.TestCase):
+    """From an offline probe: "is 97 a prime number", "the average of 4, 8 and 15", "round
+    3.14159 to two decimals" and "5 factorial" all went to the chat model. A model asked
+    whether 9991 is prime is easily wrong: it is 97 x 103."""
+
+    def say(self, text: str) -> str:
+        result = CalculatorTool().compute(text)
+        self.assertTrue(result.ok, result.message)
+        return result.message
+
+    def test_prime_or_not_with_the_factors(self) -> None:
+        from laptop_agent.tools.calculator import prime_question
+
+        self.assertEqual(self.say("is 97 a prime number"), "Yes — **97 is prime**.")
+        self.assertEqual(self.say("is 9991 prime?"), "No — **9,991 is not prime**: 97 × 103.")
+        self.assertEqual(self.say("is 2 prime"), "Yes — **2 is prime**.")
+        self.assertIn("**1 is not prime**", self.say("is 1 prime"))
+        self.assertEqual(self.say("is ninety seven prime"), "Yes — **97 is prime**.")
+        self.assertEqual(self.say("is 999983 a prime number"), "Yes — **999,983 is prime**.")
+        self.assertFalse(CalculatorTool().compute("is 1000000000039 prime").ok)   # past the limit, said so
+        for text in ("is 3 enough", "is the average salary 50000", "is 97 the answer"):
+            with self.subTest(text):
+                self.assertIsNone(prime_question(text))
+
+    def test_an_average_stays_exact(self) -> None:
+        self.assertIn("= **9**", self.say("what's the average of 4, 8 and 15"))
+        self.assertIn("= **1.5 (exactly 3/2)**", self.say("the mean of 1 and 2"))
+
+    def test_rounding_is_half_up_on_the_digits_written(self) -> None:
+        # Python's round is the banker's (6.5 -> 6) and works on the binary float (2.675 -> 2.67).
+        self.assertIn("= **7**", self.say("round 6.5 to the nearest whole number"))
+        self.assertIn("= **2.68**", self.say("round 2.675 to 2 decimals"))
+        self.assertIn("= **3.14**", self.say("round 3.14159 to two decimals"))
+        self.assertIn("= **-3**", self.say("round(-2.5)"))
+
+    def test_a_factorial_within_reason(self) -> None:
+        self.assertIn("= **120**", self.say("what's 5 factorial"))
+        self.assertIn("= **2,432,902,008,176,640,000**", self.say("the factorial of 20"))
+        for text in ("factorial of 4000", "factorial(2.5)"):
+            with self.subTest(text):
+                self.assertFalse(CalculatorTool().compute(text).ok)
+
+    def test_these_are_sums_and_prose_is_not(self) -> None:
+        for text in ("what's the average of 4, 8 and 15", "round 3.14159 to two decimals", "what's 5 factorial"):
+            with self.subTest(text):
+                self.assertTrue(looks_like_arithmetic(text))
+        for text in ("round trip to boston", "my mean score was 80 and 90", "the average of my week"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_arithmetic(text))
+
+
 class ExactArithmeticTests(unittest.TestCase):
     """Reported: `solve - 67458363*37834872` produced a decision framework and never
     reached a number. A language model is the wrong tool for this."""
