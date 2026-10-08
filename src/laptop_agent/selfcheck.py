@@ -74,6 +74,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     # could not act on it, or by the wrong tool.
     ("split $120 between 4 people", "calculate", "arranged windows once"),
     ("what's 15% of 80", "calculate", "percent phrasing"),
+    ("how many tablespoons in a quarter cup", "convert", "an amount said as a fraction"),
+    ("how many teaspoons in half a cup", "convert", "same"),
     ("what's 2 to the power of 10", "calculate", "was rewritten to '2 **2 10'"),
     ("what is five plus five", "calculate", "dictated numbers"),
     ("what's 1/4 of 200", "calculate", "a fraction of"),
