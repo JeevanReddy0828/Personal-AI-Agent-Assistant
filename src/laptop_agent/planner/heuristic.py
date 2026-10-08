@@ -334,6 +334,17 @@ _VOLUME_LEVEL = re.compile(
 )
 
 
+# "max volume", "turn the volume all the way up", "turn it all the way down": the two ends of
+# the range in words. A number already routed ("volume to zero"); these reached the model.
+_VOLUME_END = re.compile(
+    _POLITE + r"(?:(?:set|turn|put|crank|make)\s+(?:the\s+volume|it|the\s+sound|the\s+music)\s+(?:to\s+|up\s+to\s+)?"
+    r"(?:(?P<up>all\s+the\s+way\s+up|(?:the\s+)?max(?:imum)?|full)|(?P<down>all\s+the\s+way\s+down|(?:the\s+)?min(?:imum)?))"
+    r"|(?P<up2>max(?:imum)?\s+volume|volume\s+(?:to\s+)?(?:max(?:imum)?|full)|full\s+volume)"
+    r"|(?P<down2>min(?:imum)?\s+volume|volume\s+(?:to\s+)?min(?:imum)?))(?:\s+please)?\s*[.!]*$",
+    re.IGNORECASE,
+)
+
+
 def nameless_list_edit(text: str) -> tuple[str, str] | None:
     """("add"|"remove", the items) for a list edit that names no list, else None."""
     for verb, pattern in (("remove", _NAMELESS_REMOVE), ("add", _NAMELESS_ADD)):
@@ -360,7 +371,8 @@ _MEDIA_KEYS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (rf"(?:resume|continue)\s+(?:playing|{_MEDIA_NOUN})", "playpause"),
         (r"(?:play\s+(?:the\s+)?)?next\s+(?:song|track|video)|skip\s+(?:this\s+|the\s+)?(?:song|track|video)",
          "next"),
-        (r"(?:play\s+(?:the\s+)?)?(?:previous|last|prior)\s+(?:song|track|video)|go\s+back\s+a\s+(?:song|track)",
+        (r"(?:play\s+(?:the\s+)?)?(?:previous|last|prior)\s+(?:song|track|video)|go\s+back\s+(?:a|one)\s+(?:song|track)"
+         r"|(?:go\s+)?back\s+to\s+the\s+(?:previous|last)\s+(?:song|track|video)",
          "previous"),
         (rf"stop\s+(?:playing|{_MEDIA_NOUN})", "stop"),
         (rf"(?:(?:volume\s+up|turn\s+(?:it|the\s+(?:volume|music|sound))\s+up){_AFTER_STEP}|{_BEFORE_STEP}louder"
@@ -2084,6 +2096,10 @@ class HeuristicPlannerProvider:
             said_level = level.group("level")
             digits = said_level if said_level.isdigit() else _words_to_number(said_level)
             return self._command(f"media volume {digits}", "User wants a volume level.", 0.84)
+        end = _VOLUME_END.match(text)
+        if end:
+            level = 100 if end.group("up") or end.group("up2") else 0
+            return self._command(f"media volume {level}", "User wants the volume at one end of its range.", 0.84)
         match = _PLAY.match(text)
         if not match:
             return None

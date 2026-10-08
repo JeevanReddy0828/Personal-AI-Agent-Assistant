@@ -53,6 +53,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"turn the volume all the way up", "max volume" and "go back to the last song" went to the
+  chat model** → the volume route read only numbers, the previous-track key only "previous
+  song" / "go back a song" → the two ends of the range in words, and "back to the last/previous
+  song", as whole sentences ("the last song was great" stays chat). (10-08)
 - **"add milk and bread to groceries" went to the chat model** → the list routes needed "my X
   list" → a bare list name is accepted when memory.py knows it (`KNOWN_LISTS`, read from its
   aliases, not copied), never "task" or "shop" alone ("add a comment to the task"), and "add
