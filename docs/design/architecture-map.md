@@ -35,8 +35,10 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
         translate (`translate <text> to <language> [from <language>]`, `translate to
             <language>: <text>`, "how do you say X in Y", "how to say X in Y", "say X in Y"
             and "can you say that in Y", "in Y, how do you say X", "what's the Y word for X".
-            The last takes a word or a short phrase only (`_WORD_FOR_WORDS`), and "say
-            something in French" / "say that again" stay chat. NVIDIA's hosted `riva-translate-1.6b` over the Riva gRPC host, chosen by
+            The last takes a word or a short phrase only (`_WORD_FOR_WORDS`), but a short
+            relative-clause definition such as "a man who sings" still needs the model to
+            name a word. "Say something in French" / "say that again" stay chat, while
+            literal "say never again in French" translates. NVIDIA's hosted `riva-translate-1.6b` over the Riva gRPC host, chosen by
             `RIVA_NMT_FUNCTION_ID`. **The service cannot detect a source language** - an empty
             or "auto" source is refused - so the tool names it: `from <language>` when said,
             else the script (kana, Hangul, Han, Devanagari, Thai, Arabic, Greek, Cyrillic),

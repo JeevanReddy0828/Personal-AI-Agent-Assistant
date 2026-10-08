@@ -638,7 +638,8 @@ _SAY_IN = re.compile(
     _POLITE + r"(?:how\s+(?:(?:do|would|can|should)\s+(?:you|i|we|one)\s+|to\s+)say|say"
     r"|what(?:'s|s|\s+is)(?:\s+the\s+(?:word|phrase)\s+for)?)\s+"
     r"(?!(?:the|a)\s+(?:best|good|nice|polite|right|proper|correct)\s+way\b)"
-    r"(?!(?:some|any)thing\b|a\s+(?:few\s+words|word|sentence|joke|poem|story|prayer)\b)(?!.*\bagain\b)"
+    r"(?!(?:some|any)thing\b|a\s+(?:few\s+words|word|sentence|joke|poem|story|prayer)\b)"
+    r"(?!(?:that|it|the\s+same\s+thing)\s+again\b)"
     r"(?P<text>.+?)\s+in\s+(?P<lang>" + _LANGUAGE_NAME + r")[\s?.!]*",
     re.IGNORECASE,
 )
@@ -1149,7 +1150,10 @@ class HeuristicPlannerProvider:
             return None
         say = _SAY_IN.fullmatch(raw.strip()) or _IN_LANGUAGE_SAY.fullmatch(raw.strip())
         word = _LANGUAGE_WORD_FOR.fullmatch(raw.strip())
-        if word and len(word.group("text").split()) <= _WORD_FOR_WORDS:
+        # A four-word relative clause can describe a concept ("a man who sings"), not
+        # text to translate; the short-phrase length limit alone cannot distinguish it.
+        if (word and len(word.group("text").split()) <= _WORD_FOR_WORDS
+                and not re.search(r"\b(?:who|that|which)\b", word.group("text"), re.IGNORECASE)):
             say = word
         if say:
             return self._command(f"translate {say.group('text')} to {say.group('lang').lower()}",
