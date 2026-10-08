@@ -172,6 +172,20 @@ class MessageSplitTests(unittest.TestCase):
         self.assertEqual(self.split("call mom at 6pm about the invoice"),
                          "call mom about the invoice")
 
+    def test_a_deadline_due_goes_with_its_day(self) -> None:
+        """"pay the bill due friday" was filed as "pay the bill due"; "the rent is due" is the
+        reminder itself."""
+        cases = {
+            "pay the bill due friday": "pay the bill", "submit the report due at 5pm": "submit the report",
+            "pay the invoice that's due friday": "pay the invoice", "pay the bill due by friday": "pay the bill",
+            "the rent is due friday": "the rent is due", "my taxes are due on april 15": "my taxes are due",
+            "the essay's due friday": "the essay's due", "homework due at 9am": "homework due",
+            "math homework due friday": "math homework due",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text):
+                self.assertEqual(self.split(text), expected)
+
 
 class ClockTests(unittest.TestCase):
     def test_parse_clock_reads_a_time_of_day(self) -> None:
