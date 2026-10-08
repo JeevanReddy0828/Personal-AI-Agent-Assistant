@@ -182,9 +182,22 @@ without it:
   the epoch and voice session that asked for it.
 
 Barge-in needed nothing new: the recognizer path and the level path both already pause or
-release `activeAudio`, which the tests now drive through a Magpie tab. Verified in headless
-Chromium, with a real `/api/tts` WAV through a real audio element and fakes for the rest; not
-yet heard on the laptop's own browser, nor against live Magpie in a tab.
+release `activeAudio`, which the tests now drive through a Magpie tab.
+
+**Checked live on 2026-10-07** (Jeevan's go-ahead), on a throwaway instance (its own port and
+data directory, mail and vault blanked) with the real key, in headless Chromium. Every
+sentence below was synthesized by real Magpie and played through a real audio element, and
+none fell back to the browser voice.
+- Four sentences: synthesis took 0.9-1.0 s each, each played for its full duration, and the
+  silence between sentences was 35-72 ms. Fetched one after the other, that silence would be
+  the synthesis time.
+- "what can you do", a long tool reply split by #235: 11 sentences, the first audio 1.1 s
+  after sending, gaps of 30-39 ms.
+- Two sentences sent back through Parakeet came back word for word ("nine" as "9" is
+  Parakeet's formatting).
+- An audio `error` event fires 1-14 ms after each `ended`. That is `releaseAudio()` clearing
+  the source after the page's own handlers are detached, not a playback failure.
+No person has listened to it on the laptop's own browser yet.
 
 **Long tool replies use the streamed voice queue too** (2026-10-07). A local tool result
 has no token deltas, so it used to reach `voiceTurnDone` as one utterance. A tab or app
@@ -206,6 +219,12 @@ for a 1,367-character unpunctuated result at 2,785 ms before and 776 ms after. B
 voice spoke 126/190 and 137/234 words before, versus all 190 and 234 after; the short
 `Done.` reply remained one request and measured 141 ms before versus 116 ms after. These
 are local fake-backend measurements, not a claim about live Magpie performance.
+
+**Open, kept as a to-do (Jeevan, 2026-10-07): should a very long spoken reply be capped?**
+Since this change a long tool result is read aloud in full. "what can you do" ran about
+two minutes, and a long file read or file listing could run longer. Space stops it. The
+other option is to speak the first ~1,500 characters and say the rest is on screen. Nothing
+is decided, so do not add a cap without asking.
 
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
