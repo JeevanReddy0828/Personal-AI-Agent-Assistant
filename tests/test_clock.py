@@ -101,6 +101,50 @@ class ZoneTests(unittest.TestCase):
         self.assertNotIn("6:26 PM", result.message)
 
 
+class BetweenZonesTests(unittest.TestCase):
+    """"convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model,
+    which has one right answer to compute and daylight saving to get wrong. They are read
+    from the zone database, on the fixed moment above (11 September, Eastern on EDT)."""
+
+    def say(self, text: str, moment: datetime = MOMENT) -> str:
+        result = ClockTool(now=lambda: moment).now(text)
+        self.assertTrue(result.ok, result.message)
+        return result.message
+
+    def test_a_time_in_one_zone_read_in_another(self) -> None:
+        message = self.say("convert 9am pst to ist")
+        self.assertIn("**9:00 AM PDT** in `America/Los_Angeles` is **9:30 PM IST** in `Asia/Kolkata`.", message)
+        self.assertIn("You asked for PST, but that zone is on **PDT**", message)
+        self.assertIn("**3:00 PM BST** in `Europe/London` is **10:00 AM EDT** in `America/New_York`.",
+                      self.say("what's 3pm london time in new york?"))
+        # Sydney is on AEST until October: 11pm in London is 8am the next day there.
+        self.assertIn("**8:00 AM AEST** the next day in `Australia/Sydney`",
+                      self.say("what time is it in sydney when it's 11pm in london"))
+        self.assertIn("**9:30 PM EDT** here is **10:30 AM JST** the next day in `Asia/Tokyo`",
+                      self.say("what time will it be in tokyo at 9:30 pm my time"))
+
+    def test_daylight_saving_is_read_for_the_day_not_assumed(self) -> None:
+        january = datetime(2026, 1, 15, 12, 0, tzinfo=timezone(timedelta(hours=-5), "EST"))
+        self.assertIn("is **2:00 PM UTC**", self.say("convert 9am est to utc", january))
+        self.assertIn("is **1:00 PM UTC**", self.say("convert 9am est to utc"))     # September: EDT
+
+    def test_how_far_apart_two_zones_are(self) -> None:
+        self.assertIn("`Asia/Tokyo` is **13 hours ahead of** you right now", self.say("how many hours ahead is tokyo"))
+        self.assertIn("`Asia/Kolkata` is **9 hours 30 minutes ahead of** you", self.say("how far ahead is india"))
+        self.assertIn("`America/Los_Angeles` is **3 hours behind** you", self.say("how many hours behind is la"))
+        self.assertIn("`Europe/London` is **5 hours ahead of** `America/New_York`",
+                      self.say("what is the time difference between london and new york"))
+
+    def test_only_these_shapes_with_known_zones(self) -> None:
+        from laptop_agent.tools.clock import zone_question
+
+        for text in ("what is 5 in binary", "convert 9 pst to ist", "what's 3pm in my calendar",
+                     "convert 10:30 to minutes", "how far ahead is the project",
+                     "how many hours behind is the deadline", "convert 13pm pst to ist", "9am pst to pacific"):
+            with self.subTest(text):
+                self.assertIsNone(zone_question(text))
+
+
 class RoutingTests(unittest.TestCase):
     """The guard has to catch clock questions without stealing anything else."""
 

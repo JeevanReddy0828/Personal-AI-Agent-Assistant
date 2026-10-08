@@ -277,6 +277,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   march 1" still looks ahead, and a stated year is kept. Also "since", "2 weeks ago", "in 3
   months" (calendar months, clamped), "days left in the year", "was"/"will be", years from 1000.
   Found by an offline probe. (10-08)
+- **"convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model** →
+  the clock knew only "the time in X" → `clock.zone_question` reads a conversion or a gap as
+  the whole sentence, both zones known, and computes it from the zone database for the day
+  asked (January's EST is not September's EDT). "9 pst" is refused, since it may be morning
+  or night. Found by an offline probe. (10-08)
 - **"what day is july 4th this year" answered 2027; "christmas next year" answered this
   December** → holidays and calendar dates always took the next occurrence, ignoring a stated
   year → `dates._pinned_year` reads "this/next year", "this year's" and 19xx/20xx for those two
