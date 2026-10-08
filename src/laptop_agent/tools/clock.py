@@ -160,8 +160,11 @@ def asks_the_time(text: str) -> bool:
         return False
     if _ASKS_THE_TIME.match(candidate):
         return True
-    # "what time is it in tokyo", "time in IST"
-    return bool(_TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered))
+    # "time in IST", "tokyo time in japan": only a zone that exists. Any time word before "in
+    # <words>" was enough, so "say that one more time in english" answered "I do not know the
+    # time zone 'english'".
+    return bool(_TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered)
+                and _requested_zone(candidate)[0])
 
 
 def _requested_zone(text: str) -> tuple[str | None, str | None]:

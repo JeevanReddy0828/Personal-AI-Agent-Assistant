@@ -53,6 +53,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"say this again in French", "say that one more time in English" were translated, and the
+  second answered "I do not know the time zone 'english'"** → the repeat exclusion named only
+  "that/it again" (#245), and the clock's loose fallback took any time word before "in X" →
+  this/that/it with again/one more time/once more; the fallback needs a zone that exists. (10-08)
 - **"is 97 a prime number", "the average of 4, 8 and 15", "round 3.14 to 1 decimal", "5
   factorial" went to the chat model** → the calculator knew only operators → phrase rewrites
   and a prime check, as whole sentences ("round trip to boston" stays chat). `round` is half

@@ -171,6 +171,9 @@ class RoutingTests(unittest.TestCase):
             "latency",
             "what is a csv file",
             "add a timestamp to each message",
+            # A time word, then "in" and a word that is no zone: a language, not a place.
+            "say that one more time in english",
+            "read it one more time in spanish",
         ):
             self.assertFalse(asks_the_time(text), text)
 

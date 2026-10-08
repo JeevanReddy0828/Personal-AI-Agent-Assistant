@@ -639,7 +639,7 @@ _SAY_IN = re.compile(
     r"|what(?:'s|s|\s+is)(?:\s+the\s+(?:word|phrase)\s+for)?)\s+"
     r"(?!(?:the|a)\s+(?:best|good|nice|polite|right|proper|correct)\s+way\b)"
     r"(?!(?:some|any)thing\b|a\s+(?:few\s+words|word|sentence|joke|poem|story|prayer)\b)"
-    r"(?!(?:that|it|the\s+same\s+thing)\s+again\b)"
+    r"(?!(?:that|this|it|the\s+same\s+thing)\s+(?:again|one\s+more\s+time|once\s+more)\b)"
     r"(?P<text>.+?)\s+in\s+(?P<lang>" + _LANGUAGE_NAME + r")[\s?.!]*",
     re.IGNORECASE,
 )
