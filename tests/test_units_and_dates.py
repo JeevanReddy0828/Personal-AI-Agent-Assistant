@@ -38,6 +38,33 @@ class UnitTests(unittest.TestCase):
             self.assertTrue(result.ok, f"{text}: {result.message}")
             self.assertIn(f"**{expected}**", result.message, text)
 
+    def test_an_amount_said_as_a_fraction(self) -> None:
+        # "how many tablespoons in a quarter cup" went to the chat model.
+        cases = {
+            "how many tablespoons in a quarter cup": "4 tablespoons",
+            "how many teaspoons in half a cup": "24 teaspoons",
+            "how many ml in three quarters of a cup": "177.44 millilitres",
+            "convert one and a half cups to ml": "354.88 millilitres",
+            "how many grams in a pound and a half": "680.39 grams",
+            "convert 3/4 cup to ml": "177.44 millilitres",
+            "how many tablespoons in a third of a cup": "5.33 tablespoons",
+            "convert half a mile to meters": "804.67 metres",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text):
+                result = UnitTool().convert(text)
+                self.assertTrue(result.ok, result.message)
+                self.assertIn(f"**{expected}**", result.message)
+        # Only where an amount stands, just before a unit: the rest of a sentence is not rewritten.
+        from laptop_agent.tools.units import _fraction_amounts
+
+        self.assertEqual(_fraction_amounts("half the cups and a quarter of them"), "half the cups and a quarter of them")
+        self.assertEqual(_fraction_amounts("half a cup"), "0.5 cup")
+        for text in ("half the cups are broken", "a quarter pounder with cheese",
+                     "how many calories in half a cup of rice", "how many tablespoons in 1/0 cup"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_conversion(text))
+
     def test_us_volumes_say_so(self) -> None:
         self.assertIn("(US measure)", UnitTool().convert("convert 1 gallon to liters").message)
 
@@ -199,6 +226,13 @@ class ThroughTheAssistantTests(unittest.TestCase):
                                ("how many days left in the year", 96)):
                 with self.subTest(text):
                     self.assertTrue(self.say(text)[0].message.startswith(f"**{days} days**"), self.say(text)[0].message)
+            # A weekday has no year to step back to (Codex's review of #244): on this Saturday,
+            # "since friday" is yesterday, not the coming Friday six days ahead.
+            for text, start in (("how many days since friday", "**1 day** between friday (Friday 25 September 2026)"),
+                                ("how many days between friday and today", "**1 day** between friday (Friday 25"),
+                                ("how many days since monday", "**5 days** between monday (Monday 21 September 2026)")):
+                with self.subTest(text):
+                    self.assertTrue(self.say(text)[0].message.startswith(start), self.say(text)[0].message)
             self.assertEqual(self.say("what day of the week was july 4 1776")[0].message.split(" — ")[0],
                              "July 4 was on Thursday, 4 July 1776")
             self.assertEqual(self.say("what was the date 2 weeks ago")[0].message,

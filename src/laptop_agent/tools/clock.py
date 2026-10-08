@@ -160,8 +160,11 @@ def asks_the_time(text: str) -> bool:
         return False
     if _ASKS_THE_TIME.match(candidate):
         return True
-    # "what time is it in tokyo", "time in IST"
-    return bool(_TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered))
+    # "time in IST", "tokyo time in japan": only a zone that exists. Any time word before "in
+    # <words>" was enough, so "say that one more time in english" answered "I do not know the
+    # time zone 'english'".
+    return bool(_TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered)
+                and _requested_zone(candidate)[0])
 
 
 def _requested_zone(text: str) -> tuple[str | None, str | None]:
@@ -339,7 +342,27 @@ class ClockTool:
         place_a, place_b = ("here" if name is None else f"in `{name}`" for name, _said in (first, second))
         if asked["kind"] == "convert":
             day = local.astimezone(zone_a).date()
-            start = datetime(day.year, day.month, day.day, int(asked["hour"]), int(asked["minute"]), tzinfo=zone_a)
+            wall = datetime(day.year, day.month, day.day, int(asked["hour"]), int(asked["minute"]))
+            # On a day the clocks change, a time can be missing (2:30 AM in New York on 8 March
+            # 2026) or happen twice (1:30 AM on 1 November). Both readings are tried and checked
+            # by a round trip through UTC; it answered 7:30 UTC for the missing one, and silently
+            # picked the first of the two (Codex's review of #243).
+            readings = [wall.replace(tzinfo=zone_a, fold=fold) for fold in (0, 1)]
+            real = [moment for moment in readings
+                    if moment.astimezone(timezone.utc).astimezone(zone_a).replace(tzinfo=None) == wall]
+            if not real:
+                return ToolResult.failure(f"{self._clock(wall)} does not happen {place_a} on "
+                                          f"{wall.strftime('%A %d %B').replace(' 0', ' ')}: the clocks go "
+                                          f"forward past it that night.")
+            if len({moment.astimezone(timezone.utc) for moment in real}) > 1:
+                both = [f"**{self._clock(moment)} {moment.strftime('%Z')}** is **{self._clock(moment.astimezone(zone_b))} "
+                        f"{moment.astimezone(zone_b).strftime('%Z')}** {place_b}" for moment in real]
+                return ToolResult.success(
+                    f"{self._clock(wall)} happens twice {place_a} on {wall.strftime('%A %d %B').replace(' 0', ' ')}, "
+                    f"when the clocks go back: the first, {both[0]}; the second, {both[1]}.",
+                    source=[moment.isoformat() for moment in real],
+                    target=[moment.astimezone(zone_b).isoformat() for moment in real])
+            start = real[0]
             end = start.astimezone(zone_b)
             shift = {1: " the next day", -1: " the day before"}.get((end.date() - start.date()).days, "")
             lines = [f"**{self._clock(start)} {start.strftime('%Z')}** {place_a} is "

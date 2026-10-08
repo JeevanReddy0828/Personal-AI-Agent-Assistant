@@ -53,6 +53,18 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"say this again in French", "say that one more time in English" were translated, and the
+  second answered "I do not know the time zone 'english'"** → the repeat exclusion named only
+  "that/it again" (#245), and the clock's loose fallback took any time word before "in X" →
+  this/that/it with again/one more time/once more; the fallback needs a zone that exists. (10-08)
+- **"is 97 a prime number", "the average of 4, 8 and 15", "round 3.14 to 1 decimal", "5
+  factorial" went to the chat model** → the calculator knew only operators → phrase rewrites
+  and a prime check, as whole sentences ("round trip to boston" stays chat). `round` is half
+  up on the written digits now: Python's gave 6 for 6.5 and 2.67 for 2.675. (10-08)
+- **"how many tablespoons in a quarter cup" went to the chat model** → the units tool read
+  only digits as an amount → a fraction said just before a unit ("half a cup", "three quarters
+  of a cup", "one and a half cups", "a cup and a half", "3/4 cup") is rewritten to a decimal;
+  a "half" anywhere else is left alone. (10-08)
 - **"Say never again in French" went to chat; "French word for a man who sings" translated
   the whole description** → an `again` check rejected literal phrases, while a four-word
   limit admitted a relative-clause definition → reject only repeat requests (`that/it
@@ -275,6 +287,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
+  "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
+  direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)
+- **"convert 2:30am new york to utc" on 8 March answered 7:30 UTC; 1:30 AM on 1 November
+  silently took the first of two** (Codex's review of #243) → a wall time was attached to a zone
+  without checking it → try both readings (fold 0 and 1) and keep those that round-trip through
+  UTC: none is a time the clocks skip, said so; two different ones are both given. (10-08)
 - **"how many days between march 1 and today" said 145 (next March); "since christmas" counted
   to this December** → a bare date was always its next occurrence → a span up to today starts
   from the last time the date came round (this year's, else last year's); "between today and

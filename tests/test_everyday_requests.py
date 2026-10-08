@@ -162,7 +162,9 @@ class RoutingContractTests(unittest.TestCase):
                 result, ran = self.everyday.say(text)
                 self.assertEqual(ran, expected, (text, result.message))
                 self.assertTrue(result.ok, result.message)
-        for text in ("say that again in french", "what's the french word for a man who sings",
+        # A repeat, however it is said, is not a phrase to translate (the review of #245).
+        for text in ("say that again in french", "say this again in french", "say that one more time in english",
+                     "say it once more in spanish", "what's the french word for a man who sings",
                      "what's the french word for a person that cooks"):
             with self.subTest(text=text):
                 result, ran = self.everyday.say(text)
