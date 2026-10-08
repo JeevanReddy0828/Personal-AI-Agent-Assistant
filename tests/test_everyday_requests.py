@@ -840,6 +840,38 @@ class ReminderDayTests(unittest.TestCase):
             sunday, _ = everyday.say("what reminders do i have tomorrow", stream=False)
             self.assertEqual([item["message"] for item in sunday.data["reminders"]], ["Sunday local"])
 
+    def test_a_weekly_reminder_is_listed_on_its_day_only(self) -> None:
+        class StoppedClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                noon = datetime(2026, 9, 26, 12)  # Saturday
+                return noon if tz is None else noon.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+                patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc):
+            everyday = Everyday(Path(tmp))
+            repeat, _ = everyday.say("remind me every monday at 9am to send the report", stream=False)
+            self.assertIn("Repeating reminder set", repeat.message)
+            everyday.orchestrator.context.reminders.add("2026-09-29T10:00:00+00:00", "Tuesday errand")
+            monday, _ = everyday.say("what reminders do i have on monday", stream=False)
+            self.assertIn("send the report", monday.message)
+            self.assertNotIn("no reminders", monday.message.lower())
+            self.assertEqual(monday.data["reminders"], [])
+            self.assertEqual(len(monday.data["repeating"]), 1)
+            tuesday, _ = everyday.say("what reminders do i have on tuesday", stream=False)
+            self.assertIn("Tuesday errand", tuesday.message)
+            self.assertNotIn("send the report", tuesday.message)
+            self.assertEqual(tuesday.data["repeating"], [])
+            everyday.orchestrator.context.scheduler.set_enabled(monday.data["repeating"][0]["id"], False)
+            disabled, _ = everyday.say("what reminders do i have on monday", stream=False)
+            self.assertIn("no reminders", disabled.message.lower())
+            interval, _ = everyday.say("remind me every 30 minutes to stretch", stream=False)
+            self.assertIn("Repeating reminder set", interval.message)
+            sunday, _ = everyday.say("what reminders do i have tomorrow", stream=False)
+            self.assertIn("stretch", sunday.message)
+            self.assertEqual(len(sunday.data["repeating"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

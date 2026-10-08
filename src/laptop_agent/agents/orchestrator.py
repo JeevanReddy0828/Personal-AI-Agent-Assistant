@@ -3223,14 +3223,20 @@ class AgentOrchestrator:
                         selected.append(item)
                 except (KeyError, ValueError) as exc:
                     record_failure("orchestrator.reminders_list", exc)
-            if not selected:
-                return ToolResult.success(f"You have no reminders for {day_text}.", reminders=[])
+            repeating = [job for job in self._repeating_reminders()
+                         if job.enabled and (job.schedule.kind != "daily" or not job.schedule.days
+                                             or resolved[0].weekday() in job.schedule.days)]
+            if not selected and not repeating:
+                return ToolResult.success(f"You have no reminders for {day_text}.", reminders=[], repeating=[])
             lines = [_reminder_line(item, now) for item in selected[:20]]
             if len(selected) > 20:
                 lines.append(f"- … and {len(selected) - 20} more after these")
+            lines += [f"- every: {job.schedule.describe()} — {job.spec[len('reminder add now '):]}"
+                      for job in repeating]
+            count = len(selected) + len(repeating)
             return ToolResult.success(
-                f"You have {len(selected)} reminder{'s' if len(selected) != 1 else ''} for {day_text}:\n"
-                + "\n".join(lines), reminders=selected,
+                f"You have {count} reminder{'s' if count != 1 else ''} for {day_text}:\n"
+                + "\n".join(lines), reminders=selected, repeating=[job.to_dict() for job in repeating],
             )
         repeating = self._repeating_reminders()
         if not reminders and not repeating:
