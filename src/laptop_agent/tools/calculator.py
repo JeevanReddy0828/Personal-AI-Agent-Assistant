@@ -318,14 +318,16 @@ def normalize(text: str) -> str:
     cleaned = re.sub(r"(?<=\d)\s*(?:dollars?|bucks|euros?|rupees?)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\ba\s+(?=(?:hundred|thousand|million|billion)\b)", "one ", cleaned, flags=re.IGNORECASE)
     cleaned = _NUMBER_WORD.sub(lambda m: _words_to_number(m.group(0)), cleaned)
+    # 1,234,567 is one number; a comma inside digits is a separator, not an argument. Before
+    # the phrases, which read numbers too: after them "average of 1,000 and 2,000" was 0.75
+    # and "15% of 1,500" failed (Codex's review of #246). "4, 8 and 15" has spaces, so stays a list.
+    cleaned = re.sub(r"(?<=\d),(?=\d{3}\b)", "", cleaned)
     for pattern, replacement in _PHRASES:
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
     for pattern, replacement in _WORDS:
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("−", "-")
     cleaned = re.sub(r"(?<=\d)\s*[xX]\s*(?=\d)", "*", cleaned)   # "12 x 13"
-    # 1,234,567 is one number; a comma inside digits is a separator, not an argument.
-    cleaned = re.sub(r"(?<=\d),(?=\d{3}\b)", "", cleaned)
     return cleaned.strip()
 
 
@@ -408,7 +410,12 @@ _PRIME_LIMIT = 10**12
 def prime_question(text: str) -> int | None:
     """The number asked about in "is N (a) prime (number)", else None."""
     asked = _PRIME_ASK.match(normalize(text))
-    return int(asked.group("n")) if asked else None
+    if not asked:
+        return None
+    # Past the limit by its length alone: int() refuses a numeral over 4,300 digits, which
+    # raised ValueError here before the "too large to check" reply (Codex's review of #246).
+    digits = asked.group("n").lstrip("0") or "0"
+    return int(digits) if len(digits) <= len(str(_PRIME_LIMIT)) else _PRIME_LIMIT + 1
 
 
 def _factors(number: int) -> list[int]:
