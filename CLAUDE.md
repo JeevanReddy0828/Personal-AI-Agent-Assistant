@@ -171,7 +171,8 @@ Tested, and exercised on the real app. Only these are claimed as working.
 - **Instant routing** of everyday requests (~2 ms, no model call), with whole-sentence matching
   so a sentence that merely mentions email, windows, research or the screen does not act.
 - **Everyday answers, computed:** arithmetic, unit conversions, dates and holidays, the time in
-  any zone, coin/dice/random numbers.
+  any zone and between zones ("convert 9am PST to IST", "how far ahead is Tokyo"),
+  coin/dice/random numbers.
 - **Reminders, timers, alarms and repeats**, delivered as a card, chime and spoken alert;
   recurring scheduled jobs; lists and remembered facts.
 - **Web:** search (DuckDuckGo, or Brave/Serper/SerpApi with a key), multi-source research
