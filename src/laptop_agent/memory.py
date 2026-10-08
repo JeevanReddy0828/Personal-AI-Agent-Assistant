@@ -27,6 +27,8 @@ _SECTIONS: dict[str, Any] = {"profile": {}, "preferences": {}, "notes": [], "lis
 _LIST_ALIASES = {"grocery": "shopping", "groceries": "shopping", "shop": "shopping",
                  "to do": "todo", "to-do": "todo", "todos": "todo", "things to do": "todo", "task": "todo",
                  "tasks": "todo"}
+# Every name that is a list without the word "list" after it ("add milk to groceries").
+KNOWN_LISTS = frozenset(_LIST_ALIASES) | frozenset(_LIST_ALIASES.values())
 
 
 def list_name(name: str) -> str:

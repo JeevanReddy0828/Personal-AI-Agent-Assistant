@@ -53,6 +53,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"add milk and bread to groceries" went to the chat model** → the list routes needed "my X
+  list" → a bare list name is accepted when memory.py knows it (`KNOWN_LISTS`, read from its
+  aliases, not copied), never "task" or "shop" alone ("add a comment to the task"), and "add
+  salt to the soup" stays chat. (10-08)
 - **"say this again in French", "say that one more time in English" were translated, and the
   second answered "I do not know the time zone 'english'"** → the repeat exclusion named only
   "that/it again" (#245), and the clock's loose fallback took any time word before "in X" →
