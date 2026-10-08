@@ -138,10 +138,13 @@ class ThroughTheAssistantTests(unittest.TestCase):
         result, _ran = self.say("how many days between march 1 and april 15")
         self.assertIn("**45 days**", result.message)
         # "what's the date tomorrow" was computed, "what's the date next friday" went to a model.
-        for text in ("what's the date next friday", "what is the date on friday", "what's the day of thanksgiving"):
-            result, _ran = self.say(text)
-            self.assertNotIn("answered]", result.message, text)
-            self.assertRegex(result.message, r"\d{4} — \d+ days? from today", text)
+        # On the stopped clock: on the real one, every Thursday "on friday" is "— tomorrow", and
+        # CI went red one day in seven (2026-10-08, on a docs-only PR).
+        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            for text in ("what's the date next friday", "what is the date on friday", "what's the day of thanksgiving"):
+                result, _ran = self.say(text)
+                self.assertNotIn("answered]", result.message, text)
+                self.assertRegex(result.message, r"\d{4} — \d+ days? from today", text)
 
     def test_a_personal_date_comes_from_memory_or_a_reminder(self) -> None:
         self.say("remember my wife's birthday is june 5")
