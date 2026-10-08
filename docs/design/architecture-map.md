@@ -441,7 +441,8 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
 Everyday layer (see "Everyday requests" in routing.md): tools/units.py (conversions),
         tools/dates.py (days until / since / between, holidays, "what's today", "2 weeks ago", "in 3
         months", "days left in the year", a stated year incl. "last year" and 1776; a span up to
-        today starts from the last time a date came round), tools/clock.py (the time in a
+        today starts from the last time a date came round; "how long until midnight" / "how many
+        hours until christmas" in hours and minutes, never days), tools/clock.py (the time in a
         zone, a time read in another zone - "convert 9am pst to ist" - and the gap between two,
         from the zone database for the day asked, as a whole sentence with both zones known;
         a bare "9" is refused as morning-or-night), tools/chance.py (coin, dice,

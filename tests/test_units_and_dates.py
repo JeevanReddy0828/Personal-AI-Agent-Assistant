@@ -11,13 +11,19 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from laptop_agent.planner import HeuristicPlannerProvider
-from laptop_agent.tools.dates import answerable, date_question, next_holiday, resolve
+from laptop_agent.tools.dates import answerable, date_question, next_holiday, resolve, span_text, until_moment
 from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
 from test_everyday_requests import Everyday
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone(timedelta(hours=-5)))
+
+try:
+    _NEW_YORK: ZoneInfo | None = ZoneInfo("America/New_York")
+except ZoneInfoNotFoundError:   # Windows without the tzdata package; CI installs it
+    _NEW_YORK = None
 
 
 class UnitTests(unittest.TestCase):
@@ -282,6 +288,63 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertIn("**8.05 kilometres**", self.say("how much is 5 miles in km")[0].message)
         self.assertEqual(planner.plan("when is thanksgiving?", "", {}).command, "when is thanksgiving")
         self.assertEqual(planner.plan("what day is it", "", {}).command, "time what day is it")
+
+
+class EveningClock(datetime):
+    """The orchestrator's `datetime`, stopped at 7:35pm on a Saturday with no clock change that night."""
+
+    @classmethod
+    def now(cls, tz=None):
+        evening = datetime(2026, 9, 26, 19, 35)
+        return evening if tz is None else evening.astimezone(tz)
+
+
+class TimeUntilTests(unittest.TestCase):
+    """"how long until midnight" counted the days to the date of the next midnight and said
+    "1 day", four and a half hours before it; "how many minutes until midnight" reached a model."""
+
+    def test_the_unit_asked_for_is_kept(self) -> None:
+        self.assertEqual(date_question("how many minutes until midnight"), ("until", "midnight", "minutes"))
+        self.assertEqual(date_question("how many hours till 5pm?"), ("until", "5pm", "hours"))
+        self.assertEqual(date_question("how much time until 6:15"), ("until", "6:15", ""))
+        for minutes, unit, expected in ((265, "", "4 hours 25 minutes"), (265, "minutes", "265 minutes"),
+                                        (1500, "", "1 day 1 hour"), (1500, "hours", "25 hours"),
+                                        (60, "", "1 hour"), (0, "", "less than a minute")):
+            self.assertEqual(span_text(minutes, unit), expected)
+
+    def test_a_time_of_day_is_counted_to_that_moment(self) -> None:
+        offset = NOW.tzinfo
+        with patch("laptop_agent.timeparse.LOCAL_ZONE", offset):
+            self.assertEqual(until_moment("midnight", "", NOW), datetime(2026, 9, 27, 0, 0, tzinfo=offset))
+            # At 10am "9:30" is tonight's, not tomorrow morning's.
+            self.assertEqual(until_moment("9:30", "", NOW), datetime(2026, 9, 26, 21, 30, tzinfo=offset))
+            self.assertEqual(until_moment("christmas", "hours", NOW), datetime(2026, 12, 25, 0, 0, tzinfo=offset))
+            self.assertIsNone(until_moment("friday", "", NOW))              # still counted in days
+            self.assertIsNone(until_moment("christmas", "weeks", NOW))
+            self.assertIsNone(until_moment("the pasta is done", "minutes", NOW))
+
+    @unittest.skipIf(_NEW_YORK is None, "no zone data here; CI installs tzdata")
+    def test_hours_across_a_clock_change_are_real_hours(self) -> None:
+        evening = datetime(2026, 9, 26, 19, 35, tzinfo=timezone(timedelta(hours=-4)))
+        with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
+            moment = until_moment("christmas", "hours", evening)
+        # 25 December starts at 05:00 UTC in New York; the hour the clocks go back is counted.
+        self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=timezone.utc))
+        self.assertEqual(span_text(round((moment - evening).total_seconds() / 60), "hours"), "2,141 hours 25 minutes")
+
+    def test_through_the_assistant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", EveningClock):
+            everyday = Everyday(Path(tmp))
+            for text, expected in (("how long until midnight", "**4 hours 25 minutes** until midnight"),
+                                   ("how many minutes until midnight", "**265 minutes**"),
+                                   ("how long until 5pm", "**21 hours 25 minutes** until 5pm (tomorrow at 5:00 PM)"),
+                                   ("how much time until 9:30", "**1 hour 55 minutes** until 9:30 (today at 9:30 PM)"),
+                                   ("how long until 5pm today", "5pm today was **2 hours 35 minutes ago**"),
+                                   ("how long until friday", "**6 days** until friday"),
+                                   ("how long until my timer goes off", "no timers")):
+                with self.subTest(text):
+                    result, ran = everyday.say(text, stream=False)
+                    self.assertIn(expected, result.message)
 
 
 if __name__ == "__main__":
