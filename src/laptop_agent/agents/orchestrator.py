@@ -72,7 +72,7 @@ from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, 
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, looks_like_conversion
 from laptop_agent.tools.chance import draw
-from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date
+from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -1859,6 +1859,17 @@ class AgentOrchestrator:
             first, second = resolve_date(what, now, profile), resolve_date(other, now, profile)
             if first is None or second is None:
                 return None
+            # "between march 1 and today" (and "since christmas") is the span up to today, so a
+            # date said without a year is the last time it came round: this year's once it has
+            # passed, else last year's. It counted forward instead - 145 days to next March for
+            # an answer of 220, and 79 days to this December "since christmas". "between today
+            # and march 1" looks ahead and keeps the next one.
+            if second[0] == today and first[0] > today and not says_a_year(what, today):
+                for year in ("this year", "last year"):
+                    earlier = resolve_date(f"{what} {year}", now, profile)
+                    if earlier is not None and earlier[0] <= today:
+                        first = earlier
+                        break
             days = abs((second[0] - first[0]).days)
             return ToolResult.success(
                 f"**{days} days** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
