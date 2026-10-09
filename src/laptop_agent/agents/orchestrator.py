@@ -186,10 +186,13 @@ MAX_COMMAND_CHARS = 24_000
 # the action decides: a verb missing from this list keeps the user's words.
 _DUE_CLAUSE = re.compile(r"\s+(?:that|which)(?:'?s|\s+is|\s+are)\s+due$", re.IGNORECASE)
 _DUE_PREDICATE = re.compile(r"(?:\b(?:is|are|was|were|be|been)|'s|'re)\s+due$", re.IGNORECASE)
+# A word that is as often a noun - "book report due" is the assignment - counts as the action only
+# when what follows it says so: "book the hotel", "hand in the essay" (Codex's review of #252).
 _DUE_ACTION = re.compile(
-    r"(?:pay|send|submit|return|file|renew|finish|complete|hand|turn|book|cancel|call|email|mail|post|upload"
-    r"|review|sign|buy|order|bring|drop|pick|apply|register|update|prepare|write|read|study|fix|clean|check"
-    r"|take|get|do|make|print|deliver|ship|collect|grade|mark|finalize|finalise|transfer|deposit)\s+\S",
+    r"(?:pay|send|submit|return|renew|finish|complete|cancel|upload|sign|buy|bring|apply|register|prepare"
+    r"|write|read|fix|take|get|do|make|deliver|ship|collect|grade|finalize|finalise)\s+(?!due\b)\S"
+    r"|(?:book|file|hand|turn|mail|email|post|review|order|drop|pick|check|update|print|mark|call|transfer"
+    r"|deposit|study|clean)\s+(?:(?:in|off|up|out)\s+|(?:the|a|an|my|our|your|his|her|their|this|that)\s+)\S",
     re.IGNORECASE,
 )
 

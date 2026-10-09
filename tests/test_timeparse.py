@@ -186,6 +186,10 @@ class MessageSplitTests(unittest.TestCase):
             "submit report due friday": "submit report", "rent due friday": "rent due",
             "the electric bill due friday": "the electric bill due",
             "check the essay is due friday": "check the essay is due",
+            # A verb that is as often a noun is the action only with an object or particle after it.
+            "book report due friday": "book report due", "deposit due friday": "deposit due",
+            "book the hotel due friday": "book the hotel", "hand in homework due friday": "hand in homework",
+            "file the taxes due friday": "file the taxes", "return due friday": "return due",
         }
         for text, expected in cases.items():
             with self.subTest(text):
