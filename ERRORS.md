@@ -244,9 +244,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"how hot will it be in austin on saturday" found no place** → `clean_place` stripped
   "tomorrow" and "this weekend" but no weekday, so the geocoder was asked for "austin on
   saturday" (a fake geocoder in the probe hid it), and "chicago saturday night" the same way →
-  a weekday, with any part of the day, is stripped at the end, and at the start only before
-  in/at/for/near, so Friday Harbor stays a town; the future-tense route shares that pattern
-  and adds "on/over the weekend". (10-08)
+  a weekday said as a day (on/this/next/coming, or with a part of the day) is stripped at the
+  end, and at the start only before in/at/for/near: Friday Harbor and Mount Sunday are places
+  (Codex, #251), and a bare "tokyo friday" is left to the geocoder's own fallback. The
+  future-tense route shares the pattern and adds "on/over the weekend". (10-08)
 
 ### Models and providers
 - **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list

@@ -66,7 +66,10 @@ class PlaceCleaningTests(unittest.TestCase):
             "like in paris right now": "paris", "near me": "", "Austin, TX": "Austin, TX",
             "Tomorrowland": "Tomorrowland", "Fort Worth": "Fort Worth",
             # A day said with the place reached the geocoder whole: "austin on saturday".
-            "austin on saturday": "austin", "tokyo friday": "tokyo", "paris next monday": "paris",
+            "austin on saturday": "austin", "paris next monday": "paris",
+            # A bare weekday at the end may be the name (Codex's review): the tool's fallback
+            # finds Tokyo, and Mount Sunday is a peak.
+            "tokyo friday": "tokyo friday", "Mount Sunday": "Mount Sunday",
             "on sunday in london": "london", "boston on the weekend": "boston",
             "Friday Harbor": "Friday Harbor", "Sunday Harbour in maine": "Sunday Harbour in maine",
             "chicago saturday night": "chicago", "denver tomorrow morning": "denver",
@@ -84,6 +87,29 @@ class PlaceCleaningTests(unittest.TestCase):
 
         self.assertTrue(WeatherTool(transport=transport).forecast("in london tomorrow").ok)
         self.assertIn("name=london&", asked[0])
+
+    def test_a_place_ending_in_a_weekday_reaches_the_geocoder_whole(self) -> None:
+        """"weather in Mount Sunday" was routed as `weather Mount` and asked for "Mount"."""
+        from laptop_agent.planner import HeuristicPlannerProvider
+
+        planner = HeuristicPlannerProvider()
+        self.assertEqual(planner.plan("weather in Mount Sunday", "", {}).command, "weather Mount Sunday")
+        self.assertEqual(planner.plan("how hot will it be in austin on saturday", "", {}).command, "weather austin")
+        for place, known, expected in (("Mount Sunday", "Mount%20Sunday", ["Mount%20Sunday"]),
+                                       ("tokyo friday", "tokyo&", ["tokyo%20friday", "tokyo&"])):
+            asked: list[str] = []
+
+            def transport(url: str, known: str = known) -> dict:
+                if "geocoding" not in url:
+                    return FORECAST
+                asked.append(url)
+                return GEO if f"name={known}" in url else {"results": []}
+
+            with self.subTest(place):
+                self.assertTrue(WeatherTool(transport=transport).forecast(place).ok)
+                self.assertEqual(len(asked), len(expected))
+                for url, name in zip(asked, expected):
+                    self.assertIn(f"name={name}", url)
 
 
 if __name__ == "__main__":
