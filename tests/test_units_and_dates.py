@@ -342,12 +342,40 @@ class TimeUntilTests(unittest.TestCase):
                  (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am", 1425),   # both gone: tomorrow's
                  (datetime(2026, 11, 1, 3, 0, tzinfo=est), "1:30am", 1350),    # after the change
                  (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30", 45),       # no am/pm said
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am today", 45),
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "sunday at 1:30am", 45),
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am today", -15),   # the later one went
+                 (datetime(2026, 10, 31, 1, 45, tzinfo=edt), "sunday at 1:30am", 1425),
+                 (datetime(2026, 10, 2, 18, 0, tzinfo=edt), "friday at 5pm", 10020),  # a week, not today
+                 (datetime(2026, 9, 26, 10, 0, tzinfo=edt), "tomorrow at 5pm", 1860),  # not today's 5pm
                  (datetime(2027, 3, 14, 1, 0, tzinfo=est), "2:30am", 90))      # skipped in spring: 3:30
         with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
             for now, what, minutes in cases:
                 with self.subTest(now=now.isoformat(), what=what):
                     moment = until_moment(what, "", now)
                     self.assertEqual(round((moment - now).total_seconds() / 60), minutes)
+
+    @unittest.skipIf(_NEW_YORK is None, "no zone data here; CI installs tzdata")
+    def test_a_named_day_keeps_the_second_reading_through_the_assistant(self) -> None:
+        """Codex's second review: "1:30am today" said "was 15 minutes ago" and "sunday at 1:30am"
+        "7 days 45 minutes" at the first 1:45, with the second 1:30 still 45 minutes away."""
+        first = datetime(2026, 11, 1, 1, 45, tzinfo=timezone(timedelta(hours=-4)))
+
+        class FirstQuarterToTwo(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return first.astimezone(tz)
+                naive = first.astimezone().replace(tzinfo=None)    # read as this machine reads its clock
+                return naive if naive.astimezone() == first else naive.replace(fold=1)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("laptop_agent.agents.orchestrator.datetime", FirstQuarterToTwo), \
+                patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
+            everyday = Everyday(Path(tmp))
+            for text in ("how long until 1:30am", "how long until 1:30am today", "how long until sunday at 1:30am"):
+                with self.subTest(text):
+                    self.assertIn("**45 minutes**", everyday.say(text, stream=False)[0].message)
 
     def test_through_the_assistant(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", EveningClock):

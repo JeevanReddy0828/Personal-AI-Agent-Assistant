@@ -232,21 +232,29 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
             if when is None or when.start != 0 or when.end < len(cleaned) - 1:
                 return None
             readings.append(when.at)
-        if _find_day(cleaned.lower(), now) is None:
-            # The hour the clocks go back happens twice: "until 1:30am" at the first 1:45 is the
-            # second 1:30, 45 minutes away, not tomorrow's (Codex's review of #253). A reading
-            # counts only if it is that wall time, so a time the spring change skips keeps its rule.
-            for at in list(readings):
-                wall = at.replace(tzinfo=None)
-                for back in (0, 1):
-                    for fold in (0, 1):
-                        guess = (wall - timedelta(days=back)).replace(fold=fold)
-                        moment = on_laptop_clock(guess, now.tzinfo)
-                        # Read back through UTC: a zone converted to itself is returned unchanged.
-                        shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
-                        if shown.replace(tzinfo=None) == guess and moment > now:
-                            readings.append(moment)
-        return min(readings)
+        # The hour the clocks go back happens twice: "until 1:30am" at the first 1:45 is the second
+        # 1:30, 45 minutes away, not tomorrow's - and so is "1:30am today", and "sunday at 1:30am"
+        # on that Sunday (Codex's reviews of #253). The parse moved on a day, or a week for a named
+        # weekday, past the first reading, so today's is looked for that far back; "today" or a
+        # date stays on its day, and "friday at 5pm" is never given the Thursday. A reading counts
+        # only if it is that wall time, so a time the spring change skips keeps its rule.
+        if re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE):
+            backs: tuple[int, ...] = (0, 7)
+        else:
+            backs = (0,) if _find_day(cleaned.lower(), now) is not None else (0, 1)
+        for at in list(readings):
+            wall = at.replace(tzinfo=None)
+            for back in backs:
+                for fold in (0, 1):
+                    guess = (wall - timedelta(days=back)).replace(fold=fold)
+                    moment = on_laptop_clock(guess, now.tzinfo)
+                    # Read back through UTC: a zone converted to itself is returned unchanged.
+                    shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
+                    if shown.replace(tzinfo=None) == guess:
+                        readings.append(moment)
+        # The next one to come; for a time already gone today, the latest that went.
+        ahead = [at for at in readings if at > now]
+        return min(ahead) if ahead else max(readings)
     if unit in ("hours", "minutes"):
         found = resolve(text, now, profile)
         if found is not None:
