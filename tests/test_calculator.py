@@ -38,7 +38,7 @@ class MoreEverydayMathTests(unittest.TestCase):
 
     def test_an_average_stays_exact(self) -> None:
         self.assertIn("= **9**", self.say("what's the average of 4, 8 and 15"))
-        self.assertIn("= **1.5 (exactly 3/2)**", self.say("the mean of 1 and 2"))
+        self.assertIn("= **1.5**", self.say("the mean of 1 and 2"))
 
     def test_a_number_written_with_commas_is_one_number_in_every_phrase(self) -> None:
         # Codex's review of #246: the separators came out after the phrases had read the
@@ -182,6 +182,13 @@ class CalculatorToolTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertIn("0.008668", result.message)
         self.assertIn("exactly", result.message)
+
+    def test_a_decimal_that_is_exact_is_shown_once(self) -> None:
+        """A 15% tip on 84 said "12.6 (exactly 63/5)": 12.6 is already exact."""
+        for expression, expected in (("15/100*84", "= **12.6**"), ("1/8", "= **0.125**"),
+                                     ("1/3", "(exactly 1/3)"), ("754/86982", "(exactly 377/43,491)")):
+            with self.subTest(expression):
+                self.assertIn(expected, CalculatorTool().compute(expression).message)
 
     def test_nonsense_fails_cleanly(self) -> None:
         result = CalculatorTool().compute("banana + 1")

@@ -94,7 +94,8 @@ _NUMBER = r"-?\d+(?:[.,]\d+)?"
 
 # "convert 5 miles to km", "5 miles in km", "what's 100 f in c", "30 degrees celsius to f"
 _FORWARD = re.compile(
-    rf"^\s*(?:(?:please\s+)?convert|what(?:'s|s|\s+is)|how\s+much\s+is|how\s+many\s+\w+(?:\s+\w+)?\s+(?:is|are))?\s*"
+    rf"^\s*(?:(?:please\s+)?convert|what(?:'s|s|\s+is)|how\s+much\s+is|how\s+(?:tall|heavy)\s+is"
+    rf"|how\s+many\s+\w+(?:\s+\w+)?\s+(?:is|are))?\s*"
     rf"(?P<n>{_NUMBER})\s*(?:degrees?\s+)?(?P<from>{_UNIT})\s+(?:to|in|into|as|in\s+terms\s+of)\s+"
     rf"(?:degrees?\s+)?(?P<to>{_UNIT})\s*[?.!]*\s*$",
     re.IGNORECASE,
@@ -134,12 +135,61 @@ def _unit(word: str) -> str | None:
     return _LOOKUP.get(word.lower().strip())
 
 
+# An amount said in two units - "5 feet 10 inches", "5'10\"", "2 pounds 4 ounces", "2 hours 30
+# minutes" - reached a chat model, which is the wrong tool for a height. It is read as one amount
+# in the smaller unit, and shown as it was said. The second unit may go unsaid: "6 foot 2".
+_PAIRS = {"foot": "inch", "pound": "ounce", "stone": "pound", "hour": "minute", "minute": "second"}
+_AMOUNT_ENDS = r"(?=\s+(?:to|in|into|as)\s|\s*[?.!]*\s*$)"
+_COMPOUND = re.compile(
+    rf"(?<![\w.])(?P<a>-?\d+)\s*(?P<big>{_UNIT})\s+(?:and\s+)?(?P<b>\d+(?:\.\d+)?)(?:\s*(?P<small>{_UNIT}))?"
+    rf"{_AMOUNT_ENDS}",
+    re.IGNORECASE,
+)
+_FEET_MARKS = re.compile(r"\b(\d+)\s*['’]\s*(\d+(?:\.\d+)?)\s*(?:[\"”]|'')?(?=\s|$|[?.!])")
+# "to feet and inches": the answer in both units, the way a height or a baby's weight is said.
+_TO_PAIR = re.compile(rf"\s+(?:to|in|into|as)\s+(?P<big>{_UNIT})\s+(?:and|&)\s+(?P<small>{_UNIT})\s*[?.!]*\s*$",
+                      re.IGNORECASE)
+
+
+def _compound(text: str) -> tuple[str, str, tuple[str, str] | None]:
+    """The text with a two-unit amount made one, what that amount was said as, and the pair of
+    units the answer should be given in, when one was asked for."""
+    text = _FEET_MARKS.sub(r"\1 ft \2 in", text)
+    said = ""
+    match = _COMPOUND.search(text)
+    big = _unit(match.group("big")) if match else None
+    small = (_unit(match.group("small")) if match.group("small") else _PAIRS.get(big or "")) if match else None
+    if match and big in _PAIRS and _PAIRS[big] == small:
+        sign = "-" if match.group("a").startswith("-") else ""
+        whole, part = abs(int(match.group("a"))), float(match.group("b"))
+        total = (whole * _FACTORS[big][1] / _FACTORS[small][1] + part) * (-1 if sign else 1)
+        said = f"{sign}{whole} {_named(big, whole)} {_shown(part)} {_named(small, part)}"
+        text = text[:match.start()] + f"{total:.10g} {_SPELLINGS[small][-1]}" + text[match.end():]
+    pair = None
+    wanted = _TO_PAIR.search(text)
+    if wanted:
+        big, small = _unit(wanted.group("big")), _unit(wanted.group("small"))
+        if big in _PAIRS and _PAIRS[big] == small:
+            pair = (big, small)
+            text = text[:wanted.start()] + f" to {_SPELLINGS[small][-1]}"
+    return text, said, pair
+
+
 def parse(text: str) -> tuple[float, str, str] | None:
     """(amount, from-unit, to-unit) for a conversion request, or None."""
+    return _parse(text)[0]
+
+
+def _parse(text: str) -> tuple[tuple[float, str, str] | None, str, tuple[str, str] | None]:
     cleaned = _fraction_amounts(_NUMBER_WORD.sub(lambda m: _words_to_number(m.group(0)), text or ""))
+    cleaned, said, pair = _compound(cleaned)
+    return _parse_one(cleaned), said, pair
+
+
+def _parse_one(cleaned: str) -> tuple[float, str, str] | None:
     # The router hands over `convert <what was said>`, and "how many ounces in a pound" or
     # "what's 70 fahrenheit in celsius" only reads as a conversion from its own first word.
-    cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much)\b|what\b)", "", cleaned,
+    cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much|tall|heavy)\b|what\b)", "", cleaned,
                      flags=re.IGNORECASE)
     for pattern in (_FORWARD, _HOW_MANY):
         match = pattern.match(cleaned)
@@ -197,7 +247,7 @@ class UnitTool:
     """`convert <amount> <unit> to <unit>` - local and exact, so no approval gate."""
 
     def convert(self, text: str) -> ToolResult:
-        parsed = parse(text)
+        parsed, said, pair = _parse(text)
         if parsed is None:
             return ToolResult.failure(
                 "I could not read that as a conversion. Try \"convert 5 miles to km\" or "
@@ -207,8 +257,17 @@ class UnitTool:
             value = convert(amount, source, target)
         except ValueError as exc:
             return ToolResult.failure(str(exc))
-        left = f"{_shown(amount)} {_named(source, amount)}".replace(" °", "°").replace(" K", " K")
+        left = said or f"{_shown(amount)} {_named(source, amount)}".replace(" °", "°").replace(" K", " K")
         right = f"{_shown(value)} {_named(target, value)}".replace(" °", "°")
+        if pair is not None:
+            big, small = pair
+            ratio = round(_FACTORS[big][1] / _FACTORS[small][1])
+            # Split the size, then sign it: divmod floors, so -90 minutes came out "-2 hours 30
+            # minutes" (Codex's review of #254).
+            whole, rest = divmod(round(abs(value), 2), ratio)
+            parts = [f"{int(whole):,} {_named(big, whole)}"] if whole else []
+            parts += [f"{_shown(rest)} {_named(small, rest)}"] if rest or not whole else []
+            right = ("-" if value < 0 and (whole or rest) else "") + " ".join(parts)
         note = " (US measure)" if _FACTORS[source][0] == "volume" and {source, target} & {
             "cup", "pint", "quart", "gallon", "fluid ounce"} else ""
         return ToolResult.success(f"{left} = **{right}**{note}", value=value, source=source, target=target)
