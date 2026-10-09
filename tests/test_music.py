@@ -17,7 +17,7 @@ class FakeWeb:
 
 def fake_resolver(query: str) -> list[dict[str, str]]:
     return [
-        {"id": "kJQP7kiw5Fk", "title": f"{query} - the top hit"},
+        {"id": "testvideo01", "title": f"{query} - the top hit"},
         {"id": "gm3-m2CFVWM", "title": f"{query} - a cover"},
     ]
 
@@ -42,8 +42,8 @@ class MusicPlayTests(unittest.TestCase):
         tool, web = self.tool()
         result = tool.play("despacito")
         self.assertTrue(result.ok)
-        self.assertEqual(web.opened, ["https://www.youtube.com/watch?v=kJQP7kiw5Fk"])
-        self.assertEqual(result.data["video_id"], "kJQP7kiw5Fk")
+        self.assertEqual(web.opened, ["https://www.youtube.com/watch?v=testvideo01"])
+        self.assertEqual(result.data["video_id"], "testvideo01")
         self.assertIn("Playing", result.message)
 
     def test_the_resolver_is_given_the_cleaned_query(self) -> None:
