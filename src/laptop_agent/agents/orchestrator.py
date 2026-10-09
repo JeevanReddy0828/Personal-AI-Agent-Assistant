@@ -1133,8 +1133,8 @@ class AgentOrchestrator:
         if lowered == "reminder snooze" or lowered.startswith("reminder snooze "):
             return self._reminder_snooze(command[len("reminder snooze") :].strip())
 
-        if lowered == "timers":
-            return self._timers()
+        if lowered == "timers" or lowered.startswith("timers "):
+            return self._timers(command[len("timers") :].strip())
 
         if lowered == "alarms":
             return self._alarms()
@@ -3111,10 +3111,23 @@ class AgentOrchestrator:
             return ToolResult.success(f"You have no {noun}s coming up.")
         return ToolResult.success(" ".join(parts), reminder=upcoming[0][1] if upcoming else None)
 
-    def _timers(self) -> ToolResult:
-        """Running timers and what is left on each - "how much time is left on my timer"."""
+    def _timers(self, name: str = "") -> ToolResult:
+        """Running timers and what is left on each - "how much time is left on my timer", or on the
+        one named: "is my egg timer still going"."""
         now = datetime.now().astimezone()
-        running = self._dated("timer")
+        # A timer is saved as "<Name> timer (<length>)", "Timer to … (<length>)" or "Timer (<length>)";
+        # "fix the egg timer" is a reminder that names one (Codex's review of #257).
+        running = [(due, item) for due, item in self._dated("timer")
+                   if re.fullmatch(r"(?:[a-z][\w' -]*\s)?timer(?:\s+to\s.+)?\s\(.+\)", str(item.get("message", "")),
+                                   re.IGNORECASE)]
+        if name:
+            named = [(due, item) for due, item in running
+                     if str(item.get("message", "")).lower().startswith(f"{name.lower()} timer ")]
+            if not named:
+                others = self._timers() if running else None
+                return ToolResult.success(f"No {name} timer is running."
+                                          + (f" {others.message}" if others is not None else ""), timers=[])
+            running = named
         if not running:
             return ToolResult.success("No timer is running. Say \"set a timer for 10 minutes\" to start one.",
                                       timers=[])

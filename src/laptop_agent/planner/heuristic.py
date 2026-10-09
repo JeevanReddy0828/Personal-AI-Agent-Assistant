@@ -223,8 +223,8 @@ _TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|r
 _TIMER_STATUS = re.compile(
     _POLITE + r"(?:(?:(?:what|which|show(?:\s+me)?|list|check|any|are\s+there(?:\s+any)?|do\s+i\s+have(?:\s+any)?)\s+)?"
     r"(?:(?:my|the|all)\s+)?(?:running\s+)?timers(?:\s+(?:are\s+)?(?:still\s+)?(?:running|going|on|set)|\s+do\s+i\s+have)?"
-    r"|(?:is|are)\s+(?:my|the|any)\s+(?:[a-z]+\s+)?timers?\s+(?:still\s+)?(?:running|going|on)"
-    r"|what(?:'s|s|\s+is)\s+left\s+on\s+(?:my|the)\s+(?:[a-z]+\s+)?timer)\s*[?.!]*",
+    r"|(?:is|are)\s+(?:my|the|any)\s+(?:(?P<named>[a-z]+)\s+)?timers?\s+(?:still\s+)?(?:running|going|on)"
+    r"|what(?:'s|s|\s+is)\s+left\s+on\s+(?:my|the)\s+(?:(?P<left>[a-z]+)\s+)?timer)\s*[?.!]*",
     re.IGNORECASE,
 )
 # Letting go of one: "never mind the timer", "i don't need the alarm anymore", "stop
@@ -1300,9 +1300,14 @@ class HeuristicPlannerProvider:
         # Timers and alarms are reminders that are only a time. Every phrasing of them used
         # to reach a chat model, which cannot set one and was free to say it had.
         spoken = spoken_to_digits(text)
-        if _TIMER_LEFT.search(spoken) or _TIMER_STATUS.fullmatch(spoken) or re.fullmatch(
+        left, status = _TIMER_LEFT.search(spoken), _TIMER_STATUS.fullmatch(spoken)
+        if left or status or re.fullmatch(
                 r"\s*(?:(?:show|list|check)\s+)?(?:(?:my|the|all)\s+)?(?:running\s+)?timers\s*[?.!]*", spoken, re.I):
-            return self._command("timers", "User asked about running timers.", 0.88)
+            # The one asked about, by name: "is my egg timer still going" is not the pasta timer.
+            name = ((left and left.group("which")) or (status and (status.group("named") or status.group("left")))
+                    or "").strip().lower()
+            name = "" if name in {"current", "running", "active", "last", "only", "new"} else name
+            return self._command(f"timers {name}".strip(), "User asked about running timers.", 0.88)
         if _TIMER_BARE.match(spoken):
             return self._command("timer", "User wants a timer but gave no length.", 0.84)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):

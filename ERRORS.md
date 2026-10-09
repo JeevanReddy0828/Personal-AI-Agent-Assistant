@@ -248,7 +248,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "show my facts" were answered by the chat model, which cannot see any of them** → each
   listing knew only a few phrasings → whole-sentence routes to `timers`, `reminders` and
   `memory`; "how many" is not a prefix, so "how many reminders can an iphone hold" stays a
-  question. (10-09)
+  question. `timers <name>` answers about the one asked for, and only a saved timer label
+  ("Egg timer (5 minutes)") is a timer, not a reminder to "fix the egg timer" (Codex, #257). (10-09)
 - **Confident wrong counts from the agent** → it got a sample → hand it quantities
   (`total_files`, `by_extension`) and say when text was clipped. (09-11)
 - **A count instead of an answer** ("1 scheduled job(s).") → the content was only in `data`
