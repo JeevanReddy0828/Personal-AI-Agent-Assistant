@@ -10,9 +10,9 @@ one right answer is computed.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
-from laptop_agent.timeparse import MONTHS, TimeParseError, _find_time, on_laptop_clock, parse_when
+from laptop_agent.timeparse import MONTHS, TimeParseError, _find_day, _find_time, on_laptop_clock, parse_when
 
 
 def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
@@ -232,6 +232,20 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
             if when is None or when.start != 0 or when.end < len(cleaned) - 1:
                 return None
             readings.append(when.at)
+        if _find_day(cleaned.lower(), now) is None:
+            # The hour the clocks go back happens twice: "until 1:30am" at the first 1:45 is the
+            # second 1:30, 45 minutes away, not tomorrow's (Codex's review of #253). A reading
+            # counts only if it is that wall time, so a time the spring change skips keeps its rule.
+            for at in list(readings):
+                wall = at.replace(tzinfo=None)
+                for back in (0, 1):
+                    for fold in (0, 1):
+                        guess = (wall - timedelta(days=back)).replace(fold=fold)
+                        moment = on_laptop_clock(guess, now.tzinfo)
+                        # Read back through UTC: a zone converted to itself is returned unchanged.
+                        shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
+                        if shown.replace(tzinfo=None) == guess and moment > now:
+                            readings.append(moment)
         return min(readings)
     if unit in ("hours", "minutes"):
         found = resolve(text, now, profile)

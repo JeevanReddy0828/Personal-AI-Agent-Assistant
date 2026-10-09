@@ -332,6 +332,23 @@ class TimeUntilTests(unittest.TestCase):
         self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=timezone.utc))
         self.assertEqual(span_text(round((moment - evening).total_seconds() / 60), "hours"), "2,141 hours 25 minutes")
 
+    @unittest.skipIf(_NEW_YORK is None, "no zone data here; CI installs tzdata")
+    def test_the_repeated_hour_is_counted_to_its_next_real_reading(self) -> None:
+        """Codex's review: at the first 1:45 on the night the clocks go back, "until 1:30am" said
+        "1 day 45 minutes"; the second 1:30 is 45 minutes away."""
+        edt, est = timezone(timedelta(hours=-4)), timezone(timedelta(hours=-5))
+        cases = ((datetime(2026, 11, 1, 0, 30, tzinfo=edt), "1:30am", 60),     # the first reading
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am", 45),     # the second, still today
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am", 1425),   # both gone: tomorrow's
+                 (datetime(2026, 11, 1, 3, 0, tzinfo=est), "1:30am", 1350),    # after the change
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30", 45),       # no am/pm said
+                 (datetime(2027, 3, 14, 1, 0, tzinfo=est), "2:30am", 90))      # skipped in spring: 3:30
+        with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
+            for now, what, minutes in cases:
+                with self.subTest(now=now.isoformat(), what=what):
+                    moment = until_moment(what, "", now)
+                    self.assertEqual(round((moment - now).total_seconds() / 60), minutes)
+
     def test_through_the_assistant(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", EveningClock):
             everyday = Everyday(Path(tmp))
@@ -341,6 +358,7 @@ class TimeUntilTests(unittest.TestCase):
                                    ("how much time until 9:30", "**1 hour 55 minutes** until 9:30 (today at 9:30 PM)"),
                                    ("how long until 5pm today", "5pm today was **2 hours 35 minutes ago**"),
                                    ("how long until friday", "**6 days** until friday"),
+                                   ("how long until friday at 5pm", "**5 days 21 hours 25 minutes**"),
                                    ("how long until my timer goes off", "no timers")):
                 with self.subTest(text):
                     result, ran = everyday.say(text, stream=False)
