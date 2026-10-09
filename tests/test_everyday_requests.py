@@ -887,6 +887,9 @@ class AlarmListTests(unittest.TestCase):
             weekly, _ = everyday.say("set an alarm for 7am every weekday", stream=False)
             everyday.say("remind me to call mom at 5pm tomorrow", stream=False)
             everyday.say("remind me every friday at 5pm to water the plants", stream=False)
+            # Reminders that name an alarm are not alarms.
+            everyday.say("remind me to fix the fire alarm at 5pm tomorrow", stream=False)
+            everyday.say("remind me every friday at 6pm to test the smoke alarm", stream=False)
             everyday.orchestrator.context.reminders.add("2020-01-01T06:00:00+00:00", "Alarm")   # long gone
             listed, _ = everyday.say("do i have any alarms set", stream=False)
             self.assertIn("You have 2 alarms", listed.message)

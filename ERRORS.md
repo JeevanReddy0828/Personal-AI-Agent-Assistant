@@ -232,7 +232,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   before, after or absent) and `distance here to …` via the IP lookup "around me" uses. (10-05)
 - **"what alarms do i have" and "how many items are on my shopping list" were answered by the
   chat model, which cannot see either** → only the next alarm was routed, and a list was shown
-  only when asked what is on it → an `alarms` listing (one-off and repeating, alarms only) by
+  only when asked what is on it → an `alarms` listing (one-off and repeating, labelled exactly
+  "Alarm", so "fix the fire alarm" is not one) by
   whole sentence, and "how many items/things are on/in <list>" shows the list. (10-08)
 - **Follow-ups lose the conversation** → a model-facing path without `history` → every one
   takes `history` and `context_block`; rank on the user's words (`context_query=`). (09-10)

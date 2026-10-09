@@ -3131,8 +3131,11 @@ class AgentOrchestrator:
         """Every alarm set - "what alarms do i have". Only the next one could be asked for, so
         the question reached the chat model, which cannot see them."""
         now = datetime.now().astimezone()
-        upcoming = [(due, item) for due, item in self._dated("alarm") if due > now]
-        repeating = [job for job in self._repeating_reminders() if re.search(r"\balarm\b", job.spec, re.IGNORECASE)]
+        # An alarm is labelled exactly that; "fix the fire alarm" is a reminder that names one.
+        upcoming = [(due, item) for due, item in self._dated("alarm")
+                    if due > now and str(item.get("message", "")).strip().lower() == "alarm"]
+        repeating = [job for job in self._repeating_reminders()
+                     if job.spec[len("reminder add now "):].strip().lower() == "alarm"]
         if not upcoming and not repeating:
             return ToolResult.success("You have no alarms set. Say \"wake me up at 7\" to set one.",
                                       alarms=[], repeating=[])
