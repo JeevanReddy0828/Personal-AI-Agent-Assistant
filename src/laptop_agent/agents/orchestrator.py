@@ -1656,11 +1656,16 @@ class AgentOrchestrator:
             return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
 
         if lowered.startswith("screenshot "):
-            target = re.sub(r"^(?:to|as|into)\s+", "", command[len("screenshot ") :].strip(), flags=re.IGNORECASE)
-            # "screenshot my screen and tell me what's on it" saved a file named after the sentence:
-            # only something shaped like a file is a place to save one, and asking what is on it
-            # is asking to look.
-            if re.search(r"\.(?:png|jpe?g|bmp|gif|webp)$|[\\/]", target, re.IGNORECASE):
+            rest = command[len("screenshot ") :].strip()
+            lead = re.match(r"(?:to|as|into)\s+", rest, re.IGNORECASE)
+            target = rest[lead.end():] if lead else rest
+            # "screenshot my screen and tell me what's on it" saved a file named after the sentence,
+            # and "...and read the error/bug message" one at "error\bug message.png" (Codex's review
+            # of #258). A destination is said as one: a drive, or a ./ ~/ / start, an image file
+            # name, or a path with no spaces after "to". Asking what is on it is asking to look.
+            if (re.match(r"[A-Za-z]:[\\/]|[.~]{0,2}[\\/]", target)
+                    or re.search(r"\.(?:png|jpe?g|bmp|gif|webp)$", target, re.IGNORECASE)
+                    or (lead and re.fullmatch(r"\S*[\\/]\S*", target))):
                 return self.context.desktop.screenshot(target)
             if re.search(r"\b(?:tell|describe|explain|read|summari[sz]e)\b|\bwhat(?:'s|s|\s+is)\s+on\b", target,
                          re.IGNORECASE):
