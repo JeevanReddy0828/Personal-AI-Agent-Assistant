@@ -11,6 +11,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 ## Symptom index
 
 ### Tests and verification
+- **The Magpie-tab browser test failed on CI at "817 not less than 800"** with every sentence
+  in order → a speed bound standing in for a cause → the next sentence's synthesis is held
+  open, so the first can only play if playback does not wait for it; a page that waits
+  deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
+  miss is a flake. (10-08)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
