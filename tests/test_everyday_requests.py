@@ -875,5 +875,24 @@ class ReminderDayTests(unittest.TestCase):
             self.assertEqual(len(sunday.data["repeating"]), 1)
 
 
+class ScreenshotWordsTests(unittest.TestCase):
+    """"screenshot my screen and tell me what's on it" saved a file called "my screen and tell me
+    what's on it.png": everything after `screenshot ` was taken as the place to save it."""
+
+    def test_only_a_file_name_is_a_place_to_save(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for text in ("screenshot my screen and tell me what's on it", "screenshot and describe it"):
+                with self.subTest(text):
+                    result, _ = everyday.say(text, stream=False)
+                    self.assertIn("from the screen", result.message)          # it looked, it did not save
+            self.assertFalse(list(Path.cwd().glob("*tell me*")) + list(Path(tmp).rglob("*tell me*")))
+            plain, _ = everyday.say("screenshot this", stream=False)
+            self.assertEqual(Path(plain.data["path"]).parent, Path(tmp) / "screenshots")
+            named = Path(tmp) / "shot.png"
+            saved, _ = everyday.say(f"screenshot to {named}", stream=False)
+            self.assertEqual(Path(saved.data["path"]), named)
+
+
 if __name__ == "__main__":
     unittest.main()

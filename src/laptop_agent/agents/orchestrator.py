@@ -1653,7 +1653,17 @@ class AgentOrchestrator:
             return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
 
         if lowered.startswith("screenshot "):
-            return self.context.desktop.screenshot(command[len("screenshot ") :].strip())
+            target = re.sub(r"^(?:to|as|into)\s+", "", command[len("screenshot ") :].strip(), flags=re.IGNORECASE)
+            # "screenshot my screen and tell me what's on it" saved a file named after the sentence:
+            # only something shaped like a file is a place to save one, and asking what is on it
+            # is asking to look.
+            if re.search(r"\.(?:png|jpe?g|bmp|gif|webp)$|[\\/]", target, re.IGNORECASE):
+                return self.context.desktop.screenshot(target)
+            if re.search(r"\b(?:tell|describe|explain|read|summari[sz]e)\b|\bwhat(?:'s|s|\s+is)\s+on\b", target,
+                         re.IGNORECASE):
+                return self._read_screen()
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
 
         if lowered.startswith("run command "):
             return self._run_terminal_command(command[len("run command ") :].strip())

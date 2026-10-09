@@ -394,6 +394,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"screenshot my screen and tell me what's on it" saved "my screen and tell me what's on
+  it.png"** → the direct `screenshot ` prefix took any remainder as the save path → only a
+  file name or a path (an image extension or a slash) is a place to save; "and tell me/describe"
+  reads the screen; anything else saves to `screenshots/` as usual. (10-09)
 - **Test data in the user's real store** → a throwaway instance changed only the port →
   set `LAPTOP_AGENT_DATA_DIR` too; stop it when done. (09-17, 09-12, 09-28)
 - **State leaks between tests or runs** → persistence read the process-wide config → take the
