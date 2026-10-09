@@ -190,6 +190,9 @@ class MessageSplitTests(unittest.TestCase):
             "book report due friday": "book report due", "deposit due friday": "deposit due",
             "book the hotel due friday": "book the hotel", "hand in homework due friday": "hand in homework",
             "file the taxes due friday": "file the taxes", "return due friday": "return due",
+            # A "that is due" clause is the reminder unless an action leads (Codex's review).
+            "the rent that is due friday": "the rent that is due", "the bill which is due friday": "the bill which is due",
+            "pay the bill which is due friday": "pay the bill",
         }
         for text, expected in cases.items():
             with self.subTest(text):

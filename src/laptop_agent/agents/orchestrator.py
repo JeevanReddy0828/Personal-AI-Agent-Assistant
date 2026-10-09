@@ -207,10 +207,12 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     joined = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.;:-")
     joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
-    if _DUE_CLAUSE.search(joined):
-        joined = _DUE_CLAUSE.sub("", joined)
-    elif _DUE_ACTION.match(joined) and not _DUE_PREDICATE.search(joined):
-        joined = re.sub(r"\s+due$", "", joined, flags=re.IGNORECASE)
+    # Only after an action: "the rent that is due" is the reminder (Codex's review of #252).
+    if _DUE_ACTION.match(joined):
+        if _DUE_CLAUSE.search(joined):
+            joined = _DUE_CLAUSE.sub("", joined)
+        elif not _DUE_PREDICATE.search(joined):
+            joined = re.sub(r"\s+due$", "", joined, flags=re.IGNORECASE)
     return joined.strip(" ,.;:-")
 
 
