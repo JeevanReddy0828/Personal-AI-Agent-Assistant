@@ -10,9 +10,9 @@ one right answer is computed.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
-from laptop_agent.timeparse import MONTHS, TimeParseError, parse_when
+from laptop_agent.timeparse import MONTHS, TimeParseError, _find_day, _find_time, on_laptop_clock, parse_when
 
 
 def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
@@ -199,13 +199,81 @@ def describe_day(day: date, today: date) -> str:
     return f"{stamp} — {days} days from today" if days > 0 else f"{stamp} — {-days} days ago"
 
 
-# "how many days until christmas", "how long till my birthday", "days until friday"
+# "how many days until christmas", "how long till my birthday", "days until friday",
+# "how many minutes until midnight", "how much time until 9:30"
 _UNTIL = re.compile(
-    r"^\s*(?:how\s+many\s+(?:more\s+)?(?P<unit>days|sleeps|weeks)\s+(?:until|till|til|to|before|left\s+(?:until|till|before))"
-    r"|how\s+long\s+(?:is\s+it\s+)?(?:until|till|til|before)|days\s+(?:until|till|til|to|left\s+until))\s+"
+    r"^\s*(?:how\s+many\s+(?:more\s+)?(?P<unit>days|sleeps|weeks|hours|minutes)\s+(?:until|till|til|to|before"
+    r"|left\s+(?:until|till|before))"
+    r"|how\s+long\s+(?:is\s+it\s+)?(?:until|till|til|before)|how\s+much\s+time\s+(?:is\s+)?(?:left\s+)?(?:until|till|til)"
+    r"|days\s+(?:until|till|til|to|left\s+until))\s+"
     r"(?P<what>.+?)\s*[?.!]*$",
     re.IGNORECASE,
 )
+
+
+def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object] | None = None) -> datetime | None:
+    """The instant an "until" question counts to, when it is counted in hours rather than days.
+
+    "how long until midnight" counted the days to the date of the next midnight and said
+    "1 day", four hours before it. A time of day is counted to that moment; a day asked for in
+    hours or minutes ("how many hours until christmas") to its start. Anything else is None,
+    and is counted in days.
+    """
+    cleaned = re.sub(r"^\s*(?:the\s+)?", "", (text or "").strip().rstrip("?.!")).strip()
+    if _find_time(cleaned.lower()) is not None:
+        # A clock said without am/pm is the sooner of its two readings: "until 9:30" at 7pm is tonight's.
+        halves = ("am", "pm") if re.fullmatch(r"\d{1,2}:\d{2}", cleaned) else ("",)
+        readings = []
+        for half in halves:
+            try:
+                when = parse_when(cleaned, now, default_half=half, local=True)
+            except TimeParseError:
+                return None
+            if when is None or when.start != 0 or when.end < len(cleaned) - 1:
+                return None
+            readings.append(when.at)
+        # The hour the clocks go back happens twice: "until 1:30am" at the first 1:45 is the second
+        # 1:30, 45 minutes away, not tomorrow's - and so is "1:30am today", and "sunday at 1:30am"
+        # on that Sunday (Codex's reviews of #253). The parse moved on a day, or a week for a named
+        # weekday, past the first reading, so today's is looked for that far back; "today" or a
+        # date stays on its day, and "friday at 5pm" is never given the Thursday. A reading counts
+        # only if it is that wall time, so a time the spring change skips keeps its rule.
+        # "next sunday" is never today, so it does not look back (Codex's third review).
+        if (re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE)
+                and not re.search(r"\bnext\b", cleaned, re.IGNORECASE)):
+            backs: tuple[int, ...] = (0, 7)
+        else:
+            backs = (0,) if _find_day(cleaned.lower(), now) is not None else (0, 1)
+        for at in list(readings):
+            wall = at.replace(tzinfo=None)
+            for back in backs:
+                for fold in (0, 1):
+                    guess = (wall - timedelta(days=back)).replace(fold=fold)
+                    moment = on_laptop_clock(guess, now.tzinfo)
+                    # Read back through UTC: a zone converted to itself is returned unchanged.
+                    shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
+                    if shown.replace(tzinfo=None) == guess:
+                        readings.append(moment)
+        # The next one to come; for a time already gone today, the latest that went.
+        ahead = [at for at in readings if at > now]
+        return min(ahead) if ahead else max(readings)
+    if unit in ("hours", "minutes"):
+        found = resolve(text, now, profile)
+        if found is not None:
+            return on_laptop_clock(datetime(found[0].year, found[0].month, found[0].day), now.tzinfo)
+    return None
+
+
+def span_text(minutes: int, unit: str = "") -> str:
+    """"4 hours 25 minutes", or all in the unit asked for: "265 minutes"."""
+    if minutes <= 0:
+        return "less than a minute"
+    if unit == "minutes":
+        return f"{minutes:,} minute{'s' if minutes != 1 else ''}"
+    days, rest = (0, minutes) if unit == "hours" else divmod(minutes, 1440)
+    hours, spare = divmod(rest, 60)
+    return " ".join(f"{count:,} {word}{'s' if count != 1 else ''}"
+                    for count, word in ((days, "day"), (hours, "hour"), (spare, "minute")) if count)
 # "when is thanksgiving", "what day is christmas", "what date is easter this year"
 # Past and future tense too: "what day was july 4 1776", "what day will it be in 10 days",
 # "what was the date 2 weeks ago" went to the chat model.
@@ -259,7 +327,8 @@ def date_question(text: str) -> tuple[str, str, str] | None:
         if match:
             groups = match.groupdict()
             if kind == "until":
-                return kind, groups["what"], "weeks" if (groups.get("unit") or "").lower() == "weeks" else ""
+                unit = (groups.get("unit") or "").lower()
+                return kind, groups["what"], unit if unit in ("weeks", "hours", "minutes") else ""
             return kind, groups.get("what") or groups.get("a") or "", groups.get("b") or ""
     return None
 
