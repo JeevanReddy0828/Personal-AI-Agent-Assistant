@@ -132,6 +132,9 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("how much time is left on my timer", "timers", "time left"),
     ("wake me up at 7", "alarm", "an alarm said as speech"),
     ("get me up at 6", "alarm", "another way to say it"),
+    ("what alarms do i have", "alarms", "a listing the chat model cannot see; only the next alarm was routed"),
+    ("do i have any alarms set", "alarms", "same"),
+    ("how many items are on my shopping list", "list shopping show", "a count the chat model cannot see"),
     ("snooze for 5 minutes", "reminder snooze", "minutes, never a reminder id"),
     ("what's my next reminder", "reminders next", "read as a date nobody gave, once"),
     ("what are my scheduled jobs", "schedule list", "the router heard 'jobs' and opened the job tracker"),
@@ -175,6 +178,9 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
 # decoration.
 MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("record a podcast about space", "not a voice capture instruction"),
+    ("how do alarms work", "a question about alarms, not a listing"),
+    ("alarms are annoying", "a remark"),
+    ("how many items fit in a suitcase", "not a list of ours"),
     ("what is the record for the 100m", "record is a noun"),
     ("can you record?", "asks whether it can; only a named request starts the microphone"),
     ("do not open youtube", "a leading 'do not' was skipped and YouTube opened"),

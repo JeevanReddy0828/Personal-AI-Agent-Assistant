@@ -175,6 +175,14 @@ _REMINDER_DAY_TAIL = re.compile(
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# Asking to see the alarms, as a whole sentence. "what alarms do i have" reached the chat model,
+# which cannot see them: only "when is my alarm" (the next one) was routed.
+_ALARM_LIST = re.compile(
+    _POLITE + r"(?:(?:what(?:'s|s|\s+is|\s+are)?|which|show(?:\s+me)?|list|see|view|check|give\s+me|tell\s+me"
+    r"|do\s+i\s+have(?:\s+any)?|have\s+i\s+got(?:\s+any)?|are\s+there(?:\s+any)?|any)\s+)?(?:all\s+)?(?:(?:my|the)\s+)?"
+    r"alarms(?:\s+(?:do\s+i\s+have|have\s+i\s+(?:got|set)|are\s+set|i\s+have|i'?ve\s+set|(?:are\s+)?set))?\s*[?.!]*",
+    re.IGNORECASE,
+)
 # Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
 # router, which matched "jobs" and answered from the job-application tracker.
 _SCHEDULE_ASK = re.compile(
@@ -450,7 +458,8 @@ _LIST_ADD_BARE = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)
 _LIST_REMOVE_BARE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
                                r"(?:off(?:\s+of)?|from)\s+" + _BARE_LIST + r"\s*[.!]*$", re.IGNORECASE)
 _LIST_SHOW = re.compile(_POLITE + r"(?:what(?:'s|s|\s+is|\s+are)?\s+(?:on|in)|show(?:\s+me)?|read(?:\s+me)?"
-                        r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on)\s+" + _LIST_NAME + r"\s*[?.!]*$",
+                        r"(?:\s+out)?|check|open|what\s+do\s+i\s+have\s+on"
+                        r"|how\s+many\s+(?:items|things)\s+(?:are\s+)?(?:there\s+)?(?:on|in))\s+" + _LIST_NAME + r"\s*[?.!]*$",
                         re.IGNORECASE)
 # "do i need anything from the store" asks for the shopping list; it was answered from nothing.
 _STORE_ASK = re.compile(_POLITE + r"(?:do\s+(?:i|we)\s+need\s+anything|what\s+do\s+(?:i|we)\s+need)\s+(?:from|at)\s+"
@@ -1248,6 +1257,8 @@ class HeuristicPlannerProvider:
             return self._command("reminders", "User wants to list active reminders.", 0.86)
         if _SCHEDULE_ASK.fullmatch(lowered):
             return self._command("schedule list", "User wants the scheduled jobs.", 0.86)
+        if _ALARM_LIST.fullmatch(lowered):
+            return self._command("alarms", "User wants to see their alarms.", 0.86)
         upcoming = _NEXT_ASK.match(lowered)
         if upcoming:
             kind = next((group for group in upcoming.groups() if group), "reminder")
