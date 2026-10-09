@@ -19,6 +19,14 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-09: **Nothing an agent runs while working may reach Jeevan's desktop (his
+  instruction: "make sure it never happens again").** Probe and review scripts by both agents
+  imported the test harness outside `run_tests.py` and opened Despacito in his browser and
+  pressed his volume keys, repeatedly. Importing the harness now makes `os.startfile`,
+  `webbrowser.open` and `keybd_event` inert (`tests/desktop_guard.py`, held by
+  `test_desktop_guard.py`), the fake video id is not a song, and `AGENTS.md` carries the rule
+  for both agents: no `handle()` outside the runner or harness, no orchestrator built from
+  `app.build_context` for a probe, no play/volume/open phrases to a live instance unless asked.
 - 2026-10-07: **A personal account may not use the webcam, even behind an approval card
   (Jeevan's decision).** It stays refused before any card, as `access.py` already does: an
   approval click proves the person asking agreed, not the person in front of the camera, and
