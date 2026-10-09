@@ -875,6 +875,35 @@ class ReminderDayTests(unittest.TestCase):
             self.assertEqual(len(sunday.data["repeating"]), 1)
 
 
+class TimerStatusTests(unittest.TestCase):
+    """"is my egg timer still going?" reached the chat model; routed, it then counted a reminder to
+    "fix the egg timer" as a running timer and answered about the pasta timer (Codex's review)."""
+
+    def test_only_timers_and_only_the_one_asked_about(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("remind me to fix the egg timer tomorrow at 8am", stream=False)
+            result, ran = everyday.say("is my egg timer still going?", stream=False)
+            self.assertEqual(ran, "timers egg")
+            self.assertEqual(result.message, "No egg timer is running.")
+            self.assertIn("No timer is running", everyday.say("what timers are running", stream=False)[0].message)
+            everyday.say("set a 10 minute pasta timer", stream=False)
+            other = everyday.say("is my egg timer still going?", stream=False)[0].message
+            self.assertTrue(other.startswith("No egg timer is running. Pasta timer:"), other)
+            for text in ("is the pasta timer still going", "what's left on the pasta timer", "is my timer still running"):
+                with self.subTest(text):
+                    message = everyday.say(text, stream=False)[0].message
+                    self.assertTrue(message.startswith("Pasta timer: **"), message)
+                    self.assertNotIn("fix the egg timer", message)
+            # A name of more than one word, as `_timer` takes one (Codex's second review).
+            everyday.say("timer 10 minutes for the coffee break", stream=False)
+            for text in ("is my coffee break timer still going?", "how much time is left on my coffee break timer?"):
+                with self.subTest(text):
+                    result, ran = everyday.say(text, stream=False)
+                    self.assertEqual(ran, "timers coffee break")
+                    self.assertTrue(result.message.startswith("Coffee break timer: **"), result.message)
+
+
 class AlarmListTests(unittest.TestCase):
     """"what alarms do i have" reached the chat model, which cannot see them: only "when is my
     alarm", the next one, was routed."""

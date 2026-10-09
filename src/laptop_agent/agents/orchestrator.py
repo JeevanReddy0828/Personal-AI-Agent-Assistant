@@ -73,6 +73,7 @@ from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, looks_like_conversion
 from laptop_agent.tools.chance import draw
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
+from laptop_agent.tools.dates import span_text, until_moment
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -180,6 +181,22 @@ _NO_MODEL_REPLY = (
 # anything bigger, and the file tools read it without pushing it through a model prompt.
 MAX_COMMAND_CHARS = 24_000
 
+# "pay the bill due friday" was filed as "pay the bill due": the day went and its "due" stayed.
+# A "due" after something to do goes with the day; "the rent is due" and "homework due" are the
+# reminder itself. Telling them apart by length lost "pay rent due" (Codex's review of #252), so
+# the action decides: a verb missing from this list keeps the user's words.
+_DUE_CLAUSE = re.compile(r"\s+(?:that|which)(?:'?s|\s+is|\s+are)\s+due$", re.IGNORECASE)
+_DUE_PREDICATE = re.compile(r"(?:\b(?:is|are|was|were|be|been)|'s|'re)\s+due$", re.IGNORECASE)
+# A word that is as often a noun - "book report due" is the assignment - counts as the action only
+# when what follows it says so: "book the hotel", "hand in the essay" (Codex's review of #252).
+_DUE_ACTION = re.compile(
+    r"(?:pay|send|submit|return|renew|finish|complete|cancel|upload|sign|buy|bring|apply|register|prepare"
+    r"|write|read|fix|take|get|do|make|deliver|ship|collect|grade|finalize|finalise)\s+(?!due\b)\S"
+    r"|(?:book|file|hand|turn|mail|email|post|review|order|drop|pick|check|update|print|mark|call|transfer"
+    r"|deposit|study|clean)\s+(?:(?:in|off|up|out)\s+|(?:the|a|an|my|our|your|his|her|their|this|that)\s+)\S",
+    re.IGNORECASE,
+)
+
 
 def _reminder_message(text: str, start: int, end: int) -> str:
     """What is left of a reminder once the time words are cut out of it.
@@ -191,6 +208,12 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     joined = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.;:-")
     joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
+    # Only after an action: "the rent that is due" is the reminder (Codex's review of #252).
+    if _DUE_ACTION.match(joined):
+        if _DUE_CLAUSE.search(joined):
+            joined = _DUE_CLAUSE.sub("", joined)
+        elif not _DUE_PREDICATE.search(joined):
+            joined = re.sub(r"\s+due$", "", joined, flags=re.IGNORECASE)
     return joined.strip(" ,.;:-")
 
 
@@ -1133,8 +1156,8 @@ class AgentOrchestrator:
         if lowered == "reminder snooze" or lowered.startswith("reminder snooze "):
             return self._reminder_snooze(command[len("reminder snooze") :].strip())
 
-        if lowered == "timers":
-            return self._timers()
+        if lowered == "timers" or lowered.startswith("timers "):
+            return self._timers(command[len("timers") :].strip())
 
         if lowered == "alarms":
             return self._alarms()
@@ -1902,10 +1925,20 @@ class AgentOrchestrator:
             return ToolResult.success(
                 f"**{days} day{'s' if days != 1 else ''}** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
                 f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
-        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?\s*", what, re.IGNORECASE)
+        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?"
+                                r"(?:\s+(?:goes|go)\s+off|\s+rings?|\s+(?:is|are)\s+(?:up|done)|\s+ends?)?\s*", what, re.IGNORECASE)
         if kind != "between" and upcoming:
             # "when is my next reminder" is not a date anyone told us.
             return self._next_reminder("" if upcoming.group(1).lower() == "reminder" else upcoming.group(1).lower())
+        moment = until_moment(what, other, now, profile) if kind == "until" else None
+        if moment is not None:
+            minutes = round((moment - now).total_seconds() / 60)
+            when, name = describe(moment, now, local=True), what.strip()
+            if minutes < 0:
+                return ToolResult.success(f"{name[:1].upper() + name[1:]} was **{span_text(-minutes, other)} ago** "
+                                          f"({when}).", minutes=minutes, at=moment.isoformat())
+            return ToolResult.success(f"**{span_text(minutes, other)}** until {name} ({when}).",
+                                      minutes=minutes, at=moment.isoformat())
         found = resolve_date(what, now, profile)
         if found is None:
             # "when is my dentist appointment" - a reminder may say.
@@ -3127,10 +3160,23 @@ class AgentOrchestrator:
             return ToolResult.success(f"You have no {noun}s coming up.")
         return ToolResult.success(" ".join(parts), reminder=upcoming[0][1] if upcoming else None)
 
-    def _timers(self) -> ToolResult:
-        """Running timers and what is left on each - "how much time is left on my timer"."""
+    def _timers(self, name: str = "") -> ToolResult:
+        """Running timers and what is left on each - "how much time is left on my timer", or on the
+        one named: "is my egg timer still going"."""
         now = datetime.now().astimezone()
-        running = self._dated("timer")
+        # A timer is saved as "<Name> timer (<length>)", "Timer to … (<length>)" or "Timer (<length>)";
+        # "fix the egg timer" is a reminder that names one (Codex's review of #257).
+        running = [(due, item) for due, item in self._dated("timer")
+                   if re.fullmatch(r"(?:[a-z][\w' -]*\s)?timer(?:\s+to\s.+)?\s\(.+\)", str(item.get("message", "")),
+                                   re.IGNORECASE)]
+        if name:
+            named = [(due, item) for due, item in running
+                     if str(item.get("message", "")).lower().startswith(f"{name.lower()} timer ")]
+            if not named:
+                others = self._timers() if running else None
+                return ToolResult.success(f"No {name} timer is running."
+                                          + (f" {others.message}" if others is not None else ""), timers=[])
+            running = named
         if not running:
             return ToolResult.success("No timer is running. Say \"set a timer for 10 minutes\" to start one.",
                                       timers=[])
