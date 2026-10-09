@@ -912,12 +912,14 @@ class ScreenshotWordsTests(unittest.TestCase):
             everyday = Everyday(Path(tmp))
             # A slash inside the words is not a path (Codex's review): "error/bug message" saved one.
             for text in ("screenshot my screen and tell me what's on it", "screenshot and describe it",
-                         "screenshot my screen and read the error/bug message"):
+                         "screenshot my screen and read the error/bug message",
+                         "screenshot my screen and read the report.png", "screenshot my screen and describe the file.png"):
                 with self.subTest(text):
                     result, _ = everyday.say(text, stream=False)
                     self.assertIn("from the screen", result.message)          # it looked, it did not save
             stray = [p for p in list(Path.cwd().rglob("*")) + list(Path(tmp).rglob("*"))
-                     if "tell me" in p.name or "bug message" in p.name]
+                     if "tell me" in p.name or "bug message" in p.name or "read the" in p.name
+                     or "describe the" in p.name]
             self.assertFalse(stray)
             for text in ("screenshot this", "screenshot error/bug"):    # a label, not a place to save
                 with self.subTest(text):
@@ -925,6 +927,8 @@ class ScreenshotWordsTests(unittest.TestCase):
                     self.assertEqual(Path(plain.data["path"]).parent.resolve(), (Path(tmp) / "screenshots").resolve())
             relative, _ = everyday.say("screenshot to shots/today", stream=False)   # a path, said as one
             self.assertEqual(Path(relative.data["path"]).resolve(), (Path.cwd() / "shots" / "today.png").resolve())
+            bare, _ = everyday.say("screenshot shot.png", stream=False)            # a single file name
+            self.assertEqual(Path(bare.data["path"]).resolve(), (Path.cwd() / "shot.png").resolve())
             # Compared resolved: Windows CI gave the same folder as RUNNER~1 and as runneradmin.
             for named in (Path(tmp) / "shot.png", Path(tmp) / "capture"):    # an extensionless path, said as one
                 with self.subTest(str(named)):
