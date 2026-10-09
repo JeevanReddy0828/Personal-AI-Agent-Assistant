@@ -239,6 +239,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   before, after or absent) and `distance here to …` via the IP lookup "around me" uses. (10-05)
 - **Follow-ups lose the conversation** → a model-facing path without `history` → every one
   takes `history` and `context_block`; rank on the user's words (`context_query=`). (09-10)
+- **"what timers are running", "is my timer still going", "how many reminders do i have" and
+  "show my facts" were answered by the chat model, which cannot see any of them** → each
+  listing knew only a few phrasings → whole-sentence routes to `timers`, `reminders` and
+  `memory`; "how many" is not a prefix, so "how many reminders can an iphone hold" stays a
+  question. (10-09)
 - **Confident wrong counts from the agent** → it got a sample → hand it quantities
   (`total_files`, `by_extension`) and say when text was clipped. (09-11)
 - **A count instead of an answer** ("1 scheduled job(s).") → the content was only in `data`
