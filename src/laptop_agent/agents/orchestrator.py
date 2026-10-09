@@ -1136,6 +1136,9 @@ class AgentOrchestrator:
         if lowered == "timers":
             return self._timers()
 
+        if lowered == "alarms":
+            return self._alarms()
+
         if lowered == "timer" or lowered.startswith("timer "):
             return self._timer(command[len("timer ") :])
 
@@ -3124,6 +3127,24 @@ class AgentOrchestrator:
         return ToolResult.success("\n".join(lines) if len(lines) > 1 else lines[0],
                                   timers=[item for _due, item in running])
 
+    def _alarms(self) -> ToolResult:
+        """Every alarm set - "what alarms do i have". Only the next one could be asked for, so
+        the question reached the chat model, which cannot see them."""
+        now = datetime.now().astimezone()
+        # An alarm is labelled exactly that; "fix the fire alarm" is a reminder that names one.
+        upcoming = [(due, item) for due, item in self._dated("alarm")
+                    if due > now and str(item.get("message", "")).strip().lower() == "alarm"]
+        repeating = [job for job in self._repeating_reminders()
+                     if job.spec[len("reminder add now "):].strip().lower() == "alarm"]
+        if not upcoming and not repeating:
+            return ToolResult.success("You have no alarms set. Say \"wake me up at 7\" to set one.",
+                                      alarms=[], repeating=[])
+        lines = [f"- #{item['id']} {describe(due, now, local=True)}" for due, item in upcoming]
+        lines += [f"- every: {job.schedule.describe()}" + ("" if job.enabled else " (off)") for job in repeating]
+        count = len(lines)
+        return ToolResult.success(f"You have {count} alarm{'s' if count != 1 else ''}:\n" + "\n".join(lines),
+                                  alarms=[item for _due, item in upcoming], repeating=[job.to_dict() for job in repeating])
+
     def _alarm(self, expression: str) -> ToolResult:
         """`alarm 7` / `alarm at 6:30am tomorrow`. A bare hour is in the morning."""
         cleaned = re.sub(r"^(?:for|to|at)\s+", "at ", _spoken_request(expression), flags=re.IGNORECASE)
@@ -3693,6 +3714,7 @@ class AgentOrchestrator:
         "timer <duration>",
         "alarm <time>",
         "timers",
+        "alarms",
         "lists",
         "list <name> show",
         "list <name> add <items>",

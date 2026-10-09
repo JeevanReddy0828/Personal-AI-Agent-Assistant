@@ -875,5 +875,33 @@ class ReminderDayTests(unittest.TestCase):
             self.assertEqual(len(sunday.data["repeating"]), 1)
 
 
+class AlarmListTests(unittest.TestCase):
+    """"what alarms do i have" reached the chat model, which cannot see them: only "when is my
+    alarm", the next one, was routed."""
+
+    def test_every_alarm_is_listed_and_nothing_else(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            empty, ran = everyday.say("what alarms do i have", stream=False)
+            self.assertEqual(ran, "alarms")
+            self.assertIn("no alarms", empty.message)
+            everyday.say("wake me up at 6:30 tomorrow", stream=False)
+            weekly, _ = everyday.say("set an alarm for 7am every weekday", stream=False)
+            everyday.say("remind me to call mom at 5pm tomorrow", stream=False)
+            everyday.say("remind me every friday at 5pm to water the plants", stream=False)
+            # Reminders that name an alarm are not alarms.
+            everyday.say("remind me to fix the fire alarm at 5pm tomorrow", stream=False)
+            everyday.say("remind me every friday at 6pm to test the smoke alarm", stream=False)
+            everyday.orchestrator.context.reminders.add("2020-01-01T06:00:00+00:00", "Alarm")   # long gone
+            listed, _ = everyday.say("do i have any alarms set", stream=False)
+            self.assertIn("You have 2 alarms", listed.message)
+            self.assertIn("6:30 AM", listed.message)
+            self.assertIn("weekdays at 07:00", listed.message)
+            self.assertNotIn("call mom", listed.message)
+            job = next(job for job in everyday.orchestrator.context.scheduler.list_jobs() if "Alarm" in job.spec)
+            everyday.orchestrator.context.scheduler.set_enabled(job.id, False)
+            self.assertIn("weekdays at 07:00 (off)", everyday.say("show my alarms", stream=False)[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()
