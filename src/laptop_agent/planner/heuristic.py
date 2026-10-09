@@ -176,11 +176,15 @@ _REMINDER_DAY_TAIL = re.compile(
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
 # Asking to see the alarms, as a whole sentence. "what alarms do i have" reached the chat model,
-# which cannot see them: only "when is my alarm" (the next one) was routed.
+# which cannot see them: only "when is my alarm" (the next one) was routed. "what"/"which" need
+# "my"/"the" or a "do i have" after them, because "what are alarms?" asks what one is (Codex's
+# review of #255).
+_ALARM_HAVE = r"(?:\s+(?:do\s+i\s+have|have\s+i\s+(?:got|set)|are\s+set|i\s+have|i'?ve\s+set|(?:are\s+)?set))"
 _ALARM_LIST = re.compile(
-    _POLITE + r"(?:(?:what(?:'s|s|\s+is|\s+are)?|which|show(?:\s+me)?|list|see|view|check|give\s+me|tell\s+me"
-    r"|do\s+i\s+have(?:\s+any)?|have\s+i\s+got(?:\s+any)?|are\s+there(?:\s+any)?|any)\s+)?(?:all\s+)?(?:(?:my|the)\s+)?"
-    r"alarms(?:\s+(?:do\s+i\s+have|have\s+i\s+(?:got|set)|are\s+set|i\s+have|i'?ve\s+set|(?:are\s+)?set))?\s*[?.!]*",
+    _POLITE + r"(?:(?:(?:show(?:\s+me)?|list|see|view|check|give\s+me|tell\s+me|do\s+i\s+have(?:\s+any)?"
+    r"|have\s+i\s+got(?:\s+any)?|are\s+there(?:\s+any)?|any)\s+)?(?:all\s+)?(?:(?:my|the)\s+)?alarms" + _ALARM_HAVE + "?"
+    r"|(?:what(?:'s|s|\s+is|\s+are)?|which)\s+(?:(?:all\s+)?(?:my|the)\s+alarms" + _ALARM_HAVE + "?|alarms" + _ALARM_HAVE
+    + r"))\s*[?.!]*",
     re.IGNORECASE,
 )
 # Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
