@@ -106,6 +106,11 @@ class UnitTests(unittest.TestCase):
             ("convert 180 cm to feet and inches", "180 centimetres = **5 feet 10.87 inches**"),
             ("convert 152.4 cm to feet and inches", "152.4 centimetres = **5 feet**"),
             ("convert 150 minutes to hours and minutes", "150 minutes = **2 hours 30 minutes**"),
+            # divmod floors, so a negative split wrongly (Codex's review): -90 minutes is -1 h 30 min.
+            ("convert -90 minutes to hours and minutes", "-90 minutes = **-1 hour 30 minutes**"),
+            ("convert -18 ounces to pounds and ounces", "-18 ounces = **-1 pound 2 ounces**"),
+            ("convert -5 ft 10 in to cm", "-5 feet 10 inches = **-177.8 centimetres**"),
+            ("convert -0.001 minutes to hours and minutes", "-0.001 minutes = **0 minutes**"),
         ):
             with self.subTest(text):
                 self.assertTrue(looks_like_conversion(text))

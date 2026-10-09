@@ -57,8 +57,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
   its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,
   2 h 30 min) one, keeps it as said, and answers "to feet and inches" in both; "convert how
-  tall is…" from the router parses too. A fraction is shown only when the decimal is not
-  exact. (10-08)
+  tall is…" from the router parses too; a negative is split by its size and signed once
+  (divmod floored -90 min to "-2 hours 30 minutes", Codex, #254). A fraction is shown only when
+  the decimal is not exact. (10-08)
 - **"turn the volume all the way up", "max volume" and "go back to the last song" went to the
   chat model** → the volume route read only numbers, the previous-track key only "previous
   song" / "go back a song" → the two ends of the range in words, and "back to the last/previous

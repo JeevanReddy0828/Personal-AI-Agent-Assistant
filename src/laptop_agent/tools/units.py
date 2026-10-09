@@ -141,7 +141,8 @@ def _unit(word: str) -> str | None:
 _PAIRS = {"foot": "inch", "pound": "ounce", "stone": "pound", "hour": "minute", "minute": "second"}
 _AMOUNT_ENDS = r"(?=\s+(?:to|in|into|as)\s|\s*[?.!]*\s*$)"
 _COMPOUND = re.compile(
-    rf"\b(?P<a>\d+)\s*(?P<big>{_UNIT})\s+(?:and\s+)?(?P<b>\d+(?:\.\d+)?)(?:\s*(?P<small>{_UNIT}))?{_AMOUNT_ENDS}",
+    rf"(?<![\w.])(?P<a>-?\d+)\s*(?P<big>{_UNIT})\s+(?:and\s+)?(?P<b>\d+(?:\.\d+)?)(?:\s*(?P<small>{_UNIT}))?"
+    rf"{_AMOUNT_ENDS}",
     re.IGNORECASE,
 )
 _FEET_MARKS = re.compile(r"\b(\d+)\s*['’]\s*(\d+(?:\.\d+)?)\s*(?:[\"”]|'')?(?=\s|$|[?.!])")
@@ -159,9 +160,10 @@ def _compound(text: str) -> tuple[str, str, tuple[str, str] | None]:
     big = _unit(match.group("big")) if match else None
     small = (_unit(match.group("small")) if match.group("small") else _PAIRS.get(big or "")) if match else None
     if match and big in _PAIRS and _PAIRS[big] == small:
-        whole, part = int(match.group("a")), float(match.group("b"))
-        total = whole * _FACTORS[big][1] / _FACTORS[small][1] + part
-        said = f"{whole} {_named(big, whole)} {_shown(part)} {_named(small, part)}"
+        sign = "-" if match.group("a").startswith("-") else ""
+        whole, part = abs(int(match.group("a"))), float(match.group("b"))
+        total = (whole * _FACTORS[big][1] / _FACTORS[small][1] + part) * (-1 if sign else 1)
+        said = f"{sign}{whole} {_named(big, whole)} {_shown(part)} {_named(small, part)}"
         text = text[:match.start()] + f"{total:.10g} {_SPELLINGS[small][-1]}" + text[match.end():]
     pair = None
     wanted = _TO_PAIR.search(text)
@@ -260,10 +262,12 @@ class UnitTool:
         if pair is not None:
             big, small = pair
             ratio = round(_FACTORS[big][1] / _FACTORS[small][1])
-            whole, rest = divmod(round(value, 2), ratio)
+            # Split the size, then sign it: divmod floors, so -90 minutes came out "-2 hours 30
+            # minutes" (Codex's review of #254).
+            whole, rest = divmod(round(abs(value), 2), ratio)
             parts = [f"{int(whole):,} {_named(big, whole)}"] if whole else []
             parts += [f"{_shown(rest)} {_named(small, rest)}"] if rest or not whole else []
-            right = " ".join(parts)
+            right = ("-" if value < 0 and (whole or rest) else "") + " ".join(parts)
         note = " (US measure)" if _FACTORS[source][0] == "volume" and {source, target} & {
             "cup", "pint", "quart", "gallon", "fluid ounce"} else ""
         return ToolResult.success(f"{left} = **{right}**{note}", value=value, source=source, target=target)
