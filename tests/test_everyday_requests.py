@@ -895,6 +895,13 @@ class TimerStatusTests(unittest.TestCase):
                     message = everyday.say(text, stream=False)[0].message
                     self.assertTrue(message.startswith("Pasta timer: **"), message)
                     self.assertNotIn("fix the egg timer", message)
+            # A name of more than one word, as `_timer` takes one (Codex's second review).
+            everyday.say("timer 10 minutes for the coffee break", stream=False)
+            for text in ("is my coffee break timer still going?", "how much time is left on my coffee break timer?"):
+                with self.subTest(text):
+                    result, ran = everyday.say(text, stream=False)
+                    self.assertEqual(ran, "timers coffee break")
+                    self.assertTrue(result.message.startswith("Coffee break timer: **"), result.message)
 
 
 class AlarmListTests(unittest.TestCase):

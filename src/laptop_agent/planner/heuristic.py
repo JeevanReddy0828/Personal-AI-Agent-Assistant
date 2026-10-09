@@ -216,15 +216,17 @@ _ALARM_ASK = re.compile(
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
+# A timer's name, as `_timer` takes one: up to three words, "the coffee break timer" (Codex's review).
+_TIMER_NAME = r"[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2}"
 _TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|remaining)|time\s+left)\s+on\s+"
-                         r"(?:my|the)\s+(?P<which>\w+\s+)?timer\b", re.IGNORECASE)
+                         rf"(?:my|the)\s+(?:(?P<which>{_TIMER_NAME})\s+)?timer\b", re.IGNORECASE)
 # Whether a timer is going, as a whole sentence: "what timers are running", "is my egg timer still
 # going" and "what's left on the pasta timer" reached the chat model, which cannot see them.
 _TIMER_STATUS = re.compile(
     _POLITE + r"(?:(?:(?:what|which|show(?:\s+me)?|list|check|any|are\s+there(?:\s+any)?|do\s+i\s+have(?:\s+any)?)\s+)?"
     r"(?:(?:my|the|all)\s+)?(?:running\s+)?timers(?:\s+(?:are\s+)?(?:still\s+)?(?:running|going|on|set)|\s+do\s+i\s+have)?"
-    r"|(?:is|are)\s+(?:my|the|any)\s+(?:(?P<named>[a-z]+)\s+)?timers?\s+(?:still\s+)?(?:running|going|on)"
-    r"|what(?:'s|s|\s+is)\s+left\s+on\s+(?:my|the)\s+(?:(?P<left>[a-z]+)\s+)?timer)\s*[?.!]*",
+    rf"|(?:is|are)\s+(?:my|the|any)\s+(?:(?P<named>{_TIMER_NAME})\s+)?timers?\s+(?:still\s+)?(?:running|going|on)"
+    rf"|what(?:'s|s|\s+is)\s+left\s+on\s+(?:my|the)\s+(?:(?P<left>{_TIMER_NAME})\s+)?timer)\s*[?.!]*",
     re.IGNORECASE,
 )
 # Letting go of one: "never mind the timer", "i don't need the alarm anymore", "stop
