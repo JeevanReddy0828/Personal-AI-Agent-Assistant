@@ -181,6 +181,11 @@ class MessageSplitTests(unittest.TestCase):
             "the rent is due friday": "the rent is due", "my taxes are due on april 15": "my taxes are due",
             "the essay's due friday": "the essay's due", "homework due at 9am": "homework due",
             "math homework due friday": "math homework due",
+            # A short action lost nothing to a length rule (Codex's review): it is the verb that says.
+            "pay rent due friday": "pay rent", "send invoice due friday": "send invoice",
+            "submit report due friday": "submit report", "rent due friday": "rent due",
+            "the electric bill due friday": "the electric bill due",
+            "check the essay is due friday": "check the essay is due",
         }
         for text, expected in cases.items():
             with self.subTest(text):

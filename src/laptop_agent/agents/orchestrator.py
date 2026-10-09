@@ -181,10 +181,17 @@ _NO_MODEL_REPLY = (
 MAX_COMMAND_CHARS = 24_000
 
 # "pay the bill due friday" was filed as "pay the bill due": the day went and its "due" stayed.
-# A "due" after something to act on goes with the day; "the rent is due" and "homework due" are
-# the reminder itself, so a copula before it, or three words or fewer, keeps it.
+# A "due" after something to do goes with the day; "the rent is due" and "homework due" are the
+# reminder itself. Telling them apart by length lost "pay rent due" (Codex's review of #252), so
+# the action decides: a verb missing from this list keeps the user's words.
 _DUE_CLAUSE = re.compile(r"\s+(?:that|which)(?:'?s|\s+is|\s+are)\s+due$", re.IGNORECASE)
 _DUE_PREDICATE = re.compile(r"(?:\b(?:is|are|was|were|be|been)|'s|'re)\s+due$", re.IGNORECASE)
+_DUE_ACTION = re.compile(
+    r"(?:pay|send|submit|return|file|renew|finish|complete|hand|turn|book|cancel|call|email|mail|post|upload"
+    r"|review|sign|buy|order|bring|drop|pick|apply|register|update|prepare|write|read|study|fix|clean|check"
+    r"|take|get|do|make|print|deliver|ship|collect|grade|mark|finalize|finalise|transfer|deposit)\s+\S",
+    re.IGNORECASE,
+)
 
 
 def _reminder_message(text: str, start: int, end: int) -> str:
@@ -199,7 +206,7 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
     if _DUE_CLAUSE.search(joined):
         joined = _DUE_CLAUSE.sub("", joined)
-    elif len(joined.split()) > 3 and not _DUE_PREDICATE.search(joined):
+    elif _DUE_ACTION.match(joined) and not _DUE_PREDICATE.search(joined):
         joined = re.sub(r"\s+due$", "", joined, flags=re.IGNORECASE)
     return joined.strip(" ,.;:-")
 
