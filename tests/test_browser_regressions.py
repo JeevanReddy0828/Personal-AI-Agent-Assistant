@@ -989,16 +989,19 @@ class BrowserRegressions(unittest.TestCase):
     # audio element made is kept in `tab.audios` with the text it carries, and plays until
     # the test ends it. The browser's own voice logs `browser <text>` and ends at once.
     _MAGPIE_RIG = """() => {
-        const tab = { log: [], audios: [], delay: 50, fail: new Set(), refuse: false };
+        const tab = { log: [], audios: [], delay: 50, fail: new Set(), hold: new Set(), held: {}, refuse: false };
         tab.wait = ms => new Promise(r => setTimeout(r, ms));
         const realFetch = window.fetch;
         window.fetch = (url, init) => {
             if (String(url).indexOf('/api/tts') < 0) return realFetch(url, init);
             const text = JSON.parse(init.body).text;
             tab.log.push('ask ' + text);
-            return new Promise(r => setTimeout(() => r(tab.fail.has(text)
+            const answer = () => tab.fail.has(text)
                 ? new Response('{"ok":false}', { status: 503 })
-                : new Response(text, { status: 200 })),
+                : new Response(text, { status: 200 });
+            // A held sentence is answered only when the test releases it: `tab.held[text]()`.
+            if (tab.hold.has(text)) return new Promise(r => { tab.held[text] = () => r(answer()); });
+            return new Promise(r => setTimeout(() => r(answer()),
                 typeof tab.delay === 'function' ? tab.delay(text) : tab.delay));
         };
         // Which sentence an audio element carries: its bytes are the text, read as the blob is made.
@@ -1254,6 +1257,7 @@ class BrowserRegressions(unittest.TestCase):
                     const tab=window.__tab;
                     tab.delay=text=>20+2*text.length;
                     tab.fail.add(second);
+                    tab.hold.add(second);       // answered only after the first sentence is heard
                     voiceActive=true;
                     const ending=setInterval(()=>{
                       for(const a of tab.audios){
@@ -1265,20 +1269,24 @@ class BrowserRegressions(unittest.TestCase):
                     while(!tab.log.some(l=>l.startsWith('play '))&&performance.now()-t0<5000)
                       await tab.wait(5);
                     const firstMs=Math.round(performance.now()-t0), duringFirst=tab.log.slice();
+                    const secondPending=typeof tab.held[second]==='function';
+                    if(secondPending)tab.held[second]();
                     await turn;
                     while(!tab.log.includes('listen')&&performance.now()-t0<9000)await tab.wait(10);
                     clearInterval(ending);
                     const spoken=tab.log.filter(l=>l.startsWith('play ')||l.startsWith('browser '))
                                         .map(l=>l.replace(/^(play|browser) /,''));
-                    const result={firstMs, duringFirst, spoken, log:tab.log.slice()};
+                    const result={firstMs, duringFirst, secondPending, spoken, log:tab.log.slice()};
                     voiceActive=false;return result;
                 }""",
                 {"reply": reply, "second": second},
             )
-        # A hang, not a speed: this was "under 800ms", which a shared CI runner missed at 817 with
-        # every sentence in order. That one sentence is synthesised at a time is the list of asks
-        # below, and that the next is fetched while the first plays is `duringFirst`.
+        # The second sentence's synthesis is held open, so the first can only be heard if playback
+        # does not wait for it: a page that waited would deadlock until the hang bound. This was
+        # "under 800ms", which a shared CI runner missed at 817 with everything in order (Codex
+        # suggested the hold, review of #256).
         self.assertLess(outcome["firstMs"], 4000, outcome)
+        self.assertTrue(outcome["secondPending"], outcome)
         self.assertEqual([entry for entry in outcome["log"] if entry.startswith("ask ")],
                          ["ask " + sentence for sentence in (first, second, third, fourth, first, third)],
                          "the final done message was synthesized again")
