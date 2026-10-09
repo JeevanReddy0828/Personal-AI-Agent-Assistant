@@ -272,6 +272,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("is there anything i need to know about python", "no day, so not the agenda"),
     ("what do i need to do to learn rust", "same"),
     ("what's the date of the french revolution", "a date question about no date we can compute"),
+    ("how much memory is free on my phone?", "another device (Codex, #259)"),
+    ("what's my memory usage on my phone?", "same"),
 )
 
 
