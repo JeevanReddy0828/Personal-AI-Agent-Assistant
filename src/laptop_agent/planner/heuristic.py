@@ -160,6 +160,10 @@ _REMINDER_ASK = re.compile(
     r"|read(?:\s+out)?|pull\s+up|give me|tell me|got)\b[^?]{0,40}?\b(?:reminders|my reminder)\b",
     re.IGNORECASE,
 )
+# "how many reminders do i have" reached the chat model; as a whole sentence, so "how many
+# reminders can an iphone hold" stays a question.
+_REMINDER_COUNT = re.compile(r"\s*how\s+many\s+reminders\s+(?:do\s+i\s+have|have\s+i\s+(?:got|set)|are\s+(?:there|set)"
+                             r"|i\s+have)\s*[?.!]*", re.IGNORECASE)
 _REMINDER_BARE = re.compile(r"(?:all\s+|my\s+|all\s+my\s+|the\s+)?reminders(?:\s+list)?",
                             re.IGNORECASE)
 _REMINDER_DAY_TAIL = re.compile(
@@ -212,8 +216,19 @@ _ALARM_ASK = re.compile(
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
+# A timer's name, as `_timer` takes one: up to three words, "the coffee break timer" (Codex's review).
+_TIMER_NAME = r"[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2}"
 _TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|remaining)|time\s+left)\s+on\s+"
-                         r"(?:my|the)\s+(?P<which>\w+\s+)?timer\b", re.IGNORECASE)
+                         rf"(?:my|the)\s+(?:(?P<which>{_TIMER_NAME})\s+)?timer\b", re.IGNORECASE)
+# Whether a timer is going, as a whole sentence: "what timers are running", "is my egg timer still
+# going" and "what's left on the pasta timer" reached the chat model, which cannot see them.
+_TIMER_STATUS = re.compile(
+    _POLITE + r"(?:(?:(?:what|which|show(?:\s+me)?|list|check|any|are\s+there(?:\s+any)?|do\s+i\s+have(?:\s+any)?)\s+)?"
+    r"(?:(?:my|the|all)\s+)?(?:running\s+)?timers(?:\s+(?:are\s+)?(?:still\s+)?(?:running|going|on|set)|\s+do\s+i\s+have)?"
+    rf"|(?:is|are)\s+(?:my|the|any)\s+(?:(?P<named>{_TIMER_NAME})\s+)?timers?\s+(?:still\s+)?(?:running|going|on)"
+    rf"|what(?:'s|s|\s+is)\s+left\s+on\s+(?:my|the)\s+(?:(?P<left>{_TIMER_NAME})\s+)?timer)\s*[?.!]*",
+    re.IGNORECASE,
+)
 # Letting go of one: "never mind the timer", "i don't need the alarm anymore", "stop
 # reminding me about the oven".
 _LET_GO = re.compile(
@@ -1218,8 +1233,11 @@ class HeuristicPlannerProvider:
         if re.search(r"\b(summari[sz]e|gist|overview|tl;?dr)\b.*\breadme\b", lowered) or re.search(r"\breadme\b.*\b(summari[sz]e|gist|overview)\b", lowered):
             return self._command("summarize file README.md", "User wants the README summarized.", 0.84)
         if (re.search(r"\bwhat\b.*\b(remember|know)\b.*\b(about )?me\b", lowered) or lowered in {"my profile", "show my profile"}
-                or re.fullmatch(r"what\s+(?:do\s+you|have\s+you|did\s+i\s+(?:ask|tell)\s+you\s+to)\s+(?:remember(?:ed)?|know)"
-                                r"[?.!\s]*", lowered)):
+                or re.fullmatch(r"what\s+(?:do\s+you|have\s+you|did\s+i\s+(?:ask|tell)\s+you\s+to"
+                                r"|have\s+i\s+(?:asked|told)\s+you\s+to)\s+(?:remember(?:ed)?|know)[?.!\s]*", lowered)
+                # "show my facts" and "what facts do you have" reached the chat model, which cannot see them.
+                or re.fullmatch(r"(?:show|list)\s+(?:me\s+)?(?:(?:my|the|all(?:\s+my)?)\s+)?(?:facts|memories)"
+                                r"|what\s+(?:facts|memories)\s+do\s+you\s+have(?:\s+(?:on|about)\s+me)?[?.!\s]*", lowered)):
             return self._command("memory", "User wants to see what is remembered about them.", 0.84)
         # The dashboard of parallel `multi` runs, asked for by name. Any sentence with "task"
         # and "how" used to open it, so "how do i prioritize tasks at work" got a dashboard.
@@ -1250,6 +1268,8 @@ class HeuristicPlannerProvider:
         # them looked like a tool, so the chat model answered from nothing.
         # It requires the plural, or "my reminder": bare singular keeps "what is a
         # reminder" a definition question rather than a listing.
+        if _REMINDER_COUNT.fullmatch(lowered):
+            return self._command("reminders", "User wants to know how many reminders they have.", 0.86)
         ask = _REMINDER_ASK.match(lowered)
         if ask:
             day = _REMINDER_DAY_TAIL.fullmatch(lowered[ask.end():])
@@ -1285,9 +1305,14 @@ class HeuristicPlannerProvider:
         # Timers and alarms are reminders that are only a time. Every phrasing of them used
         # to reach a chat model, which cannot set one and was free to say it had.
         spoken = spoken_to_digits(text)
-        if _TIMER_LEFT.search(spoken) or re.fullmatch(
+        left, status = _TIMER_LEFT.search(spoken), _TIMER_STATUS.fullmatch(spoken)
+        if left or status or re.fullmatch(
                 r"\s*(?:(?:show|list|check)\s+)?(?:(?:my|the|all)\s+)?(?:running\s+)?timers\s*[?.!]*", spoken, re.I):
-            return self._command("timers", "User asked about running timers.", 0.88)
+            # The one asked about, by name: "is my egg timer still going" is not the pasta timer.
+            name = ((left and left.group("which")) or (status and (status.group("named") or status.group("left")))
+                    or "").strip().lower()
+            name = "" if name in {"current", "running", "active", "last", "only", "new"} else name
+            return self._command(f"timers {name}".strip(), "User asked about running timers.", 0.88)
         if _TIMER_BARE.match(spoken):
             return self._command("timer", "User wants a timer but gave no length.", 0.84)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
