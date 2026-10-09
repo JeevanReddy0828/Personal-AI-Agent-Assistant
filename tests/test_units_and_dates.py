@@ -344,6 +344,8 @@ class TimeUntilTests(unittest.TestCase):
                  (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30", 45),       # no am/pm said
                  (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am today", 45),
                  (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "sunday at 1:30am", 45),
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "this sunday at 1:30am", 45),
+                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "next sunday at 1:30am", 10125),   # never today
                  (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am today", -15),   # the later one went
                  (datetime(2026, 10, 31, 1, 45, tzinfo=edt), "sunday at 1:30am", 1425),
                  (datetime(2026, 10, 2, 18, 0, tzinfo=edt), "friday at 5pm", 10020),  # a week, not today

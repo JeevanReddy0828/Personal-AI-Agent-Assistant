@@ -238,7 +238,9 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
         # weekday, past the first reading, so today's is looked for that far back; "today" or a
         # date stays on its day, and "friday at 5pm" is never given the Thursday. A reading counts
         # only if it is that wall time, so a time the spring change skips keeps its rule.
-        if re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE):
+        # "next sunday" is never today, so it does not look back (Codex's third review).
+        if (re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE)
+                and not re.search(r"\bnext\b", cleaned, re.IGNORECASE)):
             backs: tuple[int, ...] = (0, 7)
         else:
             backs = (0,) if _find_day(cleaned.lower(), now) is not None else (0, 1)
