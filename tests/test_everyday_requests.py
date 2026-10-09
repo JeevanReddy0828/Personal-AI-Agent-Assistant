@@ -94,7 +94,7 @@ class Everyday:
             windows=WindowTool(gate, backend=_FakeWindows()),
             websearch=WebSearchTool(gate, search_backend=search),
             music=MusicTool(gate, desktop, context.web,
-                            resolver=lambda query: [{"id": "kJQP7kiw5Fk", "title": query}]),
+                            resolver=lambda query: [{"id": "testvideo01", "title": query}]),
             research=ResearchTool(gate, search_backend=search, fetch_backend=lambda url: "A page body."),
             terminal=TerminalTool(gate, runner=lambda command, cwd, timeout: subprocess.CompletedProcess(
                 command, 0, stdout="ran", stderr="")),
