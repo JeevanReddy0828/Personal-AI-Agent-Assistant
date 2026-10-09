@@ -198,6 +198,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and the frame goes to the vision model → "what do you see" / "look at me" matched anywhere →
   `_WEBCAM_ASK`, whole sentences or a request that opens by naming the camera. Same class as
   the screen: sweep every route that captures for substring matching. (10-05)
+- **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
+  `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
+  have" → those forms route to `system status`, "do i have" only at the sentence's end, so "how
+  much memory do i have on my phone" and "how much ram do i need for gaming" stay chat. (10-09)
 - **"minimize distractions while studying" answered "no window matches"** (22 of 24 ordinary
   sentences) → `_ARRANGE_ASK` took a verb with a position word anywhere after it, or
   "minimize" plus any word, and the `split`/`snap`/`arrange` prefixes only looked for a

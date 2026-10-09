@@ -573,7 +573,10 @@ _CALENDAR_ADD = re.compile(
 )
 _SYSTEM_ASK = re.compile(
     r"^\s*(?:how\s+much\s+battery|what(?:'s|s|\s+is)\s+(?:my|the)\s+battery|battery\s+(?:level|life|status"
-    r"|left|percentage)|am\s+i\s+charging|(?:what(?:'s|s|\s+is)\s+(?:my|the)\s+)?(?:cpu|ram)\s+(?:usage|use|load)"
+    r"|left|percentage)|am\s+i\s+charging|(?:what(?:'s|s|\s+is)\s+(?:my|the)\s+)?(?:cpu|ram|memory)\s+(?:usage|use|load)"
+    # "how much ram am i using" reached the chat model, which cannot see this machine.
+    r"|how\s+much\s+(?:ram|memory|cpu)\s+(?:am\s+i\s+using|is\s+(?:being\s+)?used|is\s+(?:free|left)"
+    r"|do\s+i\s+have(?:\s+(?:left|free))?(?=\s*[?.!]*$))"
     r"|how\s+much\s+(?:free\s+)?(?:disk\s+)?(?:space|storage)\s+(?:do\s+i\s+have|is\s+left|left|is\s+free)"
     r"|(?:free\s+)?disk\s+space|system\s+status|computer\s+status"
     r"|how(?:'s|s|\s+is)\s+my\s+(?:computer|laptop|pc|machine)\s+doing)\b",

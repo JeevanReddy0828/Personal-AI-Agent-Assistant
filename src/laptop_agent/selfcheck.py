@@ -159,6 +159,9 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what do you remember", "memory", "no 'about me'"),
     ("what did i ask you to remember", "memory", "same"),
     ("how much battery do i have", "system status", "this machine"),
+    ("how much ram am i using", "system status", "this machine; reached the chat model, which cannot see it"),
+    ("how much memory is free", "system status", "same"),
+    ("what's my memory usage", "system status", "same"),
     ("can you look at my screen", "read screen", "asking to look, as a whole sentence"),
     ("what do you see on my screen", "read screen", "same"),
     ("look at my screen and tell me if the code is right", "read screen", "a request after the look"),
@@ -180,6 +183,9 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
 # decoration.
 MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("record a podcast about space", "not a voice capture instruction"),
+    ("how much ram do i need for gaming", "advice, not this machine"),
+    ("how much memory does a 4k movie take", "knowledge, not this machine"),
+    ("how much memory do i have on my phone", "another device"),
     ("how do alarms work", "a question about alarms, not a listing"),
     ("what are alarms?", "a definition; \"what\" lists only with my/the or a \"do i have\" (Codex, #255)"),
     ("alarms are annoying", "a remark"),
