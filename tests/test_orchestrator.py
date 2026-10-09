@@ -37,6 +37,11 @@ from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.workflows import WorkflowTracker
+from desktop_guard import make_desktop_inert
+
+# Importing this builder switches off the browser, app launches and media keys, whoever imports
+# it: probes that imported it outside run_tests.py opened YouTube and pressed the volume keys.
+make_desktop_inert()
 
 
 class _FakeWindows:
@@ -145,7 +150,7 @@ class OrchestratorTests(unittest.TestCase):
                 gate,
                 desktop,
                 context.web,
-                resolver=lambda query: [{"id": "kJQP7kiw5Fk", "title": f"{query} - top hit"}],
+                resolver=lambda query: [{"id": "testvideo01", "title": f"{query} - top hit"}],
             ),
             research=ResearchTool(
                 gate,

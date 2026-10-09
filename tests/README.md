@@ -15,7 +15,9 @@ that drive the real page in Chromium. The tests use only the standard library
   `LAPTOP_AGENT_*` … variable is removed, so no real key or mailbox is reachable.
 - Sockets may only connect to localhost.
 - `webbrowser.open`, `os.startfile` and the Windows media keys become no-ops (a test once
-  played a real YouTube video and left the laptop's volume at 50%).
+  played a real YouTube video and left the laptop's volume at 50%). Importing the harness
+  (`test_orchestrator.py`, and so `test_everyday_requests.py`) does the same through
+  `desktop_guard.py`, so a probe script outside the runner cannot reach the desktop either.
 - The data directory and uploads go to a temporary folder deleted afterwards.
 
 Tests import the package from `src/` and build the app the same way it runs: most go

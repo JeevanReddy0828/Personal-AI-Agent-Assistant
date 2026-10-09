@@ -16,6 +16,16 @@ needs to see what was opened still injects its own fake (`test_music.py`,
 `test_web_targets.py`). Known limit: on macOS and Linux, `desktop.py` (and `web.py` on
 macOS) launch `open`/`xdg-open` through `subprocess`, which this does not touch.
 
+**Importing the harness does the same, outside the runner too** (`tests/desktop_guard.py`,
+called when `test_orchestrator.py` is imported, which `test_everyday_requests.py` always
+does). The runner was the only place this was switched off, so every probe and review script
+that imported `Everyday` directly - by both agents, through 2026-10-09 - opened YouTube in the
+real browser and pressed the real volume keys, and it was reported as something that "keeps
+opening five, six, seven Despacito videos". The harness's fake video id is `testvideo01` now,
+not a real song, so anything that ever slips through opens nothing worth hearing.
+`test_desktop_guard.py` imports each harness module in a fresh interpreter and fails if any of
+the three is live. **Never run a phrase through `handle()` with a live desktop.**
+
 **A failing run writes `test-failures.log` at the repo root** (gitignored by `*.log`,
 deleted on the next clean run so a stale report cannot mislead) holding each test id and
 traceback plus the interpreter, platform and argv. `TextTestRunner` already prints all of
