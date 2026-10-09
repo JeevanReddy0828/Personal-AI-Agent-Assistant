@@ -360,6 +360,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"Reminder date/time must look like YYYY-MM-DD"** → no natural-time parser → `timeparse.py`;
   one-right-answer values are parsed, never inferred. (09-17)
 - **`ValueError: Invalid format string` on Windows** → `%-I` → strip zeros by hand. (09-17)
+- **"remind me to pay the bill due friday" saved "pay the bill due"** → the day was cut and its
+  "due" kept → a "due" (or "that's due") after an action ("pay rent", "submit the report") goes
+  with it; without a listed verb ("homework due", "the electric bill due") or after a copula
+  ("the rent is due") it stays. A length rule lost "pay rent due", and a word as often a noun
+  ("book report due") is the action only before an object or particle: "book the hotel",
+  "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
 - **Client sees a connection reset, not the 4xx** → the body was not read →

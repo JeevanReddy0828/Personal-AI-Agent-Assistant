@@ -180,6 +180,22 @@ _NO_MODEL_REPLY = (
 # anything bigger, and the file tools read it without pushing it through a model prompt.
 MAX_COMMAND_CHARS = 24_000
 
+# "pay the bill due friday" was filed as "pay the bill due": the day went and its "due" stayed.
+# A "due" after something to do goes with the day; "the rent is due" and "homework due" are the
+# reminder itself. Telling them apart by length lost "pay rent due" (Codex's review of #252), so
+# the action decides: a verb missing from this list keeps the user's words.
+_DUE_CLAUSE = re.compile(r"\s+(?:that|which)(?:'?s|\s+is|\s+are)\s+due$", re.IGNORECASE)
+_DUE_PREDICATE = re.compile(r"(?:\b(?:is|are|was|were|be|been)|'s|'re)\s+due$", re.IGNORECASE)
+# A word that is as often a noun - "book report due" is the assignment - counts as the action only
+# when what follows it says so: "book the hotel", "hand in the essay" (Codex's review of #252).
+_DUE_ACTION = re.compile(
+    r"(?:pay|send|submit|return|renew|finish|complete|cancel|upload|sign|buy|bring|apply|register|prepare"
+    r"|write|read|fix|take|get|do|make|deliver|ship|collect|grade|finalize|finalise)\s+(?!due\b)\S"
+    r"|(?:book|file|hand|turn|mail|email|post|review|order|drop|pick|check|update|print|mark|call|transfer"
+    r"|deposit|study|clean)\s+(?:(?:in|off|up|out)\s+|(?:the|a|an|my|our|your|his|her|their|this|that)\s+)\S",
+    re.IGNORECASE,
+)
+
 
 def _reminder_message(text: str, start: int, end: int) -> str:
     """What is left of a reminder once the time words are cut out of it.
@@ -191,6 +207,12 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     joined = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.;:-")
     joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
+    # Only after an action: "the rent that is due" is the reminder (Codex's review of #252).
+    if _DUE_ACTION.match(joined):
+        if _DUE_CLAUSE.search(joined):
+            joined = _DUE_CLAUSE.sub("", joined)
+        elif not _DUE_PREDICATE.search(joined):
+            joined = re.sub(r"\s+due$", "", joined, flags=re.IGNORECASE)
     return joined.strip(" ,.;:-")
 
 
