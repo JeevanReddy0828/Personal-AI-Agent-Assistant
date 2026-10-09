@@ -991,6 +991,14 @@ class EverydayRoutingTests(unittest.TestCase):
             "will it snow tomorrow in denver": "weather denver",
             "forecast for this weekend in seattle": "weather seattle",
             "how hot is it in phoenix": "weather phoenix",
+            "how hot will it be in austin on saturday": "weather austin",
+            "what is the weather in tokyo on friday": "weather tokyo",
+            "will it rain in paris next monday": "weather paris",
+            "how cold will it be in chicago saturday night": "weather chicago",
+            "how cold will it be in denver on the weekend": "weather denver",
+            "how cold will it be over the weekend": "weather",
+            "how hot will it be this saturday": "weather",
+            "how cold will it be tomorrow night": "weather",
         }
         for text, expected in cases.items():
             self.assertEqual(self.command(text), expected, text)
