@@ -327,6 +327,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"how long until midnight" said "1 day", four hours before it** → a clock time resolved to
+  the date of its next occurrence and was counted in days, and "how many minutes/hours
+  until…" reached the model → `dates.until_moment`: a time of day is counted to that moment
+  (a bare "9:30" is the sooner of its two readings, and in the hour the clocks go back the
+  next of its two real readings - "until 1:30am", "1:30am today" and "sunday at 1:30am" at the
+  first 1:45 are all 45 minutes, Codex, #253; a weekday looks a week back, "today" stays put),
+  a day asked for in hours to its start, in real elapsed time across a clock change. A reading
+  is checked through UTC: a zone converted to itself comes back unchanged. (10-08)
 - **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
   "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
   direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)

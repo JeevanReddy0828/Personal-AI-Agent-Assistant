@@ -73,6 +73,7 @@ from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, looks_like_conversion
 from laptop_agent.tools.chance import draw
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
+from laptop_agent.tools.dates import span_text, until_moment
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -1908,10 +1909,20 @@ class AgentOrchestrator:
             return ToolResult.success(
                 f"**{days} day{'s' if days != 1 else ''}** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
                 f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
-        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?\s*", what, re.IGNORECASE)
+        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?"
+                                r"(?:\s+(?:goes|go)\s+off|\s+rings?|\s+(?:is|are)\s+(?:up|done)|\s+ends?)?\s*", what, re.IGNORECASE)
         if kind != "between" and upcoming:
             # "when is my next reminder" is not a date anyone told us.
             return self._next_reminder("" if upcoming.group(1).lower() == "reminder" else upcoming.group(1).lower())
+        moment = until_moment(what, other, now, profile) if kind == "until" else None
+        if moment is not None:
+            minutes = round((moment - now).total_seconds() / 60)
+            when, name = describe(moment, now, local=True), what.strip()
+            if minutes < 0:
+                return ToolResult.success(f"{name[:1].upper() + name[1:]} was **{span_text(-minutes, other)} ago** "
+                                          f"({when}).", minutes=minutes, at=moment.isoformat())
+            return ToolResult.success(f"**{span_text(minutes, other)}** until {name} ({when}).",
+                                      minutes=minutes, at=moment.isoformat())
         found = resolve_date(what, now, profile)
         if found is None:
             # "when is my dentist appointment" - a reminder may say.
