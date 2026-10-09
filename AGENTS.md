@@ -65,6 +65,11 @@ the file for the area you are about to edit (map below) before you change it. Ke
   fail; a guard nothing catches is not tested.
 - Live checks run on a throwaway instance with **both** `LAPTOP_AGENT_PORT` and
   `LAPTOP_AGENT_DATA_DIR` set (the port alone writes into the real store), stopped afterwards.
+- **Never reach Jeevan's desktop from a probe or review.** Send phrases through `handle()` only
+  via `tests/run_tests.py` or the test harness, whose import makes the browser, app launches and
+  media keys inert (`tests/desktop_guard.py`). Never build an orchestrator from
+  `app.build_context` for a probe, and never send play, volume or open phrases to a live
+  instance unless he asks. Both agents opened Despacito and changed his volume this way, twice.
 - Call a model before wiring it in, and pace live model calls about 12 seconds apart.
 
 ## Where the detail is: docs/design/

@@ -11,6 +11,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 ## Symptom index
 
 ### Tests and verification
+- **Despacito kept opening in the browser and the volume kept changing (again)** → only
+  `run_tests.py` made `os.startfile` / `webbrowser.open` / `keybd_event` inert, and probe and
+  review scripts (both agents) imported the `Everyday` harness directly, whose fake YouTube
+  lookup answered with Despacito's id → importing the harness switches them off
+  (`desktop_guard.py`, held by `test_desktop_guard.py` in a fresh interpreter), and the fake id
+  is `testvideo01`. Never run `handle()` with a live desktop. (10-09, 09-27)
 - **The Magpie-tab browser test failed on CI at "817 not less than 800"** with every sentence
   in order → a speed bound standing in for a cause → the next sentence's synthesis is held
   open, so the first can only play if playback does not wait for it; a page that waits
