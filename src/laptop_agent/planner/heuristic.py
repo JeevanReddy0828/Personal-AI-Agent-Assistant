@@ -216,6 +216,20 @@ _ALARM_ASK = re.compile(
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
+# "set an alarm" or "wake me up" with no time reached the chat model, which cannot set one and
+# was free to say it had: ask when instead, as a bare timer does.
+_ALARM_BARE = re.compile(_POLITE + r"(?:(?:set|make|create)\s+(?:an?|the|my)\s+alarm|wake\s+me(?:\s+up)?|get\s+me\s+up"
+                         r"|i\s+need\s+an\s+alarm|alarm)(?:\s+please)?\s*[.!?]*$", re.IGNORECASE)
+# "wake me up early", "at dawn", "next week": no time to set, so it asks, keeping a day if one
+# was said (Codex's review). These reached the chat model too.
+_VAGUE_TIME = (r"(?:early|(?:at\s+)?(?:dawn|sunrise|daybreak)|first\s+thing(?:\s+in\s+the\s+morning)?|soon|later"
+               r"|next\s+week)")
+_ALARM_DAY = r"(?:tomorrow|today|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)"
+_ALARM_VAGUE = re.compile(
+    _POLITE + r"(?:(?:set|make)\s+(?:an?|my|the)\s+alarm(?:\s+for)?|wake\s+me(?:\s+up)?|get\s+me\s+up)\s+"
+    rf"(?:{_VAGUE_TIME}(?:\s+(?P<after>{_ALARM_DAY}))?|(?P<before>{_ALARM_DAY})\s+{_VAGUE_TIME})(?:\s+please)?\s*[.!?]*$",
+    re.IGNORECASE,
+)
 # A timer's name, as `_timer` takes one: up to three words, "the coffee break timer" (Codex's review).
 _TIMER_NAME = r"[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2}"
 _TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|remaining)|time\s+left)\s+on\s+"
@@ -238,7 +252,8 @@ _LET_GO = re.compile(
     r"|^\s*stop\s+reminding\s+me\s+(?:about|to)\s+(?P<topic>.+?)\s*[.!]*$",
     re.IGNORECASE,
 )
-_TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight)\b", re.IGNORECASE)
+_TIME_TOKEN = re.compile(r"\d|\b(?:noon|midnight|morning|tomorrow|tonight|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b",
+                         re.IGNORECASE)
 # Asking to look at the screen, as a whole sentence. "my screen" anywhere took a screenshot
 # and sent it to the vision model for "my screen is cracked, what should i do", "dim my
 # screen brightness" and "i can't read the screen, it's too bright".
@@ -1338,6 +1353,12 @@ class HeuristicPlannerProvider:
             return self._command(f"timers {name}".strip(), "User asked about running timers.", 0.88)
         if _TIMER_BARE.match(spoken):
             return self._command("timer", "User wants a timer but gave no length.", 0.84)
+        if _ALARM_BARE.match(spoken):
+            return self._command("alarm", "User wants an alarm but gave no time.", 0.84)
+        vague = _ALARM_VAGUE.match(spoken)
+        if vague:
+            day = vague.group("after") or vague.group("before") or ""
+            return self._command(f"alarm {day}".strip(), "User wants an alarm but gave no time.", 0.84)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
             return self._command(f"timer {spoken.strip()}", "User wants a countdown timer.", 0.9)
         let_go = _LET_GO.match(spoken)
