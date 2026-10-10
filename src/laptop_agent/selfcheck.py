@@ -278,6 +278,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what's my memory usage on my phone?", "same"),
     ("alarm clock broke again", "a remark about a clock, not a request"),
     ("the alarm on friday was loud", "a remark"),
+    ("i need an alarm system for my house", "a security system, not an alarm to set (Codex, #261)"),
 )
 
 

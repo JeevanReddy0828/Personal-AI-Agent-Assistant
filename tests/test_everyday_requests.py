@@ -911,6 +911,39 @@ class AlarmAsksWhenTests(unittest.TestCase):
             # A length is not a day: "in 20 minutes" sets it straight away.
             self.assertTrue(everyday.say("wake me up in 20 minutes", stream=False)[0].message.startswith("Alarm set"))
 
+    def saved(self, everyday: Everyday) -> list[datetime]:
+        """Each alarm's due time on this machine's clock (it is stored in UTC)."""
+        return [datetime.fromisoformat(str(item["due_at"])).astimezone()
+                for item in everyday.orchestrator.context.reminders.list()]
+
+    def test_the_answer_day_wins_and_is_what_is_saved(self) -> None:
+        """Codex's review: "wake me up tomorrow" then "Friday at 7" was saved for tomorrow."""
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            self.converse(everyday, "wake me up tomorrow", "Friday at 7")
+            [due] = self.saved(everyday)
+            self.assertEqual((due.weekday(), due.hour, due.minute), (4, 7, 0))
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            self.converse(everyday, "wake me up tomorrow", "7")
+            [due] = self.saved(everyday)
+            self.assertEqual(due.date(), (datetime.now().astimezone() + timedelta(days=1)).date())
+            self.assertEqual((due.hour, due.minute), (7, 0))
+
+    def test_a_time_that_is_not_one_is_asked_for(self) -> None:
+        """"wake me up early / at dawn / next week" reached the chat model (Codex's review)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for first, asked_text in (("wake me up early", "When should the alarm go off?"),
+                                      ("wake me up at dawn", "When should the alarm go off?"),
+                                      ("wake me up next week", "When should the alarm go off?"),
+                                      ("wake me up early tomorrow", "When should the alarm go off tomorrow?")):
+                with self.subTest(first):
+                    asked, ran = everyday.say(first, stream=False)
+                    self.assertTrue((ran or "").startswith("alarm"), ran)
+                    self.assertTrue(asked.message.startswith(asked_text), asked.message)
+            self.assertEqual(self.saved(everyday), [])
+
 
 class TimerStatusTests(unittest.TestCase):
     """"is my egg timer still going?" reached the chat model; routed, it then counted a reminder to

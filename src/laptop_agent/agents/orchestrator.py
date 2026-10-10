@@ -59,7 +59,7 @@ from laptop_agent.planner.heuristic import (
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
-from laptop_agent.timeparse import TimeParseError, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
+from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
 from laptop_agent.tasks import TaskRecord, TaskTracker
@@ -2298,9 +2298,11 @@ class AgentOrchestrator:
             return f"timer {reply}" if _TIMER_PART.search(spoken_to_digits(reply)) else None
         alarm = re.match(r"When should the alarm go off(?: (?P<day>[^?]+))?\?", asked)
         if alarm:
-            # "at 7" or a bare "7" goes on the day the question named: "... go off tomorrow?"
+            # "at 7" or a bare "7" goes on the day the question named: "... go off tomorrow?" -
+            # unless the answer names its own: "Friday at 7" was set for tomorrow (Codex's review).
             when = f"at {reply}" if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", reply, re.IGNORECASE) else reply
-            return f"alarm {when} {alarm.group('day') or ''}".strip()
+            day = "" if _find_day(spoken_to_digits(reply).lower(), now) is not None else alarm.group("day") or ""
+            return f"alarm {when} {day}".strip()
         if asked.startswith("What should I remind you about") and before:
             subject = re.sub(r"^(?:to|that|about)\b\s*", "", reply, flags=re.IGNORECASE)
             return f"{before} to {subject}" if _meaningful(subject) else None

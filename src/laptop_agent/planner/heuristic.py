@@ -220,6 +220,16 @@ _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+p
 # was free to say it had: ask when instead, as a bare timer does.
 _ALARM_BARE = re.compile(_POLITE + r"(?:(?:set|make|create)\s+(?:an?|the|my)\s+alarm|wake\s+me(?:\s+up)?|get\s+me\s+up"
                          r"|i\s+need\s+an\s+alarm|alarm)(?:\s+please)?\s*[.!?]*$", re.IGNORECASE)
+# "wake me up early", "at dawn", "next week": no time to set, so it asks, keeping a day if one
+# was said (Codex's review). These reached the chat model too.
+_VAGUE_TIME = (r"(?:early|(?:at\s+)?(?:dawn|sunrise|daybreak)|first\s+thing(?:\s+in\s+the\s+morning)?|soon|later"
+               r"|next\s+week)")
+_ALARM_DAY = r"(?:tomorrow|today|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)"
+_ALARM_VAGUE = re.compile(
+    _POLITE + r"(?:(?:set|make)\s+(?:an?|my|the)\s+alarm(?:\s+for)?|wake\s+me(?:\s+up)?|get\s+me\s+up)\s+"
+    rf"(?:{_VAGUE_TIME}(?:\s+(?P<after>{_ALARM_DAY}))?|(?P<before>{_ALARM_DAY})\s+{_VAGUE_TIME})(?:\s+please)?\s*[.!?]*$",
+    re.IGNORECASE,
+)
 # A timer's name, as `_timer` takes one: up to three words, "the coffee break timer" (Codex's review).
 _TIMER_NAME = r"[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2}"
 _TIMER_LEFT = re.compile(r"\b(?:how\s+(?:much\s+time|long)\s+(?:is\s+)?(?:left|remaining)|time\s+left)\s+on\s+"
@@ -1324,6 +1334,10 @@ class HeuristicPlannerProvider:
             return self._command("timer", "User wants a timer but gave no length.", 0.84)
         if _ALARM_BARE.match(spoken):
             return self._command("alarm", "User wants an alarm but gave no time.", 0.84)
+        vague = _ALARM_VAGUE.match(spoken)
+        if vague:
+            day = vague.group("after") or vague.group("before") or ""
+            return self._command(f"alarm {day}".strip(), "User wants an alarm but gave no time.", 0.84)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
             return self._command(f"timer {spoken.strip()}", "User wants a countdown timer.", 0.9)
         let_go = _LET_GO.match(spoken)
