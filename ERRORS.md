@@ -64,6 +64,16 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"and in feet?" after "convert 5 miles to km", "and in london?" after the time in Tokyo,
+  "and halloween?" after the days until Christmas all went to the chat model** → a follow-up
+  was only ever an answer to a question we had asked, and the refusal check reads "what about
+  meters" as a new question → `_asked_again` rebuilds the request from the previous answer's
+  shape, needs a connecting word, and keeps it only if it parses as its own request. Three
+  traps: the page and the CLI send each turn back with its tool data after a line break, so a
+  whole-turn match passed every test that sent plain text and matched nothing in the app (only
+  the first line is read, and the tests send the page's own shape); the answer writes "1,500
+  metres", which the parser read as 1.5; and on Windows the laptop's own zone is "Eastern
+  Daylight Time", which a one-word label pattern missed. (10-10)
 - **"what's 5 feet 10 inches in cm" reached the chat model; a 15% tip said "12.6 (exactly
   63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
   its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,

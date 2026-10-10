@@ -17,6 +17,7 @@ what the web app does without a click.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -943,6 +944,117 @@ class AlarmAsksWhenTests(unittest.TestCase):
                     self.assertTrue((ran or "").startswith("alarm"), ran)
                     self.assertTrue(asked.message.startswith(asked_text), asked.message)
             self.assertEqual(self.saved(everyday), [])
+
+
+class AskedAgainTests(unittest.TestCase):
+    """"convert 5 miles to km" then "and in feet?", "what's the time in tokyo" then "and in
+    london?", "how many days until christmas" then "and halloween?": each went to the chat
+    model, which guesses what a computed answer computes."""
+
+    @staticmethod
+    def page_turn(result) -> str:
+        """The reply as the page sends it back: `sessionHistory` adds `dataDigest` after a line
+        break, so a pattern that matched the whole turn matched nothing in the real app."""
+        data = {key: value for key, value in result.data.items() if key not in {
+            "planner", "messages", "sources", "fields", "fill_preview", "field_mappings", "results"}}
+        digest = json.dumps(data, separators=(",", ":"), default=str)[:2000] if data else ""
+        return result.message + ("\n[tool result data, context only - not a format to imitate] " + digest
+                                 if digest else "")
+
+    def converse(self, everyday: Everyday, *said: str):
+        history: list[dict[str, str]] = []
+        for text in said:
+            result, _ = everyday.say(text, history=history, stream=False)
+            history += [{"role": "user", "text": text}, {"role": "assistant", "text": self.page_turn(result)}]
+        return result
+
+    def test_a_conversion_is_asked_again_in_another_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for first, reply, answer in (
+                    ("convert 5 miles to km", "and in feet?", "5 miles = **26,400 feet**"),
+                    ("convert 5 miles to km", "what about meters", "5 miles = **8,046.72 metres**"),
+                    ("convert 5 miles to km", "in yards", "5 miles = **8,800 yards**"),
+                    # The answer writes 1,500, and the parser read the comma as a decimal point.
+                    ("convert 1500 metres to miles", "and in feet?", "1,500 metres = **4,921.26 feet**"),
+                    ("convert 100 fahrenheit to celsius", "and kelvin?", "100°F = **310.93 K**"),
+                    ("how many ounces in a pound", "in grams?", "1 pound = **453.59 grams**"),
+                    ("how tall is 5'10 in cm", "and in metres?", "5 feet 10 inches = **1.78 metres**")):
+                with self.subTest(first=first, reply=reply):
+                    self.assertEqual(self.converse(everyday, first, reply).message, answer)
+            # Each answer is the next one's question.
+            self.assertEqual(self.converse(everyday, "convert 5 miles to km", "and in feet?", "and in yards?").message,
+                             "5 miles = **8,800 yards**")
+
+    def test_the_time_is_asked_again_somewhere_else(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for first, reply, zone in (("what's the time in tokyo", "and in london?", "`Europe/London`"),
+                                       ("what's the time in tokyo", "what about new york", "`America/New_York`"),
+                                       ("what time is it", "and in paris?", "`Europe/Paris`")):
+                with self.subTest(first=first, reply=reply):
+                    self.assertIn(zone, self.converse(everyday, first, reply).message)
+            # The laptop's own zone is named in full on Windows, so CI never sees this label.
+            local = ("**2:31 AM** Eastern Daylight Time — Saturday, 10 October 2026\n\n"
+                     "`your computer` · UTC-04:00")
+            self.assertEqual(everyday.orchestrator._asked_again(local, "and in paris?"), "time in paris")
+            # The CLI adds the tool data as bare JSON after a line break.
+            self.assertEqual(everyday.orchestrator._asked_again(
+                '5 miles = **8.05 kilometres**\n{"value": 8.04672, "source": "mile"}', "and in feet?"),
+                "convert 5 miles to feet")
+
+    def test_a_count_of_days_is_asked_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.orchestrator.context.memory.set_profile_value("birthday", "march 3")
+            for first, reply, same_as in (
+                    ("how many days until christmas", "and halloween?", "how many days until halloween"),
+                    ("how long until christmas", "in weeks?", "how many weeks until christmas"),
+                    ("how many weeks until christmas", "and thanksgiving?", "how many weeks until thanksgiving"),
+                    # The answer says "your birthday", which is not a date anyone can look up.
+                    ("how many days until my birthday", "in weeks?", "how many weeks until my birthday")):
+                with self.subTest(first=first, reply=reply):
+                    self.assertEqual(self.converse(everyday, first, reply).message,
+                                     everyday.say(same_as, stream=False)[0].message)
+            # Counted to the minute, so compared by shape: the clock can turn between two answers.
+            self.assertRegex(self.converse(everyday, "how long until christmas", "what about in hours").message,
+                             r"^\*\*[\d,]+ hours?( \d+ minutes?)?\*\* until Christmas ")
+            # A unit the default would not have counted in is kept for the next thing asked about.
+            again = everyday.orchestrator._asked_again
+            self.assertEqual(again("**1,822 hours 29 minutes** until christmas (Friday, 25 December 2026 at 12:00 AM).",
+                                   "and new year?"), "how many hours until new year")
+            self.assertEqual(again("**21 hours 29 minutes** until midnight (tomorrow at 12:00 AM).", "and 9pm?"),
+                             "how long until 9pm")
+
+    def test_a_personal_account_can_ask_again(self) -> None:
+        from laptop_agent.access import acting_as
+        from laptop_agent.accounts import Principal
+
+        with tempfile.TemporaryDirectory() as tmp, acting_as(Principal("p1", "family", "personal")):
+            everyday = Everyday(Path(tmp))
+            for first, reply, shown in (("convert 5 miles to km", "and in feet?", "**26,400 feet**"),
+                                        ("what's the time in tokyo", "and in london?", "`Europe/London`"),
+                                        ("how many days until christmas", "and halloween?", "until Halloween")):
+                with self.subTest(first=first):
+                    self.assertIn(shown, self.converse(everyday, first, reply).message)
+
+    def test_what_is_not_the_same_question_stays_where_it_was(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            again = everyday.orchestrator._asked_again
+            converted, clock = "5 miles = **8.05 kilometres**", "**3:30 PM** JST — Saturday, 10 October 2026"
+            counted = "**76 days** until Christmas (Friday 25 December 2026)."
+            for asked, reply in ((converted, "and in a minute"), (converted, "what about dinner"), (converted, "thanks"),
+                                 (converted, "feet"), ("(15/100 × 200) = **30**", "and in grams?"),
+                                 (clock, "and tomorrow?"), (clock, "what about the weather in london"),
+                                 (clock, "london"), (counted, "what about lunch"), (counted, "halloween"),
+                                 ("Paris is the capital of France.", "and in feet?")):
+                with self.subTest(asked=asked, reply=reply):
+                    self.assertIsNone(again(asked, reply))
+            # A new request said the same way still goes where it was going.
+            self.assertTrue(reached(everyday.say("what about the weather in london", stream=False, history=[
+                {"role": "user", "text": "what's the time in tokyo"}, {"role": "assistant", "text": clock}])[1],
+                "weather"))
 
 
 class TimerStatusTests(unittest.TestCase):
