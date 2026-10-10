@@ -905,6 +905,32 @@ class TimerStatusTests(unittest.TestCase):
                     self.assertTrue(result.message.startswith("Coffee break timer: **"), result.message)
 
 
+class ListAsksTests(unittest.TestCase):
+    """"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
+    "cross off eggs" reached the chat model, which can neither see nor change a list."""
+
+    def test_a_list_is_asked_made_crossed_off_and_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            memory = everyday.orchestrator.context.memory
+            everyday.say("add milk and eggs to my shopping list", stream=False)
+            for text, answer in (("is milk on my shopping list", "Yes — your shopping list has milk."),
+                                 ("is there any butter on my shopping list",
+                                  "No — your shopping list doesn't have butter."),
+                                 ("did i add eggs to my shopping list", "Yes — your shopping list has eggs."),
+                                 ("is my name on the guest list", "You don't have a guest list.")):
+                with self.subTest(text):
+                    self.assertEqual(everyday.say(text, stream=False)[0].message, answer)
+            everyday.say("make a packing list with socks, charger and passport", stream=False)
+            self.assertEqual(memory.list_items("packing"), ["socks", "charger", "passport"])
+            everyday.say("cross off eggs", stream=False)
+            self.assertEqual(memory.list_items("shopping"), ["milk"])
+            everyday.say("delete my packing list", stream=False)
+            self.assertNotIn("packing", memory.lists())
+            # Suggestions, not items: this one is for the model.
+            self.assertIsNone(everyday.say("make a reading list of classic novels", stream=False)[1])
+
+
 class AlarmListTests(unittest.TestCase):
     """"what alarms do i have" reached the chat model, which cannot see them: only "when is my
     alarm", the next one, was routed."""
