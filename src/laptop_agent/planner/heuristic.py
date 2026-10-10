@@ -500,10 +500,12 @@ _LIST_HAS = re.compile(_POLITE + r"(?:is|are)\s+(?:there\s+(?:any\s+)?)?(?P<item
                        + r"\s*[?.!]*$", re.IGNORECASE)
 _LIST_HAVE = re.compile(_POLITE + r"(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+(?:add|put))\s+(?P<items>.+?)\s+"
                         r"(?:on|in|to)\s+" + _LIST_NAME + r"(?:\s+already)?\s*[?.!]*$", re.IGNORECASE)
-# Items said outright, not a request for them (Codex's review of #262): a suggestion word, or a
-# clause saying what they are for, leaves the list to the model.
-_ASKS_FOR_IDEAS = re.compile(r"\b(?:suggestions?|ideas?|recommendations?|essentials|everything|stuff|things|items"
-                             r"|what\s+(?:i|we)\s+need|for|to|about|that|which)\b", re.IGNORECASE)
+# Items said outright, not a request for them (Codex's reviews of #262): a list that opens with
+# "suggestions", "things i need", "the essentials" asks for ideas and is left to the model, while
+# a preposition inside a named item ("go to the store") is part of the item.
+_ASKS_FOR_IDEAS = re.compile(r"^\s*(?:(?:some|the|all\s+the|a\s+few)\s+)?(?:suggestions?|ideas?|recommendations?"
+                             r"|essentials|everything|stuff|things|items|what\s+(?:i|we)\s+(?:need|should))\b",
+                             re.IGNORECASE)
 _LIST_MAKE = re.compile(_POLITE + r"(?:make|start|create)\s+(?:me\s+)?(?:a|an|my)\s+(?:new\s+)?"
                         r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list\s+with\s+(?P<items>.+?)\s*[.!]*$",
                         re.IGNORECASE)

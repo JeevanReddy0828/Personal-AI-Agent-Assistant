@@ -929,10 +929,13 @@ class ListAsksTests(unittest.TestCase):
             self.assertNotIn("packing", memory.lists())
             # Suggestions, not items: these are for the model (Codex's review).
             for text in ("make a reading list of classic novels", "make a packing list with suggestions for a weekend trip",
-                         "make a packing list with things i need for camping"):
+                         "make a packing list with things i need for camping", "make a packing list with the essentials"):
                 with self.subTest(text):
                     self.assertIsNone(everyday.say(text, stream=False)[1])
             self.assertNotIn("packing", memory.lists())
+            # A preposition inside a named item is part of the item (Codex's second review).
+            everyday.say("make a chores list with go to the store and call mom", stream=False)
+            self.assertEqual(memory.list_items("chores"), ["go to the store", "call mom"])
             # An item, not a substring: "almond milk" is not "milk" (Codex's review). A plural is.
             everyday.say("add almond milk to my shopping list", stream=False)
             everyday.say("remove milk from my shopping list", stream=False)
