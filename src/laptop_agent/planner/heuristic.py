@@ -396,9 +396,13 @@ _VOLUME_END = re.compile(
 )
 
 
+# "cross off eggs": list language that needs no list named, as "take eggs off my list" does.
+_NAMELESS_CROSS = re.compile(_POLITE + r"(?:cross|check)\s+off\s+(?P<items>.+?)\s*[.!]*$", re.IGNORECASE)
+
+
 def nameless_list_edit(text: str) -> tuple[str, str] | None:
     """("add"|"remove", the items) for a list edit that names no list, else None."""
-    for verb, pattern in (("remove", _NAMELESS_REMOVE), ("add", _NAMELESS_ADD)):
+    for verb, pattern in (("remove", _NAMELESS_REMOVE), ("remove", _NAMELESS_CROSS), ("add", _NAMELESS_ADD)):
         match = pattern.match(text or "")
         if match:
             return verb, match.group("items").strip()
@@ -501,8 +505,25 @@ _STORE_ASK = re.compile(_POLITE + r"(?:do\s+(?:i|we)\s+need\s+anything|what\s+do
                         re.IGNORECASE)
 _LIST_REMOVE = re.compile(_POLITE + r"(?:remove|delete|take|cross|scratch|strike)\s+(?P<items>.+?)\s+"
                           r"(?:off(?:\s+of)?|from)\s+" + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
-_LIST_CLEAR = re.compile(_POLITE + r"(?:clear|empty|wipe|reset)\s+(?:out\s+)?" + _LIST_NAME + r"\s*[.!]*$",
-                         re.IGNORECASE)
+# "delete my packing list" reached the chat model, which deleted nothing: a list that is cleared is gone.
+_LIST_CLEAR = re.compile(_POLITE + r"(?:clear|empty|wipe|reset|delete|remove|get\s+rid\s+of)\s+(?:out\s+)?"
+                         + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
+# "is milk on my shopping list" and "do i have eggs on my list" were answered by the chat model,
+# which cannot see the list; "make a packing list with socks and a charger" was a list it only
+# claimed to make. "with" only: "make a reading list of classic novels" asks for suggestions.
+_LIST_HAS = re.compile(_POLITE + r"(?:is|are)\s+(?:there\s+(?:any\s+)?)?(?P<items>.+?)\s+(?:on|in)\s+" + _LIST_NAME
+                       + r"\s*[?.!]*$", re.IGNORECASE)
+_LIST_HAVE = re.compile(_POLITE + r"(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+(?:add|put))\s+(?P<items>.+?)\s+"
+                        r"(?:on|in|to)\s+" + _LIST_NAME + r"(?:\s+already)?\s*[?.!]*$", re.IGNORECASE)
+# Items said outright, not a request for them (Codex's reviews of #262): a list that opens with
+# "suggestions", "things i need", "the essentials" asks for ideas and is left to the model, while
+# a preposition inside a named item ("go to the store") is part of the item.
+_ASKS_FOR_IDEAS = re.compile(r"^\s*(?:(?:some|the|all\s+the|a\s+few)\s+)?(?:suggestions?|ideas?|recommendations?"
+                             r"|essentials|everything|stuff|things|items|what\s+(?:i|we)\s+(?:need|should))\b",
+                             re.IGNORECASE)
+_LIST_MAKE = re.compile(_POLITE + r"(?:make|start|create)\s+(?:me\s+)?(?:a|an|my)\s+(?:new\s+)?"
+                        r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list\s+with\s+(?P<items>.+?)\s*[.!]*$",
+                        re.IGNORECASE)
 _LISTS = re.compile(r"^\s*(?:what|which)\s+lists\s+do\s+i\s+have\b|^\s*show\s+(?:me\s+)?(?:all\s+)?my\s+lists\s*[?.!]*$",
                     re.IGNORECASE)
 # A fact about the user, said without "remember": only keys that are plainly about them, so
@@ -1412,6 +1433,13 @@ class HeuristicPlannerProvider:
         shown = _LIST_SHOW.match(text)
         if shown:
             return self._command(f"list {shown.group('name')} show", "Read a list.", 0.88)
+        asked = _LIST_HAS.match(text) or _LIST_HAVE.match(text)
+        if asked:
+            return self._command(f"list {asked.group('name')} has {asked.group('items')}", "Is it on a list?", 0.86)
+        made = _LIST_MAKE.match(text)
+        # "with suggestions for a weekend trip" asks for ideas, not for that phrase as an item.
+        if made and not _ASKS_FOR_IDEAS.search(made.group("items")):
+            return self._command(f"list {made.group('name')} add {made.group('items')}", "Start a list.", 0.86)
         if _STORE_ASK.match(text):
             return self._command("list shopping show", "What to buy is the shopping list.", 0.86)
         removed = _LIST_REMOVE.match(text) or _LIST_REMOVE_BARE.match(text)

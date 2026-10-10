@@ -440,6 +440,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
+  "cross off eggs" were answered by the chat model**, which can neither see nor change a list →
+  `list <name> has <item>` answers from the list by item, never substring ("almond milk" is not
+  "milk"), and says so when there is no such list; "make a <name> list with …" adds only items
+  said outright ("with suggestions for a trip" and "a reading list of novels" ask for ideas -
+  Codex, #262); delete clears, and "cross/check off X" is a no-list-named remove. (10-10)
 - **"screenshot my screen and tell me what's on it" saved "my screen and tell me what's on
   it.png"** → the direct `screenshot ` prefix took any remainder as the save path → a place to
   save is said as one (a drive or ./ ~/ / start, a single image file name, or one word after

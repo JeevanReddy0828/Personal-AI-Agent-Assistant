@@ -2019,12 +2019,12 @@ class AgentOrchestrator:
                                   f"I'll remember it.", fact=None)
 
     def _list_command(self, rest: str) -> ToolResult | None:
-        """`list <name> show|add <items>|remove <item>|clear`, or `list <existing name>`.
+        """`list <name> show|add <items>|remove <item>|clear|has <item>`, or `list <existing name>`.
 
         None when the words are not a list command: "list" is an ordinary English verb, and
         "list files in downloads" or "list the planets" must keep reaching the router.
         """
-        match = re.match(r"(?P<name>.+?)\s+(?P<verb>show|add|remove|clear)\b\s*(?P<items>.*)$", rest, re.IGNORECASE)
+        match = re.match(r"(?P<name>.+?)\s+(?P<verb>show|add|remove|clear|has)\b\s*(?P<items>.*)$", rest, re.IGNORECASE)
         name = (match.group("name") if match else rest).strip()
         if name:
             name = self._known_list(name)
@@ -2043,6 +2043,17 @@ class AgentOrchestrator:
         if verb == "clear":
             removed = self.context.memory.clear_list(name)
             return ToolResult.success(f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed)
+        if verb == "has":
+            # "is milk on my shopping list" reached the chat model, which cannot see the list.
+            wanted = " ".join(raw_items.strip(" ?.!").lower().split())
+            if name not in self.context.memory.lists():
+                return ToolResult.success(f"You don't have a {list_name(name)} list.", items=[])
+            # An item, not a substring: "almond milk" is not "milk" (Codex's review). A plural is.
+            found = [item for item in self.context.memory.list_items(name)
+                     if wanted and " ".join(item.lower().split()) in {wanted, wanted + "s", wanted.removesuffix("s")}]
+            if found:
+                return ToolResult.success(f"Yes — {label} has {', '.join(found)}.", items=found)
+            return ToolResult.success(f"No — {label} doesn't have {raw_items.strip(' ?.!')}.", items=[])
         if not raw_items:
             return ToolResult.failure(f"What should I {verb} {'to' if verb == 'add' else 'from'} {label}?")
         if verb == "remove":
