@@ -73,7 +73,7 @@ from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, looks_like_conversion
 from laptop_agent.tools.chance import draw
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
-from laptop_agent.tools.dates import span_text, until_moment
+from laptop_agent.tools.dates import calendar_fact, span_text, until_moment
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -1899,6 +1899,9 @@ class AgentOrchestrator:
         """
         now = datetime.now().astimezone()
         today = now.date()
+        if kind == "fact":
+            answer = calendar_fact(what, today)
+            return ToolResult.success(answer) if answer else None
         profile = self.context.memory.get_profile()
         if kind == "between":
             first, second = resolve_date(what, now, profile), resolve_date(other, now, profile)

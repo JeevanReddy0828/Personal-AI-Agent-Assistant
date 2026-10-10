@@ -357,6 +357,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   first 1:45 are all 45 minutes, Codex, #253; a weekday looks a week back, "today" stays put),
   a day asked for in hours to its start, in real elapsed time across a clock change. A reading
   is checked through UTC: a zone converted to itself comes back unchanged. (10-08)
+- **"is 2028 a leap year" ran a web search; "what week of the year is it", "how many days in
+  february", "is today a holiday", "how old am i if i was born in 1995" reached the chat
+  model** → no route for calendar facts → `dates.calendar_fact`, reached as `date_question`'s
+  "fact" kind (no new orchestrator branch): week, day of year, leap years, days in a month,
+  quarter, N days from today, days to the weekend, holidays (Columbus Day and Juneteenth added,
+  US-leaning and said so), ages. (10-10)
 - **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
   "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
   direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)
