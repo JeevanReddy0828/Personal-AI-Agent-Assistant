@@ -59,7 +59,7 @@ from laptop_agent.planner.heuristic import (
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
-from laptop_agent.timeparse import TimeParseError, describe, on_laptop_clock, parse_when, spoken_to_digits
+from laptop_agent.timeparse import TimeParseError, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
 from laptop_agent.tasks import TaskRecord, TaskTracker
@@ -1165,7 +1165,7 @@ class AgentOrchestrator:
         if lowered == "timer" or lowered.startswith("timer "):
             return self._timer(command[len("timer ") :])
 
-        if lowered.startswith("alarm "):
+        if lowered == "alarm" or lowered.startswith("alarm "):
             return self._alarm(command[len("alarm ") :])
 
         if lowered in {"schedule", "schedule list", "schedules", "show schedule"}:
@@ -2296,8 +2296,11 @@ class AgentOrchestrator:
         now = datetime.now().astimezone()
         if asked.startswith("How long should the timer run?"):
             return f"timer {reply}" if _TIMER_PART.search(spoken_to_digits(reply)) else None
-        if asked.startswith("When should the alarm go off?"):
-            return f"alarm {reply}"
+        alarm = re.match(r"When should the alarm go off(?: (?P<day>[^?]+))?\?", asked)
+        if alarm:
+            # "at 7" or a bare "7" goes on the day the question named: "... go off tomorrow?"
+            when = f"at {reply}" if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", reply, re.IGNORECASE) else reply
+            return f"alarm {when} {alarm.group('day') or ''}".strip()
         if asked.startswith("What should I remind you about") and before:
             subject = re.sub(r"^(?:to|that|about)\b\s*", "", reply, flags=re.IGNORECASE)
             return f"{before} to {subject}" if _meaningful(subject) else None
@@ -3216,6 +3219,18 @@ class AgentOrchestrator:
         repeat = _REPEAT.search(cleaned)
         if repeat:
             return self._repeating_reminder(cleaned, repeat, label="Alarm", default_half="am")
+        # "wake me up tomorrow" set an alarm for 9:00, a time nobody said: a day with no time of
+        # day, and no "in 20 minutes", is asked about, and the answer comes back to that day.
+        if (cleaned.strip() and _find_time(cleaned.lower()) is None
+                and not re.search(r"\bin\s+(?:an?|half|\d)", cleaned, re.IGNORECASE)):
+            try:
+                day = parse_when(cleaned, datetime.now().astimezone(), local=True)
+            except TimeParseError:
+                day = None
+            if day is not None:
+                said = re.sub(r"^(?:at|for|to)\s+", "", cleaned.strip(), flags=re.IGNORECASE)
+                said = f"on {said}" if re.fullmatch(r"(?:mon|tues|wednes|thurs|fri|satur|sun)day", said, re.I) else said
+                return ToolResult.failure(f"When should the alarm go off {said}? Try \"at 7\".")
         return self._set_reminder(cleaned, default_half="am", label="Alarm", what="alarm")
 
     def _repeating_reminder(self, cleaned: str, repeat: re.Match[str], label: str = "",

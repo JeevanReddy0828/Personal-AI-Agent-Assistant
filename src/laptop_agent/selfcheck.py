@@ -141,6 +141,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what facts do you have about me", "memory", "same"),
     ("wake me up at 7", "alarm", "an alarm said as speech"),
     ("get me up at 6", "alarm", "another way to say it"),
+    ("set an alarm", "alarm", "no time: it asks when; it reached the chat model"),
+    ("wake me up", "alarm", "same"),
     ("what alarms do i have", "alarms", "a listing the chat model cannot see; only the next alarm was routed"),
     ("do i have any alarms set", "alarms", "same"),
     ("how many items are on my shopping list", "list shopping show", "a count the chat model cannot see"),
@@ -274,6 +276,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what's the date of the french revolution", "a date question about no date we can compute"),
     ("how much memory is free on my phone?", "another device (Codex, #259)"),
     ("what's my memory usage on my phone?", "same"),
+    ("alarm clock broke again", "a remark about a clock, not a request"),
+    ("the alarm on friday was loud", "a remark"),
 )
 
 

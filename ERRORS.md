@@ -343,6 +343,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"wake me up tomorrow" set an alarm for 9:00 AM; "set an alarm" and "wake me up" went to the
+  chat model** → a day with no time of day took the parser's default hour, and a bare alarm
+  request had no route → a bare request asks "When should the alarm go off?", a day without a
+  time asks "...go off tomorrow / on friday?", and the answer ("7", "at 6:30") keeps that day;
+  "in 20 minutes" is still set at once. (10-10)
 - **"how long until midnight" said "1 day", four hours before it** → a clock time resolved to
   the date of its next occurrence and was counted in days, and "how many minutes/hours
   until…" reached the model → `dates.until_moment`: a time of day is counted to that moment
