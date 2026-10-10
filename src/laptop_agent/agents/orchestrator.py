@@ -73,7 +73,7 @@ from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, looks_like_conversion
 from laptop_agent.tools.chance import draw
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
-from laptop_agent.tools.dates import calendar_fact, span_text, until_moment
+from laptop_agent.tools.dates import answerable, calendar_fact, span_text, until_moment
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
@@ -333,6 +333,21 @@ _NOT_AN_ANSWER = re.compile(
 )
 _FILLER_REPLY = frozenset({"it's", "its", "it", "is", "the", "a", "an", "my", "to", "at", "in", "on", "of", "that",
                            "this", "about", "for", "and", "so", "well", "ok", "okay", "yes", "yeah", "sure"})
+# "and in feet?" after a conversion, "what about london" after the time, "and halloween?" after
+# a count of days: the same question again with one thing changed. Each is keyed to the exact
+# shape of the answer before it, and needs a connecting word, so a bare word is not taken.
+_CONVERTED = re.compile(r"(?P<left>[^\n=*]+?) = \*\*[^*\n]+\*\*(?: \(US measure\))?")
+_CONVERT_AGAIN = re.compile(r"(?:(?:and|what\s+about|how\s+about)\s+(?:(?:in|to|into)\s+)?|(?:in|to|into)\s+)"
+                            r"(?P<unit>[a-z°][\w° .'-]{0,30}?)\s*\??", re.IGNORECASE)
+# The label is "JST" for a zone asked for, and "Eastern Daylight Time" for the laptop's own on Windows.
+_CLOCK_ANSWER = re.compile(r"\*\*\d{1,2}:\d{2} [AP]M\*\* [^*\n—]+ — ")
+_ZONE_AGAIN = re.compile(r"(?:(?:and|what\s+about|how\s+about)\s+(?:(?:in|for|at)\s+)?|(?:in|for|at)\s+)"
+                         r"(?P<place>[a-z][a-z .'/_-]{1,30}?)\s*\??", re.IGNORECASE)
+_UNTIL_ANSWER = re.compile(r"\*\*(?P<count>[^*\n]+)\*\* until (?P<name>[^\n]+?) \([^()\n]+\)\.")
+_UNTIL_IN = re.compile(r"(?:(?:and\s+|what\s+about\s+|how\s+about\s+)?(?:in|as)\s+|how\s+many\s+)"
+                       r"(?P<unit>days|weeks|hours|minutes)(?:\s+is\s+that)?\s*\??", re.IGNORECASE)
+_UNTIL_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?:(?:until|till|to)\s+)?(?P<what>[^?\n]{1,40}?)\s*\??",
+                          re.IGNORECASE)
 
 
 def _meaningful(value: str) -> bool:
@@ -2302,7 +2317,13 @@ class AgentOrchestrator:
         asked = turns[-1][1]
         before = next((text.rstrip(".!?") for role, text in reversed(turns[:-1]) if role == "user"), "")
         reply = command.strip().rstrip(".!")
-        if not reply or len(reply.split()) > 8 or _NOT_AN_ANSWER.match(reply):
+        if not reply or len(reply.split()) > 8:
+            return None
+        # Ahead of the refusal check, which reads "what about meters" as a question of its own.
+        again = self._asked_again(asked, reply)
+        if again is not None:
+            return again
+        if _NOT_AN_ANSWER.match(reply):
             return None
         routed = self.router.plan(reply, "", {})
         if routed.is_command or routed.explanation == SMALL_TALK:
@@ -2351,6 +2372,46 @@ class AgentOrchestrator:
             picked = (ids[ordinals[spoken]] if spoken in ordinals
                       else spoken.lstrip("#") if spoken.lstrip("#") in ids else spoken)
             return f"{verb.group(0)} {picked}"
+        return None
+
+    def _asked_again(self, asked: str, reply: str) -> str | None:
+        """A computed answer asked again with one thing changed, as the request it means -
+        or None. The new request must parse as its own, so "what about dinner" after the time
+        is not a time zone called 'dinner'."""
+        # The page and the CLI send the turn back with its tool data after a line break.
+        head = asked.split("\n", 1)[0]
+        converted = _CONVERTED.fullmatch(head)
+        again = _CONVERT_AGAIN.fullmatch(reply)
+        if converted and again:
+            # The answer shows thousands with commas, which the parser reads as a decimal point.
+            candidate = f"convert {converted.group('left').replace(',', '')} to {again.group('unit')}"
+            return candidate if looks_like_conversion(candidate) else None
+        again = _ZONE_AGAIN.fullmatch(reply)
+        if _CLOCK_ANSWER.match(asked) and again:
+            place = again.group("place").strip()
+            zone, said = _requested_zone(f"in {place}")
+            # The whole place, not a word in it: "the weather in london" names London.
+            return f"time in {place}" if zone and said == place.lower() else None
+        counted = _UNTIL_ANSWER.fullmatch(head)
+        if counted is None:
+            return None
+        count, name = counted.group("count"), re.sub(r"^your\b", "my", counted.group("name"))
+        hours = re.fullmatch(r"([\d,]+) hours?(?: \d+ minutes?)?", count)
+        minutes = re.fullmatch(r"([\d,]+) minutes?", count)
+        # Counted in a unit the default would not have used: kept for the next thing asked about.
+        unit = ("weeks" if "week" in count else "hours" if hours and int(hours.group(1).replace(",", "")) >= 24
+                else "minutes" if minutes and int(minutes.group(1).replace(",", "")) >= 60 else "")
+        unit_asked = _UNTIL_IN.fullmatch(reply)
+        if unit_asked:
+            unit, what = unit_asked.group("unit").lower(), name
+        elif again := _UNTIL_AGAIN.fullmatch(reply):
+            what = again.group("what")
+        else:
+            return None
+        candidate = f"how many {unit} until {what}" if unit else f"how long until {what}"
+        now = datetime.now().astimezone()
+        if answerable(candidate, now) or until_moment(what, unit, now, self.context.memory.get_profile()) is not None:
+            return candidate
         return None
 
     def _split_requests(self, command: str) -> list[str] | None:

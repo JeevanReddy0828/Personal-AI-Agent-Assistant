@@ -33,6 +33,12 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     should the timer run?" → "10 minutes". Keyed to the exact question strings; history
     arrives as `{"role", "text"}` - a test written with "content" passed while the page got
     nothing. Refusals, questions, new requests and filler ("it's", "to") are not answers.
+  - **A computed answer can be asked again with one thing changed** (`_asked_again`): "and in
+    feet?" after a conversion, "what about london" after the time, "and halloween?" or "in
+    weeks?" after a count of days. Keyed to the answer's own shape, never the user's words,
+    so a chain of them works; a connecting word is required, and the new request must parse
+    as its own ("what about the weather in london" is not the time in London). It runs
+    before the refusal check, which reads "what about meters" as a question.
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
