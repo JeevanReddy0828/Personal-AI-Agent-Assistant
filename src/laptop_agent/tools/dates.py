@@ -330,8 +330,8 @@ _FACT = re.compile(
     r"|(?P<quarter>(?:what|which)\s+quarter\s+(?:is\s+it|are\s+we\s+in)(?:\s+(?:now|today))?)"
     r"|(?P<ahead>what(?:'s|s|\s+is)\s+(?P<count>\d+)\s+(?P<unit>days?|weeks?)\s+(?:from|after)\s+(?:today|now))"
     r"|(?P<weekend>how\s+(?:many\s+days|long)\s+(?:is\s+it\s+)?(?:until|till|til|to)\s+the\s+weekend)"
-    r"|(?P<holiday>is\s+(?P<which_day>today|tomorrow)\s+a\s+(?:public\s+|national\s+|bank\s+|federal\s+)?holiday)"
-    r"|(?P<next>(?:when\s+is|what(?:'s|s|\s+is))\s+the\s+next\s+(?:public\s+|national\s+|bank\s+|federal\s+)?holiday)"
+    r"|(?P<holiday>is\s+(?P<which_day>today|tomorrow)\s+a\s+(?:(?P<kind>public|national|bank|federal)\s+)?holiday)"
+    r"|(?P<next>(?:when\s+is|what(?:'s|s|\s+is))\s+the\s+next\s+(?:(?P<next_kind>public|national|bank|federal)\s+)?holiday)"
     r"|(?P<age>how\s+(?P<days_old>many\s+days\s+)?old\s+am\s+i\s+if\s+i\s+was\s+born\s+(?:in|on)\s+(?P<born>.+?))"
     r")\s*[?.!]*$",
     re.IGNORECASE,
@@ -341,6 +341,27 @@ _NAMED_HOLIDAYS = ("new year's day", "martin luther king day", "presidents day",
                    "easter", "mother's day", "memorial day", "father's day", "juneteenth", "independence day",
                    "labor day", "columbus day", "halloween", "veterans day", "thanksgiving", "christmas eve", "christmas",
                    "new year's eve")
+
+
+# Asked for by kind ("federal", "public", "bank"), only these count, taken off on the weekday
+# nearest a weekend date: "is today a federal holiday" on 14 February said Valentine's Day (Codex's review).
+_FEDERAL = ("new year's day", "martin luther king day", "presidents day", "memorial day", "juneteenth",
+            "independence day", "labor day", "columbus day", "veterans day", "thanksgiving", "christmas")
+
+
+def _observed(day: date) -> date:
+    """The weekday a federal holiday is taken off: Saturday's on the Friday, Sunday's on the Monday."""
+    return day - timedelta(days=1) if day.weekday() == 5 else day + timedelta(days=1) if day.weekday() == 6 else day
+
+
+def _federal_days(around: date) -> list[tuple[date, date, str]]:
+    """(observed, actual, name) for each federal holiday in the year either side of `around`."""
+    return sorted((_observed(_HOLIDAYS[name](year)), _HOLIDAYS[name](year), name)
+                  for name in _FEDERAL for year in (around.year - 1, around.year, around.year + 1))
+
+
+def _stamp(day: date) -> str:
+    return f"{day:%A, %d %B %Y}".replace(" 0", " ")
 
 
 def _title(name: str) -> str:
@@ -396,6 +417,23 @@ def calendar_fact(text: str, today: date) -> str | None:
             return "It's the weekend now."
         days = 5 - today.weekday()
         return f"**{days} day{'s' if days != 1 else ''}** until the weekend (Saturday)."
+    if match.group("kind") or match.group("next_kind"):
+        days = _federal_days(today)
+        if match.group("next"):
+            observed, actual, name = next(item for item in days if item[0] > today)
+            note = f" (taken off on {_stamp(observed)})" if observed != actual else ""
+            return f"The next federal holiday is **{_title(name)}**, {_stamp(actual)}{note}."
+        which = match.group("which_day").lower()
+        asked = today + timedelta(days=1 if which == "tomorrow" else 0)
+        hit = next(((observed, actual, name) for observed, actual, name in days if asked in (observed, actual)), None)
+        if hit is None:
+            return f"**No** — {which} isn't a federal holiday."
+        observed, actual, name = hit
+        if observed == actual:
+            return f"**Yes** — {which} is {_title(name)}, a federal holiday."
+        if asked == observed:
+            return f"**Yes** — {which} is the day off for {_title(name)}, which falls on {_stamp(actual)}."
+        return f"**Yes** — {which} is {_title(name)}; the day off is {_stamp(observed)}."
     if match.group("holiday") or match.group("next"):
         dated = sorted((next_holiday(name, today), name) for name in _NAMED_HOLIDAYS)
         if match.group("next"):

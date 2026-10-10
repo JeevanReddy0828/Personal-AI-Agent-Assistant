@@ -348,6 +348,15 @@ class CalendarFactTests(unittest.TestCase):
         self.assertIn("**3 days** until the weekend", calendar_fact("how many days until the weekend", date(2026, 9, 23)))
         self.assertTrue(answerable("is 2028 a leap year", NOW))     # so the instant router claims it
         self.assertIn("**Yes** — today is Christmas", calendar_fact("is today a holiday", date(2026, 12, 25)))
+        # Asked for by kind, only federal holidays count, on their day off (Codex's review).
+        for text, day, expected in (
+                ("is today a federal holiday", date(2026, 2, 14), "**No** — today isn't a federal holiday."),
+                ("is today a holiday", date(2026, 2, 14), "**Yes** — today is Valentine's Day."),
+                ("when is the next federal holiday", date(2026, 2, 1), "**Presidents Day**, Monday, 16 February 2026"),
+                ("is today a federal holiday", date(2026, 7, 3), "the day off for Independence Day"),
+                ("is today a public holiday", date(2027, 12, 31), "the day off for New Year's Day")):
+            with self.subTest(text=text, day=day):
+                self.assertIn(expected, calendar_fact(text, day))
         for text in ("what week is it in the series", "how old am i", "how old am i if i was born on december 25 2030",
                      "how old am i if i was born in 2030"):
             with self.subTest(text):
