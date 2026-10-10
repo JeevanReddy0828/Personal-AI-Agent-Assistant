@@ -17,6 +17,7 @@ what the web app does without a click.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import subprocess
 import tempfile
@@ -930,6 +931,47 @@ class AlarmListTests(unittest.TestCase):
             job = next(job for job in everyday.orchestrator.context.scheduler.list_jobs() if "Alarm" in job.spec)
             everyday.orchestrator.context.scheduler.set_enabled(job.id, False)
             self.assertIn("weekdays at 07:00 (off)", everyday.say("show my alarms", stream=False)[0].message)
+
+
+class ScreenshotWordsTests(unittest.TestCase):
+    """"screenshot my screen and tell me what's on it" saved a file called "my screen and tell me
+    what's on it.png": everything after `screenshot ` was taken as the place to save it."""
+
+    def test_only_a_file_name_is_a_place_to_save(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            # A slash inside the words is not a path (Codex's review): "error/bug message" saved one.
+            for text in ("screenshot my screen and tell me what's on it", "screenshot and describe it",
+                         "screenshot my screen and read the error/bug message",
+                         "screenshot my screen and read the report.png", "screenshot my screen and describe the file.png"):
+                with self.subTest(text):
+                    result, _ = everyday.say(text, stream=False)
+                    self.assertIn("from the screen", result.message)          # it looked, it did not save
+            stray = [p for p in list(Path.cwd().rglob("*")) + list(Path(tmp).rglob("*"))
+                     if "tell me" in p.name or "bug message" in p.name or "read the" in p.name
+                     or "describe the" in p.name]
+            self.assertFalse(stray)
+            for text in ("screenshot this", "screenshot error/bug"):    # a label, not a place to save
+                with self.subTest(text):
+                    plain, _ = everyday.say(text, stream=False)
+                    self.assertEqual(Path(plain.data["path"]).parent.resolve(), (Path(tmp) / "screenshots").resolve())
+            # Relative names land in the working folder: a temporary one, or a direct run leaves
+            # shot.png and shots/ in the checkout (Codex's review).
+            here = Path.cwd()
+            with tempfile.TemporaryDirectory() as folder:
+                os.chdir(folder)
+                try:
+                    relative, _ = everyday.say("screenshot to shots/today", stream=False)   # a path, said as one
+                    bare, _ = everyday.say("screenshot shot.png", stream=False)            # a single file name
+                finally:
+                    os.chdir(here)
+                self.assertEqual(Path(relative.data["path"]).resolve(), (Path(folder) / "shots" / "today.png").resolve())
+                self.assertEqual(Path(bare.data["path"]).resolve(), (Path(folder) / "shot.png").resolve())
+            # Compared resolved: Windows CI gave the same folder as RUNNER~1 and as runneradmin.
+            for named in (Path(tmp) / "shot.png", Path(tmp) / "capture"):    # an extensionless path, said as one
+                with self.subTest(str(named)):
+                    saved, _ = everyday.say(f"screenshot to {named}", stream=False)
+                    self.assertEqual(Path(saved.data["path"]).resolve(), named.with_suffix(".png").resolve())
 
 
 if __name__ == "__main__":
