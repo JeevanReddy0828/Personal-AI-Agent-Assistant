@@ -927,8 +927,20 @@ class ListAsksTests(unittest.TestCase):
             self.assertEqual(memory.list_items("shopping"), ["milk"])
             everyday.say("delete my packing list", stream=False)
             self.assertNotIn("packing", memory.lists())
-            # Suggestions, not items: this one is for the model.
-            self.assertIsNone(everyday.say("make a reading list of classic novels", stream=False)[1])
+            # Suggestions, not items: these are for the model (Codex's review).
+            for text in ("make a reading list of classic novels", "make a packing list with suggestions for a weekend trip",
+                         "make a packing list with things i need for camping"):
+                with self.subTest(text):
+                    self.assertIsNone(everyday.say(text, stream=False)[1])
+            self.assertNotIn("packing", memory.lists())
+            # An item, not a substring: "almond milk" is not "milk" (Codex's review). A plural is.
+            everyday.say("add almond milk to my shopping list", stream=False)
+            everyday.say("remove milk from my shopping list", stream=False)
+            self.assertEqual(everyday.say("is milk on my shopping list", stream=False)[0].message,
+                             "No — your shopping list doesn't have milk.")
+            everyday.say("add eggs to my shopping list", stream=False)
+            self.assertEqual(everyday.say("is egg on my shopping list", stream=False)[0].message,
+                             "Yes — your shopping list has eggs.")
 
 
 class AlarmListTests(unittest.TestCase):

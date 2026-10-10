@@ -2045,11 +2045,12 @@ class AgentOrchestrator:
             return ToolResult.success(f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed)
         if verb == "has":
             # "is milk on my shopping list" reached the chat model, which cannot see the list.
-            wanted = raw_items.strip(" ?.!").lower()
+            wanted = " ".join(raw_items.strip(" ?.!").lower().split())
             if name not in self.context.memory.lists():
                 return ToolResult.success(f"You don't have a {list_name(name)} list.", items=[])
+            # An item, not a substring: "almond milk" is not "milk" (Codex's review). A plural is.
             found = [item for item in self.context.memory.list_items(name)
-                     if wanted and (wanted == item.lower() or wanted in item.lower())]
+                     if wanted and " ".join(item.lower().split()) in {wanted, wanted + "s", wanted.removesuffix("s")}]
             if found:
                 return ToolResult.success(f"Yes — {label} has {', '.join(found)}.", items=found)
             return ToolResult.success(f"No — {label} doesn't have {raw_items.strip(' ?.!')}.", items=[])

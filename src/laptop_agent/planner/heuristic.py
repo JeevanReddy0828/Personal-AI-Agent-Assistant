@@ -500,6 +500,10 @@ _LIST_HAS = re.compile(_POLITE + r"(?:is|are)\s+(?:there\s+(?:any\s+)?)?(?P<item
                        + r"\s*[?.!]*$", re.IGNORECASE)
 _LIST_HAVE = re.compile(_POLITE + r"(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+(?:add|put))\s+(?P<items>.+?)\s+"
                         r"(?:on|in|to)\s+" + _LIST_NAME + r"(?:\s+already)?\s*[?.!]*$", re.IGNORECASE)
+# Items said outright, not a request for them (Codex's review of #262): a suggestion word, or a
+# clause saying what they are for, leaves the list to the model.
+_ASKS_FOR_IDEAS = re.compile(r"\b(?:suggestions?|ideas?|recommendations?|essentials|everything|stuff|things|items"
+                             r"|what\s+(?:i|we)\s+need|for|to|about|that|which)\b", re.IGNORECASE)
 _LIST_MAKE = re.compile(_POLITE + r"(?:make|start|create)\s+(?:me\s+)?(?:a|an|my)\s+(?:new\s+)?"
                         r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list\s+with\s+(?P<items>.+?)\s*[.!]*$",
                         re.IGNORECASE)
@@ -1410,7 +1414,8 @@ class HeuristicPlannerProvider:
         if asked:
             return self._command(f"list {asked.group('name')} has {asked.group('items')}", "Is it on a list?", 0.86)
         made = _LIST_MAKE.match(text)
-        if made:
+        # "with suggestions for a weekend trip" asks for ideas, not for that phrase as an item.
+        if made and not _ASKS_FOR_IDEAS.search(made.group("items")):
             return self._command(f"list {made.group('name')} add {made.group('items')}", "Start a list.", 0.86)
         if _STORE_ASK.match(text):
             return self._command("list shopping show", "What to buy is the shopping list.", 0.86)
