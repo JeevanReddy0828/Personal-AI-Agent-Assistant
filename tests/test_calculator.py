@@ -36,6 +36,34 @@ class MoreEverydayMathTests(unittest.TestCase):
             with self.subTest(text):
                 self.assertIsNone(prime_question(text))
 
+    def test_percent_changes_shares_remainders_ranges_and_roots(self) -> None:
+        """Each reached the chat model, the wrong tool for exact arithmetic."""
+        from laptop_agent.planner import HeuristicPlannerProvider
+
+        for text, expected in (("increase 80 by 15%", "= **92**"), ("decrease 80 by 15 percent", "= **68**"),
+                               ("what's 80 minus 15 percent", "= **68**"), ("80 plus 15%", "= **92**"),
+                               ("what percent of 200 is 50", "= **25**"), ("50 is what percent of 200", "= **25**"),
+                               ("what is the remainder of 17 divided by 5", "= **2**"),
+                               ("sum of 1 to 100", "= **5,050**"), ("the sum of the numbers from 1 to 10", "= **55**"),
+                               ("1/3 as a decimal", "0.3333333333"), ("0.75 as a fraction", "0.75 = **3/4**"),
+                               ("what's 0.125 as a fraction", "= **1/8**"), ("cube root of 27", "= **3**"),
+                               ("cube root of 2", "= **1.25992105**")):
+            with self.subTest(text):
+                self.assertIn(expected, self.say(text))
+                self.assertTrue(HeuristicPlannerProvider().plan(text, "", {}).command.startswith("calculate "))
+        self.assertIn("= **5,050**", self.say("sum of 100 to 1"))           # either way round
+        self.assertIn("= **-2**", self.say("cbrt(-8)"))                     # a real root, not a complex one
+        self.assertFalse(CalculatorTool().compute("sum of 1.5 to 3").ok)     # not a range of whole numbers
+        # A numeral no one types raised ValueError before every guard, here and in the router (Codex's review).
+        for text in ("sum of 1 to " + "9" * 5000, "0." + "3" * 5000 + " as a fraction"):
+            with self.subTest(len(text)):
+                self.assertFalse(CalculatorTool().compute(text).ok)
+                self.assertIsNone(HeuristicPlannerProvider().plan(text, "", {}).command)
+        for text in ("increase the font size by 10%", "what percent of people like pizza", "the sum of my expenses",
+                     "0.75 of a cup"):
+            with self.subTest(text):
+                self.assertIsNone(HeuristicPlannerProvider().plan(text, "", {}).command)
+
     def test_an_average_stays_exact(self) -> None:
         self.assertIn("= **9**", self.say("what's the average of 4, 8 and 15"))
         self.assertIn("= **1.5**", self.say("the mean of 1 and 2"))

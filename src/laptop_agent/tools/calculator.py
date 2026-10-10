@@ -42,7 +42,26 @@ _MONEY = r"(?:\s+(?:dollars?|bucks|euros?|pounds?|rupees?))?"
 def _mean(listed: str) -> str:
     numbers = re.findall(r"\d+(?:\.\d+)?", listed)
     return f"(({'+'.join(numbers)})/{len(numbers)})"
+_PERCENT = r"\s*(?:%|percent|per\s+cent)"
 _PHRASES = (
+    # "increase 80 by 15%", "80 plus 15 percent", "decrease 80 by 15%", "80 minus 15%": a change
+    # by a share of the number, which reached the chat model.
+    (rf"\b(?:increase|raise)\s+{_NUMBER}\s+by\s+{_NUMBER}{_PERCENT}", r"(\1*(1+\2/100))"),
+    (rf"\b(?:decrease|reduce|lower|cut)\s+{_NUMBER}\s+by\s+{_NUMBER}{_PERCENT}", r"(\1*(1-\2/100))"),
+    (rf"{_NUMBER}\s*(?:plus|\+)\s*{_NUMBER}{_PERCENT}", r"(\1*(1+\2/100))"),
+    (rf"{_NUMBER}\s*(?:minus|-)\s*{_NUMBER}{_PERCENT}", r"(\1*(1-\2/100))"),
+    # "what percent of 200 is 50", "50 is what percent of 200"
+    (rf"\bwhat\s+(?:percent|percentage|%)\s+of\s+{_NUMBER}\s+is\s+{_NUMBER}", r"(\2/\1*100)"),
+    (rf"{_NUMBER}\s+is\s+what\s+(?:percent|percentage|%)\s+of\s+{_NUMBER}", r"(\1/\2*100)"),
+    # "the remainder of 17 divided by 5", "remainder when 17 is divided by 5"
+    (rf"\b(?:the\s+)?remainder\s+(?:of|when)\s+{_NUMBER}\s+(?:is\s+)?divided\s+by\s+{_NUMBER}", r"(\1%\2)"),
+    # "sum of 1 to 100", "the sum of the numbers from 1 to 100", "add up 1 to 100"
+    (rf"\b(?:(?:the\s+)?sum\s+of|add\s+up)\s+(?:(?:all\s+)?the\s+(?:whole\s+)?numbers\s+)?(?:from\s+)?{_NUMBER}\s+"
+     rf"(?:to|through|thru)\s+{_NUMBER}", lambda m: _range_sum(m.group(1), m.group(2))),
+    # "1/3 as a decimal"
+    (rf"{_NUMBER}\s*/\s*{_NUMBER}\s+(?:as|in|to)\s+(?:a\s+)?decimals?", r"(\1/\2)"),
+    # "cube root of 27"
+    (rf"\b(?:the\s+)?cube\s+root\s+of\s+{_NUMBER}", r"cbrt(\1)"),
     # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45"
     (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+)?(?:of|on|for)\s+{_NUMBER}", r"(\1/100*\2)"),
     # "25% off 80" -> the discounted price
@@ -78,6 +97,24 @@ _PHRASES = (
     (rf"\b(?:the\s+)?factorial\s+of\s+{_NUMBER}|{_NUMBER}\s+factorial\b",
      lambda m: f"factorial({m.group(1) or m.group(2)})"),
 )
+
+
+_RANGE_DIGITS = 15
+
+
+def _range_sum(start: str, end: str) -> str:
+    """1 + 2 + ... + 100 as one exact expression, either way round; decimals are left as said."""
+    # Bounded before int(): a 5,000-digit end raised ValueError ahead of every guard (Codex's review).
+    if "." in start or "." in end or len(start) > _RANGE_DIGITS or len(end) > _RANGE_DIGITS:
+        return f"sum of {start} to {end}"
+    low, high = sorted((int(start), int(end)))
+    return f"(({high}-{low}+1)*({low}+{high})/2)"
+
+
+def _cbrt(value):
+    """The real cube root, negative for a negative number (** would give a complex one)."""
+    number = float(value)
+    return math.copysign(abs(number) ** (1 / 3), number)
 
 
 def _round(value, places=0):
@@ -143,7 +180,7 @@ _FUNCTIONS = {
     "log": math.log, "log10": math.log10, "log2": math.log2, "exp": math.exp,
     "sin": math.sin, "cos": math.cos, "tan": math.tan,
     "asin": math.asin, "acos": math.acos, "atan": math.atan,
-    "min": min, "max": max, "factorial": _factorial,
+    "min": min, "max": max, "factorial": _factorial, "cbrt": _cbrt,
 }
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 # About 300,000 digits: computes in milliseconds, prints in scientific form.
@@ -339,7 +376,7 @@ def looks_like_arithmetic(text: str) -> bool:
     advisor.
     """
     cleaned = normalize(text)
-    probe = re.sub(r"\b(?:sqrt|round|factorial)\(", "(", cleaned)
+    probe = re.sub(r"\b(?:sqrt|cbrt|round|factorial)\(", "(", cleaned)
     if not probe or not _LOOKS_ARITHMETIC.match(probe):
         return False
     operated = bool(re.search(r"[+\-*/%^]", probe)) or probe != cleaned
@@ -409,6 +446,21 @@ _PRIME_ASK = re.compile(r"^\s*is\s+(?P<n>\d+)\s+(?:a\s+)?prime(?:\s+number)?\s*$
 _PRIME_LIMIT = 10**12
 
 
+_FRACTION_DIGITS = 40
+# "0.75 as a fraction" reached the chat model; a decimal as written is an exact fraction.
+_FRACTION_ASK = re.compile(r"^\s*(?:what(?:'s|s|\s+is)\s+)?(?P<n>\d*\.\d+|\d+)\s+(?:as|in|to)\s+(?:a\s+)?fraction\s*[?.!]*$",
+                           re.IGNORECASE)
+
+
+def fraction_question(text: str) -> Fraction | None:
+    """The number asked about in "0.75 as a fraction", else None - also for a numeral too long to
+    be one anyone typed: Fraction() of 5,000 digits raised ValueError (Codex's review)."""
+    asked = _FRACTION_ASK.match(text or "")
+    if not asked or len(asked.group("n")) > _FRACTION_DIGITS:
+        return None
+    return Fraction(asked.group("n"))
+
+
 def prime_question(text: str) -> int | None:
     """The number asked about in "is N (a) prime (number)", else None."""
     asked = _PRIME_ASK.match(normalize(text))
@@ -437,6 +489,12 @@ class CalculatorTool:
         number = prime_question(expression)
         if number is not None:
             return self._prime(number)
+        fraction = fraction_question(expression)
+        if fraction is not None:
+            said = _FRACTION_ASK.match(expression).group("n")
+            return ToolResult.success(f"{said} = **{_int_text(fraction.numerator)}/{_int_text(fraction.denominator)}**"
+                                      if fraction.denominator != 1 else f"{said} = **{_int_text(fraction.numerator)}**",
+                                      result=f"{fraction.numerator}/{fraction.denominator}")
         try:
             value = evaluate(expression)
         except CalculatorError as exc:

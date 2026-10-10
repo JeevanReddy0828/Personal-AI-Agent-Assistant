@@ -204,6 +204,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and the frame goes to the vision model → "what do you see" / "look at me" matched anywhere →
   `_WEBCAM_ASK`, whole sentences or a request that opens by naming the camera. Same class as
   the screen: sweep every route that captures for substring matching. (10-05)
+- **"increase 80 by 15%", "what percent of 200 is 50", "0.75 as a fraction", "sum of 1 to 100"
+  and "cube root of 27" reached the chat model** → the calculator's phrase table lacked them →
+  each is rewritten to an exact expression (`cbrt` added; a range either way round; a decimal
+  as a fraction answered like a prime check). (10-10)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is
