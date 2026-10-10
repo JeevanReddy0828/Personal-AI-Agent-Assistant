@@ -99,9 +99,13 @@ _PHRASES = (
 )
 
 
+_RANGE_DIGITS = 15
+
+
 def _range_sum(start: str, end: str) -> str:
     """1 + 2 + ... + 100 as one exact expression, either way round; decimals are left as said."""
-    if "." in start or "." in end:
+    # Bounded before int(): a 5,000-digit end raised ValueError ahead of every guard (Codex's review).
+    if "." in start or "." in end or len(start) > _RANGE_DIGITS or len(end) > _RANGE_DIGITS:
         return f"sum of {start} to {end}"
     low, high = sorted((int(start), int(end)))
     return f"(({high}-{low}+1)*({low}+{high})/2)"
@@ -442,15 +446,19 @@ _PRIME_ASK = re.compile(r"^\s*is\s+(?P<n>\d+)\s+(?:a\s+)?prime(?:\s+number)?\s*$
 _PRIME_LIMIT = 10**12
 
 
+_FRACTION_DIGITS = 40
 # "0.75 as a fraction" reached the chat model; a decimal as written is an exact fraction.
 _FRACTION_ASK = re.compile(r"^\s*(?:what(?:'s|s|\s+is)\s+)?(?P<n>\d*\.\d+|\d+)\s+(?:as|in|to)\s+(?:a\s+)?fraction\s*[?.!]*$",
                            re.IGNORECASE)
 
 
 def fraction_question(text: str) -> Fraction | None:
-    """The number asked about in "0.75 as a fraction", else None."""
+    """The number asked about in "0.75 as a fraction", else None - also for a numeral too long to
+    be one anyone typed: Fraction() of 5,000 digits raised ValueError (Codex's review)."""
     asked = _FRACTION_ASK.match(text or "")
-    return Fraction(asked.group("n")) if asked else None
+    if not asked or len(asked.group("n")) > _FRACTION_DIGITS:
+        return None
+    return Fraction(asked.group("n"))
 
 
 def prime_question(text: str) -> int | None:

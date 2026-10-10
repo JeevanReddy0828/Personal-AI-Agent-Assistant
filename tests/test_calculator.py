@@ -54,6 +54,11 @@ class MoreEverydayMathTests(unittest.TestCase):
         self.assertIn("= **5,050**", self.say("sum of 100 to 1"))           # either way round
         self.assertIn("= **-2**", self.say("cbrt(-8)"))                     # a real root, not a complex one
         self.assertFalse(CalculatorTool().compute("sum of 1.5 to 3").ok)     # not a range of whole numbers
+        # A numeral no one types raised ValueError before every guard, here and in the router (Codex's review).
+        for text in ("sum of 1 to " + "9" * 5000, "0." + "3" * 5000 + " as a fraction"):
+            with self.subTest(len(text)):
+                self.assertFalse(CalculatorTool().compute(text).ok)
+                self.assertIsNone(HeuristicPlannerProvider().plan(text, "", {}).command)
         for text in ("increase the font size by 10%", "what percent of people like pizza", "the sum of my expenses",
                      "0.75 of a cup"):
             with self.subTest(text):
