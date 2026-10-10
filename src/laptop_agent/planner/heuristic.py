@@ -1716,9 +1716,9 @@ class HeuristicPlannerProvider:
 
         A language model is the wrong tool for 8-digit multiplication: the reported case
         produced a decision framework and never reached 2,552,278,529,434,536."""
-        from laptop_agent.tools.calculator import looks_like_arithmetic, prime_question
+        from laptop_agent.tools.calculator import fraction_question, looks_like_arithmetic, prime_question
 
-        if not looks_like_arithmetic(text) and prime_question(text) is None:
+        if not looks_like_arithmetic(text) and prime_question(text) is None and fraction_question(text) is None:
             return None
         return self._command(f"calculate {text.strip()}", "That is a sum; compute it exactly.", 0.95)
 
