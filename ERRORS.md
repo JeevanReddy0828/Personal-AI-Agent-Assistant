@@ -208,6 +208,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and "cube root of 27" reached the chat model** → the calculator's phrase table lacked them →
   each is rewritten to an exact expression (`cbrt` added; a range either way round; a decimal
   as a fraction answered like a prime check). (10-10)
+- **A refused 5,000-digit sum or fraction took 13 seconds** → unanchored number phrases retried
+  at each digit before the parser's length check → skip phrase scans and arithmetic routing
+  when the original request exceeds the accepted expression length. (10-10)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is

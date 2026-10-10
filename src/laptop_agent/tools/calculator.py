@@ -185,6 +185,7 @@ _FUNCTIONS = {
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 # About 300,000 digits: computes in milliseconds, prints in scientific form.
 _MAX_RESULT_BITS = 1_000_000
+_MAX_EXPRESSION_CHARS = 500
 
 # An expression is arithmetic only if it has an operator and no stray words. "how much is
 # 2+2" is arithmetic; "should I use 2 or 3 replicas" is not, and must not be hijacked.
@@ -345,6 +346,10 @@ class _Parser:
 def normalize(text: str) -> str:
     """Turn dictated words into operators, and strip a leading question."""
     cleaned = (text or "").strip().rstrip("?=.!")
+    # Several unanchored phrase patterns retry at each digit of a long numeral. An oversized
+    # request is rejected by evaluate anyway, so skip that scan before it costs seconds.
+    if len(cleaned) > _MAX_EXPRESSION_CHARS:
+        return cleaned
     cleaned = re.sub(
         r"^\s*(?:what(?:'s| is)|whats|how much is|calculate|compute|work out|evaluate|solve)\s+"
         r"(?:(?:a|an|the)\s+(?=\d|[$€£₹]))?",
@@ -375,6 +380,8 @@ def looks_like_arithmetic(text: str) -> bool:
     (a square root counts as one). "should I use 2 or 3 replicas" must keep going to the
     advisor.
     """
+    if len(text or "") > _MAX_EXPRESSION_CHARS:
+        return False
     cleaned = normalize(text)
     probe = re.sub(r"\b(?:sqrt|cbrt|round|factorial)\(", "(", cleaned)
     if not probe or not _LOOKS_ARITHMETIC.match(probe):
@@ -435,7 +442,7 @@ def evaluate(expression: str):
     cleaned = normalize(expression)
     if not cleaned:
         raise CalculatorError("There is nothing to calculate.")
-    if len(cleaned) > 500:
+    if len(cleaned) > _MAX_EXPRESSION_CHARS:
         raise CalculatorError("That expression is too long.")
     return _Parser(_tokenize(cleaned)).parse()
 

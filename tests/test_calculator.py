@@ -82,6 +82,19 @@ class MoreEverydayMathTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("too large to check", result.message)
 
+    def test_oversized_requests_skip_phrase_scans(self) -> None:
+        """Rejected inputs must not walk the quadratic phrase regexes first."""
+        from unittest.mock import patch
+
+        from laptop_agent.tools import calculator
+
+        for text in ("sum of 1 to " + "9" * 5000, "0." + "3" * 5000 + " as a fraction"):
+            with self.subTest(text[:5]):
+                with patch.object(calculator.re, "sub", side_effect=AssertionError("phrase scan on oversized input")):
+                    self.assertEqual(calculator.normalize(text), text)
+                    self.assertFalse(calculator.looks_like_arithmetic(text))
+                self.assertFalse(CalculatorTool().compute(text).ok)
+
     def test_rounding_is_half_up_on_the_digits_written(self) -> None:
         # Python's round is the banker's (6.5 -> 6) and works on the binary float (2.675 -> 2.67).
         self.assertIn("= **7**", self.say("round 6.5 to the nearest whole number"))
