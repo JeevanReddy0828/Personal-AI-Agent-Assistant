@@ -9,6 +9,7 @@ one right answer is computed.
 
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -57,6 +58,10 @@ _HOLIDAYS = {
     "martin luther king day": lambda y: _nth_weekday(y, 1, 0, 3), "mlk day": lambda y: _nth_weekday(y, 1, 0, 3),
     "presidents day": lambda y: _nth_weekday(y, 2, 0, 3), "presidents' day": lambda y: _nth_weekday(y, 2, 0, 3),
     "veterans day": lambda y: date(y, 11, 11), "boxing day": lambda y: date(y, 12, 26),
+    # Federal holidays "the next holiday" skipped without them.
+    "juneteenth": lambda y: date(y, 6, 19), "columbus day": lambda y: _nth_weekday(y, 10, 0, 2),
+    "indigenous peoples' day": lambda y: _nth_weekday(y, 10, 0, 2),
+    "indigenous peoples day": lambda y: _nth_weekday(y, 10, 0, 2),
 }
 _HOLIDAY = "(?:" + "|".join(re.escape(name) for name in sorted(_HOLIDAYS, key=len, reverse=True)) + ")"
 _OFFSETS = {"today": 0, "tomorrow": 1, "yesterday": -1, "day after tomorrow": 2, "day before yesterday": -2}
@@ -310,9 +315,123 @@ _RELATIVE_DAY = re.compile(
 )
 
 
+# Calendar facts with one right answer, which reached the chat model or a web search for the
+# sentence: "what week of the year is it", "is 2028 a leap year", "how many days in february",
+# "is today a holiday", "how old am i if i was born in 1995". Each is computed, never recalled.
+_MONTH_NAME = "(?:" + "|".join(sorted(MONTHS, key=len, reverse=True)) + ")"
+_FACT = re.compile(
+    r"^\s*(?:"
+    r"(?P<week>(?:what|which)\s+week\s+(?:of\s+the\s+year\s+)?(?:is\s+it|are\s+we\s+in)(?:\s+(?:now|today))?"
+    r"|what(?:'s|s|\s+is)\s+(?:the\s+)?(?:current\s+)?week\s+number(?:\s+today)?)"
+    r"|(?P<yday>what\s+day\s+of\s+the\s+year\s+is\s+(?:it|today)(?:\s+today)?)"
+    r"|(?P<leap>is\s+(?:(?P<leap_year>\d{4})|this\s+year|next\s+year)\s+a\s+leap\s+year|when\s+is\s+the\s+next\s+leap\s+year)"
+    rf"|(?P<span>how\s+many\s+days\s+(?:are\s+)?(?:there\s+)?in\s+(?:(?P<month>{_MONTH_NAME})(?:\s+(?P<month_year>\d{{4}}))?"
+    r"|(?P<rel>this|next|last)\s+month))"
+    r"|(?P<quarter>(?:what|which)\s+quarter\s+(?:is\s+it|are\s+we\s+in)(?:\s+(?:now|today))?)"
+    r"|(?P<ahead>what(?:'s|s|\s+is)\s+(?P<count>\d+)\s+(?P<unit>days?|weeks?)\s+(?:from|after)\s+(?:today|now))"
+    r"|(?P<weekend>how\s+(?:many\s+days|long)\s+(?:is\s+it\s+)?(?:until|till|til|to)\s+the\s+weekend)"
+    r"|(?P<holiday>is\s+(?P<which_day>today|tomorrow)\s+a\s+(?:public\s+|national\s+|bank\s+|federal\s+)?holiday)"
+    r"|(?P<next>(?:when\s+is|what(?:'s|s|\s+is))\s+the\s+next\s+(?:public\s+|national\s+|bank\s+|federal\s+)?holiday)"
+    r"|(?P<age>how\s+(?P<days_old>many\s+days\s+)?old\s+am\s+i\s+if\s+i\s+was\s+born\s+(?:in|on)\s+(?P<born>.+?))"
+    r")\s*[?.!]*$",
+    re.IGNORECASE,
+)
+# One name for each holiday, as the answers say it.
+_NAMED_HOLIDAYS = ("new year's day", "martin luther king day", "presidents day", "valentine's day", "st patrick's day",
+                   "easter", "mother's day", "memorial day", "father's day", "juneteenth", "independence day",
+                   "labor day", "columbus day", "halloween", "veterans day", "thanksgiving", "christmas eve", "christmas",
+                   "new year's eve")
+
+
+def _title(name: str) -> str:
+    return " ".join(word[:1].upper() + word[1:] for word in name.split())
+
+
+def _is_leap(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def calendar_fact(text: str, today: date) -> str | None:
+    """The answer to a calendar fact `_FACT` matches, or None when it cannot be computed."""
+    match = _FACT.match(text or "")
+    if match is None:
+        return None
+    if match.group("week"):
+        year, week, _ = today.isocalendar()
+        return f"It's week **{week}** of {year} (ISO weeks, which start on Monday)."
+    if match.group("yday"):
+        day = today.timetuple().tm_yday
+        left = (date(today.year, 12, 31) - today).days
+        return f"Today is day **{day}** of {today.year}, with {left} day{'s' if left != 1 else ''} left."
+    if match.group("leap"):
+        if match.group("leap_year") or re.search(r"\b(?:this|next)\s+year\b", match.group("leap"), re.IGNORECASE):
+            year = int(match.group("leap_year")) if match.group("leap_year") else (
+                today.year + (1 if "next" in match.group("leap").lower() else 0))
+            return f"**{'Yes' if _is_leap(year) else 'No'}** — {year} {'is' if _is_leap(year) else 'is not'} a leap year."
+        year = today.year + 1
+        while not _is_leap(year):
+            year += 1
+        return f"The next leap year is **{year}**."
+    if match.group("span"):
+        if match.group("rel"):
+            month_start = date(today.year, today.month, 1)
+            shift = {"this": 0, "next": 1, "last": -1}[match.group("rel").lower()]
+            month_index = month_start.month - 1 + shift
+            year, month = month_start.year + month_index // 12, month_index % 12 + 1
+        else:
+            month = MONTHS[match.group("month").lower()]
+            year = int(match.group("month_year")) if match.group("month_year") else today.year
+        days = calendar.monthrange(year, month)[1]
+        return f"{calendar.month_name[month]} {year} has **{days} days**."
+    if match.group("quarter"):
+        quarter = (today.month - 1) // 3 + 1
+        return f"It's **Q{quarter}** of {today.year}."
+    if match.group("ahead"):
+        count = int(match.group("count"))
+        days = count * (7 if match.group("unit").lower().startswith("week") else 1)
+        day = today + timedelta(days=days)
+        return f"{count} {match.group('unit').lower()} from today is **{day:%A, %d %B %Y}**.".replace(" 0", " ")
+    if match.group("weekend"):
+        if today.weekday() >= 5:
+            return "It's the weekend now."
+        days = 5 - today.weekday()
+        return f"**{days} day{'s' if days != 1 else ''}** until the weekend (Saturday)."
+    if match.group("holiday") or match.group("next"):
+        dated = sorted((next_holiday(name, today), name) for name in _NAMED_HOLIDAYS)
+        if match.group("next"):
+            day, name = next((pair for pair in dated if pair[0] > today), dated[0])
+            return (f"The next holiday is **{_title(name)}**, {day:%A, %d %B %Y}.".replace(" 0", " ")
+                    + " (US-leaning; I don't have a regional holiday calendar.)")
+        asked = today + timedelta(days=1 if match.group("which_day").lower() == "tomorrow" else 0)
+        on = [name for name in _NAMED_HOLIDAYS if next_holiday(name, asked) == asked]
+        if on:
+            return f"**Yes** — {match.group('which_day').lower()} is {_title(on[0])}."
+        return (f"**No** — {match.group('which_day').lower()} isn't one of the holidays I know "
+                "(US-leaning; I don't have a regional holiday calendar).")
+    if match.group("age"):
+        born_text = match.group("born").strip()
+        if re.fullmatch(r"\d{4}", born_text):
+            year = int(born_text)
+            if year > today.year:
+                return None
+            older = today.year - year
+            return f"You're **{older - 1}** or **{older}** — {older} once your birthday has passed this year."
+        born_year = re.search(r"\b(\d{4})\b", born_text)
+        born = _month_day(re.sub(r"\b\d{4}\b", "", born_text).strip(" ,"), today, int(born_year.group(1))) if born_year else None
+        if born is None or born > today:
+            return None
+        if match.group("days_old"):
+            return f"You're **{(today - born).days:,} days** old."
+        age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        return f"You're **{age}**."
+    return None
+
+
 def date_question(text: str) -> tuple[str, str, str] | None:
-    """("until"|"when"|"between", a, b) when the text asks one of these, else None. For
+    """("fact"|"until"|"when"|"between", a, b) when the text asks one of these, else None. For
     "until", b is "weeks" when the question counted in weeks."""
+    if _FACT.match(text or ""):
+        return "fact", text, ""
     relative = _RELATIVE_DAY.match(text or "")
     if relative:
         return "when", relative.group("what").lower(), ""
@@ -340,5 +459,7 @@ def answerable(text: str, now: datetime) -> bool:
     if asked is None:
         return False
     kind, first, second = asked
+    if kind == "fact":
+        return calendar_fact(first, now.date()) is not None
     targets = [first, second] if kind == "between" else [first]
     return all(re.match(r"\s*(?:my|our)\s+\S", target, re.IGNORECASE) or resolve(target, now) for target in targets)

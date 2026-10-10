@@ -14,7 +14,8 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from laptop_agent.planner import HeuristicPlannerProvider
-from laptop_agent.tools.dates import answerable, date_question, next_holiday, resolve, span_text, until_moment
+from laptop_agent.tools.dates import (answerable, calendar_fact, date_question, next_holiday, resolve, span_text,
+                                      until_moment)
 from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
 from test_everyday_requests import Everyday
 
@@ -316,6 +317,50 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertIn("**8.05 kilometres**", self.say("how much is 5 miles in km")[0].message)
         self.assertEqual(planner.plan("when is thanksgiving?", "", {}).command, "when is thanksgiving")
         self.assertEqual(planner.plan("what day is it", "", {}).command, "time what day is it")
+
+
+class CalendarFactTests(unittest.TestCase):
+    """Calendar facts with one right answer reached the chat model, or a web search for the
+    sentence: "what week of the year is it", "is 2028 a leap year", "is today a holiday"."""
+
+    def test_each_is_computed(self) -> None:
+        today = date(2026, 9, 26)    # a Saturday
+        for text, expected in (
+                ("what week of the year is it", "week **39** of 2026"),
+                ("what day of the year is it", "day **269** of 2026, with 96 days left"),
+                ("is 2028 a leap year", "**Yes** — 2028 is a leap year"),
+                ("is this year a leap year", "**No** — 2026 is not a leap year"),
+                ("when is the next leap year", "**2028**"),
+                ("how many days in february 2028", "February 2028 has **29 days**"),
+                ("how many days are in this month", "September 2026 has **30 days**"),
+                ("how many days in next month", "October 2026 has **31 days**"),
+                ("what quarter are we in", "**Q3** of 2026"),
+                ("what's 30 days from today", "**Monday, 26 October 2026**"),
+                ("how many days until the weekend", "It's the weekend now."),
+                ("is today a holiday", "**No**"),
+                ("when is the next holiday", "**Columbus Day**, Monday, 12 October 2026"),
+                ("how old am i if i was born in 1995", "**30** or **31**"),
+                ("how old am i if i was born on june 5 1995", "You're **31**."),
+                ("how many days old am i if i was born on june 5 1995", "**11,436 days**")):
+            with self.subTest(text):
+                self.assertIn(expected, calendar_fact(text, today))
+                self.assertEqual(date_question(text)[0], "fact")
+        self.assertIn("**3 days** until the weekend", calendar_fact("how many days until the weekend", date(2026, 9, 23)))
+        self.assertTrue(answerable("is 2028 a leap year", NOW))     # so the instant router claims it
+        self.assertIn("**Yes** — today is Christmas", calendar_fact("is today a holiday", date(2026, 12, 25)))
+        for text in ("what week is it in the series", "how old am i", "how old am i if i was born on december 25 2030",
+                     "how old am i if i was born in 2030"):
+            with self.subTest(text):
+                self.assertIsNone(calendar_fact(text, today))
+                self.assertFalse(answerable(text, NOW))
+
+    def test_through_the_assistant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+            everyday = Everyday(Path(tmp))
+            for text, expected in (("is 2028 a leap year", "**Yes**"), ("what quarter are we in", "**Q3**"),
+                                   ("how many days in february", "February 2026 has **28 days**")):
+                with self.subTest(text):
+                    self.assertIn(expected, everyday.say(text, stream=False)[0].message)
 
 
 class EveningClock(datetime):
