@@ -144,7 +144,7 @@ EVERYDAY_EXACT = frozenset({
     "help", "/help", "memory", "show memory",
     "reminders", "reminders list", "show reminders", "reminders due", "due reminders", "show due reminders",
     "reminders next", "reminders next alarm", "reminders next timer", "reminder done", "reminder stop",
-    "reminder snooze", "timers", "timer", "alarms",
+    "reminder snooze", "timers", "timer", "alarms", "alarm",
     "time", "date", "clock", "what time is it", "what is the time", "current time", "today", "what day is it",
     "datetime", "capabilities", "what can you do",
     "news", "weather", "forecast", "weather here", "local weather", "weather forecast",
