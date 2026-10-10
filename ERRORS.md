@@ -221,6 +221,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A refused 5,000-digit sum or fraction took 13 seconds** → unanchored number phrases retried
   at each digit before the parser's length check → skip phrase scans and arithmetic routing
   when the original request exceeds the accepted expression length. (10-10)
+- **"convert <400 nines> miles to km" answered "inf miles = **inf kilometres**", and "<5,000
+  nines> feet 2 inches" raised ValueError in the tool and the router** → `float()` of a numeral
+  past its range is infinity, not an error, and `int()` refuses past 4,300 digits → the converter
+  refuses an amount or answer that is not finite, and a whole part over 300 digits is not made a
+  compound. (10-10)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is

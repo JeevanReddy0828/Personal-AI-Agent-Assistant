@@ -10,6 +10,7 @@ pint is 20% bigger, and the answer says which it used.
 
 from __future__ import annotations
 
+import math
 import re
 
 from laptop_agent.tools.base import ToolResult
@@ -145,6 +146,7 @@ _COMPOUND = re.compile(
     rf"{_AMOUNT_ENDS}",
     re.IGNORECASE,
 )
+_AMOUNT_DIGITS = 300
 _FEET_MARKS = re.compile(r"\b(\d+)\s*['’]\s*(\d+(?:\.\d+)?)\s*(?:[\"”]|'')?(?=\s|$|[?.!])")
 # "to feet and inches": the answer in both units, the way a height or a baby's weight is said.
 _TO_PAIR = re.compile(rf"\s+(?:to|in|into|as)\s+(?P<big>{_UNIT})\s+(?:and|&)\s+(?P<small>{_UNIT})\s*[?.!]*\s*$",
@@ -157,6 +159,10 @@ def _compound(text: str) -> tuple[str, str, tuple[str, str] | None]:
     text = _FEET_MARKS.sub(r"\1 ft \2 in", text)
     said = ""
     match = _COMPOUND.search(text)
+    # int() refuses a numeral past 4,300 digits and a float overflows past 308: a whole part
+    # that long raised ValueError in the tool and in the router.
+    if match and len(match.group("a").lstrip("-")) > _AMOUNT_DIGITS:
+        match = None
     big = _unit(match.group("big")) if match else None
     small = (_unit(match.group("small")) if match.group("small") else _PAIRS.get(big or "")) if match else None
     if match and big in _PAIRS and _PAIRS[big] == small:
@@ -257,6 +263,9 @@ class UnitTool:
             value = convert(amount, source, target)
         except ValueError as exc:
             return ToolResult.failure(str(exc))
+        # A numeral past a float's range is infinity, not an error: it answered "inf miles = **inf kilometres**".
+        if not (math.isfinite(amount) and math.isfinite(value)):
+            return ToolResult.failure("That number is too large to convert.")
         left = said or f"{_shown(amount)} {_named(source, amount)}".replace(" °", "°").replace(" K", " K")
         right = f"{_shown(value)} {_named(target, value)}".replace(" °", "°")
         if pair is not None:
