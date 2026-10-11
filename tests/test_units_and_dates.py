@@ -153,6 +153,24 @@ class DateTests(unittest.TestCase):
         self.assertEqual(next_holiday("labor day", today), date(2027, 9, 6))         # 2026's has passed
         self.assertEqual(next_holiday("memorial day", date(2026, 1, 1)), date(2026, 5, 25))  # last Monday
 
+    def test_a_holiday_is_found_however_it_is_spelled(self) -> None:
+        """One spelling of each name was listed: "new year's" and "new years day" reached the chat
+        model while "new years" and "new year's day" were answered."""
+        for text, expected in (("new year's", date(2027, 1, 1)), ("new years day", date(2027, 1, 1)),
+                               ("new year’s day", date(2027, 1, 1)), ("st patricks day", date(2027, 3, 17)),
+                               ("st. patrick's day", date(2027, 3, 17)), ("saint patrick's day", date(2027, 3, 17)),
+                               ("veteran's day", date(2026, 11, 11)), ("president's day", date(2027, 2, 15)),
+                               ("next new year's", date(2027, 1, 1)), ("new year's 2028", date(2028, 1, 1)),
+                               # Computed from the holidays they follow.
+                               ("good friday", date(2027, 3, 26)), ("black friday", date(2026, 11, 27)),
+                               ("cyber monday", date(2026, 11, 30)), ("xmas", date(2026, 12, 25))):
+            with self.subTest(text):
+                self.assertEqual(resolve(text, NOW)[0], expected)
+                self.assertTrue(answerable(f"when is {text}", NOW))
+        # The name as written stays as written when it was already in the table.
+        self.assertEqual(resolve("valentine's day", NOW)[1], "Valentine's Day")
+        self.assertIsNone(resolve("good", NOW))
+
     def test_a_stated_year_is_the_year(self) -> None:
         # Each of these got the next time the date came round, whatever year was said.
         for text, expected in (("july 4th this year", date(2026, 7, 4)), ("easter this year", date(2026, 4, 5)),
