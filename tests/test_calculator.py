@@ -109,6 +109,18 @@ class MoreEverydayMathTests(unittest.TestCase):
             with self.subTest(text):
                 self.assertFalse(CalculatorTool().compute(text).ok)
 
+    def test_a_tip_or_a_tax_said_either_way_round(self) -> None:
+        """"what's the tip on 64 dollars at 20 percent" and "7% sales tax on 49.99" reached the chat model."""
+        for text, answer in (("what's the tip on 64 dollars at 20 percent", "**12.8**"),
+                             ("tip on a 50 bill at 18%", "**9**"), ("tax on 120 at 8.25%", "**9.9**"),
+                             ("what's 7% sales tax on 49.99", "**3.4993**"), ("8% tax on 200", "**16**")):
+            with self.subTest(text):
+                self.assertTrue(looks_like_arithmetic(text))
+                self.assertIn(answer, self.say(text))
+        for text in ("what is the tip on my bill", "tax on income at 30 percent", "should i tip 20 percent"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_arithmetic(text))
+
     def test_these_are_sums_and_prose_is_not(self) -> None:
         for text in ("what's the average of 4, 8 and 15", "round 3.14159 to two decimals", "what's 5 factorial"):
             with self.subTest(text):

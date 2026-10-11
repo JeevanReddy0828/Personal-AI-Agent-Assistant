@@ -23,7 +23,8 @@ _DICE = re.compile(
     re.IGNORECASE,
 )
 _PICK = re.compile(
-    _POLITE + r"(?:pick|choose|give\s+me|generate|think\s+of)\s+(?:me\s+)?a\s+(?:random\s+)?number"
+    # "random number between 5 and 10" is asked without a verb as often as with one.
+    _POLITE + r"(?:(?:pick|choose|give\s+me|generate|think\s+of)\s+(?:me\s+)?a\s+(?:random\s+)?|(?:a\s+)?random\s+)number"
     r"(?:\s+(?:between|from)\s+(?P<low>-?\d+)\s+(?:and|to|-)\s+(?P<high>-?\d+))?\s*[?.!]*$",
     re.IGNORECASE,
 )

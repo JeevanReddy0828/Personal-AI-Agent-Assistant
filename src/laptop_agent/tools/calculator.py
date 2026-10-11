@@ -62,8 +62,12 @@ _PHRASES = (
     (rf"{_NUMBER}\s*/\s*{_NUMBER}\s+(?:as|in|to)\s+(?:a\s+)?decimals?", r"(\1/\2)"),
     # "cube root of 27"
     (rf"\b(?:the\s+)?cube\s+root\s+of\s+{_NUMBER}", r"cbrt(\1)"),
-    # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45"
-    (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+)?(?:of|on|for)\s+{_NUMBER}", r"(\1/100*\2)"),
+    # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45", "7% sales tax on 49.99"
+    (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+|(?:sales\s+)?tax\s+)?(?:of|on|for)\s+{_NUMBER}",
+     r"(\1/100*\2)"),
+    # "the tip on 64 dollars at 20 percent", "tax on a 50 bill at 8%": the amount said first.
+    (rf"\b(?:the\s+)?(?:tip|(?:sales\s+)?tax)\s+(?:on|for)\s+(?:an?\s+)?{_NUMBER}{_MONEY}(?:\s+bill)?\s+"
+     rf"(?:at|with)\s+(?:an?\s+)?{_NUMBER}{_PERCENT}", r"(\2/100*\1)"),
     # "25% off 80" -> the discounted price
     (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*off\s+{_NUMBER}", r"(\2*(1-\1/100))"),
     # "square root of 144", "the square root of 2", "sqrt 2", "sqrt of 2"

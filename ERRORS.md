@@ -80,6 +80,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
   turns it round; another kind of unit, or an answer in two units, is left alone), and a time
   between zones or a gap takes a new place or time. Trap: "1,500,000 metres" counted as three
   numbers before its commas were stripped, so it was refused as a two-unit amount. (10-11)
+- **"and in london?" after the weather, "and 20%?" after a percentage, "what about 91?" after a
+  prime check, "and easter?" after "when is thanksgiving", and "again" after a coin or a die all
+  went to the chat model**, which cannot see a forecast and invents a roll → each is rebuilt from
+  the previous answer's shape (a forecast's place only when the zone table knows it as a whole),
+  and "again" re-runs the user's own draw request, since "You rolled a **14**." does not say d20.
+  Two traps: a percentage answer "(15/100 × 200) = **30**" has a conversion's "X = **Y**" shape,
+  and the conversion branch returned None instead of letting it fall through; and a weekday
+  pattern written in lower case never matched "Thursday". "random number between 5 and 10" had
+  no route at all without a verb. (10-11)
 - **"what's 5 feet 10 inches in cm" reached the chat model; a 15% tip said "12.6 (exactly
   63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
   its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,
@@ -232,6 +241,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   past its range is infinity, not an error, and `int()` refuses past 4,300 digits → the converter
   refuses an amount or answer that is not finite, and a whole part over 300 digits is not made a
   compound. (10-10)
+- **"what's the tip on 64 dollars at 20 percent", "7% sales tax on 49.99" and "how long is 90
+  minutes in hours" reached the chat model** → the tip phrase read only "N% tip on X", and a
+  conversion could lead with "how tall/heavy is" only → the amount may come first ("tip/tax on X
+  at N%"), "tax" reads like "tip", and "how long/far/big/hot/cold/warm/fast is" leads a
+  conversion; the word list is shared with the line that strips the router's "convert". (10-11)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is
@@ -383,6 +397,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   time asks "...go off tomorrow / on friday?", and the answer ("7", "at 6:30") keeps that day
   unless it names its own ("Friday at 7"); "early", "at dawn", "next week" ask too (Codex,
   #261); "in 20 minutes" is still set at once. (10-10)
+- **"what time will it be in 3 hours" and "when do the clocks change" reached the chat model**,
+  which does not know the time and guesses dates that move every year → `clock.time_ahead` adds
+  real elapsed time on the laptop's clock (3 hours from 11:30 PM on the night the clocks go back
+  is 1:30, not 2:30), and `next_clock_change` finds the next change of the laptop's own offset
+  from its zone rules (Lord Howe's is 30 minutes; Kolkata has none). (10-11)
 - **"how long until midnight" said "1 day", four hours before it** → a clock time resolved to
   the date of its next occurrence and was counted in days, and "how many minutes/hours
   until…" reached the model → `dates.until_moment`: a time of day is counted to that moment

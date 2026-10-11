@@ -41,7 +41,12 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     before the refusal check, which reads "what about meters" as a question. A new amount
     ("what about 10?", "and 12 km?", which turns the conversion round) is rebuilt by
     `units.convert_again` from the answer's own units; after a time between zones, a new
-    place or a new time; after a gap between zones, a new place.
+    place or a new time; after a gap between zones, a new place. Also: a new place after a
+    forecast (only a place the zone table knows by that whole name - "and humidity?" is about
+    the forecast above, which the chat model can read), a new rate or amount after a percentage,
+    a new number after a prime check, another holiday after "when is …". And "again" after a
+    coin, a die or a number re-runs the user's own draw request: the answer "You rolled a
+    **14**." does not say it was a d20.
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.
