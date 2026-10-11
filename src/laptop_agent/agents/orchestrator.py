@@ -873,8 +873,10 @@ class AgentOrchestrator:
             grounded = bool(name) and re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", spoken)
         else:
             # Its singular names it too: "what did i download today" is about ~/Downloads. Only a
-            # longer word, so a short host ("news") is never named by "new".
-            grounded = any(token in spoken or (len(token) > 5 and token.endswith("s") and token[:-1] in spoken)
+            # longer word, so a short host ("news") is never named by "new", and only as a whole word:
+            # "a documentary" does not name ~/Documents (Codex's review of #276).
+            grounded = any(token in spoken or (len(token) > 5 and token.endswith("s")
+                                               and re.search(rf"\b{re.escape(token[:-1])}\b", spoken))
                            for token in tokens)
         if grounded:
             return planned
@@ -1250,10 +1252,25 @@ class AgentOrchestrator:
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
             root = root[: by_size.start()].strip() if by_size else root
-            by_date = None if by_size else re.search(r"(?:^|\s+)(?:by\s+(?:date|newest)|newest\s+first)$", root, re.IGNORECASE)
+            by_date = None if by_size else re.search(r"(?:^|\s+)(?:by\s+(?:date|newest)|newest\s+first)"
+                                                     r"(?:\s+(?P<period>today|yesterday|this\s+week))?$", root, re.IGNORECASE)
             root = root[: by_date.start()].strip() if by_date else root
             if by_date:
-                return self.context.files.scan(root or ".", by_date=True)
+                scanned = self.context.files.scan(root or ".", by_date=True)
+                period = " ".join((by_date.group("period") or "").lower().split())
+                if not period or not scanned.ok:
+                    return scanned
+                # Only what changed in the day asked for: "what did i download today" listed a file
+                # from three days before as if it were today's (Codex's review of #276).
+                midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+                start, end = {"today": (midnight, None), "yesterday": (midnight - timedelta(days=1), midnight),
+                              "this week": (midnight - timedelta(days=midnight.weekday()), None)}[period]
+                files = scanned.data.get("files") or []
+                kept = [entry for entry in files if start <= datetime.fromisoformat(str(entry["modified"]))
+                        and (end is None or datetime.fromisoformat(str(entry["modified"])) < end)]
+                return ToolResult.success(f"{len(kept)} file(s) in {scanned.data['root']} changed {period}.",
+                                          files=kept, root=scanned.data["root"], order="date", period=period,
+                                          newest=files[0] if files else None)
             # The agent copies "by size" into orders that do not exist ("by folder") and was told
             # only that the path was missing, so it spent another step guessing.
             other = re.fullmatch(r"(.+?)\s+by\s+(\w+)", root, re.IGNORECASE)
@@ -4883,13 +4900,23 @@ class AgentOrchestrator:
             # A count is not an answer. "what files are here" used to reply "I found 200
             # file(s) in E:\projects\..." and name none of them.
             files = data["files"] if isinstance(data["files"], list) else []
+            period = data.get("period")
+            if not files and period:
+                newest = data.get("newest")
+                if not isinstance(newest, dict):
+                    return f"There are no files in {data['root']}."
+                changed = describe(datetime.fromisoformat(str(newest["modified"])), datetime.now().astimezone(), local=True)
+                return (f"Nothing in {data['root']} changed {period}. The newest is "
+                        f"`{Path(str(newest['path'])).name}`, {changed}.")
             if not files:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
             total = data.get("total_files")
             by_size, by_date = data.get("order") == "size", data.get("order") == "date"
             headline = (
-                f"**Largest of {total} file(s) in {data['root']}**"
+                f"**{len(files)} file(s) in {data['root']} changed {period}**"
+                if period
+                else f"**Largest of {total} file(s) in {data['root']}**"
                 if by_size
                 else f"**Newest of {total} file(s) in {data['root']}**"
                 if by_date
