@@ -1297,6 +1297,16 @@ class ReminderMoveTests(unittest.TestCase):
             bank, _ = self.due(everyday, "bank")
             self.assertLess(abs((bank - datetime.now().astimezone()).total_seconds() - 3600), 120)
 
+    def test_a_personal_account_moves_its_reminders(self) -> None:
+        from laptop_agent.access import acting_as
+        from laptop_agent.accounts import Principal
+
+        with tempfile.TemporaryDirectory() as tmp, acting_as(Principal("p1", "family", "personal")):
+            everyday = Everyday(Path(tmp))
+            everyday.say("remind me tomorrow at 9 to call the bank", stream=False)
+            moved, _ = everyday.say("push my bank reminder to 11", stream=False)
+            self.assertTrue(moved.ok and moved.message.startswith("Moved: call the bank"), moved.message)
+
     def test_only_a_reminder_with_a_time_is_moved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             everyday = Everyday(Path(tmp))
