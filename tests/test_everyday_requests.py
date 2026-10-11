@@ -986,6 +986,50 @@ class AskedAgainTests(unittest.TestCase):
             self.assertEqual(self.converse(everyday, "convert 5 miles to km", "and in feet?", "and in yards?").message,
                              "5 miles = **8,800 yards**")
 
+    def test_a_conversion_is_asked_again_for_another_amount(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for first, reply, answer in (
+                    ("convert 5 miles to km", "what about 10?", "10 miles = **16.09 kilometres**"),
+                    ("convert 5 miles to km", "how about 3.5", "3.5 miles = **5.63 kilometres**"),
+                    ("convert 5 miles to km", "and 10 miles?", "10 miles = **16.09 kilometres**"),
+                    # The answer's own unit turns it round.
+                    ("convert 5 miles to km", "and 12 km?", "12 kilometres = **7.46 miles**"),
+                    ("how many ounces in a pound", "and 3 pounds?", "3 pounds = **48 ounces**"),
+                    ("convert 100 fahrenheit to celsius", "what about 50?", "50°F = **10°C**"),
+                    ("how tall is 5'10 in cm", "and 6 feet?", "6 feet = **182.88 centimetres**"),
+                    # "1,500,000 metres" does not parse with its commas: "1,500" reads as a decimal.
+                    ("convert 1500000 metres to km", "what about 2000000?", "2,000,000 metres = **2,000 kilometres**"),
+                    # "ounces" against a cup is fluid ounces, as the parser reads the first question.
+                    ("how many ounces in a cup", "and 2 ounces?", "2 fluid ounces = **0.25 cups** (US measure)")):
+                with self.subTest(first=first, reply=reply):
+                    self.assertEqual(self.converse(everyday, first, reply).message, answer)
+            self.assertEqual(self.converse(everyday, "convert 5 miles to km", "what about 10?", "and in feet?").message,
+                             "10 miles = **52,800 feet**")
+
+    def test_a_time_between_zones_is_asked_again(self) -> None:
+        los_angeles, london, kolkata = (ZoneInfo(name) for name in ("America/Los_Angeles", "Europe/London",
+                                                                    "Asia/Kolkata"))
+        day = datetime.now(los_angeles).date()
+
+        def there(hour: int, zone: ZoneInfo) -> str:
+            moment = datetime(day.year, day.month, day.day, hour, tzinfo=los_angeles).astimezone(zone)
+            return moment.strftime("%I:%M %p").lstrip("0")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            # A new place keeps the time and where it was said; a new time keeps both zones.
+            moved = self.converse(everyday, "convert 9am pst to ist", "and in london?").message
+            self.assertRegex(moved, r"^\*\*9:00 AM P[DS]T\*\* in `America/Los_Angeles` is ")
+            self.assertIn(f"**{there(9, london)} ", moved)
+            self.assertIn("in `Europe/London`.", moved)
+            later = self.converse(everyday, "convert 9am pst to ist", "what about 5pm?").message
+            self.assertRegex(later, r"^\*\*5:00 PM P[DS]T\*\* in `America/Los_Angeles` is ")
+            self.assertIn(f"**{there(17, kolkata)} ", later)
+            self.assertIn("in `Asia/Kolkata`.", later)
+            self.assertIn("`Europe/London` is", self.converse(everyday, "how far ahead is tokyo", "and london?").message)
+            self.assertIn("`Asia/Tokyo`", self.converse(everyday, "convert 9am pst to ist", "and tokyo time?").message)
+
     def test_the_time_is_asked_again_somewhere_else(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             everyday = Everyday(Path(tmp))
@@ -1044,7 +1088,13 @@ class AskedAgainTests(unittest.TestCase):
             again = everyday.orchestrator._asked_again
             converted, clock = "5 miles = **8.05 kilometres**", "**3:30 PM** JST — Saturday, 10 October 2026"
             counted = "**76 days** until Christmas (Friday 25 December 2026)."
-            for asked, reply in ((converted, "and in a minute"), (converted, "what about dinner"), (converted, "thanks"),
+            between = "**9:00 AM PDT** in `America/Los_Angeles` is **9:30 PM IST** in `Asia/Kolkata`."
+            gap = "`Asia/Tokyo` is **16 hours ahead of** you right now: it is 3:30 PM JST there and 11:30 PM PDT here."
+            for asked, reply in ((converted, "and 3 pounds?"), (converted, "and 10 dollars?"),
+                                 ("5 feet 10 inches = **177.8 centimetres**", "what about 6?"),
+                                 (between, "and 5?"), (between, "what about the weather in london"),
+                                 (between, "what about dinner"), (gap, "what about dinner"), (gap, "and 9pm?"),
+                                 (converted, "and in a minute"), (converted, "what about dinner"), (converted, "thanks"),
                                  (converted, "feet"), ("(15/100 × 200) = **30**", "and in grams?"),
                                  (clock, "and tomorrow?"), (clock, "what about the weather in london"),
                                  (clock, "london"), (counted, "what about lunch"), (counted, "halloween"),
