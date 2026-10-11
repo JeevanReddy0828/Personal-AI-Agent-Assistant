@@ -289,7 +289,7 @@ _SCREEN_ASK = re.compile(
 # sentences that only mentioned email read the inbox: "give me a template for a follow up
 # email", "summarize the history of email", "write a new email to my landlord".
 _MAIL = r"(?:e-?mails?|mail|inbox)"
-_MAIL_KIND = r"(?:(?:new|unread|latest|recent|important|priority)\s+)*"
+_MAIL_KIND = r"(?:(?:new|unread|latest|last|recent|important|priority)\s+)*"
 _MAIL_TAIL = (
     r"(?:\s+(?:from\s+|for\s+)?(?:today|yesterday|this\s+(?:morning|afternoon|week|month|year)"
     r"|(?:last|past)\s+(?:week|month|year))"
@@ -307,6 +307,9 @@ _MAIL_ASK = re.compile(
         r"(?:check|read|show|get|give|fetch|find|pull\s+up|bring\s+up)\s+(?:me\s+)?(?:for\s+)?"
         r"(?:my\s+|the\s+|all\s+(?:my\s+|the\s+)?)?(?:any\s+)?" + _MAIL_KIND + _MAIL,
         r"what(?:'s|s|\s+is)\s+(?:new\s+)?in\s+my\s+" + _MAIL,
+        # "did anyone email me today" ran a web search: "today" read as news.
+        r"(?:did|has|have)\s+(?:anyone|anybody|someone|somebody)\s+(?:e-?mail(?:ed)?\s+me"
+        r"|sen[dt]\s+me\s+(?:an?\s+|any\s+)?(?:e-?mails?|mail))",
     )),
     re.IGNORECASE,
 )
@@ -647,6 +650,8 @@ _SYSTEM_ASK = re.compile(
     r"|do\s+i\s+have(?:\s+(?:left|free))?))(?=\s*[?.!]*$)"
     r"|how\s+much\s+(?:free\s+)?(?:disk\s+)?(?:space|storage)\s+(?:do\s+i\s+have|is\s+left|left|is\s+free)"
     r"|(?:free\s+)?disk\s+space|system\s+status|computer\s+status"
+    # "is my laptop plugged in" went to the chat model; the battery line says whether it is charging.
+    r"|is\s+(?:my\s+(?:laptop|computer|pc|machine|battery)|it)\s+(?:plugged\s+in|charging|on\s+battery)(?=\s*[?.!]*$)"
     r"|how(?:'s|s|\s+is)\s+my\s+(?:computer|laptop|pc|machine)\s+doing)\b",
     re.IGNORECASE,
 )
@@ -936,7 +941,9 @@ def asks_to_arrange(text: str) -> bool:
 # my shopping list" is left to the list route and "what's in my calendar" to the model. A
 # "show"/"list" ask needs "files" or "folder" said, since "show me my desktop" may mean the screen.
 _FOLDER_LISTING = re.compile(
-    _POLITE + r"(?:(?P<what>what(?:'s|s|\s+is)\s+in|what\s+do\s+i\s+have\s+in)"
+    # "what files are in my downloads folder", "how many files are in my documents" reached the chat model.
+    _POLITE + r"(?:(?P<what>what(?:'s|s|\s+is)\s+in|what\s+do\s+i\s+have\s+in|what\s+files\s+(?:are|do\s+i\s+have)\s+(?:in|on)"
+    r"|how\s+many\s+files\s+(?:are\s+(?:there\s+)?|do\s+i\s+have\s+)?(?:in|on))"
     r"|(?:show|list|give)(?:\s+me)?(?:\s+(?:the|all)(?:\s+the)?)?(?:\s+files\s+(?:in|on))?)\s+"
     r"(?P<where>(?:my|the)\s+\w+(?:\s+(?:folder|directory))?)(?:\s+files)?[\s?.!]*",
     re.IGNORECASE,
@@ -953,6 +960,15 @@ _LARGEST_FILES = re.compile(
     r"(?:,?\s+and\s+(?:tell|show|give)\s+me\s+(?:their|the)\s+sizes?)?[\s?.!]*$"
     r"|" + _POLITE + r"what(?:'s|\s+is)\s+(?:taking\s+up|using)\s+(?:the\s+most\s+|all\s+the\s+|so\s+much\s+)?"
     r"(?:disk\s+)?space\s+(?:in|on)\s+(?P<space>.+?)[\s?.!]*$",
+    re.IGNORECASE,
+)
+# "what did i download today", "show my recent downloads": the Downloads folder, newest first. Both
+# ran a web search, because "today" read as news.
+_RECENT_DOWNLOADS = re.compile(
+    _POLITE + r"(?:what(?:\s+(?:files|stuff))?\s+(?:did|have)\s+i\s+(?:download(?:ed)?|saved?)"
+    r"(?:\s+(?:today|recently|lately|yesterday|this\s+(?:morning|afternoon|week)))?"
+    r"|(?:show|list|what\s+are)(?:\s+me)?\s+(?:my\s+)?(?:recent|latest|newest|last)\s+downloads"
+    r"|what(?:'s|s|\s+is)\s+new\s+in\s+(?:my\s+)?downloads(?:\s+folder)?)\s*[?.!]*$",
     re.IGNORECASE,
 )
 _HOME_FOLDERS = {
@@ -1023,6 +1039,8 @@ class HeuristicPlannerProvider:
         largest = self._largest_files(raw)
         if largest:
             return largest
+        if _RECENT_DOWNLOADS.match(raw):
+            return self._command("scan files ~/Downloads by date", "User wants their recent downloads.", 0.86)
 
         listing = _FOLDER_LISTING.fullmatch(raw)
         if listing and (listing.group("what") or re.search(r"\b(?:files|folder|directory)\b", raw, re.IGNORECASE)):

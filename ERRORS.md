@@ -246,6 +246,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   conversion could lead with "how tall/heavy is" only → the amount may come first ("tip/tax on X
   at N%"), "tax" reads like "tip", and "how long/far/big/hot/cold/warm/fast is" leads a
   conversion; the word list is shared with the line that strips the router's "convert". (10-11)
+- **"did anyone email me today" and "what did i download today" ran a web search; "what files are
+  in my downloads folder", "is my laptop plugged in" and "what's bitcoin at" reached the chat model**
+  → "today" made both questions about the user's own things read as news, and no route knew the
+  rest → they go to the inbox, to `scan files ~/Downloads by date` (newest first, a new scan
+  order), to a folder scan, to system status, and bitcoin/markets count as live. "what/where/when
+  did i …" is never searched for, except "what did i miss". Trap: the target guard refused
+  `~/Downloads` because "download" is not "downloads"; a longer word's singular now names it,
+  never a short one ("news" is not named by "what's new"). (10-11)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is

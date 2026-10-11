@@ -559,6 +559,60 @@ class HonestAnswerTests(unittest.TestCase):
         self.assertNotIn("about about", result.message)
 
 
+class OwnThingsTests(unittest.TestCase):
+    """From an offline probe: "did anyone email me today" and "what did i download today" ran a web
+    search, because "today" read as news; "what files are in my downloads folder", "is my laptop
+    plugged in" and "what's bitcoin at" reached the chat model."""
+
+    def test_each_question_routes_to_what_can_answer_it(self) -> None:
+        router = HeuristicPlannerProvider()
+        for text, command in (("is my laptop plugged in", "system status"), ("is it charging", "system status"),
+                              ("what files are in my downloads folder", "scan files ~/Downloads"),
+                              ("how many files are in my documents", "scan files ~/Documents"),
+                              ("did anyone email me today", "email digest"), ("has anybody emailed me", "email digest"),
+                              ("read me the last email", "email digest"),
+                              ("what did i download today", "scan files ~/Downloads by date"),
+                              ("what have i downloaded this week", "scan files ~/Downloads by date"),
+                              ("show my recent downloads", "scan files ~/Downloads by date")):
+            with self.subTest(text):
+                self.assertEqual(router.plan(text, "", {}).command, command)
+        for text in ("is my laptop fast enough for gaming", "what files are in the cloud",
+                     "how many files are in a terabyte", "did anyone call me"):
+            with self.subTest(text):
+                self.assertIsNone(router.plan(text, "", {}).command)
+
+    def test_recent_downloads_are_listed_newest_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+            downloads = Path(home) / "Downloads"
+            downloads.mkdir()
+            for name, days_ago in (("old-notes.txt", 3), ("ticket.pdf", 0)):
+                (downloads / name).write_text("x", encoding="utf-8")
+                stamp = time.time() - days_ago * 86400
+                os.utime(downloads / name, (stamp, stamp))
+            everyday = Everyday(Path(tmp))
+            with patch.dict(os.environ, {"USERPROFILE": home, "HOME": home}):
+                result, ran = everyday.say("what did i download today", stream=False)
+            # "download" names ~/Downloads: the target guard refused the singular, and it went to chat.
+            self.assertEqual(ran, "scan files ~/Downloads by date")
+            lines = result.message.splitlines()
+            self.assertTrue(lines[0].startswith("**Newest of 2 file(s)"), result.message)
+            self.assertEqual([line.split("`")[1] for line in lines if line.startswith("- `")],
+                             ["ticket.pdf", "old-notes.txt"])
+            # A short word is never named by its singular: "news" is not in "what's new".
+            planned = PlanDecision(action="command", confidence=0.9, explanation="test",
+                                   command="open url https://www.news.com")
+            self.assertTrue(everyday.orchestrator._repair_target_command("what's new", planned, []).is_chat)
+
+    def test_a_question_about_your_own_day_is_not_searched_for(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh = Everyday(Path(tmp)).orchestrator._needs_fresh_info
+            self.assertTrue(fresh("what's bitcoin at"))
+            self.assertTrue(fresh("what did i miss today"))      # may be the news
+            for text in ("what did i do today", "where did i park today"):
+                with self.subTest(text):
+                    self.assertFalse(fresh(text))
+
+
 class DeclinedCommandTests(unittest.TestCase):
     """The router handed the sentence back as a command no tool runs, and the user was told
     "I don't know how to do that yet" - for a currency conversion the live-search path answers
