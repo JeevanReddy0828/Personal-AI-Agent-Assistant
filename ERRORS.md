@@ -365,6 +365,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
 ### Time and dates
+- **"when is new year's" and "new years day" reached the chat model while "new years" and "new
+  year's day" were answered; Good Friday and Black Friday were unknown** → the holiday table held
+  one hand-written spelling of each name → every name also gets its apostrophe-free key, and the
+  words are matched a second time without apostrophes (straight or a phone's ’) and with "st." /
+  "saint" as "st"; Good Friday, Black Friday and Cyber Monday are computed from the holidays they
+  follow. (10-11)
 - **"wake me up tomorrow" set an alarm for 9:00 AM; "set an alarm" and "wake me up" went to the
   chat model** → a day with no time of day took the parser's default hour, and a bare alarm
   request had no route → a bare request asks "When should the alarm go off?", a day without a
