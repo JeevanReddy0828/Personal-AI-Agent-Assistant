@@ -145,6 +145,28 @@ class RefusalTests(unittest.TestCase):
                 self.assertIsNone(parse_when(text, NOW), f"{text!r} invented a time")
 
 
+class DayOfMonthTests(unittest.TestCase):
+    """"remind me on the 15th to pay rent" answered "I could not find a time in that"."""
+
+    def test_the_next_time_that_day_comes_round(self) -> None:
+        for text, day in (("on the 20th at 9am", (2026, 9, 20)), ("on the 15th at 9am", (2026, 10, 15)),
+                          # September has no 31st: the next month that has one.
+                          ("on the 31st at 9am", (2026, 10, 31)), ("on 15th at 9am", (2026, 10, 15)),
+                          ("the 3rd of next month at 9", (2026, 10, 3)), ("on the 20th of this month at 9", (2026, 9, 20)),
+                          ("on the 15th of march at 9am", (2027, 3, 15)), ("15th of march at 9am", (2027, 3, 15))):
+            with self.subTest(text):
+                self.assertEqual(parse_when(text, NOW).at.date(), datetime(*day).date())
+
+    def test_a_month_named_outright_is_not_moved(self) -> None:
+        with self.assertRaises(TimeParseError):
+            parse_when("on the 31st of next month at 9", at(2026, 10, 11, 12))     # November has 30
+
+    def test_an_ordinal_that_is_not_a_day_stays_in_the_sentence(self) -> None:
+        for text in ("fix the light on the 2nd floor", "take the 2nd pill", "the 15th", "on the 3rd try"):
+            with self.subTest(text):
+                self.assertIsNone(parse_when(text, NOW), f"{text!r} invented a day")
+
+
 class MessageSplitTests(unittest.TestCase):
     """The words that expressed the time come out; the rest of the sentence stays."""
 

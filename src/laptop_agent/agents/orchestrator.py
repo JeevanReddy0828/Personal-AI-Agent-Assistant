@@ -206,7 +206,8 @@ def _reminder_message(text: str, start: int, end: int) -> str:
     time and keeps both halves of the sentence.
     """
     joined = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.;:-")
-    joined = re.sub(r"^(?:to|that|about|for|me\s+to)\s+", "", joined, flags=re.IGNORECASE)
+    # The whole chain: "set a reminder for 6pm to call mom" leaves "for to call mom".
+    joined = re.sub(r"^(?:(?:to|that|about|for|me\s+to)\s+)+", "", joined, flags=re.IGNORECASE)
     joined = re.sub(r"\s+(?:at|on|by|around|about|this|next)$", "", joined, flags=re.IGNORECASE)
     # Only after an action: "the rent that is due" is the reminder (Codex's review of #252).
     if _DUE_ACTION.match(joined):
