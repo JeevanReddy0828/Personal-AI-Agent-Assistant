@@ -210,6 +210,23 @@ class TimeAheadAndClockChangeTests(unittest.TestCase):
         self.assertIn("no daylight saving", self.say("when is the time change",
                                                      datetime(2026, 10, 11, 12, tzinfo=kolkata), kolkata))
 
+    def test_the_direction_asked_for_is_the_one_answered(self) -> None:
+        """"when does daylight saving start" in October answered November's change back (Codex's review)."""
+        october, december = (datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK), datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK))
+        for text, moment, answer in (
+                ("when does daylight saving start", october, "**forward an hour** on Sunday, 14 March 2027"),
+                ("when do we put the clocks forward", october, "**forward an hour** on Sunday, 14 March 2027"),
+                ("when does dst end", october, "**back an hour** on Sunday, 1 November 2026"),
+                ("when do the clocks go back", december, "**back an hour** on Sunday, 7 November 2027"),
+                # Unqualified: the next one, whichever way.
+                ("when do the clocks change", december, "**forward an hour** on Sunday, 14 March 2027")):
+            with self.subTest(text=text, on=moment.date()):
+                self.assertIn(answer, self.say(text, moment))
+        # Daylight saving starts with the clocks going forward in the south too.
+        sydney = ZoneInfo("Australia/Sydney")
+        self.assertIn("**forward an hour** on Sunday, 3 October 2027",
+                      self.say("when does daylight saving start", datetime(2026, 10, 11, 12, tzinfo=sydney), sydney))
+
     def test_only_these_questions_are_taken(self) -> None:
         router = HeuristicPlannerProvider()
         for text in ("when is daylight saving time", "when does dst end", "when do we change the clocks",

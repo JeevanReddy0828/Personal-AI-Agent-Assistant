@@ -157,8 +157,9 @@ _AHEAD_MINUTES = {"min": 1, "minute": 1, "hr": 60, "hour": 60, "day": 1440}
 # rules, since the dates move every year. It reached the chat model, which guesses them.
 _CLOCK_CHANGE = re.compile(
     r"^\s*(?:when\s+(?:is|does|do|will)\s+(?:the\s+)?(?:daylight\s+sav(?:ing|ings)(?:\s+time)?|dst|time\s+change"
-    r"|clocks?(?:\s+change)?)(?:\s+(?:start|begin|end|change|go\s+(?:back|forward)|spring\s+forward|fall\s+back))?"
-    r"|when\s+do\s+(?:we|i|you)\s+(?:change|set|move|put)\s+(?:the\s+)?clocks?(?:\s+(?:back|forward))?)\s*[?.!]*$",
+    r"|clocks?(?:\s+change)?)(?:\s+(?P<which>start|begin|end|change|go\s+(?:back|forward)|spring\s+forward"
+    r"|fall\s+back))?"
+    r"|when\s+do\s+(?:we|i|you)\s+(?:change|set|move|put)\s+(?:the\s+)?clocks?(?:\s+(?P<way>back|forward))?)\s*[?.!]*$",
     re.IGNORECASE,
 )
 
@@ -167,9 +168,21 @@ def asks_clock_change(text: str) -> bool:
     return bool(_CLOCK_CHANGE.match(text or ""))
 
 
-def next_clock_change(now: datetime, days: int = 400) -> tuple[datetime, datetime] | None:
-    """The next change of the laptop's offset after `now`, as (the wall clock just before it, the wall
-    clock it becomes), or None when there is none within `days`."""
+def clock_change_direction(text: str) -> int:
+    """+1 for a change forward ("when does daylight saving start"), -1 back ("end", "go back"), 0 for
+    either. Daylight saving starts with the clocks going forward in either hemisphere."""
+    asked = _CLOCK_CHANGE.match(text or "")
+    said = " ".join(((asked.group("which") or asked.group("way") or "") if asked else "").lower().split())
+    if said in {"start", "begin", "go forward", "spring forward", "forward"}:
+        return 1
+    return -1 if said in {"end", "go back", "fall back", "back"} else 0
+
+
+def next_clock_change(now: datetime, days: int = 400, direction: int = 0) -> tuple[datetime, datetime] | None:
+    """The next change of the laptop's offset after `now` (only forward or back, when `direction` says),
+    as (the wall clock just before it, the wall clock it becomes), or None when there is none within
+    `days`. "when does daylight saving start" in October answered November's change back (Codex's
+    review of #271)."""
     start = now.astimezone(timezone.utc)
 
     def offset(moment: datetime) -> timedelta | None:
@@ -186,7 +199,11 @@ def next_clock_change(now: datetime, days: int = 400) -> tuple[datetime, datetim
             low, high = (middle, high) if offset(middle) == before else (low, middle)
         # The search ends within a minute after the change, and changes fall on a minute.
         changed = high.replace(second=0, microsecond=0)
-        return changed.astimezone(timezone(before or timedelta())), on_laptop_clock(changed, now.tzinfo)
+        after = offset(changed)
+        forward = (after or timedelta()) > (before or timedelta())
+        if not direction or forward == (direction > 0):
+            return changed.astimezone(timezone(before or timedelta())), on_laptop_clock(changed, now.tzinfo)
+        before = after
     return None
 
 
@@ -359,7 +376,7 @@ class ClockTool:
                                       f"{moment.strftime('%A, %d %B %Y').replace(' 0', ' ')}.",
                                       at=moment.isoformat())
         if asks_clock_change(request):
-            change = next_clock_change(local)
+            change = next_clock_change(local, direction=clock_change_direction(request))
             if change is None:
                 return ToolResult.success("The clocks on this laptop don't change in the coming year: its time "
                                           "zone has no daylight saving.")
