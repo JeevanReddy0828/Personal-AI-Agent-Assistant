@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
+from laptop_agent.timeparse import on_laptop_clock, spoken_to_digits
 from laptop_agent.tools.base import ToolResult
 
 # What people type -> an IANA zone. Abbreviations are ambiguous by nature (IST is India,
@@ -140,6 +141,66 @@ _ASKS_THE_TIME = re.compile(
     r"|(?:in|at)\s+[a-z][a-z /_.-]{0,40}))*\s*$",
     re.IGNORECASE,
 )
+# "what time will it be in 3 hours", "what's the time 45 minutes from now" reached the chat model,
+# which does not know the time. A length is never a place, so it is read before any zone.
+_AHEAD_LENGTH = r"(?:\d+(?:\.\d+)?|an?|half\s+an?)\s+(?:minutes?|mins?|hours?|hrs?|days?)"
+_TIME_AHEAD = re.compile(
+    r"^\s*(?:what(?:'s|s|\s+is)\s+the\s+time|what\s+time\s+(?:will|would)\s+it\s+be"
+    r"|what\s+time\s+is\s+it(?:\s+going\s+to\s+be)?|what\s+time)\s+"
+    rf"(?:in\s+(?P<ahead>{_AHEAD_LENGTH})|(?P<from_now>{_AHEAD_LENGTH})\s+from\s+now)\s*[?.!]*$",
+    re.IGNORECASE,
+)
+_AHEAD_MINUTES = {"min": 1, "minute": 1, "hr": 60, "hour": 60, "day": 1440}
+
+
+# "when do the clocks change", "when does daylight saving end": answered from the laptop's own zone
+# rules, since the dates move every year. It reached the chat model, which guesses them.
+_CLOCK_CHANGE = re.compile(
+    r"^\s*(?:when\s+(?:is|does|do|will)\s+(?:the\s+)?(?:daylight\s+sav(?:ing|ings)(?:\s+time)?|dst|time\s+change"
+    r"|clocks?(?:\s+change)?)(?:\s+(?:start|begin|end|change|go\s+(?:back|forward)|spring\s+forward|fall\s+back))?"
+    r"|when\s+do\s+(?:we|i|you)\s+(?:change|set|move|put)\s+(?:the\s+)?clocks?(?:\s+(?:back|forward))?)\s*[?.!]*$",
+    re.IGNORECASE,
+)
+
+
+def asks_clock_change(text: str) -> bool:
+    return bool(_CLOCK_CHANGE.match(text or ""))
+
+
+def next_clock_change(now: datetime, days: int = 400) -> tuple[datetime, datetime] | None:
+    """The next change of the laptop's offset after `now`, as (the wall clock just before it, the wall
+    clock it becomes), or None when there is none within `days`."""
+    start = now.astimezone(timezone.utc)
+
+    def offset(moment: datetime) -> timedelta | None:
+        return on_laptop_clock(moment, now.tzinfo).utcoffset()
+
+    before = offset(start)
+    for day in range(1, days + 1):
+        later = start + timedelta(days=day)
+        if offset(later) == before:
+            continue
+        low, high = later - timedelta(days=1), later
+        while high - low > timedelta(minutes=1):
+            middle = low + (high - low) / 2
+            low, high = (middle, high) if offset(middle) == before else (low, middle)
+        # The search ends within a minute after the change, and changes fall on a minute.
+        changed = high.replace(second=0, microsecond=0)
+        return changed.astimezone(timezone(before or timedelta())), on_laptop_clock(changed, now.tzinfo)
+    return None
+
+
+def time_ahead(text: str) -> tuple[timedelta, str] | None:
+    """How far ahead "what time will it be in 3 hours" looks, and the length as said, or None."""
+    asked = _TIME_AHEAD.match(spoken_to_digits(text or ""))
+    if not asked:
+        return None
+    said = " ".join((asked.group("ahead") or asked.group("from_now")).lower().split())
+    count, unit = said.rsplit(" ", 1)
+    amount = 0.5 if count.startswith("half") else 1.0 if count in {"a", "an"} else float(count)
+    minutes = amount * _AHEAD_MINUTES[unit.rstrip("s")]
+    # Past ten years a date question says it better, and a timedelta overflows long before a numeral does.
+    return (timedelta(minutes=minutes), said) if 0 < minutes <= 10 * 366 * 1440 else None
 _TIME_WORD = re.compile(r"\b(?:time|date|day|clock|o'?clock)\b", re.IGNORECASE)
 
 
@@ -158,7 +219,7 @@ def asks_the_time(text: str) -> bool:
         "timestamp", "time to ", "how long", "took", "spent", "latency",
     )):
         return False
-    if _ASKS_THE_TIME.match(candidate):
+    if _ASKS_THE_TIME.match(candidate) or time_ahead(candidate) or asks_clock_change(candidate):
         return True
     # "time in IST", "tokyo time in japan": only a zone that exists. Any time word before "in
     # <words>" was enough, so "say that one more time in english" answered "I do not know the
@@ -290,6 +351,26 @@ class ClockTool:
 
     def now(self, request: str = "") -> ToolResult:
         local = self._now()
+        ahead = time_ahead(request)
+        if ahead is not None:
+            # Real elapsed time, read on the laptop's clock: across a clock change the offset differs.
+            moment = on_laptop_clock(local.astimezone(timezone.utc) + ahead[0], local.tzinfo)
+            return ToolResult.success(f"In {ahead[1]} it will be **{self._clock(moment)}** on "
+                                      f"{moment.strftime('%A, %d %B %Y').replace(' 0', ' ')}.",
+                                      at=moment.isoformat())
+        if asks_clock_change(request):
+            change = next_clock_change(local)
+            if change is None:
+                return ToolResult.success("The clocks on this laptop don't change in the coming year: its time "
+                                          "zone has no daylight saving.")
+            was, becomes = change
+            size = becomes.utcoffset() - was.utcoffset()
+            minutes = abs(int(size.total_seconds() // 60))
+            length = "an hour" if minutes == 60 else f"{minutes} minutes"
+            return ToolResult.success(
+                f"The clocks go **{'forward' if size > timedelta() else 'back'} {length}** on "
+                f"{was.strftime('%A, %d %B %Y').replace(' 0', ' ')}: at {self._clock(was)} it becomes "
+                f"{self._clock(becomes)}.", at=becomes.isoformat())
         between = zone_question(request)
         if between is not None:
             return self._between_zones(between, local)

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
+from laptop_agent import timeparse
+from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.tools.clock import ClockTool, asks_the_time, prompt_stamp
 
 # A fixed moment so none of this is a clock race: 6:26 PM on 11 September 2026,
@@ -163,6 +167,59 @@ class BetweenZonesTests(unittest.TestCase):
                      "how many hours behind is the deadline", "convert 13pm pst to ist", "9am pst to pacific"):
             with self.subTest(text):
                 self.assertIsNone(zone_question(text))
+
+
+class TimeAheadAndClockChangeTests(unittest.TestCase):
+    """"what time will it be in 3 hours" and "when do the clocks change" reached the chat model,
+    which does not know the time and guesses the dates, which move every year."""
+
+    NEW_YORK = ZoneInfo("America/New_York")
+
+    def say(self, text: str, moment: datetime, zone: ZoneInfo = NEW_YORK) -> str:
+        with patch.object(timeparse, "LOCAL_ZONE", zone):
+            result = ClockTool(now=lambda: moment).now(text)
+        self.assertTrue(result.ok, result.message)
+        return result.message
+
+    def test_a_time_ahead_is_read_on_the_clock(self) -> None:
+        for text, answer in (("what time will it be in 3 hours", "In 3 hours it will be **9:26 PM** on Friday"),
+                             ("what time will it be in three hours", "In 3 hours it will be **9:26 PM**"),
+                             ("what's the time 45 minutes from now", "In 45 minutes it will be **7:11 PM**"),
+                             ("what time is it going to be in half an hour", "In half an hour it will be **6:56 PM**"),
+                             ("what time would it be in 2 days", "In 2 days it will be **6:26 PM** on Sunday")):
+            with self.subTest(text):
+                self.assertTrue(asks_the_time(text))
+                self.assertIn(answer, self.say(text, MOMENT))
+        # Real elapsed time: three hours from 11:30 PM on the night the clocks go back is 1:30, not 2:30.
+        night = datetime(2026, 10, 31, 23, 30, tzinfo=timezone(timedelta(hours=-4)))
+        self.assertIn("**1:30 AM** on Sunday, 1 November 2026", self.say("what time will it be in 3 hours", night))
+
+    def test_the_next_clock_change_comes_from_the_zone_rules(self) -> None:
+        october, december = (datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK), datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK))
+        self.assertEqual(self.say("when do the clocks change", october),
+                         "The clocks go **back an hour** on Sunday, 1 November 2026: at 2:00 AM it becomes 1:00 AM.")
+        self.assertEqual(self.say("when does daylight saving start", december),
+                         "The clocks go **forward an hour** on Sunday, 14 March 2027: at 2:00 AM it becomes 3:00 AM.")
+        london = ZoneInfo("Europe/London")
+        self.assertIn("on Sunday, 25 October 2026", self.say("when is daylight saving time",
+                                                             datetime(2026, 10, 11, 12, tzinfo=london), london))
+        howe = ZoneInfo("Australia/Lord_Howe")
+        self.assertIn("**back 30 minutes**", self.say("when do the clocks go back",
+                                                      datetime(2026, 10, 11, 12, tzinfo=howe), howe))
+        kolkata = ZoneInfo("Asia/Kolkata")
+        self.assertIn("no daylight saving", self.say("when is the time change",
+                                                     datetime(2026, 10, 11, 12, tzinfo=kolkata), kolkata))
+
+    def test_only_these_questions_are_taken(self) -> None:
+        router = HeuristicPlannerProvider()
+        for text in ("when is daylight saving time", "when does dst end", "when do we change the clocks",
+                     "when do clocks spring forward", "what time will it be in 3 hours"):
+            with self.subTest(text):
+                self.assertEqual(router.plan(text, "", {}).command, f"time {text}")
+        for text in ("when is the clock appointment", "when does the store close", "what time is the meeting in 3 hours",
+                     "what time is it in 99999999999 days"):
+            with self.subTest(text):
+                self.assertFalse(asks_the_time(text))
 
 
 class RoutingTests(unittest.TestCase):

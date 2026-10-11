@@ -128,6 +128,23 @@ class UnitTests(unittest.TestCase):
             with self.subTest(text):
                 self.assertFalse(looks_like_conversion(text))
 
+    def test_how_long_or_far_is_an_amount(self) -> None:
+        """"how long is 90 minutes in hours" reached the chat model: only "how tall/heavy is" led in."""
+        tool, router = UnitTool(), HeuristicPlannerProvider()
+        for text, answer in (("how long is 90 minutes in hours", "90 minutes = **1.5 hours**"),
+                             ("how far is 10 km in miles", "10 kilometres = **6.21 miles**"),
+                             ("how hot is 30 c in f", "30°C = **86°F**"),
+                             ("how fast is 100 kph in mph", "100 kilometres per hour = **62.14 miles per hour**")):
+            with self.subTest(text):
+                self.assertEqual(tool.convert(text).message, answer)
+                self.assertEqual(router.plan(text, "", {}).command, f"convert {text}")
+                # What the router hands the tool.
+                self.assertEqual(tool.convert(f"convert {text}").message, answer)
+        # Still a number and two units: a trip is not a conversion.
+        for text in ("how long is the drive to dallas", "how far is austin from dallas", "how big is it in feet"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_conversion(text))
+
     def test_a_number_past_a_float_is_refused_not_infinity(self) -> None:
         """A numeral past a float's range answered "inf miles = **inf kilometres**", and a whole part
         past int()'s 4,300 digits raised ValueError in the tool and in the router."""

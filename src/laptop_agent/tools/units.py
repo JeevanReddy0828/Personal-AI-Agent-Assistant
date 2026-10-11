@@ -92,10 +92,12 @@ _SPELLINGS: dict[str, tuple[str, ...]] = {
 _LOOKUP = {spelling: unit for unit, spellings in _SPELLINGS.items() for spelling in spellings}
 _UNIT = "(?:" + "|".join(re.escape(s) for s in sorted(_LOOKUP, key=len, reverse=True)) + ")"
 _NUMBER = r"-?\d+(?:[.,]\d+)?"
+# "how long is 90 minutes in hours" went to the chat model: only tall and heavy were here.
+_SIZE_WORDS = "tall|heavy|long|far|big|hot|cold|warm|fast"
 
 # "convert 5 miles to km", "5 miles in km", "what's 100 f in c", "30 degrees celsius to f"
 _FORWARD = re.compile(
-    rf"^\s*(?:(?:please\s+)?convert|what(?:'s|s|\s+is)|how\s+much\s+is|how\s+(?:tall|heavy)\s+is"
+    rf"^\s*(?:(?:please\s+)?convert|what(?:'s|s|\s+is)|how\s+much\s+is|how\s+(?:{_SIZE_WORDS})\s+is"
     rf"|how\s+many\s+\w+(?:\s+\w+)?\s+(?:is|are))?\s*"
     rf"(?P<n>{_NUMBER})\s*(?:degrees?\s+)?(?P<from>{_UNIT})\s+(?:to|in|into|as|in\s+terms\s+of)\s+"
     rf"(?:degrees?\s+)?(?P<to>{_UNIT})\s*[?.!]*\s*$",
@@ -195,7 +197,7 @@ def _parse(text: str) -> tuple[tuple[float, str, str] | None, str, tuple[str, st
 def _parse_one(cleaned: str) -> tuple[float, str, str] | None:
     # The router hands over `convert <what was said>`, and "how many ounces in a pound" or
     # "what's 70 fahrenheit in celsius" only reads as a conversion from its own first word.
-    cleaned = re.sub(r"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much|tall|heavy)\b|what\b)", "", cleaned,
+    cleaned = re.sub(rf"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much|{_SIZE_WORDS})\b|what\b)", "", cleaned,
                      flags=re.IGNORECASE)
     for pattern in (_FORWARD, _HOW_MANY):
         match = pattern.match(cleaned)
