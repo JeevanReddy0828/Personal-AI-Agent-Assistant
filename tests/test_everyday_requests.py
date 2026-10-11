@@ -1030,6 +1030,52 @@ class AskedAgainTests(unittest.TestCase):
             self.assertIn("`Europe/London` is", self.converse(everyday, "how far ahead is tokyo", "and london?").message)
             self.assertIn("`Asia/Tokyo`", self.converse(everyday, "convert 9am pst to ist", "and tokyo time?").message)
 
+    def test_a_draw_is_made_again(self) -> None:
+        # Every draw lands on its highest value, so a d20 rolled again shows 20, never a d6's 6.
+        with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.tools.chance.secrets.randbelow",
+                                                         lambda n: n - 1):
+            everyday = Everyday(Path(tmp))
+            self.assertIn(self.converse(everyday, "flip a coin", "again").message, {"**Heads**.", "**Tails**."})
+            # "You rolled a **20**." does not say it was a d20: the user's own request is run again.
+            self.assertEqual(self.converse(everyday, "roll a d20", "one more time").message, "You rolled a **20**.")
+            self.assertEqual(self.converse(everyday, "roll a d20", "again", "do it again").message,
+                             "You rolled a **20**.")
+            self.assertEqual(self.converse(everyday, "pick a number between 1 and 10", "again").message,
+                             "**10** (between 1 and 10).")
+            # Asked without a verb, which no route took.
+            self.assertEqual(self.converse(everyday, "random number between 5 and 10", "another one").message,
+                             "**10** (between 5 and 10).")
+
+    def test_a_percentage_a_prime_and_a_holiday_are_asked_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for said, answer in ((("what's 15% of 200", "and 20%?"), "(20/100 × 200) = **40**"),
+                                 (("what's 15% of 200", "what about 300?"), "(15/100 × 300) = **45**"),
+                                 (("what's 15% of 1,500", "and 18 percent?"), "(18/100 × 1500) = **270**"),
+                                 (("what's 20% tip on 85", "and 18%?"), "(18/100 × 85) = **15.3**"),
+                                 (("is 97 prime", "what about 91?"), "No — **91 is not prime**: 7 × 13."),
+                                 (("is 97 prime", "and 1,001?"), "No — **1,001 is not prime**: 7 × 11 × 13.")):
+                with self.subTest(said=said):
+                    self.assertEqual(self.converse(everyday, *said).message, answer)
+            for first, reply, same_as in (("when is thanksgiving", "and easter?", "when is easter"),
+                                          ("what day is christmas", "what about halloween", "when is halloween")):
+                with self.subTest(first=first):
+                    self.assertEqual(self.converse(everyday, first, reply).message,
+                                     everyday.say(same_as, stream=False)[0].message)
+
+    def test_the_weather_is_asked_again_somewhere_else(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            weather = "**Austin, Texas, United States** — mainly clear, 92°F (feels like 99°F), humidity 44%."
+            again = everyday.orchestrator._asked_again
+            for reply, place in (("and in london?", "london"), ("how about paris", "paris"),
+                                 ("what about new york", "new york"), ("and hyderabad?", "hyderabad")):
+                with self.subTest(reply):
+                    self.assertEqual(again(weather, reply), f"weather {place}")
+            # The fake geocoder finds Austin for every place: what matters is that the forecast ran.
+            self.assertTrue(self.converse(everyday, "what's the weather in austin", "and in london?").message
+                            .startswith("**Austin, Texas"))
+
     def test_the_time_is_asked_again_somewhere_else(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             everyday = Everyday(Path(tmp))
@@ -1090,7 +1136,14 @@ class AskedAgainTests(unittest.TestCase):
             counted = "**76 days** until Christmas (Friday 25 December 2026)."
             between = "**9:00 AM PDT** in `America/Los_Angeles` is **9:30 PM IST** in `Asia/Kolkata`."
             gap = "`Asia/Tokyo` is **16 hours ahead of** you right now: it is 3:30 PM JST there and 11:30 PM PDT here."
-            for asked, reply in ((converted, "and 3 pounds?"), (converted, "and 10 dollars?"),
+            weather = "**Austin, Texas, United States** — mainly clear, 92°F (feels like 99°F), humidity 44%."
+            percent, prime = "(15/100 × 200) = **30**", "Yes — **97 is prime**."
+            dated = "Thanksgiving is on Thursday, 26 November 2026 — 46 days from today."
+            for asked, reply in ((weather, "and humidity?"), (weather, "what about the weekend"), (weather, "what about 91?"),
+                                 (weather, "what about tomorrow?"), (percent, "and in grams?"),
+                                 (percent, "what about it?"), (prime, "what about it?"), (prime, "and 9.5?"),
+                                 (dated, "what about dinner"), (dated, "and the turkey?"),
+                                 (converted, "and 3 pounds?"), (converted, "and 10 dollars?"),
                                  ("5 feet 10 inches = **177.8 centimetres**", "what about 6?"),
                                  (between, "and 5?"), (between, "what about the weather in london"),
                                  (between, "what about dinner"), (gap, "what about dinner"), (gap, "and 9pm?"),
@@ -1101,6 +1154,12 @@ class AskedAgainTests(unittest.TestCase):
                                  ("Paris is the capital of France.", "and in feet?")):
                 with self.subTest(asked=asked, reply=reply):
                     self.assertIsNone(again(asked, reply))
+            # "again" runs only a draw again: a sum or a forecast is not one, even after an earlier draw.
+            for first, shown in (("what's 12 times 13", "12 × 13 = **156**"), ("what's the weather in austin", weather)):
+                with self.subTest(again_after=first):
+                    self.assertIsNone(everyday.orchestrator._follow_up("again", [
+                        {"role": "user", "text": "flip a coin"}, {"role": "assistant", "text": "**Heads**."},
+                        {"role": "user", "text": first}, {"role": "assistant", "text": shown}]))
             # A new request said the same way still goes where it was going.
             self.assertTrue(reached(everyday.say("what about the weather in london", stream=False, history=[
                 {"role": "user", "text": "what's the time in tokyo"}, {"role": "assistant", "text": clock}])[1],
