@@ -38,7 +38,10 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     weeks?" after a count of days. Keyed to the answer's own shape, never the user's words,
     so a chain of them works; a connecting word is required, and the new request must parse
     as its own ("what about the weather in london" is not the time in London). It runs
-    before the refusal check, which reads "what about meters" as a question.
+    before the refusal check, which reads "what about meters" as a question. A new amount
+    ("what about 10?", "and 12 km?", which turns the conversion round) is rebuilt by
+    `units.convert_again` from the answer's own units; after a time between zones, a new
+    place or a new time; after a gap between zones, a new place.
   - **The last line of defence** (`_unexpected_failure`): whatever a tool raises, the user
     gets a sentence and `failures` gets the traceback - 21 crash classes were found by the
     prefix fuzz before it existed.

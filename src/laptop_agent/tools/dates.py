@@ -62,8 +62,20 @@ _HOLIDAYS = {
     "juneteenth": lambda y: date(y, 6, 19), "columbus day": lambda y: _nth_weekday(y, 10, 0, 2),
     "indigenous peoples' day": lambda y: _nth_weekday(y, 10, 0, 2),
     "indigenous peoples day": lambda y: _nth_weekday(y, 10, 0, 2),
+    "good friday": lambda y: _easter(y) - timedelta(days=2), "xmas": lambda y: date(y, 12, 25),
+    "black friday": lambda y: _nth_weekday(y, 11, 3, 4) + timedelta(days=1),
+    "cyber monday": lambda y: _nth_weekday(y, 11, 3, 4) + timedelta(days=4),
 }
+# Every name also without its apostrophe, which is how a name is matched the second time: one
+# spelling of each was listed, so "new year's" and "new years day" missed while "new years" and
+# "new year's day" worked.
+_HOLIDAYS.update({name.replace("'", ""): find for name, find in list(_HOLIDAYS.items()) if "'" in name})
 _HOLIDAY = "(?:" + "|".join(re.escape(name) for name in sorted(_HOLIDAYS, key=len, reverse=True)) + ")"
+
+
+def _plain_name(text: str) -> str:
+    """A holiday name as the table's plain spelling: no apostrophes (a phone types ’), "st"."""
+    return re.sub(r"\b(?:st\.|saint)\s+", "st ", re.sub(r"['’]", "", text), flags=re.IGNORECASE)
 _OFFSETS = {"today": 0, "tomorrow": 1, "yesterday": -1, "day after tomorrow": 2, "day before yesterday": -2}
 RELATIVE_DAYS = frozenset(_OFFSETS)
 
@@ -157,7 +169,8 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     cleaned = re.sub(r"^\s*(?:the\s+)?", "", (text or "").strip().rstrip("?.!")).strip()
     # Only the holiday and calendar-date readings take a stated year: "end of this year" has its own.
     base, year = _pinned_year(cleaned, today)
-    holiday = re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", base, re.IGNORECASE)
+    holiday = (re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", base, re.IGNORECASE)
+               or re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", _plain_name(base), re.IGNORECASE))
     if holiday:
         name = holiday.group(1).lower()
         found = _HOLIDAYS[name](year) if year is not None else next_holiday(name, today)

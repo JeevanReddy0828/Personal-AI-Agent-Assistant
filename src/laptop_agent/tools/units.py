@@ -286,3 +286,30 @@ class UnitTool:
 
 def looks_like_conversion(text: str) -> bool:
     return parse(text) is not None
+
+
+def convert_again(left: str, right: str, amount: str, said: str = "") -> str | None:
+    """The conversion "left = **right**" asked again for a new amount, as a command - or None.
+
+    With no unit said, the amount is in the same unit as before ("what about 10?"); a unit
+    said that is the answer's own turns the conversion round ("and 12 km?" after miles to km).
+    A different kind of unit, or an answer in two units (5 feet 10 inches), is not this.
+    """
+    # The answer writes thousands with commas, which the parser reads as a decimal point.
+    left = left.replace(",", "")
+    answered = re.sub(r"^-?[\d,]+(?:\.\d+)?(?:e[+-]?\d+)?\s*", "", right.strip())
+    parsed = parse(f"convert {left} to {answered}")
+    if parsed is None:
+        return None
+    _amount, source, target = parsed
+    if not said:
+        if len(re.findall(r"\d+(?:\.\d+)?", left)) > 1:
+            return None
+        return f"convert {amount} {_SPELLINGS[source][-1]} to {_SPELLINGS[target][-1]}"
+    unit = _unit(said)
+    if unit == "ounce" and _FACTORS[source][0] == "volume":    # as the parser reads it
+        unit = "fluid ounce"
+    if unit is None or _FACTORS[unit][0] != _FACTORS[source][0]:
+        return None
+    other = source if unit == target else target
+    return f"convert {amount} {said} to {_SPELLINGS[other][-1]}"
