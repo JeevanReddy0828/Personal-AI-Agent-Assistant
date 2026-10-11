@@ -480,7 +480,11 @@ _SMALL_TALK: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 # --- The user's own life: lists, facts about them, the calendar stand-in, this machine.
 # Every one of these reached a chat model that could not act on it, measured by driving a
 # conversational corpus through the real orchestrator.
-_LIST_NAME = r"(?:my|the|our)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list"
+# Up to four words, "books to read" and "things to do today" (two were allowed, so they reached the
+# chat model) - but never "my"/"the" inside one: "add go to the store to my todo list" is not a list
+# called "store to my todo".
+_LIST_WORD = r"(?!(?:my|the|our|your|a|an)\b)[a-z][\w'-]*"
+_LIST_NAME = rf"(?:my|the|our)\s+(?P<name>{_LIST_WORD}(?:\s+{_LIST_WORD}){{0,3}})\s+list"
 _LIST_ADD = re.compile(_POLITE + r"(?:add(?:ing)?|put(?:ting)?|throw(?:ing)?|stick(?:ing)?|writ(?:e|ing))\s+"
                        r"(?P<items>.+?)\s+(?:to|on|onto|in|into)\s+"
                        + _LIST_NAME + r"\s*[.!]*$", re.IGNORECASE)
@@ -522,8 +526,13 @@ _ASKS_FOR_IDEAS = re.compile(r"^\s*(?:(?:some|the|all\s+the|a\s+few)\s+)?(?:sugg
                              r"|essentials|everything|stuff|things|items|what\s+(?:i|we)\s+(?:need|should))\b",
                              re.IGNORECASE)
 _LIST_MAKE = re.compile(_POLITE + r"(?:make|start|create)\s+(?:me\s+)?(?:a|an|my)\s+(?:new\s+)?"
-                        r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list\s+with\s+(?P<items>.+?)\s*[.!]*$",
+                        rf"(?P<name>{_LIST_WORD}(?:\s+{_LIST_WORD}){{0,3}})\s+list\s+with\s+(?P<items>.+?)\s*[.!]*$",
                         re.IGNORECASE)
+# "create a list called books to read" reached the chat model. Only "called"/"named": "make a reading
+# list" may be asking for suggestions. With nothing to put on it yet, the list tool asks what to add.
+_LIST_CALLED = re.compile(_POLITE + r"(?:make|start|create|begin|set\s+up)\s+(?:me\s+)?(?:a|an)\s+(?:new\s+)?list\s+"
+                          rf"(?:called|named)\s+[\"']?(?P<name>{_LIST_WORD}(?:\s+{_LIST_WORD}){{0,3}})[\"']?"
+                          r"(?:\s+with\s+(?P<items>.+?))?\s*[.!]*$", re.IGNORECASE)
 _LISTS = re.compile(r"^\s*(?:what|which)\s+lists\s+do\s+i\s+have\b|^\s*show\s+(?:me\s+)?(?:all\s+)?my\s+lists\s*[?.!]*$",
                     re.IGNORECASE)
 # A fact about the user, said without "remember": only keys that are plainly about them, so
@@ -1436,10 +1445,10 @@ class HeuristicPlannerProvider:
         asked = _LIST_HAS.match(text) or _LIST_HAVE.match(text)
         if asked:
             return self._command(f"list {asked.group('name')} has {asked.group('items')}", "Is it on a list?", 0.86)
-        made = _LIST_MAKE.match(text)
+        made = _LIST_MAKE.match(text) or _LIST_CALLED.match(text)
         # "with suggestions for a weekend trip" asks for ideas, not for that phrase as an item.
-        if made and not _ASKS_FOR_IDEAS.search(made.group("items")):
-            return self._command(f"list {made.group('name')} add {made.group('items')}", "Start a list.", 0.86)
+        if made and not _ASKS_FOR_IDEAS.search(made.group("items") or ""):
+            return self._command(f"list {made.group('name')} add {made.group('items') or ''}".strip(), "Start a list.", 0.86)
         if _STORE_ASK.match(text):
             return self._command("list shopping show", "What to buy is the shopping list.", 0.86)
         removed = _LIST_REMOVE.match(text) or _LIST_REMOVE_BARE.match(text)

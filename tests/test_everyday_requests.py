@@ -1196,6 +1196,40 @@ class TimerStatusTests(unittest.TestCase):
                     self.assertTrue(result.message.startswith("Coffee break timer: **"), result.message)
 
 
+class ListNameTests(unittest.TestCase):
+    """"add dune to my books to read list" and "create a list called books to read" reached the chat
+    model: a list's name could be two words at most, and a list could only be made with items."""
+
+    def test_a_name_of_up_to_four_words(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for text, ran in (("add dune to my books to read list", "list books to read add dune"),
+                              ("add call mom to my things to do today list", "list things to do today add call mom"),
+                              ("is dune on my books to read list", "list books to read has dune"),
+                              ("remove dune from my books to read list", "list books to read remove dune"),
+                              # "the store to my todo" is not a list name: no "my" or "the" inside one.
+                              ("add go to the store to my todo list", "list todo add go to the store")):
+                with self.subTest(text):
+                    self.assertEqual(everyday.say(text, stream=False)[1], ran)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("todo"), ["go to the store"])
+
+    def test_a_list_made_by_name_asks_what_goes_on_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            asked, ran = everyday.say("create a list called books to read", stream=False)
+            self.assertEqual((ran, asked.message), ("list books to read add", "What should I add to your books to read list?"))
+            history = [{"role": "user", "text": "create a list called books to read"},
+                       {"role": "assistant", "text": asked.message}]
+            for reply in ("no", "it's"):
+                self.assertIsNone(everyday.orchestrator._follow_up(reply, history), reply)
+            everyday.say("dune and the hobbit", history=history, stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("books to read"), ["dune", "the hobbit"])
+            self.assertEqual(everyday.say("make a new list named weekend chores with laundry and dishes", stream=False)[1],
+                             "list weekend chores add laundry and dishes")
+            # Without "called", a list may be a request for ideas.
+            self.assertIsNone(everyday.say("make me a reading list", stream=False)[1])
+
+
 class ListAsksTests(unittest.TestCase):
     """"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
     "cross off eggs" reached the chat model, which can neither see nor change a list."""

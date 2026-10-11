@@ -505,6 +505,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "milk"), and says so when there is no such list; "make a <name> list with …" adds only items
   said outright ("with suggestions for a trip" and "a reading list of novels" ask for ideas -
   Codex, #262); delete clears, and "cross/check off X" is a no-list-named remove. (10-10)
+- **"add dune to my books to read list" and "create a list called books to read" reached the chat
+  model** → a list name could be two words at most, and a list could only be made with items →
+  a name is up to four words, none of them "my"/"the"/"our" (or "add go to the store to my todo
+  list" became a list called "store to my todo"); "create/make a list called X" asks "What
+  should I add to your X list?" and the reply fills it. Only "called"/"named": "make me a
+  reading list" may want suggestions. (10-11)
 - **"screenshot my screen and tell me what's on it" saved "my screen and tell me what's on
   it.png"** → the direct `screenshot ` prefix took any remainder as the save path → a place to
   save is said as one (a drive or ./ ~/ / start, a single image file name, or one word after
