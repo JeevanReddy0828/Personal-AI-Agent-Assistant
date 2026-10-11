@@ -2367,6 +2367,11 @@ class AgentOrchestrator:
             when = f"at {reply}" if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", reply, re.IGNORECASE) else reply
             day = "" if _find_day(spoken_to_digits(reply).lower(), now) is not None else alarm.group("day") or ""
             return f"alarm {when} {day}".strip()
+        # "create a list called books to read" -> "What should I add to your books to read list?" -> "dune".
+        adding = re.match(r"What should I add to your (?P<name>.+?) list\?", asked)
+        if adding:
+            items = re.sub(r"^(?:add|put)\s+", "", reply, flags=re.IGNORECASE)
+            return f"list {adding.group('name')} add {items}" if _meaningful(items) else None
         if asked.startswith("What should I remind you about") and before:
             subject = re.sub(r"^(?:to|that|about)\b\s*", "", reply, flags=re.IGNORECASE)
             return f"{before} to {subject}" if _meaningful(subject) else None
