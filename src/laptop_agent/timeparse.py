@@ -370,7 +370,7 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
 
     months = "|".join(sorted(MONTHS, key=len, reverse=True))
     written = re.search(
-        rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?P<mon1>{months})"
+        rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<mon1>{months})"
         rf"|(?P<mon2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b", text)
     if written:
         groups = written.groupdict()
@@ -387,6 +387,32 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
             except ValueError as exc:              # 29 February
                 raise TimeParseError(str(exc)) from exc
         return candidate, written.start(), written.end(), False
+
+    # "on the 15th", "the 3rd of next month": the next time that day of the month comes round.
+    # "remind me on the 15th to pay rent" found no day at all. The ordinal needs "on" or "of …
+    # month", and what follows must go on like a date: "on the 2nd floor" and "the 2nd pill"
+    # are not days.
+    monthly = re.search(r"(?:\bon\s+(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)"
+                        r"|\bthe\s+(?P<d2>\d{1,2})(?:st|nd|rd|th)(?=\s+of\s+(?:this|the|next)\s+month))\b"
+                        r"(?:\s+of\s+(?P<which>this|the|next)\s+month)?"
+                        r"(?=\s*$|\s*[,.!?]|\s+(?:at|to|in|by|for|and|from|before|after|around|about|morning"
+                        r"|afternoon|evening|night|please|remind)\b)", text)
+    if monthly and 1 <= int(monthly.group("d") or monthly.group("d2")) <= 31:
+        day, year, month = int(monthly.group("d") or monthly.group("d2")), today.year, today.month
+        if monthly.group("which") == "next":
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+            try:      # a month named outright is not moved: "the 31st of next month" in October
+                return date(year, month, day), monthly.start(), monthly.end(), False
+            except ValueError as exc:
+                raise TimeParseError(f"Next month has no day {day}.") from exc
+        for _ in range(14):
+            try:
+                candidate = date(year, month, day)
+            except ValueError:                          # the 31st of a 30-day month
+                candidate = None
+            if candidate is not None and candidate >= today:
+                return candidate, monthly.start(), monthly.end(), False
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
 
     next_week = re.search(r"\bnext week\b", text)
     if next_week:

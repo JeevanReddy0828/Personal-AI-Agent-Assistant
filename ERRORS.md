@@ -410,6 +410,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   first 1:45 are all 45 minutes, Codex, #253; a weekday looks a week back, "today" stays put),
   a day asked for in hours to its start, in real elapsed time across a clock change. A reading
   is checked through UTC: a zone converted to itself comes back unchanged. (10-08)
+- **"remind me on the 15th to pay rent" answered "I could not find a time in that"; "set a
+  reminder for 6pm to call mom" was saved as "to call mom"; "start a pomodoro" reached the chat
+  model** → `_find_day` knew weekdays and month names but not a day of the month, the message
+  lost only one of "for … to", and no route knew the word → "on the 15th" / "the 3rd of next
+  month" is the next time that day comes round (a month named outright is never moved: "the
+  31st of next month" in October is refused), but only when what follows goes on like a date:
+  "on the 2nd floor" and "the 2nd pill" stay in the sentence; the whole chain of leading
+  to/for/that is stripped; a pomodoro is a 25-minute timer unless a length is said. (10-11)
 - **"is 2028 a leap year" ran a web search; "what week of the year is it", "how many days in
   february", "is today a holiday", "how old am i if i was born in 1995" reached the chat
   model** → no route for calendar facts → `dates.calendar_fact`, reached as `date_question`'s

@@ -213,6 +213,12 @@ _ALARM_ASK = re.compile(
     r"(?P<when>.+?)\s*[.!?]*$",
     re.IGNORECASE,
 )
+# "start a pomodoro", "start a 25 minute pomodoro": a work timer, 25 minutes unless a length is said.
+_POMODORO = re.compile(
+    _POLITE + r"(?:(?:set|start|begin|run|do)\s+)?(?:me\s+)?(?:an?\s+|another\s+)?(?:(?P<length>" + _DURATION
+    + r")\s+)?pomodoro(?:\s+(?:timer|session))?(?:\s+please)?\s*[.!?]*$",
+    re.IGNORECASE,
+)
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
@@ -1359,6 +1365,10 @@ class HeuristicPlannerProvider:
         if vague:
             day = vague.group("after") or vague.group("before") or ""
             return self._command(f"alarm {day}".strip(), "User wants an alarm but gave no time.", 0.84)
+        pomodoro = _POMODORO.match(spoken)
+        if pomodoro:
+            return self._command(f"timer {pomodoro.group('length') or '25 minutes'} pomodoro timer",
+                                 "A pomodoro is a work timer.", 0.9)
         if _TIMER_ASK.match(spoken) and re.search(_DURATION, spoken, re.IGNORECASE):
             return self._command(f"timer {spoken.strip()}", "User wants a countdown timer.", 0.9)
         let_go = _LET_GO.match(spoken)

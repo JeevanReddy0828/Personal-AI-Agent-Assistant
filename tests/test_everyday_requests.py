@@ -877,6 +877,39 @@ class ReminderDayTests(unittest.TestCase):
             self.assertEqual(len(sunday.data["repeating"]), 1)
 
 
+class ReminderPhrasingTests(unittest.TestCase):
+    """From an offline probe: "remind me on the 15th to pay rent" found no time, "set a reminder for
+    6pm to call mom" was saved as "to call mom", and "start a pomodoro" reached the chat model."""
+
+    def saved(self, everyday: Everyday) -> dict[str, datetime]:
+        """Each reminder's due time on this machine's clock, by its message (the list is in due order)."""
+        return {str(item["message"]): datetime.fromisoformat(str(item["due_at"])).astimezone()
+                for item in everyday.orchestrator.context.reminders.list()}
+
+    def test_a_day_of_the_month_and_a_clean_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            self.assertTrue(everyday.say("remind me on the 15th at 9am to pay rent", stream=False)[0].ok)
+            self.assertTrue(everyday.say("set a reminder for 6pm to call mom", stream=False)[0].ok)
+            self.assertTrue(everyday.say("remind me at 5 to take the 2nd pill", stream=False)[0].ok)
+            saved = self.saved(everyday)
+            # "to call mom" kept its "to"; "the 2nd pill" is what to take, not a date.
+            self.assertEqual(set(saved), {"pay rent", "call mom", "take the 2nd pill"})
+            self.assertEqual((saved["pay rent"].day, saved["pay rent"].hour), (15, 9))
+            self.assertNotEqual(saved["take the 2nd pill"].day, 2)
+
+    def test_a_pomodoro_is_a_timer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for text, length in (("start a pomodoro", "25 minutes"), ("start a 50 minute pomodoro session", "50 minutes"),
+                                 ("can you start a pomodoro timer please", "25 minutes")):
+                with self.subTest(text):
+                    result, ran = everyday.say(text, stream=False)
+                    self.assertTrue(reached(ran, "timer"), ran)
+                    self.assertTrue(result.message.startswith(f"Pomodoro timer set for {length}."), result.message)
+            self.assertIsNone(everyday.say("what is the pomodoro technique", stream=False)[1])
+
+
 class AlarmAsksWhenTests(unittest.TestCase):
     """"set an alarm" and "wake me up" reached the chat model, which cannot set one, and "wake me
     up tomorrow" set an alarm for 9:00 AM, a time nobody said."""
