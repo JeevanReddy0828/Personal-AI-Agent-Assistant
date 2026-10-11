@@ -338,6 +338,23 @@ _TIME_FIRST = re.compile(
     rf"|evening|night|noon|midnight|day|week|daily|hourly|weekdays?|weekends?|{_DAY_WORD})\b)[\s,]*)+",
     re.IGNORECASE,
 )
+# "can you tell me what time it will be in 3 hours", "would you mind telling me when daylight saving
+# ends", "can you check if my laptop is plugged in": each reached the chat model, though the question
+# inside routes. The clock, the calculator and system status also try that question, and are handed it.
+_ASK_LEAD = re.compile(_POLITE + r"(?:(?:tell|show|give)(?:ing)?\s+me\s+|let\s+me\s+know\s+"
+                       r"|(?:check|see)(?:ing)?\s+(?:if|whether)\s+)", re.IGNORECASE)
+# Only after a lead like that: as a sentence of its own, "my laptop is plugged in" is a statement.
+_SYSTEM_TOLD = re.compile(r"^\s*(?:my\s+(?:laptop|computer|pc|machine|battery)|it|the\s+(?:laptop|computer))\s+is\s+"
+                          r"(?:plugged\s+in|charging|on\s+battery)\s*[?.!]*$", re.IGNORECASE)
+
+
+def _inner_question(text: str) -> str | None:
+    """The question asked inside "can you tell me ...", or None when there is no such lead."""
+    lead = _ASK_LEAD.match(text or "")
+    inner = text[lead.end():].strip() if lead else ""
+    return inner or None
+
+
 _PREFIX_POLITE = re.compile(r"[\s,]*(?:(?:can|could|would|will)\s+(?:you|u)|please|kindly)(?:\s+please)?\s*$",
                             re.IGNORECASE)
 # "tell me at 3pm to join the call" asks for a reminder, but starts like a question and was
@@ -1517,7 +1534,8 @@ class HeuristicPlannerProvider:
         if booked:
             event = booked.group("event") or f"{booked.group('what')} {booked.group('when') or ''}"
             return self._command(f"calendar add {' '.join(event.split())}", "Add to the calendar.", 0.84)
-        if _SYSTEM_ASK.match(text):
+        inner = _inner_question(text)
+        if _SYSTEM_ASK.match(text) or (inner and (_SYSTEM_ASK.match(inner) or _SYSTEM_TOLD.match(inner))):
             return self._command("system status", "The user asked about this machine.", 0.86)
         if _SCREENSHOT.match(text):
             return self._command("screenshot", "Take a screenshot.", 0.86)
@@ -1781,11 +1799,12 @@ class HeuristicPlannerProvider:
         then invented a citation to defend it."""
         from laptop_agent.tools.clock import asks_the_time, zone_question
 
-        if zone_question(text):     # "convert 9am pst to ist", "how many hours ahead is tokyo"
-            return self._command(f"time {text.strip()}", "A time between zones, computed.", 0.95)
-        if not asks_the_time(text):
-            return None
-        return self._command(f"time {text.strip()}", "Asking what time or date it is.", 0.95)
+        for asked in filter(None, (text, _inner_question(text))):
+            if zone_question(asked):     # "convert 9am pst to ist", "how many hours ahead is tokyo"
+                return self._command(f"time {asked.strip()}", "A time between zones, computed.", 0.95)
+            if asks_the_time(asked):
+                return self._command(f"time {asked.strip()}", "Asking what time or date it is.", 0.95)
+        return None
 
     def _arithmetic(self, text: str) -> PlanDecision | None:
         """'what is 67458363*37834872' -> the calculator, with no model in the loop.
@@ -1794,9 +1813,10 @@ class HeuristicPlannerProvider:
         produced a decision framework and never reached 2,552,278,529,434,536."""
         from laptop_agent.tools.calculator import fraction_question, looks_like_arithmetic, prime_question
 
-        if not looks_like_arithmetic(text) and prime_question(text) is None and fraction_question(text) is None:
-            return None
-        return self._command(f"calculate {text.strip()}", "That is a sum; compute it exactly.", 0.95)
+        for asked in filter(None, (text, _inner_question(text))):
+            if looks_like_arithmetic(asked) or prime_question(asked) is not None or fraction_question(asked) is not None:
+                return self._command(f"calculate {asked.strip()}", "That is a sum; compute it exactly.", 0.95)
+        return None
 
     def _arrange(self, text: str) -> PlanDecision | None:
         """'put whatsapp on the left and chrome on the right' -> the window tool.

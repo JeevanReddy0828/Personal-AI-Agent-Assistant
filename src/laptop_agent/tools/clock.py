@@ -145,7 +145,7 @@ _ASKS_THE_TIME = re.compile(
 # which does not know the time. A length is never a place, so it is read before any zone.
 _AHEAD_LENGTH = r"(?:\d+(?:\.\d+)?|an?|half\s+an?)\s+(?:minutes?|mins?|hours?|hrs?|days?)"
 _TIME_AHEAD = re.compile(
-    r"^\s*(?:what(?:'s|s|\s+is)\s+the\s+time|what\s+time\s+(?:will|would)\s+it\s+be"
+    r"^\s*(?:what(?:'s|s|\s+is)\s+the\s+time|what\s+time\s+(?:will|would)\s+it\s+be|what\s+time\s+it(?:'ll|\s+will|\s+would)\s+be"
     r"|what\s+time\s+is\s+it(?:\s+going\s+to\s+be)?|what\s+time)\s+"
     rf"(?:in\s+(?P<ahead>{_AHEAD_LENGTH})|(?P<from_now>{_AHEAD_LENGTH})\s+from\s+now)\s*[?.!]*$",
     re.IGNORECASE,
@@ -159,7 +159,10 @@ _CLOCK_CHANGE = re.compile(
     r"^\s*(?:when\s+(?:is|does|do|will)\s+(?:the\s+)?(?:daylight\s+sav(?:ing|ings)(?:\s+time)?|dst|time\s+change"
     r"|clocks?(?:\s+change)?)(?:\s+(?P<which>start|begin|end|change|go\s+(?:back|forward)|spring\s+forward"
     r"|fall\s+back))?"
-    r"|when\s+do\s+(?:we|i|you)\s+(?:change|set|move|put)\s+(?:the\s+)?clocks?(?:\s+(?P<way>back|forward))?)\s*[?.!]*$",
+    r"|when\s+do\s+(?:we|i|you)\s+(?:change|set|move|put)\s+(?:the\s+)?clocks?(?:\s+(?P<way>back|forward))?"
+    # Asked inside another sentence: "(tell me) when daylight saving ends".
+    r"|when\s+(?:the\s+)?(?:daylight\s+sav(?:ing|ings)(?:\s+time)?|dst|time\s+change|clocks?)\s+(?P<told>starts?|begins?"
+    r"|ends?|changes?|go(?:es)?\s+(?:back|forward)|springs?\s+forward|falls?\s+back))\s*[?.!]*$",
     re.IGNORECASE,
 )
 
@@ -172,10 +175,10 @@ def clock_change_direction(text: str) -> int:
     """+1 for a change forward ("when does daylight saving start"), -1 back ("end", "go back"), 0 for
     either. Daylight saving starts with the clocks going forward in either hemisphere."""
     asked = _CLOCK_CHANGE.match(text or "")
-    said = " ".join(((asked.group("which") or asked.group("way") or "") if asked else "").lower().split())
-    if said in {"start", "begin", "go forward", "spring forward", "forward"}:
+    said = ((asked.group("which") or asked.group("way") or asked.group("told") or "") if asked else "").lower()
+    if re.search(r"\b(?:start|begin|forward)", said):
         return 1
-    return -1 if said in {"end", "go back", "fall back", "back"} else 0
+    return -1 if re.search(r"\b(?:end|back)", said) else 0
 
 
 def next_clock_change(now: datetime, days: int = 400, direction: int = 0) -> tuple[datetime, datetime] | None:

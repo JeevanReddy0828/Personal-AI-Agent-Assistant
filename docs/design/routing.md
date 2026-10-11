@@ -16,7 +16,10 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     times, random draws. Anything not connected (calendar, smart home, phone) is said
     plainly; currency goes to the live-search answer because no FX API could be verified.
   - **Polite prefixes are one pattern** (`heuristic._POLITE`, "can you please",
-    "would you mind"), shared by every rule that needs it; a private copy drifted.
+    "would you mind"), shared by every rule that needs it; a private copy drifted. A request
+    put inside another ("can you tell me …", "would you mind telling me …", "can you check if
+    …") is tried again as the question inside (`_inner_question`) by the clock, the calculator
+    and system status, and that question is what the tool is handed.
   - **Future-weather locations stay places.** The fast path accepts a short place and day,
     but an indoor object after a determiner is not an outdoor forecast location. A
     possessive location or an article-prefixed household object goes to the router;

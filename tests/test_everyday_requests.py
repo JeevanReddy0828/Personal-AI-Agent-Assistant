@@ -744,6 +744,38 @@ class ShellBackstopTests(unittest.TestCase):
                 self.assertFalse(asked)
                 self.assertIn("answered]", result.message)
 
+class PoliteAskTests(unittest.TestCase):
+    """"can you tell me what time it will be in 3 hours", "would you mind telling me when daylight
+    saving ends", "can you check if my laptop is plugged in" and "can you tell me the tip on 64
+    dollars at 20 percent" reached the chat model, though the question inside each routes."""
+
+    def test_the_question_inside_routes_and_is_what_the_tool_gets(self) -> None:
+        router = HeuristicPlannerProvider()
+        for text, command in (
+                ("can you tell me what time it will be in 3 hours", "time what time it will be in 3 hours"),
+                ("would you mind telling me when daylight saving ends", "time when daylight saving ends"),
+                ("let me know when the clocks go back", "time when the clocks go back"),
+                ("can you check if my laptop is plugged in", "system status"),
+                ("can you tell me the tip on 64 dollars at 20 percent", "calculate the tip on 64 dollars at 20 percent")):
+            with self.subTest(text):
+                self.assertEqual(router.plan(text, "", {}).command, command)
+        for text in ("tell me a joke", "can you tell me a story about a dragon", "can you check if the store is open",
+                     "could you tell me what you think about python", "my laptop is plugged in"):
+            with self.subTest(text):
+                self.assertIsNone(router.plan(text, "", {}).command)
+
+    def test_an_indirect_question_is_answered_the_same(self) -> None:
+        from laptop_agent.tools.clock import ClockTool
+
+        moment = datetime(2026, 10, 11, 12, tzinfo=ZoneInfo("America/New_York"))
+        clock = ClockTool(now=lambda: moment)
+        with patch("laptop_agent.timeparse.LOCAL_ZONE", ZoneInfo("America/New_York")):
+            self.assertIn("**3:00 PM**", clock.now("what time it will be in 3 hours").message)
+            # "ends" is the change back, as "when does daylight saving end" is.
+            self.assertIn("**back an hour** on Sunday, 1 November 2026", clock.now("when daylight saving ends").message)
+            self.assertIn("**forward an hour**", clock.now("when the clocks spring forward").message)
+
+
 class NegationHoldsTests(unittest.TestCase):
     """A request not to do something never does it, whatever the model routes it to. The
     instant router alone was guarded, and the model can still answer "do not open youtube"
