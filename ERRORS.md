@@ -74,6 +74,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   the first line is read, and the tests send the page's own shape); the answer writes "1,500
   metres", which the parser read as 1.5; and on Windows the laptop's own zone is "Eastern
   Daylight Time", which a one-word label pattern missed. (10-10)
+- **"what about 10?" after a conversion and "and in london?" after "convert 9am pst to ist"
+  still reached the chat model** → `_asked_again` knew only a new unit, a plain clock and a day
+  count → `units.convert_again` rebuilds a new amount from the answer's own units ("and 12 km?"
+  turns it round; another kind of unit, or an answer in two units, is left alone), and a time
+  between zones or a gap takes a new place or time. Trap: "1,500,000 metres" counted as three
+  numbers before its commas were stripped, so it was refused as a two-unit amount. (10-11)
 - **"what's 5 feet 10 inches in cm" reached the chat model; a 15% tip said "12.6 (exactly
   63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
   its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,

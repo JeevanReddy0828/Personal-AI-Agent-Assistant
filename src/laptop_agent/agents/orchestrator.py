@@ -68,9 +68,9 @@ from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
-from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp
+from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
 from laptop_agent.tools.textcard import wants_text_rendered
-from laptop_agent.tools.units import UnitTool, looks_like_conversion
+from laptop_agent.tools.units import UnitTool, convert_again, looks_like_conversion
 from laptop_agent.tools.chance import draw
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
 from laptop_agent.tools.dates import answerable, calendar_fact, span_text, until_moment
@@ -336,7 +336,18 @@ _FILLER_REPLY = frozenset({"it's", "its", "it", "is", "the", "a", "an", "my", "t
 # "and in feet?" after a conversion, "what about london" after the time, "and halloween?" after
 # a count of days: the same question again with one thing changed. Each is keyed to the exact
 # shape of the answer before it, and needs a connecting word, so a bare word is not taken.
-_CONVERTED = re.compile(r"(?P<left>[^\n=*]+?) = \*\*[^*\n]+\*\*(?: \(US measure\))?")
+_CONVERTED = re.compile(r"(?P<left>[^\n=*]+?) = \*\*(?P<right>[^*\n]+)\*\*(?: \(US measure\))?")
+_AMOUNT_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?P<n>-?\d+(?:\.\d+)?)\s*"
+                           r"(?P<unit>[a-z°][\w° .'-]{0,30}?)?\s*\??", re.IGNORECASE)
+# "**9:00 AM PDT** in `America/Los_Angeles` is **9:30 PM IST** in `Asia/Kolkata`." and "`Asia/Tokyo`
+# is **13 hours ahead of** you right now: ...", where either side may be "here" / "you".
+_ZONES_ANSWER = re.compile(r"\*\*(?P<at>\d{1,2}:\d{2} [AP]M) [^*\n]+\*\* (?:in `(?P<a>[^`\n]+)`|here) is "
+                           r"\*\*\d{1,2}:\d{2} [AP]M [^*\n]+\*\*(?: the next day| the day before)? "
+                           r"(?:in `(?P<b>[^`\n]+)`|here)\.")
+_GAP_ANSWER = re.compile(r"`(?P<a>[^`\n]+)` is (?:the same time as|\*\*[^*\n]+\*\*) "
+                         r"(?:you|`(?P<b>[^`\n]+)`) right now: ")
+_TIME_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?:at\s+)?"
+                         r"(?P<at>\d{1,2}(?::\d{2})?\s*[ap]\.?\s?m\.?|noon|midday|midnight)\s*\??", re.IGNORECASE)
 _CONVERT_AGAIN = re.compile(r"(?:(?:and|what\s+about|how\s+about)\s+(?:(?:in|to|into)\s+)?|(?:in|to|into)\s+)"
                             r"(?P<unit>[a-z°][\w° .'-]{0,30}?)\s*\??", re.IGNORECASE)
 # The label is "JST" for a zone asked for, and "Eastern Daylight Time" for the laptop's own on Windows.
@@ -2381,6 +2392,11 @@ class AgentOrchestrator:
         # The page and the CLI send the turn back with its tool data after a line break.
         head = asked.split("\n", 1)[0]
         converted = _CONVERTED.fullmatch(head)
+        amount = _AMOUNT_AGAIN.fullmatch(reply)
+        if converted and amount:
+            candidate = convert_again(converted.group("left"), converted.group("right"), amount.group("n"),
+                                      (amount.group("unit") or "").strip())
+            return candidate if candidate is not None and looks_like_conversion(candidate) else None
         again = _CONVERT_AGAIN.fullmatch(reply)
         if converted and again:
             # The answer shows thousands with commas, which the parser reads as a decimal point.
@@ -2392,6 +2408,23 @@ class AgentOrchestrator:
             zone, said = _requested_zone(f"in {place}")
             # The whole place, not a word in it: "the weather in london" names London.
             return f"time in {place}" if zone and said == place.lower() else None
+        place = again.group("place").strip() if again else ""
+        zones = _ZONES_ANSWER.fullmatch(head)
+        if zones:
+            # A new time keeps both zones; a new place keeps the time and where it was said.
+            at, source = _TIME_AGAIN.fullmatch(reply), zones.group("a") or "here"
+            if at:
+                candidate = f"convert {at.group('at')} {source} to {zones.group('b') or 'here'}"
+            elif place:
+                candidate = f"convert {zones.group('at')} {source} to {place}"
+            else:
+                return None
+            # The question reads its zones from the whole phrase, so "the weather in london" is none.
+            return candidate if zone_question(candidate) is not None else None
+        gap = _GAP_ANSWER.match(head)
+        if gap and place:
+            candidate = f"how far ahead is {place}" + (f" of {gap.group('b')}" if gap.group("b") else "")
+            return candidate if zone_question(candidate) is not None else None
         counted = _UNTIL_ANSWER.fullmatch(head)
         if counted is None:
             return None
