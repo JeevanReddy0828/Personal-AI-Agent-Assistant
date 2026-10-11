@@ -1058,7 +1058,8 @@ class AskedAgainTests(unittest.TestCase):
                 with self.subTest(said=said):
                     self.assertEqual(self.converse(everyday, *said).message, answer)
             for first, reply, same_as in (("when is thanksgiving", "and easter?", "when is easter"),
-                                          ("what day is christmas", "what about halloween", "when is halloween")):
+                                          ("what day is christmas", "what about halloween", "when is halloween"),
+                                          ("what day is christmas", "and new year's?", "when is new year's")):
                 with self.subTest(first=first):
                     self.assertEqual(self.converse(everyday, first, reply).message,
                                      everyday.say(same_as, stream=False)[0].message)
