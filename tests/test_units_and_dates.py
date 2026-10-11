@@ -128,6 +128,20 @@ class UnitTests(unittest.TestCase):
             with self.subTest(text):
                 self.assertFalse(looks_like_conversion(text))
 
+    def test_a_number_past_a_float_is_refused_not_infinity(self) -> None:
+        """A numeral past a float's range answered "inf miles = **inf kilometres**", and a whole part
+        past int()'s 4,300 digits raised ValueError in the tool and in the router."""
+        tool, router = UnitTool(), HeuristicPlannerProvider()
+        # The amount itself, and a finite amount whose answer is not.
+        for text in ("convert " + "9" * 400 + " miles to km", "convert 1" + "0" * 307 + " miles to km"):
+            with self.subTest(text[:12]):
+                self.assertEqual(tool.convert(text).message, "That number is too large to convert.")
+        for text in ("convert " + "9" * 5000 + " feet 2 inches to cm", "how tall is " + "9" * 5000 + "'2 in cm",
+                     "convert " + "9" * 5000 + " hours 30 minutes to minutes"):
+            with self.subTest(text[:12]):
+                self.assertFalse(tool.convert(text).ok)
+                router.plan(text, "", {})
+
 
 class DateTests(unittest.TestCase):
     def test_holidays_fixed_and_floating(self) -> None:
