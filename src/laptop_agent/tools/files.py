@@ -8,6 +8,7 @@ import re
 import shutil
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
@@ -157,7 +158,7 @@ class FileTool:
     def __init__(self, approval_gate: ApprovalGate | None = None) -> None:
         self.approval_gate = approval_gate or ApprovalGate()
 
-    def scan(self, root: str, limit: int = 200, by_size: bool = False) -> ToolResult:
+    def scan(self, root: str, limit: int = 200, by_size: bool = False, by_date: bool = False) -> ToolResult:
         base = Path(root).expanduser().resolve()
         if not base.exists():
             return ToolResult.failure(f"Path does not exist: {base}")
@@ -175,6 +176,8 @@ class FileTool:
         # are not the largest, and "what are the largest files in my downloads" was answered
         # with the first 200 of 1214 in name order.
         sized: list[tuple[int, str]] = []
+        # (modified, path, size) when listing newest first: "what did i download today".
+        dated: list[tuple[float, str, int]] = []
         by_extension: dict[str, int] = {}
         total = 0
         walked_all = True
@@ -191,11 +194,16 @@ class FileTool:
             total += 1
             suffix = path.suffix.lower() or "(no extension)"
             by_extension[suffix] = by_extension.get(suffix, 0) + 1
-            if by_size:
+            if by_size or by_date:
                 try:
-                    sized.append((path.stat().st_size, str(path)))
+                    stat = path.stat()
                 except OSError as exc:
                     record_failure("files/scan", exc, path=str(path)[:120])
+                    continue
+                if by_size:
+                    sized.append((stat.st_size, str(path)))
+                else:
+                    dated.append((stat.st_mtime, str(path), stat.st_size))
             elif len(files) < limit:
                 files.append(self._summarize(path).__dict__)
         if by_size:
@@ -203,8 +211,19 @@ class FileTool:
                 FileSummary(path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__
                 for size, name in heapq.nlargest(limit, sized)
             ]
+        if by_date:
+            files = [
+                {**FileSummary(path=name, size_bytes=size,
+                               mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__,
+                 "modified": datetime.fromtimestamp(modified).astimezone().isoformat()}
+                for modified, name, size in heapq.nlargest(limit, dated)
+            ]
         shown = len(files)
-        if by_size:
+        if by_date:
+            top = ", ".join(Path(str(entry["path"])).name for entry in files[:5])
+            counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
+            message = f"Scanned {counted}, newest first: {top}." if top else f"Scanned {counted}."
+        elif by_size:
             # The agent reads only this message, so it names the largest rather than counting them.
             top = ", ".join(f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5])
             counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
@@ -223,7 +242,7 @@ class FileTool:
             listed=shown,
             complete=walked_all and shown == total,
             by_extension=dict(sorted(by_extension.items(), key=lambda item: -item[1])),
-            **({"order": "size"} if by_size else {}),
+            **({"order": "size"} if by_size else {"order": "date"} if by_date else {}),
         )
 
     def read_text(self, path: str, max_chars: int = 12000) -> ToolResult:

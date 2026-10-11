@@ -872,7 +872,10 @@ class AgentOrchestrator:
             name = re.split(r"[/\\]", target.strip('"\''))[-1].lower()
             grounded = bool(name) and re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", spoken)
         else:
-            grounded = any(token in spoken for token in tokens)
+            # Its singular names it too: "what did i download today" is about ~/Downloads. Only a
+            # longer word, so a short host ("news") is never named by "new".
+            grounded = any(token in spoken or (len(token) > 5 and token.endswith("s") and token[:-1] in spoken)
+                           for token in tokens)
         if grounded:
             return planned
         return PlanDecision(
@@ -1247,12 +1250,17 @@ class AgentOrchestrator:
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
             root = root[: by_size.start()].strip() if by_size else root
+            by_date = None if by_size else re.search(r"(?:^|\s+)(?:by\s+(?:date|newest)|newest\s+first)$", root, re.IGNORECASE)
+            root = root[: by_date.start()].strip() if by_date else root
+            if by_date:
+                return self.context.files.scan(root or ".", by_date=True)
             # The agent copies "by size" into orders that do not exist ("by folder") and was told
             # only that the path was missing, so it spent another step guessing.
             other = re.fullmatch(r"(.+?)\s+by\s+(\w+)", root, re.IGNORECASE)
             if not by_size and other and not Path(root).expanduser().exists() and Path(other.group(1)).expanduser().exists():
                 return ToolResult.failure(
-                    f"scan files can list largest first (`by size`), but not by {other.group(2)}. Use "
+                    f"scan files can list largest first (`by size`) or newest first (`by date`), but not by "
+                    f"{other.group(2)}. Use "
                     f"`scan files {other.group(1)}`, which also counts the files of each type."
                 )
             return self.context.files.scan(root or ".", by_size=bool(by_size))
@@ -2762,6 +2770,8 @@ class AgentOrchestrator:
         r"\bhas .+?\b(?:ended|started|launched|released|happened|died|won)\b",
         r"\bwhat(?:'s| is| are| was)?\b.*\b(?:happening|the latest|new|going on|status)\b",
         r"\b(?:price|stock|score|weather|forecast|exchange rate)\b",
+        # "what's bitcoin at" was answered from the model's memory of a price.
+        r"\b(?:bitcoin|btc|ethereum|dogecoin|crypto(?:currency)?|nasdaq|dow\s+jones|s&p\s*500)\b",
         r"\b20(?:2[4-9]|3\d)\b",  # years 2024-2039 (recent/future vs. training cutoff)
         r"\belection\b",
         r"\bwho is (?:the )?president\b",
@@ -2781,6 +2791,8 @@ class AgentOrchestrator:
         r"^\s*(?:i'?m|i\s+am|i\s+feel|i\s+felt|i'?ve\s+been|i\s+was|i\s+had|i\s+have\s+been|feeling)\b"
         r"|\bwho\s+(?:are|r)\s+(?:you|u)\b|\bwho\s+(?:made|created|built|designed)\s+you\b"
         r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
+        # About the user's own day: "what did i do today" ran a web search. "what did i miss" may be news.
+        r"|\b(?:what|where|when|who)\s+did\s+i\s+(?!miss\b)"
         r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
         r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b"
         # News the user is sharing, not asking for. "good news, i got the job" was searched for
@@ -4875,10 +4887,12 @@ class AgentOrchestrator:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
             total = data.get("total_files")
-            by_size = data.get("order") == "size"
+            by_size, by_date = data.get("order") == "size", data.get("order") == "date"
             headline = (
                 f"**Largest of {total} file(s) in {data['root']}**"
                 if by_size
+                else f"**Newest of {total} file(s) in {data['root']}**"
+                if by_date
                 else f"**{total} file(s) in {data['root']}**"
                 if isinstance(total, int) and total != len(files)
                 else f"**{len(files)} file(s) in {data['root']}**"
@@ -4887,7 +4901,7 @@ class AgentOrchestrator:
             # The breakdown is the answer to "how many python files are here", and
             # counting names out of a truncated listing is how that got answered wrong.
             breakdown = data.get("by_extension")
-            if isinstance(breakdown, dict) and len(breakdown) > 1 and not by_size:
+            if isinstance(breakdown, dict) and len(breakdown) > 1 and not (by_size or by_date):
                 top = list(breakdown.items())[:6]
                 summary = " · ".join(f"`{ext}` {count}" for ext, count in top)
                 if len(breakdown) > len(top):
@@ -4899,6 +4913,10 @@ class AgentOrchestrator:
                     continue
                 name = Path(str(entry.get("path", ""))).name or str(entry.get("path", ""))
                 size = entry.get("size_bytes")
+                if by_date and entry.get("modified"):
+                    changed = datetime.fromisoformat(str(entry["modified"]))
+                    lines.append(f"- `{name}` — {describe(changed, datetime.now().astimezone(), local=True)}")
+                    continue
                 lines.append(f"- `{name}`" + (f" — {_readable_size(size)}" if isinstance(size, int) else ""))
             if len(files) > len(shown):
                 lines.append(f"- …and {len(files) - len(shown)} more")
