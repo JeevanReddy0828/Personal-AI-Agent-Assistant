@@ -426,6 +426,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "fact" kind (no new orchestrator branch): week, day of year, leap years, days in a month,
   quarter, N days from today, days to the weekend, holidays (Columbus Day and Juneteenth added,
   US-leaning and said so), ages. (10-10)
+- **"move my dentist reminder to 4pm" reached the chat model**, which cannot change a reminder →
+  `reminder move <which> to <when>` (also reschedule/push/change … for/until): a clock time with
+  no day is read from the start of the reminder's own day, so Friday's dentist moves to Friday at
+  4 rather than today; a bare "11" is a clock time; a length ("in an hour") counts from now. A
+  move is not a snooze and is not counted as one. (10-11)
 - **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
   "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
   direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)

@@ -93,6 +93,18 @@ class ReminderStore:
         return None
 
     @synchronized
+    def move(self, reminder_id: int, to: datetime) -> dict[str, object] | None:
+        """Give an active reminder a new time, earlier or later; returns it, or None if there is none.
+        Not a snooze: it is not counted as one."""
+        store = self._load()
+        for item in store["reminders"]:
+            if int(item.get("id", 0)) == reminder_id and not item.get("done"):
+                item["due_at"] = to.astimezone(UTC).isoformat()
+                self._save(store)
+                return dict(item)
+        return None
+
+    @synchronized
     def snooze(self, reminder_id: int, until: datetime) -> dict[str, object] | None:
         """Move an active reminder to a later instant; returns it, or None if there is none."""
         store = self._load()
