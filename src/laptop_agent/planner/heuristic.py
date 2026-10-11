@@ -349,6 +349,13 @@ _TELL_ME_AT = re.compile(
     r",?\s+(?P<rest>(?:to|about|that)\b.+)$",
     re.IGNORECASE,
 )
+# "move my dentist reminder to 4pm", "reschedule the reminder about the bank for friday at 10": it
+# reached the chat model, which cannot change a reminder.
+_REMINDER_MOVE = re.compile(
+    _POLITE + r"(?:move|reschedule|change|push|shift|postpone)\s+(?:my|the)\s+(?:(?P<what>[\w' -]+?)\s+reminder"
+    r"|reminder\s+(?:about|for)\s+(?P<about>[\w' -]+?))\s+(?:to|for|until|till)\s+(?P<when>.+?)\s*[.!]*$",
+    re.IGNORECASE,
+)
 _SNOOZE = re.compile(
     r"^\s*(?:please\s+)?snooze(?:\s+(?:it|that|this|the\s+(?:reminder|alarm|timer)|(?:reminder|alarm)"
     r"\s+#?(?P<id>\d+)))?(?:\s+for)?(?:\s+(?:another\s+)?(?P<minutes>\d+)\s*(?:more\s+)?(?:minutes?|mins?|m))?"
@@ -1409,6 +1416,10 @@ class HeuristicPlannerProvider:
         alarm = _ALARM_ASK.match(spoken)
         if alarm and _TIME_TOKEN.search(alarm.group("when")):
             return self._command(f"alarm {alarm.group('when').strip()}", "User wants an alarm.", 0.9)
+        moved = _REMINDER_MOVE.match(spoken)
+        if moved:
+            return self._command(f"reminder move {moved.group('what') or moved.group('about')} to {moved.group('when')}",
+                                 "User wants a reminder at a new time.", 0.86)
         snooze = _SNOOZE.match(spoken)
         if snooze:
             # "5m", never a bare 5: a bare number is a reminder id.

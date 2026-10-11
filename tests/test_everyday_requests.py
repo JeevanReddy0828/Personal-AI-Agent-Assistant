@@ -1386,6 +1386,58 @@ class AlarmListTests(unittest.TestCase):
             self.assertIn("weekdays at 07:00 (off)", everyday.say("show my alarms", stream=False)[0].message)
 
 
+class ReminderMoveTests(unittest.TestCase):
+    """"move my dentist reminder to 4pm" reached the chat model, which cannot change a reminder."""
+
+    def due(self, everyday: Everyday, words: str) -> tuple[datetime, dict]:
+        item = next(item for item in everyday.orchestrator.context.reminders.list() if words in str(item["message"]))
+        return datetime.fromisoformat(str(item["due_at"])).astimezone(), item
+
+    def test_a_time_alone_keeps_the_reminders_own_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            # "next friday" is at least three days out, so a time read from today could never land on it.
+            everyday.say("remind me next friday at 2pm about the dentist", stream=False)
+            friday, _ = self.due(everyday, "dentist")
+            moved, ran = everyday.say("move my dentist reminder to 4pm", stream=False)
+            self.assertEqual(ran, "reminder move dentist to 4pm")
+            after, item = self.due(everyday, "dentist")
+            self.assertEqual((after.date(), after.hour), (friday.date(), 16))
+            self.assertTrue(moved.message.startswith("Moved: the dentist"), moved.message)
+            self.assertNotIn("snoozed", item)             # a move is not a snooze
+            everyday.say("reschedule the reminder about the dentist for saturday at 10am", stream=False)
+            after, _ = self.due(everyday, "dentist")
+            self.assertEqual((after.weekday(), after.hour), (5, 10))
+            # A bare number is a clock time, on the reminder's day.
+            everyday.say("remind me tomorrow at 9 to call the bank", stream=False)
+            everyday.say("push my bank reminder to 11", stream=False)
+            bank, _ = self.due(everyday, "bank")
+            self.assertEqual((bank.date(), bank.hour), ((datetime.now().astimezone() + timedelta(days=1)).date(), 11))
+            # A length counts from now, never from the reminder's day.
+            everyday.say("move my bank reminder to in an hour", stream=False)
+            bank, _ = self.due(everyday, "bank")
+            self.assertLess(abs((bank - datetime.now().astimezone()).total_seconds() - 3600), 120)
+
+    def test_a_personal_account_moves_its_reminders(self) -> None:
+        from laptop_agent.access import acting_as
+        from laptop_agent.accounts import Principal
+
+        with tempfile.TemporaryDirectory() as tmp, acting_as(Principal("p1", "family", "personal")):
+            everyday = Everyday(Path(tmp))
+            everyday.say("remind me tomorrow at 9 to call the bank", stream=False)
+            moved, _ = everyday.say("push my bank reminder to 11", stream=False)
+            self.assertTrue(moved.ok and moved.message.startswith("Moved: call the bank"), moved.message)
+
+    def test_only_a_reminder_with_a_time_is_moved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            for text in ("change my reminder to say hello", "move the couch to the living room"):
+                with self.subTest(text):
+                    self.assertIsNone(everyday.say(text, stream=False)[1])
+            missing, ran = everyday.say("move my gym reminder to 5pm", stream=False)
+            self.assertEqual((ran, missing.ok), ("reminder move gym to 5pm", False))
+
+
 class ScreenshotWordsTests(unittest.TestCase):
     """"screenshot my screen and tell me what's on it" saved a file called "my screen and tell me
     what's on it.png": everything after `screenshot ` was taken as the place to save it."""

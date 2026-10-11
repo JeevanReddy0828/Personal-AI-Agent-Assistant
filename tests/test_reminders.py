@@ -23,6 +23,17 @@ class ReminderStoreTests(unittest.TestCase):
             self.assertEqual(reminders[0]["message"], "Call Alex")
             self.assertEqual(reminders[0]["id"], 1)
 
+    def test_move_gives_a_new_time_and_is_not_a_snooze(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = ReminderStore(Path(raw) / "reminders.json")
+            store.add("2026-06-20 09:00", "Dentist")
+            moved = store.move(1, datetime(2026, 6, 19, 16, tzinfo=UTC))      # earlier is allowed too
+            self.assertEqual((moved["message"], moved["due_at"]), ("Dentist", "2026-06-19T16:00:00+00:00"))
+            self.assertNotIn("snoozed", moved)
+            store.complete(1)
+            self.assertIsNone(store.move(1, datetime(2026, 6, 21, tzinfo=UTC)))     # a finished one stays put
+            self.assertIsNone(store.move(9, datetime(2026, 6, 21, tzinfo=UTC)))
+
     def test_due_and_complete(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             store = ReminderStore(Path(raw) / "reminders.json")

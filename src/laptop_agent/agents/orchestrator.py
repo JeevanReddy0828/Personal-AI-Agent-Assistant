@@ -1189,6 +1189,9 @@ class AgentOrchestrator:
         if lowered == "reminder done" or lowered.startswith("reminder done "):
             return self._reminder_done(command[len("reminder done") :].strip())
 
+        if lowered.startswith("reminder move "):
+            return self._reminder_move(command[len("reminder move ") :].strip())
+
         if _REMINDER_REMOVE.match(lowered):
             return self._reminder_remove(command.split(" ", 2)[2] if len(command.split(" ", 2)) > 2 else "")
 
@@ -3553,6 +3556,36 @@ class AgentOrchestrator:
         if not matches:
             return None, f"I have no reminder about '{raw.strip()}'."
         return None, "Which one? " + " ".join(f"#{item['id']} {item['message']};" for item in matches[:8]).rstrip(";")
+
+    def _reminder_move(self, raw: str) -> ToolResult:
+        """`reminder move <which> to <when>`. A time said without a day stays on the reminder's own
+        day: "move my dentist reminder to 4pm" means Friday's at 4, not today's."""
+        parts = re.match(r"(?P<which>.+)\s+(?:to|for|until|till)\s+(?P<when>.+)$", raw, re.IGNORECASE)
+        if not parts:
+            return ToolResult.failure("Say which reminder and when, e.g. \"move my dentist reminder to 4pm\".")
+        reminder, why = self._find_reminder(parts.group("which"))
+        if reminder is None:
+            return ToolResult.failure(why)
+        now = datetime.now().astimezone()
+        said = spoken_to_digits(parts.group("when").strip())
+        # "push my bank reminder to 11": a bare clock number, as the alarm's follow-up reads one.
+        if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", said, re.IGNORECASE):
+            said = f"at {said}"
+        due = datetime.fromisoformat(str(reminder["due_at"])).astimezone()
+        # A clock time with no day is read from the start of the reminder's own day; a length ("in an
+        # hour") is no clock time, so it still counts from now.
+        base = now
+        if _find_time(said.lower()) is not None and _find_day(said.lower(), now) is None and due.date() > now.date():
+            base = due.replace(hour=0, minute=0, second=0, microsecond=0)
+        try:
+            when = parse_when(said, base, local=True)
+        except TimeParseError as exc:
+            return ToolResult.failure(str(exc))
+        if when is None:
+            return ToolResult.failure(f"I could not find a time in \"{parts.group('when').strip()}\".")
+        self.context.reminders.move(int(reminder["id"]), when.at)
+        return ToolResult.success(f"Moved: {reminder['message']} — now {describe(when.at, now, local=True)}.",
+                                  id=reminder["id"], due_local=when.at.isoformat())
 
     def _reminder_done(self, raw: str) -> ToolResult:
         reminder, why = self._find_reminder(raw)
