@@ -80,6 +80,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
   turns it round; another kind of unit, or an answer in two units, is left alone), and a time
   between zones or a gap takes a new place or time. Trap: "1,500,000 metres" counted as three
   numbers before its commas were stripped, so it was refused as a two-unit amount. (10-11)
+- **"and in london?" after the weather, "and 20%?" after a percentage, "what about 91?" after a
+  prime check, "and easter?" after "when is thanksgiving", and "again" after a coin or a die all
+  went to the chat model**, which cannot see a forecast and invents a roll → each is rebuilt from
+  the previous answer's shape (a forecast's place only when the zone table knows it as a whole),
+  and "again" re-runs the user's own draw request, since "You rolled a **14**." does not say d20.
+  Two traps: a percentage answer "(15/100 × 200) = **30**" has a conversion's "X = **Y**" shape,
+  and the conversion branch returned None instead of letting it fall through; and a weekday
+  pattern written in lower case never matched "Thursday". "random number between 5 and 10" had
+  no route at all without a verb. (10-11)
 - **"what's 5 feet 10 inches in cm" reached the chat model; a 15% tip said "12.6 (exactly
   63/5)"** → a conversion read one number and one unit, and an exact decimal was shown beside
   its own fraction → `units._compound` makes a two-unit amount (5'10", "6 foot 2", 2 lb 4 oz,

@@ -71,7 +71,7 @@ from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, convert_again, looks_like_conversion
-from laptop_agent.tools.chance import draw
+from laptop_agent.tools.chance import draw, is_chance_request
 from laptop_agent.tools.dates import RELATIVE_DAYS, date_question, describe_day, resolve as resolve_date, says_a_year
 from laptop_agent.tools.dates import answerable, calendar_fact, span_text, until_moment
 from laptop_agent.tools.browser import BrowserAutomationTool
@@ -359,6 +359,18 @@ _UNTIL_IN = re.compile(r"(?:(?:and\s+|what\s+about\s+|how\s+about\s+)?(?:in|as)\
                        r"(?P<unit>days|weeks|hours|minutes)(?:\s+is\s+that)?\s*\??", re.IGNORECASE)
 _UNTIL_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?:(?:until|till|to)\s+)?(?P<what>[^?\n]{1,40}?)\s*\??",
                           re.IGNORECASE)
+_WEATHER_ANSWER = re.compile(r"\*\*[^*\n]+\*\* — [^\n]*°F \(feels like ")
+_DAY_ANSWER = re.compile(r"\S[^\n]*? (?:is|was) on (?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, ")
+_PERCENT_ANSWER = re.compile(r"\((?P<p>-?\d+(?:\.\d+)?)/100 × (?P<of>-?[\d,]+(?:\.\d+)?)\) = \*\*")
+_PERCENT_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?:(?P<p>-?\d+(?:\.\d+)?)\s*(?:%|percent)"
+                            r"|(?:of\s+)?(?P<of>-?\d[\d,]*(?:\.\d+)?))\s*\??", re.IGNORECASE)
+_PRIME_ANSWER = re.compile(r"(?:Yes|No) — \*\*[\d,]+ is (?:not )?prime\*\*")
+_NUMBER_AGAIN = re.compile(r"(?:and|what\s+about|how\s+about)\s+(?P<n>\d[\d,]*)\s*\??", re.IGNORECASE)
+_DRAWN = re.compile(r"\*\*(?:Heads|Tails)\*\*\.|You rolled (?:an? \*\*\d+\*\*|[\d, ]+ — \*\*\d+\*\* in total)\."
+                    r"|\*\*-?\d+\*\* \(between -?\d+ and -?\d+\)\.")
+_DRAW_AGAIN = re.compile(r"(?:(?:ok(?:ay)?|and|now)\s+)?(?:again|one\s+more(?:\s+time)?|once\s+more|another(?:\s+one)?"
+                         r"|do\s+it\s+again|(?:flip|roll|pick|toss)\s+(?:it\s+|them\s+|one\s+)?again)"
+                         r"(?:\s+please)?\s*[?!.]*", re.IGNORECASE)
 
 
 def _meaningful(value: str) -> bool:
@@ -2330,6 +2342,11 @@ class AgentOrchestrator:
         reply = command.strip().rstrip(".!")
         if not reply or len(reply.split()) > 8:
             return None
+        # "again" after a coin, a die or a number runs the user's own request once more: "You rolled
+        # a **14**." does not say it was a d20.
+        if _DRAW_AGAIN.fullmatch(reply) and _DRAWN.fullmatch(asked.split("\n", 1)[0]):
+            return next((text for role, text in reversed(turns[:-1]) if role == "user" and is_chance_request(text)),
+                        None)
         # Ahead of the refusal check, which reads "what about meters" as a question of its own.
         again = self._asked_again(asked, reply)
         if again is not None:
@@ -2393,15 +2410,18 @@ class AgentOrchestrator:
         head = asked.split("\n", 1)[0]
         converted = _CONVERTED.fullmatch(head)
         amount = _AMOUNT_AGAIN.fullmatch(reply)
+        # A sum has the same "X = **Y**" shape, so a conversion that does not parse goes on below.
         if converted and amount:
             candidate = convert_again(converted.group("left"), converted.group("right"), amount.group("n"),
                                       (amount.group("unit") or "").strip())
-            return candidate if candidate is not None and looks_like_conversion(candidate) else None
+            if candidate is not None and looks_like_conversion(candidate):
+                return candidate
         again = _CONVERT_AGAIN.fullmatch(reply)
         if converted and again:
             # The answer shows thousands with commas, which the parser reads as a decimal point.
             candidate = f"convert {converted.group('left').replace(',', '')} to {again.group('unit')}"
-            return candidate if looks_like_conversion(candidate) else None
+            if looks_like_conversion(candidate):
+                return candidate
         again = _ZONE_AGAIN.fullmatch(reply)
         if _CLOCK_ANSWER.match(asked) and again:
             place = again.group("place").strip()
@@ -2425,6 +2445,23 @@ class AgentOrchestrator:
         if gap and place:
             candidate = f"how far ahead is {place}" + (f" of {gap.group('b')}" if gap.group("b") else "")
             return candidate if zone_question(candidate) is not None else None
+        percent, share = _PERCENT_ANSWER.match(head), _PERCENT_AGAIN.fullmatch(reply)
+        if percent and share:
+            rate, whole = share.group("p") or percent.group("p"), share.group("of") or percent.group("of")
+            candidate = f"what's {rate}% of {whole.replace(',', '')}"
+            return candidate if looks_like_arithmetic(candidate) else None
+        number = _NUMBER_AGAIN.fullmatch(reply)
+        if _PRIME_ANSWER.match(head) and number:
+            return f"is {number.group('n').replace(',', '')} prime"
+        if _WEATHER_ANSWER.match(head) and place:
+            zone, said = _requested_zone(f"in {place}")
+            # Only a place the zone table knows by that whole name: "and humidity?" or "what about the
+            # weekend?" asks about the forecast above, which the chat model can read.
+            return f"weather {place}" if zone and said == place.lower() else None
+        holiday = _UNTIL_AGAIN.fullmatch(reply)
+        if _DAY_ANSWER.match(head) and holiday:
+            candidate = f"when is {holiday.group('what')}"
+            return candidate if answerable(candidate, datetime.now().astimezone()) else None
         counted = _UNTIL_ANSWER.fullmatch(head)
         if counted is None:
             return None
