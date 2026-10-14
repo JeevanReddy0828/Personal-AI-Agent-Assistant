@@ -1494,6 +1494,65 @@ class ReminderMoveTests(unittest.TestCase):
             self.assertEqual((ran, missing.ok), ("reminder move gym to 5pm", False))
 
 
+class TimerAdjustTests(unittest.TestCase):
+    """From an offline probe: "set a timer for 20 minutes called laundry" was set unnamed, "add 5
+    minutes to the timer" and "change my alarm to 6:30" reached the chat model."""
+
+    def due(self, everyday: Everyday, words: str) -> datetime:
+        item = next(item for item in everyday.orchestrator.context.reminders.list() if words in str(item["message"]))
+        return datetime.fromisoformat(str(item["due_at"]))
+
+    def test_a_timer_named_and_given_more_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            self.assertTrue(everyday.say("set a timer for 20 minutes called laundry", stream=False)[0].message
+                            .startswith("Laundry timer set for 20 minutes."))
+            self.assertTrue(everyday.say("how long is left on the laundry timer", stream=False)[0].message
+                            .startswith("Laundry timer:"))
+            start = self.due(everyday, "Laundry")
+            for text, added in (("add 5 minutes to the laundry timer", 300), ("add five more minutes", 300),
+                                ("put 10 more minutes on the timer", 600)):
+                with self.subTest(text):
+                    result, _ = everyday.say(text, stream=False)
+                    self.assertTrue(result.ok, result.message)
+                    self.assertEqual(self.due(everyday, "Laundry") - start, timedelta(seconds=added))
+                    start = self.due(everyday, "Laundry")
+            # Two running and none named: which one; none running: said so.
+            everyday.say("set a timer for 3 minutes called pasta", stream=False)
+            self.assertTrue(everyday.say("add 2 minutes", stream=False)[0].message.startswith("Which one?"))
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            self.assertEqual(everyday.say("add 5 minutes to the timer", stream=False)[0].message, "No timer is running.")
+            # One going off now: five more minutes from now, not from when it rang.
+            rang = datetime.now().astimezone() - timedelta(minutes=2)
+            everyday.orchestrator.context.reminders.add(rang.isoformat(), "Timer (10 minutes)")
+            self.assertTrue(everyday.say("add 5 minutes", stream=False)[0].ok)
+            left = (self.due(everyday, "Timer") - datetime.now().astimezone()).total_seconds()
+            self.assertTrue(290 <= left <= 300, left)
+
+    def test_only_more_time_on_a_timer_is_taken(self) -> None:
+        router = HeuristicPlannerProvider()
+        for text in ("give me 5 more minutes", "add 5 minutes to the presentation", "add one more song"):
+            with self.subTest(text):
+                self.assertIsNone(router.plan(text, "", {}).command)
+
+    def test_an_alarm_is_moved_or_said_to_repeat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("set an alarm for 6am tomorrow", stream=False)
+            before = self.due(everyday, "Alarm").astimezone()
+            result, ran = everyday.say("change my alarm to 6:30", stream=False)
+            self.assertEqual(ran, "reminder move alarm to 6:30")
+            after = self.due(everyday, "Alarm").astimezone()
+            self.assertEqual((after.date(), after.hour, after.minute), (before.date(), 6, 30))
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("set an alarm for 7am every weekday", stream=False)
+            refused = everyday.say("change my alarm to 6:30", stream=False)[0]
+            self.assertFalse(refused.ok)
+            self.assertIn("repeats", refused.message)
+
+
 class ScreenshotWordsTests(unittest.TestCase):
     """"screenshot my screen and tell me what's on it" saved a file called "my screen and tell me
     what's on it.png": everything after `screenshot ` was taken as the place to save it."""

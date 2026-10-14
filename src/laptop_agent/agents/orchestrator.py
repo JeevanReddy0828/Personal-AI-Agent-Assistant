@@ -3279,6 +3279,9 @@ class AgentOrchestrator:
         please" from "could you set a 15 minute timer please".
         """
         cleaned = _spoken_request(expression)
+        extend = re.match(r"\s*(?:add|extend(?:\s+(?:it|by))?)\s+(?P<rest>.+)$", cleaned, re.IGNORECASE)
+        if extend:
+            return self._timer_extend(extend.group("rest"))
         # "an hour and a half", "2 and a half minutes"
         cleaned = re.sub(rf"\b(\d+|an?)\s+(?:and\s+a\s+half\s+({_UNIT_WORDS})|({_UNIT_WORDS})\s+and\s+a\s+half)\b",
                          lambda m: f"{'1' if m.group(1).lower() in {'a', 'an'} else m.group(1)}.5 "
@@ -3299,7 +3302,10 @@ class AgentOrchestrator:
                                       "for example \"remind me on 2027-03-01 to renew the lease\".")
         before, after = cleaned[: parts[0].start()], cleaned[end:]
         amount = _say_seconds(seconds)
-        named = (re.search(r"\b(?:a|an|my|the)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+timer\b", before, re.I)
+        # "set a timer for 20 minutes called laundry" was set unnamed, so "the laundry timer" found nothing.
+        named = (re.match(r"\s*(?:timer\s+)?(?:called|named|labell?ed)\s+(?:the\s+|my\s+|a\s+)?"
+                          r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2})(?:\s+timer)?(?:\s+please)?\s*[.!]*$", after, re.I)
+                 or re.search(r"\b(?:a|an|my|the)\s+(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+timer\b", before, re.I)
                  or re.match(r"\s*(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+timer\b", after, re.I)
                  or re.match(r"\s*(?:timer\s+)?for\s+(?:the\s+|my\s+|a\s+)?(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*){0,2})"
                              r"(?:\s+please)?\s*[.!]*$", after, re.I))
@@ -3348,15 +3354,47 @@ class AgentOrchestrator:
             return ToolResult.success(f"You have no {noun}s coming up.")
         return ToolResult.success(" ".join(parts), reminder=upcoming[0][1] if upcoming else None)
 
+    def _running_timers(self) -> list[tuple[datetime, dict]]:
+        # A timer is saved as "<Name> timer (<length>)", "Timer to … (<length>)" or "Timer (<length>)";
+        # "fix the egg timer" is a reminder that names one (Codex's review of #257).
+        return [(due, item) for due, item in self._dated("timer")
+                if re.fullmatch(r"(?:[a-z][\w' -]*\s)?timer(?:\s+to\s.+)?\s\(.+\)", str(item.get("message", "")),
+                                re.IGNORECASE)]
+
+    def _timer_extend(self, raw: str) -> ToolResult:
+        """`timer add <length> [<name>]` - more time on a running timer: "add 5 minutes to the laundry
+        timer" reached the chat model."""
+        cleaned = _spoken_request(raw)
+        parts = list(_TIMER_PART.finditer(cleaned))
+        if not parts:
+            return ToolResult.failure("How much time should I add? Say something like \"add 5 minutes to the timer\".")
+        seconds = sum(_span_seconds(part) for part in parts)
+        name = re.sub(r"^(?:\s*(?:more|to|on|the|my|and)\b)+|\btimer\b", " ", cleaned[parts[-1].end():],
+                      flags=re.IGNORECASE)
+        name = " ".join(name.split()).lower()
+        now = datetime.now().astimezone()
+        # A timer going off counts too: "add 5 minutes" said while it rings is 5 minutes from now.
+        running = self._running_timers()
+        if name:
+            running = [(due, item) for due, item in running
+                       if str(item.get("message", "")).lower().startswith(f"{name} timer ")]
+        if not running:
+            return ToolResult.failure(f"No {name + ' ' if name else ''}timer is running.")
+        if len(running) > 1:
+            return ToolResult.failure("Which one? " + "; ".join(re.sub(r"\s*\(.*\)$", "", str(item["message"]))
+                                                                  for _due, item in running))
+        due, item = running[0]
+        later = max(due, now) + timedelta(seconds=seconds)
+        self.context.reminders.move(int(item["id"]), later)
+        label = re.sub(r"\s*\(.*\)$", "", str(item["message"]))
+        return ToolResult.success(f"Added {_say_seconds(seconds)}: {label} now goes off {describe(later, now, local=True)}.",
+                                  id=item["id"], due_local=later.isoformat())
+
     def _timers(self, name: str = "") -> ToolResult:
         """Running timers and what is left on each - "how much time is left on my timer", or on the
         one named: "is my egg timer still going"."""
         now = datetime.now().astimezone()
-        # A timer is saved as "<Name> timer (<length>)", "Timer to … (<length>)" or "Timer (<length>)";
-        # "fix the egg timer" is a reminder that names one (Codex's review of #257).
-        running = [(due, item) for due, item in self._dated("timer")
-                   if re.fullmatch(r"(?:[a-z][\w' -]*\s)?timer(?:\s+to\s.+)?\s\(.+\)", str(item.get("message", "")),
-                                   re.IGNORECASE)]
+        running = self._running_timers()
         if name:
             named = [(due, item) for due, item in running
                      if str(item.get("message", "")).lower().startswith(f"{name.lower()} timer ")]
@@ -3582,6 +3620,12 @@ class AgentOrchestrator:
             return ToolResult.failure("Say which reminder and when, e.g. \"move my dentist reminder to 4pm\".")
         reminder, why = self._find_reminder(parts.group("which"))
         if reminder is None:
+            repeating = [job for job in self._repeating_reminders()
+                         if job.spec[len("reminder add now "):].strip().lower() == "alarm"]
+            if re.search(r"\balarm\b", parts.group("which"), re.IGNORECASE) and repeating:
+                # A repeating alarm is a scheduled job, not a reminder: said so, rather than "no reminder about 'alarm'".
+                return ToolResult.failure(f"Your alarm repeats ({repeating[0].schedule.describe()}), and I can't move "
+                                          "a repeating alarm yet. Say \"cancel the alarm\" and set it again for the new time.")
             return ToolResult.failure(why)
         now = datetime.now().astimezone()
         said = spoken_to_digits(parts.group("when").strip())
