@@ -993,7 +993,7 @@ _LARGEST_FILES = re.compile(
 # ran a web search, because "today" read as news.
 _RECENT_DOWNLOADS = re.compile(
     _POLITE + r"(?:what(?:\s+(?:files|stuff))?\s+(?:did|have)\s+i\s+(?:download(?:ed)?|saved?)"
-    r"(?:\s+(?:today|recently|lately|yesterday|this\s+(?:morning|afternoon|week)))?"
+    r"(?:\s+(?:(?P<period>today|yesterday|this\s+(?:morning|afternoon|week))|recently|lately))?"
     r"|(?:show|list|what\s+are)(?:\s+me)?\s+(?:my\s+)?(?:recent|latest|newest|last)\s+downloads"
     r"|what(?:'s|s|\s+is)\s+new\s+in\s+(?:my\s+)?downloads(?:\s+folder)?)\s*[?.!]*$",
     re.IGNORECASE,
@@ -1066,8 +1066,11 @@ class HeuristicPlannerProvider:
         largest = self._largest_files(raw)
         if largest:
             return largest
-        if _RECENT_DOWNLOADS.match(raw):
-            return self._command("scan files ~/Downloads by date", "User wants their recent downloads.", 0.86)
+        downloads = _RECENT_DOWNLOADS.match(raw)
+        if downloads:
+            # The day said is kept, so the answer lists only that day's files; "this morning" is today.
+            period = re.sub(r"this\s+(?:morning|afternoon)", "today", (downloads.group("period") or "").lower())
+            return self._command(f"scan files ~/Downloads by date {period}".strip(), "User wants their recent downloads.", 0.86)
 
         listing = _FOLDER_LISTING.fullmatch(raw)
         if listing and (listing.group("what") or re.search(r"\b(?:files|folder|directory)\b", raw, re.IGNORECASE)):

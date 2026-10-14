@@ -253,7 +253,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   order), to a folder scan, to system status, and bitcoin/markets count as live. "what/where/when
   did i …" is never searched for, except "what did i miss". Trap: the target guard refused
   `~/Downloads` because "download" is not "downloads"; a longer word's singular now names it,
-  never a short one ("news" is not named by "what's new"). (10-11)
+  never a short one ("news" is not named by "what's new"), and only as a whole word: as a
+  substring "a documentary" named ~/Documents (Codex's review). The day said is kept: "what did i
+  download today" listed a file from three days before; now only that day's, or "Nothing … changed
+  today" with the newest named. (10-11)
 - **"can you tell me what time it will be in 3 hours", "would you mind telling me when daylight
   saving ends", "can you check if my laptop is plugged in" and "can you tell me the tip on 64
   dollars at 20 percent" reached the chat model**, though the question inside each routes → the
@@ -437,7 +440,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   month" is the next time that day comes round (a month named outright is never moved: "the
   31st of next month" in October is refused), but only when what follows goes on like a date:
   "on the 2nd floor" and "the 2nd pill" stay in the sentence; the whole chain of leading
-  to/for/that is stripped; a pomodoro is a 25-minute timer unless a length is said. (10-11)
+  to/for/that is stripped; a pomodoro is a 25-minute timer unless a length is said. "this month"
+  is named too: "the 1st of this month" on the 17th was set for 1 October, and is now refused
+  (Codex's review of #272). (10-11)
 - **"is 2028 a leap year" ran a web search; "what week of the year is it", "how many days in
   february", "is today a holiday", "how old am i if i was born in 1995" reached the chat
   model** → no route for calendar facts → `dates.calendar_fact`, reached as `date_question`'s

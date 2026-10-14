@@ -571,8 +571,10 @@ class OwnThingsTests(unittest.TestCase):
                               ("how many files are in my documents", "scan files ~/Documents"),
                               ("did anyone email me today", "email digest"), ("has anybody emailed me", "email digest"),
                               ("read me the last email", "email digest"),
-                              ("what did i download today", "scan files ~/Downloads by date"),
-                              ("what have i downloaded this week", "scan files ~/Downloads by date"),
+                              ("what did i download today", "scan files ~/Downloads by date today"),
+                              ("what have i downloaded this week", "scan files ~/Downloads by date this week"),
+                              ("what did i save this morning", "scan files ~/Downloads by date today"),
+                              ("what did i download", "scan files ~/Downloads by date"),
                               ("show my recent downloads", "scan files ~/Downloads by date")):
             with self.subTest(text):
                 self.assertEqual(router.plan(text, "", {}).command, command)
@@ -590,14 +592,30 @@ class OwnThingsTests(unittest.TestCase):
                 stamp = time.time() - days_ago * 86400
                 os.utime(downloads / name, (stamp, stamp))
             everyday = Everyday(Path(tmp))
+
+            def listed(message: str) -> list[str]:
+                return [line.split("`")[1] for line in message.splitlines() if line.startswith("- `")]
+
             with patch.dict(os.environ, {"USERPROFILE": home, "HOME": home}):
-                result, ran = everyday.say("what did i download today", stream=False)
+                recent, _ = everyday.say("show my recent downloads", stream=False)
+                today, ran = everyday.say("what did i download today", stream=False)
+                (downloads / "ticket.pdf").unlink()
+                nothing, _ = everyday.say("what did i download today", stream=False)
+            self.assertTrue(recent.message.startswith("**Newest of 2 file(s)"), recent.message)
+            self.assertEqual(listed(recent.message), ["ticket.pdf", "old-notes.txt"])
             # "download" names ~/Downloads: the target guard refused the singular, and it went to chat.
-            self.assertEqual(ran, "scan files ~/Downloads by date")
-            lines = result.message.splitlines()
-            self.assertTrue(lines[0].startswith("**Newest of 2 file(s)"), result.message)
-            self.assertEqual([line.split("`")[1] for line in lines if line.startswith("- `")],
-                             ["ticket.pdf", "old-notes.txt"])
+            self.assertEqual(ran, "scan files ~/Downloads by date today")
+            # Only today's: a file from three days ago is not what was downloaded today (Codex's review).
+            self.assertTrue(today.message.startswith("**1 file(s) in"), today.message)
+            self.assertEqual(listed(today.message), ["ticket.pdf"])
+            self.assertTrue(nothing.message.startswith("Nothing in "), nothing.message)
+            self.assertIn("changed today. The newest is `old-notes.txt`", nothing.message)
+            # A whole word only: "a documentary" does not name ~/Documents, nor "downloadable" ~/Downloads.
+            for said, target in (("recommend a documentary", "scan files ~/Documents"),
+                                 ("is this downloadable", "scan files ~/Downloads")):
+                with self.subTest(said):
+                    planned = PlanDecision(action="command", confidence=0.9, explanation="test", command=target)
+                    self.assertTrue(everyday.orchestrator._repair_target_command(said, planned, []).is_chat)
             # A short word is never named by its singular: "news" is not in "what's new".
             planned = PlanDecision(action="command", confidence=0.9, explanation="test",
                                    command="open url https://www.news.com")

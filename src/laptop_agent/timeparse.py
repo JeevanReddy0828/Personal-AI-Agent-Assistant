@@ -399,6 +399,16 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
                         r"|afternoon|evening|night|please|remind)\b)", text)
     if monthly and 1 <= int(monthly.group("d") or monthly.group("d2")) <= 31:
         day, year, month = int(monthly.group("d") or monthly.group("d2")), today.year, today.month
+        if monthly.group("which") == "this":
+            # Named outright, so never moved: "the 1st of this month" on the 17th was set for the 1st of
+            # next month (Codex's review of #272).
+            try:
+                named = date(year, month, day)
+            except ValueError as exc:
+                raise TimeParseError(f"This month has no day {day}.") from exc
+            if named < today:
+                raise TimeParseError(f"Day {day} of this month has already passed.")
+            return named, monthly.start(), monthly.end(), False
         if monthly.group("which") == "next":
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
             try:      # a month named outright is not moved: "the 31st of next month" in October

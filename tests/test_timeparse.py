@@ -160,6 +160,11 @@ class DayOfMonthTests(unittest.TestCase):
     def test_a_month_named_outright_is_not_moved(self) -> None:
         with self.assertRaises(TimeParseError):
             parse_when("on the 31st of next month at 9", at(2026, 10, 11, 12))     # November has 30
+        # "this month" is named too: a day already gone is refused, not moved to October (Codex's review).
+        for text in ("on the 1st of this month at 9am", "on the 31st of this month at 9"):      # September has 30
+            with self.subTest(text), self.assertRaises(TimeParseError):
+                parse_when(text, NOW)
+        self.assertEqual(parse_when("on the 20th of this month at 9", NOW).at.date(), datetime(2026, 9, 20).date())
 
     def test_an_ordinal_that_is_not_a_day_stays_in_the_sentence(self) -> None:
         for text in ("fix the light on the 2nd floor", "take the 2nd pill", "the 15th", "on the 3rd try"):
