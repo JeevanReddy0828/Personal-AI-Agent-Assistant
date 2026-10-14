@@ -1442,6 +1442,39 @@ class AlarmListTests(unittest.TestCase):
             self.assertIn("weekdays at 07:00 (off)", everyday.say("show my alarms", stream=False)[0].message)
 
 
+class MemoryRecallTests(unittest.TestCase):
+    """From an offline probe: "who is my doctor" ran a web search after "my doctor is dr. patel" was
+    saved, "forget where i parked" found nothing, and "delete my last note" reached the chat model."""
+
+    def test_who_is_my_is_a_fact_and_never_searched_for(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("remember my doctor is dr. patel", stream=False)
+            self.assertEqual(everyday.say("who is my doctor", stream=False)[0].message, "Your doctor is dr. patel.")
+            self.assertEqual(everyday.say("who's my doctor again", stream=False)[0].message, "Your doctor is dr. patel.")
+            fresh = everyday.orchestrator._needs_fresh_info
+            # Not told: the chat model, never the web ("who is" read as news, like "who is the president").
+            for text in ("who is my dentist", "who's my dentist"):
+                self.assertFalse(fresh(text), text)
+            self.assertTrue(fresh("who is the president"))
+
+    def test_a_note_is_forgotten_by_its_words_or_as_the_last_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            notes = lambda: everyday.orchestrator.context.memory.dump().get("notes") or []
+            for text in ("remember i parked on level 3", "take a note: buy a new charger",
+                         "note to self: call the plumber"):
+                everyday.say(text, stream=False)
+            self.assertEqual(everyday.say("forget where i parked", stream=False)[0].message,
+                             "Forgotten: i parked on level 3")
+            result, ran = everyday.say("delete my last note", stream=False)
+            self.assertEqual((ran, result.message), ("forget last note", "Forgotten: call the plumber"))
+            self.assertEqual(notes(), ["buy a new charger"])
+            everyday.say("forget my last note", stream=False)
+            self.assertFalse(everyday.say("forget the last note", stream=False)[0].ok)     # none left
+            self.assertIsNone(everyday.say("delete my last email", stream=False)[1])
+
+
 class ReminderMoveTests(unittest.TestCase):
     """"move my dentist reminder to 4pm" reached the chat model, which cannot change a reminder."""
 

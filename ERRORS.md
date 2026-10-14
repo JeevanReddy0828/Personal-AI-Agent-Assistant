@@ -555,6 +555,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   save is said as one (a drive or ./ ~/ / start, a single image file name, or one word after
   "to"; "error/bug" and "read the report.png" inside a sentence are not - Codex, #258); "and tell me/describe/read"
   reads the screen; anything else saves to `screenshots/` as usual. (10-09)
+- **"who is my doctor" ran a web search after "my doctor is dr. patel" was saved; "forget where i
+  parked" found nothing; "delete my last note" reached the chat model** → "who is" read as news and
+  `_FACT_ASK` knew only "what's my", a note had to contain "where", and no route dropped a note →
+  "who is my X" is a fact question (and never searched for, told or not), question words are not
+  required in a note, and "delete/forget my last note" drops the newest. Where a note answers a
+  question ("where did i park") the chat model already reads the notes. (10-13)
 - **Test data in the user's real store** → a throwaway instance changed only the port →
   set `LAPTOP_AGENT_DATA_DIR` too; stop it when done. (09-17, 09-12, 09-28)
 - **State leaks between tests or runs** → persistence read the process-wide config → take the

@@ -141,8 +141,10 @@ class MemoryStore:
         spot, a door code - stayed in every answer about the user for good.
         """
         # Only words that say something: "forget the" must not match every note with "the".
+        # The question words too: "forget where i parked" required "where" in the note.
         filler = {"the", "a", "an", "my", "i", "that", "it", "to", "of", "on", "in", "at", "is",
-                  "was", "me", "about", "and", "or", "for", "this", "what", "told", "you", "said"}
+                  "was", "me", "about", "and", "or", "for", "this", "what", "told", "you", "said",
+                  "where", "when", "how", "why", "who", "did", "do", "does"}
         wanted = [word for word in _normalized(words).split() if word not in filler]
         if not wanted:
             return []
@@ -152,6 +154,16 @@ class MemoryStore:
             self._data["notes"] = [note for note in notes if note not in dropped]
             self.save()
         return [str(note) for note in dropped]
+
+    @synchronized
+    def forget_last_note(self) -> str | None:
+        """Drop the newest note; returns it, or None when there are none."""
+        notes = self._data.setdefault("notes", [])
+        if not notes:
+            return None
+        dropped = str(notes.pop())
+        self.save()
+        return dropped
 
     @synchronized
     def dump(self) -> dict[str, Any]:
