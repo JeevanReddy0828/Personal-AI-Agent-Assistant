@@ -257,6 +257,16 @@ guard, with the date), and a session entry only when the line cannot carry the l
   substring "a documentary" named ~/Documents (Codex's review). The day said is kept: "what did i
   download today" listed a file from three days before; now only that day's, or "Nothing … changed
   today" with the newest named. (10-11)
+- **"can you tell me what time it will be in 3 hours", "would you mind telling me when daylight
+  saving ends", "can you check if my laptop is plugged in" and "can you tell me the tip on 64
+  dollars at 20 percent" reached the chat model**, though the question inside each routes → the
+  routes matched the question only at the start of the sentence, and the indirect word order
+  ("what time it will be", "when daylight saving ends", "my laptop is plugged in") was never
+  written → `_inner_question` strips the "tell me / check if" lead for the clock, the calculator
+  and system status, and those forms exist; "my laptop is plugged in" said on its own is a
+  statement and stays chat. After "tell me" the "if"/"whether" stays on the question, so the
+  plugged-in predicate takes it (Codex's review of #277) - that predicate only, so "tell me if you
+  agree" stays chat. Not yet: "tell me what 15% of 80 is", "tell me if 97 is prime". (10-11)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is
