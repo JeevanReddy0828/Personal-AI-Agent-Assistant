@@ -9,6 +9,7 @@ from laptop_agent.tools.calculator import (
     evaluate,
     looks_like_arithmetic,
     normalize,
+    prime_question,
 )
 
 
@@ -108,6 +109,19 @@ class MoreEverydayMathTests(unittest.TestCase):
         for text in ("factorial of 4000", "factorial(2.5)"):
             with self.subTest(text):
                 self.assertFalse(CalculatorTool().compute(text).ok)
+
+    def test_a_sum_or_a_prime_asked_inside_a_sentence(self) -> None:
+        """"tell me what 15% of 80 is" and "tell me if 97 is prime" put the verb last."""
+        for text, answer in (("what 15% of 80 is", "**12**"), ("how much 20% of 85 is", "**17**"),
+                             ("what 12 times 13 is", "**156**"), ("if 97 is prime", "**97 is prime**"),
+                             ("whether 91 is a prime number", "**91 is not prime**: 7 × 13")):
+            with self.subTest(text):
+                self.assertIn(answer, self.say(text))
+        # A statement, not a question: no "if"/"whether", nothing to check.
+        self.assertIsNone(prime_question("97 is prime"))
+        for text in ("what time it is", "what my name is", "how much this costs"):
+            with self.subTest(text):
+                self.assertFalse(looks_like_arithmetic(text))
 
     def test_a_tip_or_a_tax_said_either_way_round(self) -> None:
         """"what's the tip on 64 dollars at 20 percent" and "7% sales tax on 49.99" reached the chat model."""

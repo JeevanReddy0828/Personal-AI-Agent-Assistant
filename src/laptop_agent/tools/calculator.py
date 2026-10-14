@@ -354,6 +354,9 @@ def normalize(text: str) -> str:
     # request is rejected by evaluate anyway, so skip that scan before it costs seconds.
     if len(cleaned) > _MAX_EXPRESSION_CHARS:
         return cleaned
+    # Asked inside another sentence the verb comes last: "(tell me) what 15% of 80 is".
+    cleaned = re.sub(r"^\s*(?:what|how\s+much)\s+(?P<sum>.+?)\s+(?:is|equals|comes\s+to|would\s+be)$", r"\g<sum>",
+                     cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
         r"^\s*(?:what(?:'s| is)|whats|how much is|calculate|compute|work out|evaluate|solve)\s+"
         r"(?:(?:a|an|the)\s+(?=\d|[$€£₹]))?",
@@ -453,7 +456,9 @@ def evaluate(expression: str):
 
 # "is 97 a prime number": yes or no, with the factors when it is no. Not a sum, so it is
 # asked as a whole sentence of its own; checked by trial division up to a trillion.
-_PRIME_ASK = re.compile(r"^\s*is\s+(?P<n>\d+)\s+(?:a\s+)?prime(?:\s+number)?\s*$", re.IGNORECASE)
+# "(tell me) if 97 is prime" too; the "if"/"whether" is required, since "97 is prime" is a statement.
+_PRIME_ASK = re.compile(r"^\s*(?:is\s+(?P<n>\d+)|(?:if|whether)\s+(?P<n2>\d+)\s+is)\s+(?:a\s+)?prime(?:\s+number)?\s*$",
+                        re.IGNORECASE)
 _PRIME_LIMIT = 10**12
 
 
@@ -479,7 +484,7 @@ def prime_question(text: str) -> int | None:
         return None
     # Past the limit by its length alone: int() refuses a numeral over 4,300 digits, which
     # raised ValueError here before the "too large to check" reply (Codex's review of #246).
-    digits = asked.group("n").lstrip("0") or "0"
+    digits = (asked.group("n") or asked.group("n2")).lstrip("0") or "0"
     return int(digits) if len(digits) <= len(str(_PRIME_LIMIT)) else _PRIME_LIMIT + 1
 
 

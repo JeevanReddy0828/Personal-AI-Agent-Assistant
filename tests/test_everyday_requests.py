@@ -777,6 +777,8 @@ class PoliteAskTests(unittest.TestCase):
                 # The "if" stays on the question after "tell me" (Codex's review).
                 ("can you tell me if my laptop is plugged in", "system status"),
                 ("let me know whether my laptop is charging", "system status"),
+                ("can you tell me if 97 is prime", "calculate if 97 is prime"),
+                ("tell me what 15% of 80 is", "calculate what 15% of 80 is"),
                 ("can you tell me the tip on 64 dollars at 20 percent", "calculate the tip on 64 dollars at 20 percent")):
             with self.subTest(text):
                 self.assertEqual(router.plan(text, "", {}).command, command)
