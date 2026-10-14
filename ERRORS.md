@@ -261,7 +261,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   ("what time it will be", "when daylight saving ends", "my laptop is plugged in") was never
   written → `_inner_question` strips the "tell me / check if" lead for the clock, the calculator
   and system status, and those forms exist; "my laptop is plugged in" said on its own is a
-  statement and stays chat. Not yet: "tell me what 15% of 80 is", "tell me if 97 is prime". (10-11)
+  statement and stays chat. After "tell me" the "if"/"whether" stays on the question, so the
+  plugged-in predicate takes it (Codex's review of #277) - that predicate only, so "tell me if you
+  agree" stays chat. Not yet: "tell me what 15% of 80 is", "tell me if 97 is prime". (10-11)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is

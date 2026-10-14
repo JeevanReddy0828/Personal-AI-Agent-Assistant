@@ -756,11 +756,15 @@ class PoliteAskTests(unittest.TestCase):
                 ("would you mind telling me when daylight saving ends", "time when daylight saving ends"),
                 ("let me know when the clocks go back", "time when the clocks go back"),
                 ("can you check if my laptop is plugged in", "system status"),
+                # The "if" stays on the question after "tell me" (Codex's review).
+                ("can you tell me if my laptop is plugged in", "system status"),
+                ("let me know whether my laptop is charging", "system status"),
                 ("can you tell me the tip on 64 dollars at 20 percent", "calculate the tip on 64 dollars at 20 percent")):
             with self.subTest(text):
                 self.assertEqual(router.plan(text, "", {}).command, command)
         for text in ("tell me a joke", "can you tell me a story about a dragon", "can you check if the store is open",
-                     "could you tell me what you think about python", "my laptop is plugged in"):
+                     "could you tell me what you think about python", "my laptop is plugged in",
+                     "can you tell me if you agree", "let me know whether it is worth it"):
             with self.subTest(text):
                 self.assertIsNone(router.plan(text, "", {}).command)
 

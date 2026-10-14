@@ -344,8 +344,11 @@ _TIME_FIRST = re.compile(
 _ASK_LEAD = re.compile(_POLITE + r"(?:(?:tell|show|give)(?:ing)?\s+me\s+|let\s+me\s+know\s+"
                        r"|(?:check|see)(?:ing)?\s+(?:if|whether)\s+)", re.IGNORECASE)
 # Only after a lead like that: as a sentence of its own, "my laptop is plugged in" is a statement.
-_SYSTEM_TOLD = re.compile(r"^\s*(?:my\s+(?:laptop|computer|pc|machine|battery)|it|the\s+(?:laptop|computer))\s+is\s+"
-                          r"(?:plugged\s+in|charging|on\s+battery)\s*[?.!]*$", re.IGNORECASE)
+# "if"/"whether" too, for this predicate only: "can you tell me if my laptop is plugged in" leaves it
+# on the question (Codex's review of #277), and a general "if" would let "tell me if you agree" through.
+_SYSTEM_TOLD = re.compile(r"^\s*(?:(?:if|whether)\s+)?(?:my\s+(?:laptop|computer|pc|machine|battery)|it"
+                          r"|the\s+(?:laptop|computer))\s+is\s+(?:plugged\s+in|charging|on\s+battery)\s*[?.!]*$",
+                          re.IGNORECASE)
 
 
 def _inner_question(text: str) -> str | None:
