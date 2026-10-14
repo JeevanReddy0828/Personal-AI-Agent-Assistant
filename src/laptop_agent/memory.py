@@ -141,15 +141,21 @@ class MemoryStore:
         spot, a door code - stayed in every answer about the user for good.
         """
         # Only words that say something: "forget the" must not match every note with "the".
-        # The question words too: "forget where i parked" required "where" in the note.
         filler = {"the", "a", "an", "my", "i", "that", "it", "to", "of", "on", "in", "at", "is",
-                  "was", "me", "about", "and", "or", "for", "this", "what", "told", "you", "said",
-                  "where", "when", "how", "why", "who", "did", "do", "does"}
+                  "was", "me", "about", "and", "or", "for", "this", "what", "told", "you", "said"}
         wanted = [word for word in _normalized(words).split() if word not in filler]
-        if not wanted:
-            return []
         notes = self._data.setdefault("notes", [])
-        dropped = [note for note in notes if all(word in _normalized(str(note)).split() for word in wanted)]
+
+        def holding(required: list[str]) -> list[Any]:
+            return [note for note in notes if required and all(word in _normalized(str(note)).split() for word in required)]
+
+        # Every word first. Only an indirect question lets its opening word go when nothing has them
+        # all - "forget where i parked" finds "i parked on level 3" - never a phrase like "how to file my
+        # taxes", which once dropped "file my taxes on friday" instead (Codex's review).
+        dropped = holding(wanted)
+        if not dropped and re.match(r"(?:where|when|how|why|who)\s+(?:i|my|we|our|you|your|did|do|does)\b",
+                                    _normalized(words)):
+            dropped = holding(wanted[1:])
         if dropped:
             self._data["notes"] = [note for note in notes if note not in dropped]
             self.save()

@@ -1473,6 +1473,16 @@ class MemoryRecallTests(unittest.TestCase):
             everyday.say("forget my last note", stream=False)
             self.assertFalse(everyday.say("forget the last note", stream=False)[0].ok)     # none left
             self.assertIsNone(everyday.say("delete my last email", stream=False)[1])
+            # A question word that is in a note still tells notes apart (Codex's review): only the first
+            # goes - and with the first gone, the other is not forgotten in its place.
+            memory = everyday.orchestrator.context.memory
+            for note in ("how to file my taxes", "file my taxes on friday"):
+                memory.add_note(note)
+            self.assertEqual(everyday.say("forget how to file my taxes", stream=False)[0].message,
+                             "Forgotten: how to file my taxes")
+            self.assertEqual(notes(), ["file my taxes on friday"])
+            self.assertFalse(everyday.say("forget how to file my taxes", stream=False)[0].ok)
+            self.assertEqual(notes(), ["file my taxes on friday"])
 
 
 class ReminderMoveTests(unittest.TestCase):
