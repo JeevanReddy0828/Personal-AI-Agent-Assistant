@@ -266,7 +266,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and system status, and those forms exist; "my laptop is plugged in" said on its own is a
   statement and stays chat. After "tell me" the "if"/"whether" stays on the question, so the
   plugged-in predicate takes it (Codex's review of #277) - that predicate only, so "tell me if you
-  agree" stays chat. Not yet: "tell me what 15% of 80 is", "tell me if 97 is prime". (10-11)
+  agree" stays chat. The calculator reads the verb last too: "tell me what 15% of 80 is", "tell
+  me if 97 is prime" ("97 is prime" alone is a statement and is not checked). (10-13)
 - **"how much ram am i using" was answered by the chat model**, which cannot see this machine →
   `_SYSTEM_ASK` knew "ram usage" but not "how much ram/memory/cpu am i using / is free / do i
   have" → those forms route to `system status` as the whole sentence, so "how much memory is
