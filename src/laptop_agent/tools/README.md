@@ -82,6 +82,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Web, research and information
 | File | What it does |
 |---|---|
+| `keys.py` | `keys <new tab|back|scroll down|…>` and `keys type`: a named shortcut or one line of text, sent to the app named or the one the user was in; closing and typing ask. |
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
 | `research.py` | Searches, fetches pages, extracts readable text, writes a sourced report. |

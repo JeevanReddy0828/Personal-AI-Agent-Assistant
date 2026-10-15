@@ -319,6 +319,33 @@ _MAIL_DIGEST_ASK = re.compile(
     r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
     re.IGNORECASE,
 )
+# A key press for the app the user is in, said as a whole sentence: "new tab", "scroll down in
+# edge", "go back". Each phrasing names one of the fixed shortcuts in tools/keys.py.
+_KEY_PHRASES = {
+    "new tab": r"(?:open\s+)?(?:a\s+)?new\s+tab", "close tab": r"close\s+(?:this|the)\s+tab",
+    "reopen tab": r"reopen\s+(?:the\s+)?(?:last\s+)?(?:closed\s+)?tab", "next tab": r"(?:go\s+to\s+the\s+)?next\s+tab",
+    "previous tab": r"(?:go\s+to\s+the\s+)?(?:previous|last)\s+tab", "back": r"go\s+back(?:\s+a\s+page)?",
+    "forward": r"go\s+forward(?:\s+a\s+page)?", "refresh": r"(?:refresh|reload)\s+(?:this|the)\s+page",
+    "scroll down": r"scroll\s+down", "scroll up": r"scroll\s+up",
+    "top": r"(?:scroll|go)\s+to\s+the\s+top(?:\s+of\s+the\s+page)?",
+    "bottom": r"(?:scroll|go)\s+to\s+the\s+bottom(?:\s+of\s+the\s+page)?",
+    "zoom in": r"zoom\s+in", "zoom out": r"zoom\s+out", "reset zoom": r"reset\s+(?:the\s+)?zoom",
+    "select all": r"select\s+all", "paste": r"paste\s+(?:it|that)(?:\s+here)?", "save": r"save\s+(?:the\s+file|it)",
+    "escape": r"press\s+escape", "enter": r"press\s+enter", "close window": r"close\s+(?:this|the)\s+window",
+    "minimize": r"minimi[sz]e\s+(?:this|the)\s+window", "maximize": r"maximi[sz]e\s+(?:this|the)\s+window",
+    "show desktop": r"show\s+(?:me\s+)?the\s+desktop",
+}
+_KEY_ASK = [(action, re.compile(_POLITE + r"(?:" + phrase + r")(?:\s+in\s+(?P<app>[\w .-]{2,30}?))?\s*[.!]*\s*$",
+                                re.IGNORECASE)) for action, phrase in _KEY_PHRASES.items()]
+# Typing needs the text marked off - quoted, or "type out" - or an app named: "type 2 diabetes
+# symptoms" said to an assistant is a search, not text for whatever window is behind it.
+_TYPE_ASK = re.compile(
+    _POLITE + r"type\s+(?:out\s+)?(?:\"(?P<quoted>[^\"]{1,500})\"|'(?P<single>[^']{1,500})'"
+    r"|(?P<plain>.{1,500}?)\s+in(?:to)?\s+(?P<app>[\w .-]{2,30}?))\s*[.!]*\s*$"
+    r"|" + _POLITE + r"type\s+out\s+(?P<out>.{1,500}?)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking for research opens the sentence. Matched anywhere, 14 of 16 ordinary sentences
 # started the multi-search workflow: "the police will investigate the crash", "I'll look
 # into it", "my professor told me to read up on kant".
@@ -1132,6 +1159,10 @@ class HeuristicPlannerProvider:
         remember = self._remember(raw)
         if remember:
             return remember
+
+        pressed = self._keys(raw)
+        if pressed:
+            return pressed
 
         email = self._email(raw)
         if email:
@@ -2314,6 +2345,23 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"plan apply job {match.group(1)}", "User wants a job application workflow prepared.", 0.8)
+
+    def _keys(self, text: str) -> PlanDecision | None:
+        """'new tab', 'scroll down in edge', 'type "hello" in notepad' -> keys for that app."""
+        text = text or ""
+        for action, pattern in _KEY_ASK:
+            asked = pattern.match(text)
+            if asked:
+                app = f" in {asked.group('app').strip()}" if asked.group("app") else ""
+                return self._command(f"keys {action}{app}", "User wants a key pressed in an app.", 0.86)
+        typed = _TYPE_ASK.match(text)
+        if typed:
+            words = next(group for group in (typed.group("quoted"), typed.group("single"), typed.group("plain"),
+                                             typed.group("out")) if group)
+            app = (typed.group("app") or "").strip()
+            return self._command(f"keys type {app} :: {words.strip()}".replace("type  ::", "type ::"),
+                                 "User wants text typed into an app.", 0.86)
+        return None
 
     def _email(self, text: str) -> PlanDecision | None:
         api_provider = self._email_api_provider(text.lower())
