@@ -561,6 +561,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "who is my X" is a fact question (and never searched for, told or not), the opening word of an
   indirect question ("where i parked") is let go only when no note has every word - ignored always,
   "forget how to file my taxes" dropped "file my taxes on friday" instead (Codex's review) - and
+  only "where/when/who" may go, never "how/why": a repeated "forget how i file my taxes" dropped
+  "i file my taxes on friday" in place of the note already gone (Codex, bdf75e3) - and
   "delete/forget my last note" drops the newest. Where a note answers a question ("where did i
   park") the chat model already reads the notes. (10-13)
 - **Test data in the user's real store** → a throwaway instance changed only the port →

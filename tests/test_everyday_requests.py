@@ -1483,6 +1483,13 @@ class MemoryRecallTests(unittest.TestCase):
             self.assertEqual(notes(), ["file my taxes on friday"])
             self.assertFalse(everyday.say("forget how to file my taxes", stream=False)[0].ok)
             self.assertEqual(notes(), ["file my taxes on friday"])
+            # "how" and "why" are a note's own words, not the answer it holds: asked again once that note
+            # is gone, the request refuses instead of forgetting the Friday note (Codex, bdf75e3).
+            memory.add_note("how i file my taxes")
+            self.assertEqual(everyday.say("forget how i file my taxes", stream=False)[0].message,
+                             "Forgotten: how i file my taxes")
+            self.assertFalse(everyday.say("forget how i file my taxes", stream=False)[0].ok)
+            self.assertEqual(notes(), ["file my taxes on friday"])
 
 
 class ReminderMoveTests(unittest.TestCase):

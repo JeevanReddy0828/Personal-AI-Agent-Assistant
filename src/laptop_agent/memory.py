@@ -149,11 +149,12 @@ class MemoryStore:
         def holding(required: list[str]) -> list[Any]:
             return [note for note in notes if required and all(word in _normalized(str(note)).split() for word in required)]
 
-        # Every word first. Only an indirect question lets its opening word go when nothing has them
-        # all - "forget where i parked" finds "i parked on level 3" - never a phrase like "how to file my
-        # taxes", which once dropped "file my taxes on friday" instead (Codex's review).
+        # Every word first. Only "where", "when" or "who" may then go: each stands for the answer a note
+        # holds - "forget where i parked" finds "i parked on level 3". "how" and "why" are a note's own
+        # words, so a repeated "forget how i file my taxes" once dropped "i file my taxes on friday"
+        # in place of the note already gone (Codex's review).
         dropped = holding(wanted)
-        if not dropped and re.match(r"(?:where|when|how|why|who)\s+(?:i|my|we|our|you|your|did|do|does)\b",
+        if not dropped and re.match(r"(?:where|when|who)\s+(?:i|my|we|our|you|your|did|do|does)\b",
                                     _normalized(words)):
             dropped = holding(wanted[1:])
         if dropped:
