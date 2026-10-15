@@ -630,6 +630,8 @@ _FACT_CHANGE = re.compile(
 _FACT_ASK = re.compile(
     r"^\s*(?:(?:what(?:'s|s|\s+is)|do\s+you\s+(?:remember|know)|tell\s+me|remind\s+me(?:\s+of)?)\s+my\s+"
     r"(?P<key>[a-z][\w']*(?:\s+[a-z][\w']*){0,3}?)(?:\s+is)?(?:\s+again)?"
+    # "who is my doctor" ran a web search for the sentence: it is a fact the user told me.
+    r"|who(?:'s|s|\s+is|\s+are)\s+my\s+(?P<whose>[a-z][\w']*(?:\s+[a-z][\w']*){0,3}?)(?:\s+again)?"
     r"|(?P<live>where\s+do\s+i\s+live|what\s+city\s+do\s+i\s+live\s+in)"
     r"|(?P<who>who\s+am\s+i|what\s+do\s+you\s+call\s+me))\s*[?.!]*$",
     re.IGNORECASE,
@@ -649,13 +651,16 @@ def fact_question(text: str) -> tuple[str, bool] | None:
         return "where i live", True
     if match.group("who"):
         return "name", True
-    key = " ".join(match.group("key").lower().split())
+    key = " ".join((match.group("key") or match.group("whose")).lower().split())
     return key, bool(re.fullmatch(_PERSONAL_KEY, key, re.IGNORECASE))
 _CALL_ME = re.compile(r"^\s*(?:please\s+|from\s+now\s+on[,\s]+)?call\s+me\s+(?P<name>[a-z][\w'-]{1,20})"
                       r"(?:\s+from\s+now\s+on)?\s*[.!]*$", re.IGNORECASE)
 _NOT_A_NAME = {"back", "later", "when", "if", "at", "tomorrow", "tonight", "today", "maybe", "now", "soon",
                "crazy", "out", "anytime", "whenever", "please", "sometime"}
 _I_LIVE = re.compile(r"^\s*i\s+live\s+in\s+(?P<city>[a-z][\w .,'-]{1,40}?)\s*[.!]*$", re.IGNORECASE)
+# "delete my last note" reached the chat model, which cannot delete anything.
+_UNNOTE = re.compile(_POLITE + r"(?:delete|remove|forget|erase|scratch)\s+(?:my|the|that)\s+(?:last|latest|newest)\s+note"
+                     r"\s*[.!]*$", re.IGNORECASE)
 _NOTE = re.compile(
     _POLITE + r"(?:take\s+a\s+note|make\s+a\s+note|note\s+to\s+self|note|jot\s+(?:this\s+)?down"
     r"|write\s+this\s+down)(?:\s+(?:that|to))?\s*[:,-]?\s+(?P<text>\S.*?)\s*$",
@@ -1552,6 +1557,8 @@ class HeuristicPlannerProvider:
         lives = _I_LIVE.match(text)
         if lives:
             return self._command(f"remember city = {lives.group('city')}", "Where the user lives.", 0.84)
+        if _UNNOTE.match(text):
+            return self._command("forget last note", "Drop the newest note.", 0.84)
         noted = _NOTE.match(text)
         if noted:
             return self._command(f"remember {noted.group('text')}", "Something to remember.", 0.84)

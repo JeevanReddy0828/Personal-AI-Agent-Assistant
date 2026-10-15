@@ -2810,6 +2810,8 @@ class AgentOrchestrator:
         r"|\bwhat\s+are\s+you\b|\bhow\s+are\s+you\b"
         # About the user's own day: "what did i do today" ran a web search. "what did i miss" may be news.
         r"|\b(?:what|where|when|who)\s+did\s+i\s+(?!miss\b)"
+        # "who is my doctor" is about the user, not the news, told or not.
+        r"|\bwho(?:'s|s|\s+is|\s+are|\s+was)\s+my\b"
         r"|\bmy\s+(?:calendar|schedule|agenda|day|week|plans?|reminders?|meetings?|appointments?"
         r"|tasks?|to-?dos?|inbox|emails?|notes?|jobs?|resume)\b"
         # News the user is sharing, not asking for. "good news, i got the job" was searched for
@@ -5151,6 +5153,12 @@ class AgentOrchestrator:
                 key = key[len(prefix) :].strip()
         if not key:
             return ToolResult.failure("Use: forget <key>  (for example: forget favourite editor)")
+        # "forget my last note", "delete the last thing i told you".
+        if re.fullmatch(r"(?:last|latest|newest|most\s+recent)\s+(?:note|thing(?:\s+i\s+(?:told|said)(?:\s+you)?)?)",
+                        key, re.IGNORECASE):
+            last = self.context.memory.forget_last_note()
+            return (ToolResult.success(f"Forgotten: {last}", forgot=[last]) if last is not None
+                    else ToolResult.failure("There are no notes to forget."))
         removed = self.context.memory.forget_profile_value(key)
         if removed is not None:
             return ToolResult.success(f"Forgotten: {removed}", forgot=removed)
