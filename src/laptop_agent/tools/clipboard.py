@@ -42,20 +42,30 @@ class WindowsClipboard:
     _CF_UNICODETEXT = 13
     _GMEM_MOVEABLE = 0x0002
 
-    def __init__(self) -> None:
+    def __init__(self, user32=None, kernel32=None) -> None:
+        if user32 is not None:
+            self._user32, self._kernel32 = user32, kernel32
+            return
         self._user32 = ctypes.WinDLL("user32", use_last_error=True)
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._user32.OpenClipboard.argtypes = [ctypes.c_void_p]
         self._user32.GetClipboardData.restype = ctypes.c_void_p
         self._user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
         self._user32.SetClipboardData.restype = ctypes.c_void_p
+        self._user32.CreateWindowExW.argtypes = [ctypes.c_ulong, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong,
+                                                 ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                                 ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        self._user32.CreateWindowExW.restype = ctypes.c_void_p
+        self._user32.DestroyWindow.argtypes = [ctypes.c_void_p]
         self._kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
         self._kernel32.GlobalLock.restype = ctypes.c_void_p
         self._kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
         self._kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
         self._kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        self._kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
 
-    def _open(self) -> None:
-        if not self._user32.OpenClipboard(None):
+    def _open(self, owner=None) -> None:
+        if not self._user32.OpenClipboard(owner):
             raise OSError("The clipboard is in use by another app; try again in a moment.")
 
     def read(self) -> str:
@@ -81,13 +91,27 @@ class WindowsClipboard:
         pointer = self._kernel32.GlobalLock(handle)
         ctypes.memmove(pointer, data, size)
         self._kernel32.GlobalUnlock(handle)
-        self._open()
+        # Opened without a window, EmptyClipboard leaves no owner and SetClipboardData then fails, so a
+        # copy cleared what was there and put nothing back (Codex's review, from Microsoft's docs). A
+        # hidden window owns it for the moment it takes.
+        owner = self._user32.CreateWindowExW(0, "STATIC", None, 0, 0, 0, 0, 0, None, None, None, None)
+        if not owner:
+            self._kernel32.GlobalFree(handle)
+            raise OSError("Could not make a window to own the clipboard.")
+        given = False
         try:
-            self._user32.EmptyClipboard()
-            if not self._user32.SetClipboardData(self._CF_UNICODETEXT, handle):
-                raise OSError("The clipboard refused the text.")
+            self._open(owner)
+            try:
+                self._user32.EmptyClipboard()
+                given = bool(self._user32.SetClipboardData(self._CF_UNICODETEXT, handle))
+                if not given:
+                    raise OSError("The clipboard refused the text.")
+            finally:
+                self._user32.CloseClipboard()
         finally:
-            self._user32.CloseClipboard()
+            if not given:
+                self._kernel32.GlobalFree(handle)   # Windows owns the memory only once it took it
+            self._user32.DestroyWindow(owner)
 
 
 class CommandClipboard:

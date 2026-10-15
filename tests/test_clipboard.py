@@ -7,6 +7,7 @@ Every test runs on a clipboard of its own in memory (`desktop_guard`), never the
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.tools import clipboard
-from laptop_agent.tools.clipboard import MAX_SHOWN, ClipboardTool, MemoryClipboard
+from laptop_agent.tools.clipboard import MAX_SHOWN, ClipboardTool, MemoryClipboard, WindowsClipboard
 from laptop_agent.tools.translate import TranslateTool
 
 import test_orchestrator
@@ -48,6 +49,86 @@ class ClipboardToolTests(unittest.TestCase):
 
     def test_the_harness_never_reaches_the_real_clipboard(self) -> None:
         self.assertIsInstance(clipboard.system_clipboard(), MemoryClipboard)
+
+
+class FakeKernel32:
+    """GlobalAlloc hands out real buffers, so the text copied into one can be read back."""
+
+    def __init__(self) -> None:
+        self.blocks: dict[int, ctypes.Array] = {}
+        self.freed: list[int] = []
+
+    def GlobalAlloc(self, flags: int, size: int) -> int:
+        block = ctypes.create_string_buffer(size)
+        self.blocks[ctypes.addressof(block)] = block
+        return ctypes.addressof(block)
+
+    def GlobalLock(self, handle: int) -> int:
+        return handle
+
+    def GlobalUnlock(self, handle: int) -> int:
+        return 1
+
+    def GlobalFree(self, handle: int) -> None:
+        self.freed.append(handle)
+
+
+class FakeUser32:
+    """Win32's documented rule: EmptyClipboard makes the window that opened the clipboard its
+    owner, and SetClipboardData fails when that window is NULL."""
+
+    def __init__(self, set_fails: bool = False) -> None:
+        self.opened_by: object = "closed"
+        self.owner: object = None
+        self.data: int | None = None
+        self.windows: list[int] = []
+        self.destroyed: list[int] = []
+        self.set_fails = set_fails
+
+    def CreateWindowExW(self, *args) -> int:
+        self.windows.append(0x5150 + len(self.windows))
+        return self.windows[-1]
+
+    def DestroyWindow(self, hwnd: int) -> int:
+        self.destroyed.append(hwnd)
+        return 1
+
+    def OpenClipboard(self, hwnd) -> int:
+        self.opened_by = hwnd
+        return 1
+
+    def EmptyClipboard(self) -> int:
+        self.owner, self.data = self.opened_by, None
+        return 1
+
+    def SetClipboardData(self, kind: int, handle: int) -> int:
+        if self.owner is None or self.set_fails:
+            return 0
+        self.data = handle
+        return handle
+
+    def CloseClipboard(self) -> int:
+        self.opened_by = "closed"
+        return 1
+
+
+class WindowsClipboardTests(unittest.TestCase):
+    def test_a_copy_has_an_owner_window_so_windows_takes_the_text(self) -> None:
+        user32, kernel32 = FakeUser32(), FakeKernel32()
+        WindowsClipboard(user32, kernel32).write("meet at 5")
+        self.assertIsNotNone(user32.owner, "opened with no window: SetClipboardData fails and the clipboard is left empty")
+        self.assertEqual(ctypes.wstring_at(user32.data), "meet at 5")
+        self.assertEqual(user32.destroyed, user32.windows)
+        self.assertEqual(kernel32.freed, [], "memory Windows took was freed")
+        self.assertEqual(user32.opened_by, "closed")
+
+    def test_a_refused_copy_frees_its_memory_and_says_so(self) -> None:
+        user32, kernel32 = FakeUser32(set_fails=True), FakeKernel32()
+        with self.assertRaises(OSError):
+            WindowsClipboard(user32, kernel32).write("meet at 5")
+        self.assertEqual(len(kernel32.freed), 1)
+        self.assertEqual(user32.destroyed, user32.windows)
+        self.assertEqual(user32.opened_by, "closed")
 
 
 class ClipboardCommandTests(unittest.TestCase):
