@@ -95,6 +95,7 @@ from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.translate import TranslateTool, parse_translation
 from laptop_agent.tools.weather import WeatherTool, clean_place
+from laptop_agent.tools.learn import LearnTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
@@ -543,6 +544,7 @@ class AgentOrchestrator:
         self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
         self._calculator_cache: CalculatorTool | None = None
+        self._learn_cache: LearnTool | None = None
         self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
@@ -1105,6 +1107,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("remember note "):
             return self.context.obsidian.append_memory(command[len("remember note ") :].strip())
+
+        if lowered == "learn from chat":
+            return self._learn().learn(history_turns, self.context.memory.get_profile())
 
         if lowered.startswith("remember "):
             return self._remember(command[len("remember ") :])
@@ -3152,6 +3157,7 @@ class AgentOrchestrator:
                 "  notes audit  (orphans, broken links, notes missing a summary)",
                 "  read note <name> | save note <title> : <body>",
                 "  remember note <text>",
+                "  learn from chat  (the lasting facts you said here, saved after you approve them)",
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  news [topic]  (real headlines from free feeds, with article text)",
@@ -4005,6 +4011,7 @@ class AgentOrchestrator:
         "read note <name>",
         "save note <title> : <body>",
         "remember <key> = <value>",
+        "learn from chat",
         "forget <key>",
         "knowledge prune",
         "window <name> <left|right|top|bottom|full|corner>",
@@ -5115,6 +5122,15 @@ class AgentOrchestrator:
         if notes:
             facts["things_the_user_asked_me_to_remember"] = " | ".join(notes[-15:])[-1500:]
         return facts
+
+    def _learn(self) -> LearnTool:
+        if self._learn_cache is None:
+            def save(key: str, value: str) -> None:
+                self.context.memory.set_profile_value(key, value)
+                self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
+
+            self._learn_cache = LearnTool(self._build_document_writer(), self.context.web.approval_gate, save)
+        return self._learn_cache
 
     def _remember(self, expression: str) -> ToolResult:
         # "remember that I parked on level 3" is a note about parking, not "that I parked...".

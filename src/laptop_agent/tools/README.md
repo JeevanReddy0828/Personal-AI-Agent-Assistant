@@ -96,6 +96,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Everyday answers, computed
 | File | What it does |
 |---|---|
+| `learn.py` | `learn from chat`: the lasting facts the user said in this chat, proposed by the model from the user's own words and saved after one approval card. |
 | `calculator.py` | Exact arithmetic with a hand-written parser (never `eval`); also spoken numbers. |
 | `units.py` | Unit conversions ("5 miles to km", "how many ounces in a pound"). |
 | `dates.py` | Days until a date or holiday, what day something falls on. |
