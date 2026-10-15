@@ -456,6 +456,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   no day is read from the start of the reminder's own day, so Friday's dentist moves to Friday at
   4 rather than today; a bare "11" is a clock time; a length ("in an hour") counts from now. A
   move is not a snooze and is not counted as one. (10-11)
+- **"set a timer for 20 minutes called laundry" was set unnamed, so "the laundry timer" found
+  nothing; "add 5 minutes to the timer" and "change my alarm to 6:30" reached the chat model** →
+  a timer's name was read only as "a laundry timer" / "for the laundry", and nothing gave a timer
+  more time or moved an alarm → "called/named X" names it; `timer add <length> [name]` moves a
+  running timer on (from now, if it is already going off; "which one?" when two run unnamed);
+  "add five more minutes" needs the number word read, since `spoken_to_digits` converts one only
+  beside its unit; "change my alarm to 6:30" moves a one-off alarm, and a repeating one says it
+  repeats rather than "no reminder about 'alarm'". (10-13)
 - **"how many days since friday" on a Saturday said 6 days** (Codex's review of #244) → the
   "last time it came round" retry is by year, which cannot move a weekday, and `abs` hid the
   direction → a weekday still ahead steps back by weeks. Also "1 days" is now "1 day". (10-08)
