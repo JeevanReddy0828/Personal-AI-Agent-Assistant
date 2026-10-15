@@ -19,6 +19,8 @@ import ctypes, os, sys, webbrowser
 sys.path[:0] = [sys.argv[1], sys.argv[2]]
 import {module}
 from desktop_guard import inert
+from laptop_agent.tools import system
+assert system.system_backend() is None, "the laptop's controls are live"
 assert webbrowser.open is inert, "webbrowser.open is live"
 assert getattr(os, "startfile", inert) is inert, "os.startfile is live"
 assert not hasattr(ctypes, "windll") or ctypes.windll.user32.keybd_event is inert, "keybd_event is live"

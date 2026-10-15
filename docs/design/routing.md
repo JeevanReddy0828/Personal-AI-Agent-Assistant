@@ -88,6 +88,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     for being told when a reminder counts, found nothing to catch outside reminders, and
     would add ~350 ms to every LLM-routed picture, email and document - not shipped, by
     agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
+    (2026-10-14: the wallpaper no longer reaches the LLM router. `tools/system.py` takes "set my
+    wallpaper to …" and asks for an image file when none is named.)
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

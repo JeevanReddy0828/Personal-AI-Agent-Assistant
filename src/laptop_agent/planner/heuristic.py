@@ -201,6 +201,56 @@ _SCHEDULE_ASK = re.compile(
     r"|" + _POLITE + r"what\s+(?:jobs?|tasks?)\s+(?:are|do\s+i\s+have)\s+scheduled)\s*[?.!]*",
     re.IGNORECASE,
 )
+# The laptop's own controls, said as whole sentences that name the machine, the screen or a
+# process: "lock it" or "go to sleep" alone are said to an assistant about itself.
+_MACHINE = r"(?:my|the|this)\s+(?:computer|pc|laptop|machine|system|device)"
+_LOCK_ASK = re.compile(
+    _POLITE + r"lock\s+(?:my|the|this)\s+(?:screen|computer|pc|laptop|machine|workstation)\s*[.!]*\s*$", re.IGNORECASE)
+_POWER_ASK = re.compile(
+    _POLITE + r"(?:(?P<sleep>(?:put|send)\s+" + _MACHINE + r"\s+to\s+sleep|sleep\s+" + _MACHINE + r")"
+    r"|(?P<shutdown>(?:shut\s*down|power\s+(?:off|down)|turn\s+off)\s+" + _MACHINE + r")"
+    r"|(?P<restart>(?:restart|reboot)\s+" + _MACHINE + r")"
+    r"|(?P<cancel>(?:cancel|abort|stop)\s+(?:the\s+)?(?:shut\s*down|restart|reboot)))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_BRIGHTNESS_ASK = re.compile(
+    _POLITE + r"(?:(?:set|change|put|turn|adjust)\s+(?:the\s+|my\s+)?(?:screen\s+|display\s+)?brightness\s+(?:to|at)\s+"
+    r"(?P<level>\d{1,3})\s*(?:%|percent)?"
+    r"|(?:screen\s+)?brightness\s+(?P<bare>\d{1,3})\s*(?:%|percent)?"
+    r"|(?:turn|put|bring)\s+(?:the\s+|my\s+)?(?:screen\s+)?brightness\s+(?P<way>up|down)"
+    r"|turn\s+(?P<way2>up|down)\s+(?:the\s+|my\s+)?(?:screen\s+)?brightness"
+    r"|(?:make|turn)\s+(?:the|my)\s+(?:screen|display)\s+(?P<feel>brighter|dimmer|darker)"
+    r"|(?P<dim>dim)\s+(?:the|my)\s+(?:screen|display)(?:\s+brightness)?"
+    r"|(?P<brighten>brighten)\s+(?:the|my)\s+(?:screen|display)"
+    r"|(?P<ask>what(?:'s|s|\s+is)\s+(?:the|my)\s+(?:screen\s+)?brightness(?:\s+(?:at|set\s+to))?))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WALLPAPER_ASK = re.compile(
+    _POLITE + r"(?:(?:set|change|make|switch)\s+(?:my|the)\s+(?:desktop\s+)?(?:wallpaper|background)\s+(?:to|as)\s+(?P<to>.+?)"
+    r"|(?:set|make|use)\s+(?P<as>.+?)\s+as\s+(?:my|the)\s+(?:desktop\s+)?(?:wallpaper|background)"
+    r"|(?P<back>(?:restore|reset|undo|revert|put\s+back)\s+(?:my|the)\s+(?:old\s+|previous\s+)?(?:desktop\s+)?"
+    r"(?:wallpaper|background)(?:\s+change)?))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_PROCESSES_ASK = re.compile(
+    _POLITE + r"(?:(?:show|list)(?:\s+me)?\s+(?:all\s+)?(?:the\s+|my\s+)?running\s+(?:processes|programs|apps)"
+    r"|(?:show|list)(?:\s+me)?\s+(?:all\s+)?(?:the\s+|my\s+)?processes"
+    r"|what\s+(?:processes|programs|apps)\s+are\s+running"
+    r"|what(?:'s|s|\s+is)\s+(?:using|eating|hogging|taking\s+up)\s+(?:all\s+)?(?:my|the)\s+(?:memory|ram))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_END_PROCESS_ASK = re.compile(
+    _POLITE + r"(?:(?:kill|end|terminate|stop)\s+(?:the\s+)?(?P<name>[\w.+-]{1,40})\s+(?:process|task)(?:es)?"
+    r"|(?:kill|end|terminate)\s+(?:the\s+)?process\s+(?P<name2>[\w.+-]{1,40})"
+    r"|force\s+(?:quit|close)\s+(?P<name3>[\w.+-]{1,40}))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_SETTINGS_ASK = re.compile(
+    _POLITE + r"(?:open|show|go\s+to|take\s+me\s+to)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?P<page>[a-z][\w -]{1,25}?)\s+settings"
+    r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
 _DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
@@ -1202,6 +1252,10 @@ class HeuristicPlannerProvider:
         if headlines:
             return headlines
 
+        controlled = self._system(raw)
+        if controlled:
+            return controlled
+
         arranged = self._arrange(raw)
         if arranged:
             return arranged
@@ -1951,6 +2005,38 @@ class HeuristicPlannerProvider:
             return self._command(f"weather {location}", "User wants a weather forecast.", 0.85)
         if asked:
             return self._command("weather", "User wants the forecast where they are.", 0.85)
+        return None
+
+    def _system(self, text: str) -> PlanDecision | None:
+        """'lock my computer', 'turn the brightness down', 'open bluetooth settings' -> the system tool."""
+        text = text or ""
+        if _LOCK_ASK.match(text):
+            return self._command("lock screen", "User wants the screen locked.", 0.9)
+        power = _POWER_ASK.match(text)
+        if power:
+            action = next(name for name in ("sleep", "shutdown", "restart", "cancel") if power.group(name))
+            return self._command(f"power {action}", "User wants the computer's power changed.", 0.88)
+        bright = _BRIGHTNESS_ASK.match(text)
+        if bright:
+            if bright.group("ask"):
+                return self._command("brightness", "User asks the brightness.", 0.9)
+            level = bright.group("level") or bright.group("bare")
+            way = (bright.group("way") or bright.group("way2") or
+                   ("up" if bright.group("brighten") or bright.group("feel") == "brighter" else "down"))
+            return self._command(f"brightness {level or way.lower()}", "User wants the brightness changed.", 0.9)
+        paper = _WALLPAPER_ASK.match(text)
+        if paper:
+            what = "restore" if paper.group("back") else (paper.group("to") or paper.group("as")).strip()
+            return self._command(f"wallpaper {what}", "User wants the wallpaper changed.", 0.88)
+        if _PROCESSES_ASK.match(text):
+            return self._command("processes", "User wants the running processes.", 0.9)
+        end = _END_PROCESS_ASK.match(text)
+        if end:
+            name = end.group("name") or end.group("name2") or end.group("name3")
+            return self._command(f"end process {name}", "User wants a process ended.", 0.86)
+        settings = _SETTINGS_ASK.match(text)
+        if settings:
+            return self._command(f"settings {settings.group('page').strip()}", "User wants a Settings page.", 0.88)
         return None
 
     def _local_lookup(self, text: str) -> PlanDecision | None:
