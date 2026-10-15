@@ -94,6 +94,7 @@ from laptop_agent.tools.document import DocumentTool, page_target
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.translate import TranslateTool, parse_translation
+from laptop_agent.tools import system as system_tools
 from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
@@ -539,6 +540,7 @@ class AgentOrchestrator:
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
         self._translate_tool_cache: TranslateTool | None = None
+        self._system_tool_cache: system_tools.SystemTool | None = None
         self._image_tool_cache: ImageTool | None = None
         self._news_tool_cache: NewsTool | None = None
         self._document_tool_cache: DocumentTool | None = None
@@ -1730,6 +1732,22 @@ class AgentOrchestrator:
 
     async def _dispatch_desktop(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for apps, windows, screenshots, the shell and media keys."""
+        if lowered == "lock screen":
+            return self._system_tool().lock()
+        if lowered in {"power sleep", "power shutdown", "power restart", "power cancel"}:
+            action = lowered.split(" ", 1)[1]
+            return self._system_tool().sleep() if action == "sleep" else self._system_tool().power(action)
+        if lowered == "brightness" or lowered.startswith("brightness "):
+            return self._system_tool().brightness(command[len("brightness") :])
+        if lowered.startswith("wallpaper "):
+            return self._system_tool().set_wallpaper(command[len("wallpaper ") :])
+        if lowered == "processes":
+            return self._system_tool().processes()
+        if lowered.startswith("end process "):
+            return self._system_tool().end_process(command[len("end process ") :])
+        if lowered == "settings" or lowered.startswith("settings "):
+            return self._system_tool().open_settings(command[len("settings") :])
+
         if lowered in {"windows", "list windows", "show windows", "what windows are open"}:
             return self.context.windows.list_windows()
 
@@ -2284,7 +2302,8 @@ class AgentOrchestrator:
     })
     _PROSE_PRONE = frozenset({
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date",
-        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
+        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember", "brightness",
+        "wallpaper", "settings", "processes",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
         "translate",
@@ -3184,6 +3203,8 @@ class AgentOrchestrator:
                 "  run command in <cwd> :: <command>",
                 "  play music <file-folder-or-url>",
                 "  media playpause|next|previous|stop|volumeup|volumedown|mute",
+                "  lock screen | power sleep|shutdown|restart|cancel | brightness [0-100|up|down]  (the laptop itself; sleep and power ask)",
+                "  wallpaper <image path>|restore | processes | end process <name> | settings <page>",
                 "  email search <query>",
                 "  email unread",
                 "  email digest  (summarize your unread inbox)",
@@ -4035,6 +4056,13 @@ class AgentOrchestrator:
         "open app <path-or-app>",
         "screenshot <output.png>",
         "play music <file-folder-or-url>",
+        "lock screen",
+        "power sleep|shutdown|restart|cancel",
+        "brightness <0-100|up|down>",
+        "wallpaper <image path>",
+        "processes",
+        "end process <name>",
+        "settings <page>",
         # email (state-changing steps are approval-gated)
         "email digest",
         "email api search gmail <query>",
@@ -4235,6 +4263,12 @@ class AgentOrchestrator:
             return ToolResult.success("No scheduled jobs are due.", ran=[])
         ok = sum(1 for item in ran if item["status"] == "ok")
         return ToolResult(ok=ok == len(ran), message=f"Ran {len(ran)} due job(s): {ok} ok.", data={"ran": ran})
+
+    def _system_tool(self) -> system_tools.SystemTool:
+        if self._system_tool_cache is None:
+            self._system_tool_cache = system_tools.SystemTool(
+                self.context.web.approval_gate, system_tools.system_backend(), self.data_dir)
+        return self._system_tool_cache
 
     def _file_processor(self) -> FileProcessor:
         # Built lazily from existing tools — no AgentContext field needed.

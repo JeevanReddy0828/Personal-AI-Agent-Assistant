@@ -699,7 +699,9 @@ class ShellBackstopTests(unittest.TestCase):
     for one; a question or a refusal is answered, and nothing else reaches the approval card."""
 
     ROUTED = {
-        "change my desktop background to blue":
+        # The wallpaper itself now has a tool ("set my wallpaper to …" asks for a picture), so the
+        # same invention is held here on a request nothing in the app can do.
+        "make my taskbar transparent":
             'run command in . :: reg add "HKCU\\Control Panel\\Colors" /v Background /t REG_SZ /d "0 0 255" /f',
         "give me directions to boston": "run command dir",
         "can you execute ipconfig in powershell": "run command ipconfig",
@@ -736,7 +738,7 @@ class ShellBackstopTests(unittest.TestCase):
         return result, any(risk in ("high", "critical") for risk, _action in self.everyday.approvals)
 
     def test_an_invented_command_is_refused_and_says_nothing_ran(self) -> None:
-        for text in ("change my desktop background to blue", "give me directions to boston",
+        for text in ("make my taskbar transparent", "give me directions to boston",
                      "I saw git status in a tutorial"):
             with self.subTest(text=text):
                 result, asked = self.shell_asked(text)
