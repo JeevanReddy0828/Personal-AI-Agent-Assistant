@@ -219,6 +219,18 @@ _POMODORO = re.compile(
     + r")\s+)?pomodoro(?:\s+(?:timer|session))?(?:\s+please)?\s*[.!?]*$",
     re.IGNORECASE,
 )
+# A message for WhatsApp or Telegram, said with the app and the words: "send a whatsapp to mom
+# saying i'm late", "text john on telegram that the game moved". The model router once made
+# "text john" an email; without the app named it still goes to the router.
+_MESSAGE_APP = r"(?P<app>whats\s*app|telegram)"
+_MESSAGE_ASK = re.compile(
+    _POLITE + r"(?:(?:send|write)\s+(?:a\s+)?" + _MESSAGE_APP + r"(?:\s+message)?(?:\s+to\s+(?P<to>[^,]{1,40}?))?"
+    r"|(?:message|text|whats\s*app)\s+(?P<to2>[^,]{1,40}?)\s+on\s+(?P<app2>whats\s*app|telegram)"
+    r"|(?:send|write)\s+(?:a\s+)?message\s+to\s+(?P<to3>[^,]{1,40}?)\s+on\s+(?P<app3>whats\s*app|telegram))"
+    r"(?:\s*,?\s+(?:saying|that\s+says|that|with)\s+|\s*:\s*)(?P<text>.+?)\s*$",
+    re.IGNORECASE,
+)
+
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
@@ -1169,6 +1181,10 @@ class HeuristicPlannerProvider:
         if hotels:
             return hotels
 
+        message = self._message(raw)
+        if message:
+            return message
+
         flights = self._flights(raw)
         if flights:
             return flights
@@ -1770,6 +1786,16 @@ class HeuristicPlannerProvider:
             return None
         place = m.group(1).strip().strip("?.!,'\"")
         return self._command(f"hotels near {place}", "User wants hotels near a place.", 0.84) if place else None
+
+    def _message(self, text: str) -> PlanDecision | None:
+        """'send a whatsapp to mom saying i'm late' -> the message opened, ready for the user to send."""
+        asked = _MESSAGE_ASK.match(text or "")
+        if not asked:
+            return None
+        app = re.sub(r"\s+", "", asked.group("app") or asked.group("app2") or asked.group("app3")).lower()
+        who = (asked.group("to") or asked.group("to2") or asked.group("to3") or "").strip()
+        to = f" to {who}" if who else ""
+        return self._command(f"message {app}{to} :: {asked.group('text').strip()}", "User wants a message written.", 0.88)
 
     def _flights(self, text: str) -> PlanDecision | None:
         """No free no-key fare API exists, so route flights through web search."""
