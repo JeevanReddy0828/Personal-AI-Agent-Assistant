@@ -406,6 +406,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Answers from an unrelated scrape** → passage score re-decided the document → the referent
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
 
+- **"move report.pdf to my desktop" and "delete old-notes.txt" had no tool** → only reading, searching
+  and organising a folder were built, so the model reached for the shell → `tools/fileops.py`: each
+  change asks (HIGH), never overwrites, keeps out of Windows' folders, the home folder and drive
+  roots, and is journaled so "undo that" reverses it; deletion goes to the Recycle Bin. "undo that" is
+  the file only when our last reply was a file change, so the instant router now gets the history
+  too (`test_fileops.py`). Developer-only. (10-14)
+
 ### Time and dates
 - **"when is new year's" and "new years day" reached the chat model while "new years" and "new
   year's day" were answered; Good Friday and Black Friday were unknown** → the holiday table held
