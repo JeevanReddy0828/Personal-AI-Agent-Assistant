@@ -88,6 +88,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `browser.py` | Playwright automation: inspect pages and forms, preview and fill forms (asks first). |
 | `news.py` | Real headlines from free feeds (BBC first, Google News for topics), with article text. |
 | `weather.py` | Open-Meteo current weather and 3-day forecast; no key. |
+| `clipboard.py` | `clipboard …`: what is copied, copying a reply, and asking the model about the copied text; Win32 through ctypes, pbpaste/xclip elsewhere. |
 | `translate.py` | Translation between 34 languages by NVIDIA's hosted Riva model (`riva` extra); names the source language from the request, the script, or the fast model. |
 | `travel.py` | Driving distance and time (OSRM), multi-stop trips, maps, places nearby. |
 | `youtube.py` | Video transcript → summary, indexed for questions (`youtube` extra). |

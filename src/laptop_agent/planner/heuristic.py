@@ -179,6 +179,30 @@ _REMINDER_DAY_TAIL = re.compile(
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# The clipboard, said as a whole sentence. "copy" alone is not enough: "copy the file to D:" is a
+# file move, and "how do I copy and paste" a question.
+_COPIED = r"(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied|(?:my|the)\s+clipboard|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied)"
+_CLIPBOARD_SHOW = re.compile(
+    _POLITE + r"(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+(?:my|the)\s+clipboard|what\s+did\s+i\s+(?:just\s+)?copy"
+    r"|(?:show|read|tell)(?:\s+me)?\s+(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+)?(?:my|the)\s+clipboard"
+    r"|(?:show|read|tell)(?:\s+me)?\s+what\s+i(?:'ve)?\s+(?:just\s+)?copied)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CLIPBOARD_COPY_REPLY = re.compile(
+    _POLITE + r"copy\s+(?:that|this|it|(?:your|the|that)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))"
+    r"(?:\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard)?\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CLIPBOARD_COPY_TEXT = re.compile(
+    _POLITE + r"copy\s+[\"']?(?P<text>.+?)[\"']?\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_CLIPBOARD_ASK = re.compile(
+    _POLITE + r"(?:summari[sz]e|explain|proofread|rewrite|reword|shorten|simplify|fix|correct|check|analy[sz]e|review"
+    r"|tl;?dr|give\s+me\s+(?:a\s+)?(?:summary|tl;?dr)\s+of)\s+" + _COPIED + r"\b",
+    re.IGNORECASE,
+)
+
 # Asking to see the alarms, as a whole sentence. "what alarms do i have" reached the chat model,
 # which cannot see them: only "when is my alarm" (the next one) was routed. "what"/"which" need
 # "my"/"the" or a "do i have" after them, because "what are alarms?" asks what one is (Codex's
@@ -1200,6 +1224,10 @@ class HeuristicPlannerProvider:
         if picture:
             return picture
 
+        copied = self._clipboard(raw)
+        if copied:
+            return copied
+
         weather = self._weather(raw)
         if weather:
             return weather
@@ -1904,6 +1932,19 @@ class HeuristicPlannerProvider:
         if is_diagram_subject(subject):
             return None
         return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
+
+    def _clipboard(self, text: str) -> PlanDecision | None:
+        """'what did I copy', 'copy that', 'summarize what I copied' -> the clipboard."""
+        if _CLIPBOARD_SHOW.match(text or ""):
+            return self._command("clipboard", "User wants to see the clipboard.", 0.9)
+        if _CLIPBOARD_COPY_REPLY.match(text or ""):
+            return self._command("clipboard copy that", "User wants the last reply copied.", 0.9)
+        copied = _CLIPBOARD_COPY_TEXT.match(text or "")
+        if copied:
+            return self._command(f"clipboard copy {copied.group('text').strip()}", "User wants text copied.", 0.88)
+        if _CLIPBOARD_ASK.match(text or ""):
+            return self._command(f"clipboard ask {text.strip()}", "User asks about the copied text.", 0.88)
+        return None
 
     def _weather(self, text: str) -> PlanDecision | None:
         """Real forecast (Open-Meteo) instead of opening a web search for weather.

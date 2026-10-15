@@ -83,6 +83,7 @@ def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:
 # both lists to the dispatchers: every entry is a form they match, and every form they
 # match is in exactly one of the two.
 _DEV_EXACT = frozenset({
+    "clipboard",
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
@@ -125,6 +126,7 @@ _DEV_PREFIX = (
     "email", "send email",
     # the laptop itself: files, the screen, the camera, the browser, apps, the shell, sound
     "scan files", "read file", "ask file", "summarize file", "extract text", "index file", "file info",
+    "clipboard copy", "clipboard ask",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
