@@ -235,6 +235,16 @@ once without and once with explicit `--collect-all riva --collect-all grpc`: bot
 selected Parakeet and translated, at the same size. Without the extra on the build machine,
 the exe falls back to its local engines as before.
 
+**Push to talk** (2026-10-14). Ctrl+Space turns voice on and off in the page, in a tab and in
+the app window; it is a capture-phase listener that stops the event, so the Space handlers
+(interrupt a reply, stop a recording) never see the same press. The app window also registers
+Ctrl+Alt+J for the whole of Windows (`hotkey.py`, RegisterHotKey through ctypes on its own
+thread, MOD_NOREPEAT so a held key presses once); a press restores and shows the window and
+calls `window.jarvisHotkey()`, the same toggle. Ctrl+Space is not the global key because
+Windows switches input languages with it. Bringing the window in front of another app is
+best effort: Windows may flash the taskbar button instead. A wake word ("Hey Jarvis") is not
+built: it needs a microphone that is always open, which is Jeevan's call.
+
 ## Recorder integration (REC-01, 2026-09-28)
 
 - `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
