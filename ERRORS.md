@@ -22,6 +22,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   open, so the first can only play if playback does not wait for it; a page that waits
   deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
   miss is a flake. (10-08)
+- **Web-server tests fail with 403, `403 != 400` or WinError 10054 only while another
+  worktree's suite runs** → eight `test_webui_*` files bound fixed ports (8793-8800), and the
+  stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
+  hit the other run's server and its different API token → bind port 0 and read
+  `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
