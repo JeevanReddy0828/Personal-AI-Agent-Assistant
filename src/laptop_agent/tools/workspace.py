@@ -109,6 +109,13 @@ def file_plan(reply: str) -> list[tuple[str, str]] | None:
         plan.append((relative, entry["content"]))
     if sum(len(content) for _, content in plan) > MAX_TOTAL_CHARS:
         return None
+    # A path that is a file and also a folder above another ("src" and "src/app.py") fails half way
+    # through writing, after the card was approved. Checked on the whole plan, so either order is
+    # caught, and without case, as Windows compares names (Codex's review).
+    files = {path.lower() for path, _ in plan}
+    folders = {"/".join(path.lower().split("/")[:depth]) for path, _ in plan for depth in range(1, path.count("/") + 1)}
+    if files & folders:
+        return None
     return plan
 
 

@@ -63,6 +63,15 @@ class FilePlanTests(unittest.TestCase):
     def test_one_unsafe_path_refuses_the_whole_plan(self) -> None:
         self.assertIsNone(file_plan(plan_json(("ok.py", "1"), ("../evil.py", "2"))))
 
+    def test_a_file_that_is_also_a_folder_is_refused_in_either_order(self) -> None:
+        # "src" as a file and "src/app.py" beneath it: the second write raised FileExistsError after the
+        # card was approved, leaving half a workspace (Codex's review of #282). Windows ignores case.
+        for files in ((("src", "x"), ("src/app.py", "y")), (("src/app.py", "y"), ("src", "x")),
+                      (("SRC", "x"), ("src/app.py", "y")), (("a/b", "x"), ("A/b/c.py", "y"))):
+            with self.subTest(files):
+                self.assertIsNone(file_plan(plan_json(*files)))
+        self.assertIsNotNone(file_plan(plan_json(("src/a.py", "1"), ("src/b.py", "2"), ("srcx.py", "3"))))
+
     def test_too_many_files_duplicates_and_size_are_refused(self) -> None:
         self.assertIsNone(file_plan(plan_json(*((f"f{n}.py", "x") for n in range(MAX_FILES + 1)))))
         self.assertIsNone(file_plan(plan_json(("A.py", "1"), ("a.py", "2"))))
