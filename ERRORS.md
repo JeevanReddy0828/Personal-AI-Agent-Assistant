@@ -542,6 +542,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)
 - **A CSS rule silently gone** → a stray `*/`. **A grid collapsed** → a 0-width track. (09-17, 09-09)
 - **Advice in the UI that does nothing** → check the control can deliver it. (09-17)
+- **Voice started only from a click or a key** → nothing listened for a name → "Hey Jarvis" (on by
+  default, Jeevan's choice): the page cuts speech into clips by level and `/api/wake` decides with
+  local Whisper only, an opening "Jarvis" only, `no_speech_prob > 0.6` ignored; it closes while voice
+  mode has the microphone and never opens while switched off (`test_wake.py`, `test_browser_wake.py`). (10-15)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 

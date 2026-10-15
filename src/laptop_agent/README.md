@@ -56,6 +56,7 @@ data.
 | `dashboard.py` | Tkinter "HUD" desktop dashboard (`laptop-agent-dashboard`). |
 | `gui.py` | An older, simpler Tkinter window; run directly with `python -m laptop_agent.gui`. |
 | `window_fx.py` | Transparency and always-on-top for the desktop window (Windows only, no-op elsewhere). |
+| `wake.py` | "Hey Jarvis": whether a clip opens with the wake word, decided by local Whisper behind `/api/wake`. |
 | `voice.py` | Text-to-speech, and cleaning a reply so it can be spoken (no URLs or code read aloud). |
 | `recordings.py` | Saving voice recordings the user asked for, separate from throwaway speech clips. |
 
