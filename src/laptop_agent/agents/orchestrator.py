@@ -69,6 +69,7 @@ from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
+from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, convert_again, looks_like_conversion
 from laptop_agent.tools.chance import draw, is_chance_request
@@ -545,6 +546,7 @@ class AgentOrchestrator:
         self._calculator_cache: CalculatorTool | None = None
         self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
+        self._plugins_cache: PluginTool | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -1152,6 +1154,12 @@ class AgentOrchestrator:
 
     async def _dispatch_automation(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for autopilot, reminders, schedules and the agent loop."""
+        if lowered == "plugins":
+            return self._plugins().listing()
+        if lowered.startswith("plugin "):
+            name, _, argument = command[len("plugin ") :].strip().partition(" ")
+            return self._plugins().run(name, argument.strip())
+
         if lowered in {"autopilot status", "autonomous status"}:
             return self._autopilot_status()
 
@@ -3160,6 +3168,7 @@ class AgentOrchestrator:
                 "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",
+                "  plugins | plugin <name> <request>  (your own commands from <data dir>/plugins, when LAPTOP_AGENT_PLUGINS=1)",
                 "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  translate <text> to <language> [from <language>]  (NVIDIA's hosted translation model)",
@@ -4007,6 +4016,8 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         "forget <key>",
         "knowledge prune",
+        "plugins",
+        "plugin <name> <request>",
         "window <name> <left|right|top|bottom|full|corner>",
         "windows",
         # web & research
@@ -4761,6 +4772,11 @@ class AgentOrchestrator:
             return question
         rewritten, _turn = resolve_reference(question, normalize_history(history))
         return rewritten or question
+
+    def _plugins(self) -> PluginTool:
+        if self._plugins_cache is None:
+            self._plugins_cache = PluginTool(self.context.web.approval_gate, self.data_dir / "plugins")
+        return self._plugins_cache
 
     def _knowledge_answer(self, question: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = question.strip().strip("'\"?")
