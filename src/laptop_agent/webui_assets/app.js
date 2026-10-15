@@ -1004,6 +1004,7 @@
   async function send(text){
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
     const waked=wakeCommand(text);
+    if(voiceActive)lastVoiceActivity=performance.now();
     if(waked!==null){renderMsg('user',text);setMd(renderMsg('bot','').querySelector('.md'),waked);ta.value='';auto();return;}
     if(agentMode&&text){return runAgent(text);}
     if(!current)newSession();
@@ -1990,6 +1991,23 @@
     return want?'Listening for "Hey Jarvis" again.':'Okay, I\'ve stopped listening for "Hey Jarvis". Say or type "turn on the wake word" to bring it back.';
   }
   paintWake();wakeResume();
+  // A conversation that "Hey Jarvis" or the greeting opened ends when the user goes quiet, and the
+  // microphone goes back to listening for the name. One started from the Voice button stays on.
+  const QUIET_END_MS=12000;
+  let voiceCasual=false, lastVoiceActivity=0;
+  // Greeted once a window when the app opens (Jeevan, 2026-10-15). In the app window it is spoken
+  // and the conversation is open for an answer; in a tab, where sound needs a click first, it is
+  // shown. With the wake word off the microphone stays closed, so it is shown only.
+  async function greet(){
+    try{if(sessionStorage.getItem('jarvis_greeted'))return;sessionStorage.setItem('jarvis_greeted','1');}catch(e){}
+    let d=null;try{d=await (await fetch('/api/greeting')).json();}catch(e){}
+    if(!d||!d.ok||!d.text)return;
+    setMd(renderMsg('bot','').querySelector('.md'),d.text);
+    if(!NATIVE||!wakeOn||voiceActive||busy||activeRecording)return;
+    voiceGeneration++;voiceActive=true;voiceCasual=true;lastVoiceActivity=performance.now();spokenRecent=[];bargeReset();
+    document.body.classList.add('voicing');paintVoiceButtons(true);wakePause();voiceTurnReset();streamComplete=true;enqueueTTS(d.text);
+  }
+  setTimeout(greet,600);
   vend.onclick=endVoice;
   if(vint)vint.onclick=interruptNow;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
@@ -1997,7 +2015,7 @@
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
-  function startVoice(first){if(activeRecording){voiceNotice('Stop the current recording before starting voice chat.');return;}voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);wakePause();if(typeof first==='string'&&first){vtrans.textContent=first;vSet('thinking','Thinking');send(first);}else listen();}
+  function startVoice(first){if(activeRecording){voiceNotice('Stop the current recording before starting voice chat.');return;}voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();voiceCasual=typeof first==='string';lastVoiceActivity=performance.now();document.body.classList.add('voicing');paintVoiceButtons(true);wakePause();if(typeof first==='string'&&first){vtrans.textContent=first;vSet('thinking','Thinking');send(first);}else listen();}
   function endVoice(){voiceGeneration++;voiceActive=false;bargePaused=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}wakeResume();}
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
@@ -2023,7 +2041,7 @@
   }
   // 800ms, not 500: Bluetooth speakers are still playing the reply's last words for a few
   // hundred ms after the browser reports it ended, and the microphone heard them.
-  function afterTurn(){bargeStop();if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},800);else setCore('idle');}  // echo-guard delay; release the barge mic before listening reopens it
+  function afterTurn(){lastVoiceActivity=performance.now();bargeStop();if(voiceActive)setTimeout(()=>{if(voiceActive&&!speaking&&!ttsQueue.length)listen();},800);else setCore('idle');}  // echo-guard delay; release the barge mic before listening reopens it
   // What is actually worth saying out loud. A picture, a link target or a code block has
   // nothing speakable in it, and reading a URL aloud used to feed a garbled "slash api
   // slash image question mark name equals…" back into the microphone — which the echo
@@ -2259,6 +2277,7 @@
   function vstart(){vT0=performance.now();vMarks=[];}
   function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
+    if(voiceCasual&&voiceActive&&!speaking&&performance.now()-lastVoiceActivity>QUIET_END_MS){endVoice();return;}
     if(useServerStt())return nativeListen();             // record here, transcribe on the server
     if(!voiceActive||recognizing||speaking)return;      // never listen while speaking
     setCore('listening');vSet('listening','Listening');vtrans.textContent='Listening — speak now';

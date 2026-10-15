@@ -537,6 +537,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   context (`position` + `z-index`, `backdrop-filter`) → compare at the root;
   `body:has(...)` to swap. (10-01)
 - **Notifications cover the screen** → an unbounded stack → cap + "+N more"; Dismiss all. (10-01)
+- **Talking to it felt like a chatbot reading out a document** → a voice turn got the chat prompt
+  ("in Markdown") and every sentence of a long reply was spoken → `spoken.py`: a spoken turn gets a
+  conversational style, speech stops after ~45 words with "The rest is on screen.", the app
+  window greets by name and listens, and a wake-opened talk ends on 12 s of quiet (`test_spoken.py`,
+  `test_browser_greeting.py`). (10-15)
 - **Several reminders at once: one loud, harsh chime and a pile of OS notifications** → each
   card chimed at the same instant (5 due = 10 tones summed to 0.9 of full scale) → announce
   the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)
