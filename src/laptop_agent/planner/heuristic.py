@@ -360,6 +360,23 @@ def _inner_question(text: str) -> str | None:
 
 _PREFIX_POLITE = re.compile(r"[\s,]*(?:(?:can|could|would|will)\s+(?:you|u)|please|kindly)(?:\s+please)?\s*$",
                             re.IGNORECASE)
+# Running or fixing one's own Python script, named with its .py: "fix my script hello.py",
+# "what's wrong with app.py", "run hello.py". Without the file name it is a coding question.
+_SCRIPT = r"(?P<file>\"[^\"]{1,200}\.py\"|[A-Za-z]:[\\/][^\"\n]{1,200}?\.py|[\w.~\\/-]{1,120}\.py)"
+_CODE_FIX_ASK = re.compile(
+    _POLITE + r"(?:fix|debug|repair)\s+(?:the\s+(?:error|errors|bug|bugs)\s+in\s+)?(?:my\s+|the\s+|this\s+)?"
+    r"(?:script\s+|file\s+|code\s+(?:in\s+)?)?" + _SCRIPT + r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_CODE_WRONG_ASK = re.compile(
+    _POLITE + r"what(?:'s|s|\s+is)\s+wrong\s+with\s+(?:my\s+|the\s+)?(?:script\s+)?" + _SCRIPT + r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CODE_RUN_ASK = re.compile(
+    _POLITE + r"(?:run|execute|test)\s+(?:my\s+|the\s+|this\s+)?(?:python\s+)?(?:script\s+|file\s+)?" + _SCRIPT
+    + r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
 # "tell me at 3pm to join the call" asks for a reminder, but starts like a question and was
 # answered as one. Only when a time comes first: "tell me in one sentence how to cook rice"
 # and "tell me at least three reasons to learn rust" are questions.
@@ -1124,6 +1141,11 @@ class HeuristicPlannerProvider:
         personal = self._personal(raw)
         if personal:
             return personal
+
+        script = _CODE_FIX_ASK.match(raw) or _CODE_WRONG_ASK.match(raw) or _CODE_RUN_ASK.match(raw)
+        if script:
+            verb = "run" if script.re is _CODE_RUN_ASK else "fix"
+            return self._command(f"code {verb} {script.group('file').strip()}", f"User wants a script {verb}.", 0.88)
 
         terminal = self._terminal(raw)
         if terminal:

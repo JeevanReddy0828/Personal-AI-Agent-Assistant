@@ -123,6 +123,7 @@ _DEV_PREFIX = (
     "answer from knowledge", "recall", "save research report",
     # the owner's mailbox
     "email", "send email",
+    "code run", "code fix",
     # the laptop itself: files, the screen, the camera, the browser, apps, the shell, sound
     "scan files", "read file", "ask file", "summarize file", "extract text", "index file", "file info",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
