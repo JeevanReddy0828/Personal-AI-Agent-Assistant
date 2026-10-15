@@ -191,6 +191,41 @@ _ALARM_LIST = re.compile(
     + r"))\s*[?.!]*",
     re.IGNORECASE,
 )
+# Being told when something changes, said as a whole sentence. "watch" alone is a film or a
+# warning ("watch a movie", "watch out for ice"), so news needs its own word.
+_WATCH_NEWS = re.compile(
+    _POLITE + r"(?:(?:watch|track|follow|monitor)\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for|regarding)"
+    r"|keep\s+(?:an\s+eye|tabs)\s+on\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for|regarding)"
+    r"|(?:alert|notify|tell|ping|let)\s+me(?:\s+know)?\s+(?:when(?:ever)?|if)\s+(?:there(?:'s|\s+is|\s+are)\s+)?"
+    r"(?:any\s+)?(?:new\s+)?(?:news|headlines?|stories)\s+(?:about|on|for|regarding))"
+    r"\s+(?P<topic>[\w&.+#' -]{2,60}?)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WATCH_HEALTH = re.compile(
+    _POLITE + r"(?:turn\s+on|enable|start|switch\s+on)\s+(?:the\s+)?(?:health|battery|system)\s+(?:alerts?|warnings?|monitoring)"
+    r"|" + _POLITE + r"(?:watch|monitor|keep\s+an\s+eye\s+on)\s+(?:my|the)\s+(?:laptop|computer|pc|machine|system)(?:'s)?"
+    r"(?:\s+(?:health|battery|resources))?"
+    r"|" + _POLITE + r"(?:warn|alert|tell|notify|let)\s+me(?:\s+know)?\s+(?:when|if)\s+(?:my|the)\s+"
+    r"(?:battery\s+(?:is|gets|goes|runs)\s+low|battery\s+(?:is\s+)?(?:low|dying|running\s+out)"
+    r"|cpu\s+(?:is|gets|goes|stays)\s+(?:high|hot)|memory\s+(?:is|gets|runs)\s+(?:full|low|high)"
+    r"|disk\s+(?:is|gets|runs)\s+(?:full|low))"
+    r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WATCH_LIST = re.compile(
+    _POLITE + r"(?:what\s+(?:am\s+i|are\s+you)\s+watching|(?:show|list)(?:\s+me)?\s+(?:my|the)\s+watch(?:es|\s+list)"
+    r"|what\s+(?:watches|alerts)\s+(?:do\s+i\s+have|are\s+(?:on|set)))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_UNWATCH = re.compile(
+    _POLITE + r"(?:stop\s+(?:watching|tracking|following|monitoring)\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for)\s+"
+    r"|unwatch\s+(?:the\s+)?(?:news\s+)?(?:about\s+|on\s+|for\s+)?)"
+    r"(?P<topic>[\w&.+#' -]{2,60}?)\s*[?.!]*\s*$"
+    r"|" + _POLITE + r"(?:turn\s+off|disable|stop)\s+(?:the\s+)?(?P<health>health|battery|system)\s+(?:alerts?|warnings?|monitoring)"
+    r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
 # router, which matched "jobs" and answered from the job-application tracker.
 _SCHEDULE_ASK = re.compile(
@@ -1198,6 +1233,10 @@ class HeuristicPlannerProvider:
             command = spoken if spoken.lower().startswith("convert ") else f"convert {spoken}"
             return self._command(command, "A unit conversion, computed exactly.", 0.95)
 
+        watched = self._watch(raw)
+        if watched:
+            return watched
+
         headlines = self._news(raw)
         if headlines:
             return headlines
@@ -1889,6 +1928,21 @@ class HeuristicPlannerProvider:
         if not request:
             return None
         return self._command(f"document {request}", "User wants a written document file.", 0.85)
+
+    def _watch(self, text: str) -> PlanDecision | None:
+        """'tell me when there's news about nvidia', 'warn me if my battery gets low' -> a watch."""
+        news = _WATCH_NEWS.match(text or "")
+        if news:
+            return self._command(f"watch news {news.group('topic').strip()}", "User wants to hear of new headlines.", 0.88)
+        if _WATCH_HEALTH.match(text or ""):
+            return self._command("watch health", "User wants the laptop's health watched.", 0.88)
+        if _WATCH_LIST.match(text or ""):
+            return self._command("watches", "User asks what is watched.", 0.9)
+        stop = _UNWATCH.match(text or "")
+        if stop:
+            target = "health" if stop.group("health") else stop.group("topic").strip()
+            return self._command(f"unwatch {target}", "User wants a watch stopped.", 0.88)
+        return None
 
     def _image(self, text: str) -> PlanDecision | None:
         """'draw me a picture of a fox' -> the image tool, with no LLM round-trip."""

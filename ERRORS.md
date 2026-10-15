@@ -546,6 +546,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
+  kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
+  and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a
+  topic's headlines are recorded when the watch starts so only new ones are told, the CPU must be
+  high on two checks running, and the same warning waits two hours. Developer-only (`test_watch.py`). (10-14)
 - **"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
   "cross off eggs" were answered by the chat model**, which can neither see nor change a list →
   `list <name> has <item>` answers from the list by item, never substring ("almond milk" is not

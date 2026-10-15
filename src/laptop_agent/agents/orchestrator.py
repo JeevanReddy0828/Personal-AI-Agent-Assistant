@@ -93,6 +93,7 @@ from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_tra
 from laptop_agent.tools.document import DocumentTool, page_target
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
+from laptop_agent.tools.watch import Watches
 from laptop_agent.tools.translate import TranslateTool, parse_translation
 from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.web import WebTool
@@ -541,6 +542,7 @@ class AgentOrchestrator:
         self._translate_tool_cache: TranslateTool | None = None
         self._image_tool_cache: ImageTool | None = None
         self._news_tool_cache: NewsTool | None = None
+        self._watches_cache: Watches | None = None
         self._document_tool_cache: DocumentTool | None = None
         self._calculator_cache: CalculatorTool | None = None
         self._clock_cache: ClockTool | None = None
@@ -1528,6 +1530,19 @@ class AgentOrchestrator:
 
     async def _dispatch_utilities(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for the clock, calculator, capabilities and diagnostics."""
+        if lowered == "watches":
+            return self._watches().listing()
+        if lowered == "watch health":
+            return self._watches().watch_health()
+        if lowered == "watch check health":
+            return self._watches().check_health()
+        if lowered.startswith("watch check news "):
+            return self._watches().check_news(command[len("watch check news ") :])
+        if lowered.startswith("watch news "):
+            return self._watches().watch_news(command[len("watch news ") :])
+        if lowered.startswith("unwatch "):
+            return self._watches().unwatch(command[len("unwatch ") :])
+
         if lowered == "timecard" or lowered.startswith("timecard "):
             return self._time_card(command[len("timecard "):].strip() if " " in command else "")
 
@@ -2283,7 +2298,7 @@ class AgentOrchestrator:
         "had", "isn't", "wasn't",
     })
     _PROSE_PRONE = frozenset({
-        "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date",
+        "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
@@ -3155,6 +3170,7 @@ class AgentOrchestrator:
                 "  search files <query> <path>",
                 "  web search <query>",
                 "  news [topic]  (real headlines from free feeds, with article text)",
+                "  watch news <topic> | watch health | watches | unwatch <topic|health>  (told when there's a new headline, or the laptop needs attention)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file; keep any length asked for, such as 'one page')",
                 "  time | date | time in <place>  (this machine's clock, never the web)",
@@ -4012,6 +4028,10 @@ class AgentOrchestrator:
         # web & research
         "web search <query>",
         "news [topic]",
+        "watch news <topic>",
+        "watch health",
+        "watches",
+        "unwatch <topic|health>",
         "image <description>",
         "document <request> as pdf|word|markdown",
         "weather <location>",
@@ -4332,6 +4352,34 @@ class AgentOrchestrator:
         if self._calculator_cache is None:
             self._calculator_cache = CalculatorTool()
         return self._calculator_cache
+
+    def _watches(self) -> Watches:
+        if self._watches_cache is None:
+            def notify(message: str) -> None:
+                self.context.reminders.add(datetime.now().astimezone().isoformat(), message)
+
+            def headlines(topic: str) -> list[str]:
+                found = self._news_tool().headlines(topic, with_text=0)
+                return [item["title"] for item in (found.data.get("headlines") or [])] if found.ok else []
+
+            self._watches_cache = Watches(self.data_dir / "watches.json", self.context.scheduler, notify,
+                                          headlines, self._health_readings)
+        return self._watches_cache
+
+    def _health_readings(self) -> dict[str, object]:
+        """What `watch check health` judges: battery, CPU, memory and free disk, from this machine."""
+        import shutil
+
+        metrics = system_metrics(force=True)
+        battery = battery_status() or {}
+        try:
+            free = shutil.disk_usage(Path.home().anchor or "/").free / 1e9
+        except OSError as exc:
+            record_failure("orchestrator.health_readings", exc)
+            free = None
+        return {"battery_percent": battery.get("percent"), "plugged": battery.get("plugged"),
+                "cpu_percent": metrics.get("cpu_percent"), "ram_percent": metrics.get("ram_percent"),
+                "disk_free_gb": free}
 
     def _news_tool(self) -> NewsTool:
         if self._news_tool_cache is None:
