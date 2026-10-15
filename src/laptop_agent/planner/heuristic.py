@@ -397,7 +397,21 @@ _TELL_ME_AT = re.compile(
 # reached the chat model, which cannot change a reminder.
 _REMINDER_MOVE = re.compile(
     _POLITE + r"(?:move|reschedule|change|push|shift|postpone)\s+(?:my|the)\s+(?:(?P<what>[\w' -]+?)\s+reminder"
-    r"|reminder\s+(?:about|for)\s+(?P<about>[\w' -]+?))\s+(?:to|for|until|till)\s+(?P<when>.+?)\s*[.!]*$",
+    r"|reminder\s+(?:about|for)\s+(?P<about>[\w' -]+?)|(?P<alarm>alarm))\s+(?:to|for|until|till)\s+(?P<when>.+?)\s*[.!]*$",
+    re.IGNORECASE,
+)
+# "five more minutes": spoken_to_digits reads a number word only beside its unit, and "more" sits between.
+_COUNT_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|forty[- ]five|fifty|sixty)"
+# "add 5 minutes to the laundry timer", "put 10 more minutes on the timer", "add five more minutes":
+# more time on a running timer. It reached the chat model. Only "add"/"put" when no timer is named:
+# a bare "give me 5 more minutes" may be asking for a snooze.
+_TIMER_EXTEND = re.compile(
+    _POLITE + r"(?:(?:add|put)\s+(?:an?other\s+)?(?P<n>\d+(?:\.\d+)?|an?|half\s+an?|" + _COUNT_WORD + r")\s+(?:more\s+)?"
+    r"(?P<unit>seconds?|secs?|minutes?|mins?|hours?|hrs?)(?:\s+more)?"
+    rf"(?:\s+(?:to|on)\s+(?:the|my)\s+(?:(?P<name>{_TIMER_NAME})\s+)?timer)?"
+    r"|give\s+(?:me\s+)?(?:an?other\s+)?(?P<n2>\d+(?:\.\d+)?|an?|half\s+an?|" + _COUNT_WORD + r")\s+(?:more\s+)?"
+    r"(?P<unit2>seconds?|secs?|minutes?|mins?|hours?|hrs?)(?:\s+more)?\s+on\s+(?:the|my)\s+"
+    rf"(?:(?P<name2>{_TIMER_NAME})\s+)?timer)\s*[.!]*$",
     re.IGNORECASE,
 )
 _SNOOZE = re.compile(
@@ -1469,8 +1483,15 @@ class HeuristicPlannerProvider:
             return self._command(f"alarm {alarm.group('when').strip()}", "User wants an alarm.", 0.9)
         moved = _REMINDER_MOVE.match(spoken)
         if moved:
-            return self._command(f"reminder move {moved.group('what') or moved.group('about')} to {moved.group('when')}",
+            which = moved.group("what") or moved.group("about") or moved.group("alarm")
+            return self._command(f"reminder move {which} to {moved.group('when')}",
                                  "User wants a reminder at a new time.", 0.86)
+        extended = _TIMER_EXTEND.match(spoken)
+        if extended:
+            amount = extended.group("n") or extended.group("n2")
+            unit = extended.group("unit") or extended.group("unit2")
+            name = extended.group("name") or extended.group("name2") or ""
+            return self._command(f"timer add {amount} {unit} {name}".strip(), "More time on a running timer.", 0.86)
         snooze = _SNOOZE.match(spoken)
         if snooze:
             # "5m", never a bare 5: a bare number is a reminder id.
