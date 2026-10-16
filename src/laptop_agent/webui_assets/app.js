@@ -965,7 +965,7 @@
   // agent-mode toggle
   function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
     ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file to auto-process it, or tap the mic)';
-    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
+    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat · Ctrl+Space to talk.';}
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
@@ -1912,6 +1912,13 @@
   function toggleVoice(){if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();}
   voiceBtn.onclick=toggleVoice;
   if(orbVoiceBtn)orbVoiceBtn.onclick=toggleVoice;
+  // Push to talk: Ctrl+Space here, and Ctrl+Alt+J from any app through the desktop window's
+  // global hotkey (hotkey.py), which calls jarvisHotkey. Captured first, so the Space handlers
+  // below (interrupt, stop a recording) never see the same press.
+  window.jarvisHotkey=toggleVoice;
+  document.addEventListener('keydown',e=>{
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&e.code==='Space'&&!e.repeat){e.stopImmediatePropagation();toggleVoice();}
+  },true);
   // Both surfaces show the same state. Whichever one is on screen has to be right.
   function paintVoiceButtons(on){
     voiceBtn.classList.toggle('on',on);

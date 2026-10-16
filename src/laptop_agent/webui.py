@@ -54,6 +54,7 @@ from laptop_agent.metrics import system_metrics
 from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.approvals import ApprovalBroker
 from laptop_agent.failures import FAILURES, record_failure
+from laptop_agent.hotkey import GlobalHotkey
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
 from laptop_agent.timeparse import describe
@@ -2212,6 +2213,13 @@ def _launch_app_window(url: str) -> subprocess.Popen | None:
     return subprocess.Popen(args)
 
 
+def _push_to_talk(window) -> None:
+    """Ctrl+Alt+J from any app: bring the window forward and start (or stop) listening."""
+    window.restore()
+    window.show()
+    window.evaluate_js("window.jarvisHotkey&&window.jarvisHotkey()")
+
+
 def _launch_webview(url: str) -> bool:
     try:
         import webview  # type: ignore
@@ -2221,7 +2229,8 @@ def _launch_webview(url: str) -> bool:
     # server-side speech path (record -> /api/transcribe, play /api/tts) instead of
     # the Web Speech API, which is unavailable inside a webview.
     sep = "&" if "?" in url else "?"
-    webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
+    window = webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
+    GlobalHotkey(lambda: _push_to_talk(window)).start()
     profile = _CONFIG.data_dir / "webview"
     profile.mkdir(parents=True, exist_ok=True)
     webview.start(private_mode=False, storage_path=str(profile))

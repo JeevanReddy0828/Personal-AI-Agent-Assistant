@@ -524,6 +524,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Voice could only be started by clicking the mic, and only with the window focused** → no key
+  started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
+  first, so the Space interrupt and recording handlers never see it), and the desktop window
+  registers Ctrl+Alt+J with RegisterHotKey (`hotkey.py`), which calls `jarvisHotkey()`; a key another
+  app holds is recorded, not raised (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-14)
 - **A long tool reply waits to speak, or the browser reads only its first 800 characters** →
   no streamed tokens meant `voiceTurnDone` sent the entire result as one TTS request. The
   server now emits bounded `tts` events for the cleaned final result through the same
