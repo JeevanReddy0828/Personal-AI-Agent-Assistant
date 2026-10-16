@@ -596,6 +596,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
 - **A scripted edit broke another line or file** → anchored on part of a line → anchor on the
   whole line, newline included. (09-12)
+- **A new command meant changing the orchestrator, the router and the access lists** → there was no
+  way to add one → `plugins` / `plugin <name> <request>` (`tools/plugins.py`): files in
+  `<data dir>/plugins`, read only with `LAPTOP_AGENT_PLUGINS=1` and once; COMMAND, RISK and `run`
+  are checked, a broken file is listed with its reason, every run goes through the gate at the
+  declared risk. Developer-only (`test_plugins.py`). (10-14)
 - **`sed -i` rewrote CRLF as LF** → harmless under autocrlf → check `git diff --stat` for
   whole-file churn. (10-01)
 - **`pkill -f` killed its own shell** → write the pattern as `m laptop_agent[.]webui`. (09-26)

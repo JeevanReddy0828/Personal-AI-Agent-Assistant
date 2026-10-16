@@ -100,6 +100,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `calculator.py` | Exact arithmetic with a hand-written parser (never `eval`); also spoken numbers. |
 | `units.py` | Unit conversions ("5 miles to km", "how many ounces in a pound"). |
 | `dates.py` | Days until a date or holiday, what day something falls on. |
+| `plugins.py` | `plugins`, `plugin <name> <request>`: the owner's own commands from `<data dir>/plugins`, loaded only with `LAPTOP_AGENT_PLUGINS=1`, each run at the risk it declares. |
 | `clock.py` | The time and date from this laptop's clock, in any time zone. |
 | `chance.py` | Coin flips, dice and random numbers, drawn with `secrets`. |
 
