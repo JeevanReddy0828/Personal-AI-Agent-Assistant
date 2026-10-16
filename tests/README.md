@@ -67,6 +67,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Analytics | `test_forecast.py`, `test_analytics_diagnostics.py` |
 | Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py` |
 | `data/` | Shared fixtures; see its README. |
+| MCP | `test_mcp.py`: a real MCP server subprocess - start asked once, calls at the declared risk, paging, stray lines |
 
 `test_everyday_requests.py` also defines `Everyday`, a harness that wires the whole app with
 every outside effect faked; reuse it to probe how a sentence is handled end to end.

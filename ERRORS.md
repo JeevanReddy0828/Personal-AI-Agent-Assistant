@@ -509,6 +509,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **Blender, a database or any program speaking MCP could not be reached** → no MCP client →
+  `tools/mcp.py`: servers from `<data dir>/mcp.json` (`mcpServers` or `servers`), started on first
+  use after a HIGH card, newline-delimited JSON-RPC over stdio; a call asks MEDIUM when the tool
+  says it only reads, CRITICAL when it says it destroys, HIGH otherwise; stray stdout lines and
+  notifications are skipped, every page of tools/list is read (`test_mcp.py`). Developer-only. (10-14)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →
