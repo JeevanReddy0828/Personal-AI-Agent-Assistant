@@ -121,6 +121,7 @@ _DEV_PREFIX = (
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",
     "notes search", "note search", "ask vault", "ask notes", "read note", "save note",
     "knowledge export", "knowledge forget", "knowledge search", "ask knowledge",
+    "keys",
     "answer from knowledge", "recall", "save research report",
     # the owner's mailbox
     "email", "send email",

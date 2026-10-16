@@ -23,5 +23,8 @@ def make_desktop_inert() -> None:
     webbrowser.open = inert
     if hasattr(os, "startfile"):
         os.startfile = inert
+    from laptop_agent.tools import keys
+
+    keys.keys_backend = lambda: None
     if hasattr(ctypes, "windll"):
         ctypes.windll.user32.keybd_event = inert

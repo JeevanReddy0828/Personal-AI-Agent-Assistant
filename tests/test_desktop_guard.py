@@ -21,6 +21,8 @@ import {module}
 from desktop_guard import inert
 assert webbrowser.open is inert, "webbrowser.open is live"
 assert getattr(os, "startfile", inert) is inert, "os.startfile is live"
+from laptop_agent.tools import keys
+assert keys.keys_backend() is None, "keys to other apps are live"
 assert not hasattr(ctypes, "windll") or ctypes.windll.user32.keybd_event is inert, "keybd_event is live"
 print("inert")
 """
