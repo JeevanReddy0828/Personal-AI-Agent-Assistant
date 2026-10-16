@@ -254,6 +254,24 @@ the exe falls back to its local engines as before.
 - Tests: `test_recordings.py`, routing contract in `test_everyday_requests.py`/selfcheck,
   and `RecordingBrowserTests` in the existing opt-in browser CI suite.
 
+**"Hey Jarvis"** (2026-10-15, Jeevan's decision: the microphone is on by default, with a switch).
+The page keeps one microphone stream open and cuts speech into clips by level: 150 ms of sound
+above `max(0.02, floor x 3)` opens a clip (three frames from before it are kept), 600 ms of quiet
+or 6 s ends it, and under 400 ms is dropped. Each clip goes to `/api/wake`, one at a time, which
+decides **on the laptop** with the local Whisper model (`wake.py`), never Riva: nothing said near
+the laptop leaves it until the wake word, when the normal voice path takes over. Only an opening
+"Jarvis" (also "hey/ok/hi Jarvis", and Whisper's spellings Jervis, Javis, Jarvas) wakes, so "I
+told Jarvis…" does not; a clip Whisper rates `no_speech_prob > 0.6` is ignored. Whisper is not
+given "Hey Jarvis" as an initial prompt, because a prompt is what it hallucinates on noise.
+Measured on synthesized clips: about 0.5 s a clip once loaded; loading takes ~9 s, so
+`_warm_wake` loads it at start. On waking: a chime, and voice mode starts, or, when the words
+went on ("Hey Jarvis, what time is it"), the rest is sent at once. The stream is closed while
+voice mode has the microphone and reopened 800 ms after it ends; while we speak or record, what
+it hears is dropped. The switch is the ear button by Voice (`#wakeBtn`, saved in
+`localStorage['jarvis_wake']`), and "turn off/on the wake word" or "stop listening for hey jarvis",
+answered by the page itself. Without Whisper on the server the page switches itself off after
+the first clip. Two windows open both listen; the first to hear it answers.
+
 ## Riva deadline (VOICE-03, 2026-09-28)
 
 `_riva_asr_backend` uses the SDK's `offline_recognize(..., future=True)` because its
