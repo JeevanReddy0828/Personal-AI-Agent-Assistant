@@ -395,6 +395,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
+- **"summarize what I copied" and "copy that" had nowhere to go** → no tool could read or write the
+  clipboard, so the model answered from nothing → `clipboard`, `clipboard copy <text|that>`,
+  `clipboard ask <request>` (`tools/clipboard.py`, no extra package), developer-only, and
+  "translate what I copied" refuses a personal account although translation is everyday; the
+  harness swaps in a clipboard of its own, so no test touches the real one (`test_clipboard.py`). A copy
+  opens the clipboard with a hidden owner window: opened with none, EmptyClipboard cleared it and
+  SetClipboardData then failed (Codex's review, from Microsoft's docs). (10-14)
 - **"find the readme in this folder" answered "Path does not exist: …\readme ."** →
   `search files <query> <root>` split at the first space, so any query of two words broke →
   the root is the longest tail that exists, else the first path-shaped one
