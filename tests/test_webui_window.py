@@ -16,10 +16,10 @@ class WindowApiTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.server = ThreadingHTTPServer((webui.HOST, 8795), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8795"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:
