@@ -234,6 +234,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("my screen is cracked, what should i do", "'my screen' anywhere took a screenshot for the vision model"),
     ("dim my screen brightness", "same"),
     ("what do you see in this code", "'what do you see' anywhere turned the camera on"),
+    ("text john", "no app and no words: the router asks"),
     ("what do you see happening with ai next year", "same"),
     ("how do i use my webcam with zoom", "a question about the camera, not a request to use it"),
     ("what do you see as the main risk here", "'what … here' anywhere listed the folder"),
