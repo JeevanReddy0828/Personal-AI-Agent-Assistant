@@ -142,7 +142,7 @@ _DEV_PREFIX = (
 # by a pattern (a coin, a date question, a list edit) are checked beside the dispatch table,
 # in `AgentOrchestrator._everyday`.
 EVERYDAY_EXACT = frozenset({
-    "help", "/help", "memory", "show memory",
+    "help", "/help", "memory", "show memory", "learn from chat",
     "reminders", "reminders list", "show reminders", "reminders due", "due reminders", "show due reminders",
     "reminders next", "reminders next alarm", "reminders next timer", "reminder done", "reminder stop",
     "reminder snooze", "timers", "timer", "alarms", "alarm",

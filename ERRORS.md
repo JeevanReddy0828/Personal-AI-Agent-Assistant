@@ -590,6 +590,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A TTL cache blocks every caller on a miss** → collection under the lock → background
   refresh. (10-01)
 - **Vault links "broken"** → audited the subfolder → the root holds `.obsidian`. (09-09, 09-12)
+- **A whole conversation about a new job or a dentist left nothing in memory** → a fact was kept only
+  when said as "remember …" → `learn from chat` ("remember what we talked about"): the model reads
+  the user's own messages only (never replies, which carry pages and tool output), secrets are
+  dropped, and one card lists the facts before any is saved (`tools/learn.py`, `test_learn.py`). (10-14)
 
 ### Shell, git and editing
 - **A file mangled by escapes** → a heredoc collapsed `\\` → exact-match edits or the Write

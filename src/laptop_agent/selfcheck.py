@@ -186,6 +186,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("how long does it take to drive to chicago", "distance here to chicago", "no start named: was a chat answer"),
     ("how long would it take me to drive to dallas from houston", "distance houston to dallas", "start said last"),
     ("hey jarvis, what's my name", "what's my name", "read back, never guessed"),
+    ("remember what we talked about", "learn from chat", "the chat's facts, approved, not a note"),
     ("hey jarvis, flip a coin", "flip a coin", "a model cannot draw at random"),
 )
 # Not in the table: exact command words like `failures`, `latency` and `capabilities`.
@@ -207,6 +208,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what timers are good for baking", "advice"),
     ("how many reminders can an iphone hold", "a question about phones"),
     ("what facts do you have about mars", "knowledge, not what is stored about the user"),
+    ("do you remember what we talked about", "a question about the chat, not a request to save it"),
     ("how do alarms work", "a question about alarms, not a listing"),
     ("what are alarms?", "a definition; \"what\" lists only with my/the or a \"do i have\" (Codex, #255)"),
     ("alarms are annoying", "a remark"),
