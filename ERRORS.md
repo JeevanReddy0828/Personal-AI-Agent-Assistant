@@ -69,6 +69,7 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"create a workspace folder and fill files with python basics" made one Markdown document** → no tool could make a folder or write several files, so the model router substituted the document tool → `workspace <request>` (`tools/workspace.py`): the name and place come from the words, the model only plans the files as JSON, one unsafe path refuses the whole plan, and one HIGH card lists every file before anything is written; developer-only; the router leaves "how do I create a folder in python" to the chat; a path that is both a file and a folder ("src" and "src/app.py", any case) is refused before the card (Codex's review) (`test_workspace.py`). (10-13)
 - **"and in feet?" after "convert 5 miles to km", "and in london?" after the time in Tokyo,
   "and halloween?" after the days until Christmas all went to the chat model** → a follow-up
   was only ever an answer to a question we had asked, and the refusal check reads "what about

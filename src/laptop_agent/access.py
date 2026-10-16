@@ -131,7 +131,7 @@ _DEV_PREFIX = (
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
-    "terminal", "shell", "play music", "media",
+    "terminal", "shell", "play music", "media", "workspace",
 )
 
 

@@ -71,6 +71,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("tell me when there's news about nvidia", "watch news", "a watch, not today's headlines"),
     ("warn me when my battery is low", "watch health", "a watch, not a status"),
     ("draw me a picture of a fox", "image", "image generation"),
+    ("create a workspace folder and fill files with python basics", "workspace", "a folder with files, not one document"),
     ("what do you remember about me", "memory", "stored profile"),
     ("remember my name is jeevan", "remember", "storing a detail"),
     # Everyday requests — the corpora of 2026-09-26, each once answered by a model that
@@ -217,6 +218,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("is the meeting on my calendar", "a calendar, not a list"),
     ("what is the record for the 100m", "record is a noun"),
     ("can you record?", "asks whether it can; only a named request starts the microphone"),
+    ("how do i create a folder in python", "a coding question, not a folder on this laptop"),
+    ("create a slack workspace for my team", "a service, not a folder"),
     ("do not open youtube", "a leading 'do not' was skipped and YouTube opened"),
     ("what week is it in the series", "a story, not the calendar"),
     ("do not remind me to call mom", "same, and the reminder was set"),

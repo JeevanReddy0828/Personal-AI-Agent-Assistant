@@ -91,6 +91,7 @@ from laptop_agent.tools.travel import TravelTool
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool, page_target
+from laptop_agent.tools.workspace import WorkspaceTool
 from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.watch import Watches
@@ -386,6 +387,7 @@ def _meaningful(value: str) -> bool:
 _WHOLE_ARGUMENT = frozenset({
     "email", "send", "remember", "note", "document", "image", "research", "solve", "ask", "agent", "autopilot",
     "workflow", "multi", "schedule", "run", "terminal", "shell", "write", "draft", "summarize", "translate",
+    "workspace",
 })
 _REMINDER_REMOVE = re.compile(r"reminder (?:delete|cancel|remove)(?: |$)")
 _HOW_LONG_LEFT = re.compile(r"(?:how\s+much\s+longer|how\s+much\s+time(?:\s+is)?\s+left|how\s+long\s+(?:is\s+)?left"
@@ -544,6 +546,7 @@ class AgentOrchestrator:
         self._news_tool_cache: NewsTool | None = None
         self._watches_cache: Watches | None = None
         self._document_tool_cache: DocumentTool | None = None
+        self._workspace_tool_cache: WorkspaceTool | None = None
         self._calculator_cache: CalculatorTool | None = None
         self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
@@ -1590,6 +1593,9 @@ class AgentOrchestrator:
         if lowered.startswith("document "):
             return self._document_tool().create(command[len("document ") :].strip())
 
+        if lowered.startswith("workspace "):
+            return self._workspace_tool().create(command[len("workspace ") :].strip())
+
         if lowered.startswith("image "):
             return self._generate_image(command[len("image ") :].strip())
 
@@ -2302,7 +2308,7 @@ class AgentOrchestrator:
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
-        "translate",
+        "translate", "workspace",
     })
 
     def _reads_as_prose(self, command: str, lowered: str) -> bool:
@@ -3175,6 +3181,7 @@ class AgentOrchestrator:
                 "  watch news <topic> | watch health | watches | unwatch <topic|health>  (told when there's a new headline, or the laptop needs attention)",
                 "  image <description>  (draw a picture; add landscape/portrait/wide/tall)",
                 "  document <request> [as pdf|word|markdown]  (write and render a real file; keep any length asked for, such as 'one page')",
+                "  workspace <request>  (make a folder and fill it with files, e.g. 'a folder called python basics with starter scripts'; asks first)",
                 "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",
@@ -4036,6 +4043,7 @@ class AgentOrchestrator:
         "unwatch <topic|health>",
         "image <description>",
         "document <request> as pdf|word|markdown",
+        "workspace <request>",
         "weather <location>",
         "translate <text> to <language>",
         "distance <origin> to <destination>",
@@ -4311,7 +4319,15 @@ class AgentOrchestrator:
             )
         return self._document_tool_cache
 
-    def _build_document_writer(self):
+    def _workspace_tool(self) -> WorkspaceTool:
+        if self._workspace_tool_cache is None:
+            self._workspace_tool_cache = WorkspaceTool(
+                writer=self._build_document_writer(max_tokens=8000),
+                approval_gate=self.context.web.approval_gate,
+            )
+        return self._workspace_tool_cache
+
+    def _build_document_writer(self, max_tokens: int = 6000):
         """A document is long-form prose, so it goes to the best available tier with a
         generous token budget — the chat default would truncate it mid-section."""
         planner = self.smart_planner or self.planner
@@ -4322,7 +4338,7 @@ class AgentOrchestrator:
             return None
 
         def write(prompt: str) -> str:
-            return provider.answer(prompt, {}, max_tokens=6000) or ""
+            return provider.answer(prompt, {}, max_tokens=max_tokens) or ""
 
         return write
 

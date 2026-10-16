@@ -103,6 +103,19 @@ _DECK_ASK = re.compile(
 )
 
 
+_WORKSPACE_ASK = re.compile(
+    r"^\s*(?:(?:can|could|would)\s+you\s+|please\s+|i\s+(?:want|need)\s+(?:you\s+to\s+)?)*"
+    r"(?:create|make|set\s+up|build|generate|start)\s+(?:me\s+)?(?:an?\s+|my\s+|the\s+)?(?:new\s+)?"
+    r"(?:(?:[\w-]+\s+){0,2}(?:folder|directory)\b|(?:[\w-]+\s+){0,2}(?:workspace|project)(?:\s+(?:folder|directory))?"
+    r"(?=\s+(?:with|and\s+(?:fill|put|add|write|create)|full\s+of|containing)\b))",
+    re.IGNORECASE,
+)
+_WORKSPACE_IN_CODE = re.compile(
+    r"\b(?:in|using|via|with)\s+(?:python|powershell|bash|javascript|js|node(?:js)?|java|c\+\+|c#|git|cmd|linux|"
+    r"the\s+terminal|code)\b(?!\s+(?:basics|tutorials?|examples?|exercises?|notes|files?|scripts?|lessons?))",
+    re.IGNORECASE,
+)
+
 _DOC_HEAD = re.compile(
     r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
     r"(?:me\s+)?(?:an?\s+)?(?P<length>(?:(?:\d{1,2}|one|two|three|four|five|single)[\s-]+pages?|one[\s-]pager)\s+)?"
@@ -1250,6 +1263,10 @@ class HeuristicPlannerProvider:
         if arranged:
             return arranged
 
+        folder = self._workspace(raw)
+        if folder:
+            return folder
+
         written = self._document(raw)
         if written:
             return written
@@ -1900,6 +1917,13 @@ class HeuristicPlannerProvider:
         if not asks_to_arrange(text):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
+
+    def _workspace(self, text: str) -> PlanDecision | None:
+        """'create a workspace folder and fill files with python basics' -> a folder with files.
+        A question about how to make a folder in code is left to the chat."""
+        if not _WORKSPACE_ASK.match(text or "") or _WORKSPACE_IN_CODE.search(text):
+            return None
+        return self._command(f"workspace {text.strip()}", "User wants a folder created, with files in it.", 0.88)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what
