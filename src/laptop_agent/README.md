@@ -108,6 +108,7 @@ data.
 | File | What it does |
 |---|---|
 | `reminders.py` | Reminders and timers; the interfaces deliver them when due. |
+| `briefing.py` | The daily briefing's format ("set my briefing to weather, AI news and reminders") and how its sections read. |
 | `scheduler.py` | Recurring jobs ("every weekday at 8"), run by the web server's ticker. |
 | `timeparse.py` | "6pm", "tomorrow at 9", "in 20 minutes" → an exact time on this laptop's clock. |
 

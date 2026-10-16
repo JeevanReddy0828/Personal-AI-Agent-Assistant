@@ -64,6 +64,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"set my briefing to weather and news" saved a briefing of weather alone, then read the
+  news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
+  and "set my briefing to weather" and "news" both do; the typed form split the same way,
+  because the catch-all `briefing` route reads it as a plain briefing → a sentence that is, or
+  routes to, `briefing set/add/remove` stays whole (`_split_requests`); "give me my briefing
+  and set a timer" still splits. A list joined by "and" inside one argument needs this for
+  every new verb that takes one. (10-16)
 - **"and in feet?" after "convert 5 miles to km", "and in london?" after the time in Tokyo,
   "and halloween?" after the days until Christmas all went to the chat model** → a follow-up
   was only ever an answer to a question we had asked, and the refusal check reads "what about
@@ -546,6 +553,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"total revenue by region in sales.csv" said Revenue "is not a column of numbers"** because
+  one cell read "N/A" → the column test demanded every cell be a number, so one odd cell made
+  the whole column text and the reply blamed the column → a column is numbers when most of its
+  filled cells are, and the odd cell is refused by its row (`tools/breakdown._is_numeric`). (10-16)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a

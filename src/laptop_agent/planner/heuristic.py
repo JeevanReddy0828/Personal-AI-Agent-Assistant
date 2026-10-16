@@ -7,6 +7,7 @@ from laptop_agent.memory import KNOWN_LISTS as _KNOWN_LISTS
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
+from laptop_agent.tools.breakdown import breakdown_request
 from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
@@ -1075,6 +1076,31 @@ def _folder_path(where: str) -> str | None:
     return f"~/{known}" if known else None
 
 
+# Changing what the briefing holds. Checked before the catch-all `briefing` route below, which
+# takes any sentence with the word in it: "set my briefing to weather and news" ran a briefing.
+# "brief" alone is a document as often ("add these points to the brief"), so only "briefing" or a
+# morning or daily brief.
+_BRIEFING = r"(?:my\s+|the\s+)?(?:(?:morning|daily)\s+brief(?:ing)?|briefing)"
+_BRIEFING_SET = re.compile(
+    _POLITE + r"(?:(?:set|make|change|update|customi[sz]e)\s+" + _BRIEFING
+    + r"\s+(?:to|into|as|so\s+(?:it|that\s+it)\s+(?:has|includes|covers))"
+    r"|i\s+(?:want|would\s+like|'d\s+like)\s+" + _BRIEFING + r"\s+to\s+(?:have|include|cover|be)"
+    r"|" + _BRIEFING + r"\s+should\s+(?:have|include|cover|be))\s+(?P<items>.+?)[\s.!?]*$",
+    re.IGNORECASE)
+_BRIEFING_ADD = re.compile(_POLITE + r"(?:add|put|include)\s+(?P<items>.+?)\s+(?:to|in|into)\s+" + _BRIEFING
+                           + r"[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_REMOVE = re.compile(_POLITE + r"(?:remove|drop|take)\s+(?P<items>.+?)\s+(?:from|out\s+of)\s+" + _BRIEFING
+                              + r"(?:\s+out)?[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_SHOW = re.compile(_POLITE + r"(?:what(?:'s|\s+is)\s+in\s+" + _BRIEFING
+                            + r"|(?:show|tell)\s+(?:me\s+)?" + _BRIEFING + r"\s+(?:format|settings|layout|set\s*up))"
+                            r"[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_RESET = re.compile(_POLITE + r"(?:reset|restore)\s+" + _BRIEFING + r"(?:\s+to\s+(?:the\s+)?default)?[\s.!?]*$",
+                             re.IGNORECASE)
+# "brief me" alone, never "brief me on the project", which asks for an explanation.
+_BRIEF_ME = re.compile(_POLITE + r"(?:brief\s+me|give\s+me\s+(?:my|the|a)\s+(?:morning\s+|daily\s+)?(?:brief|briefing|rundown))"
+                       r"(?:\s+(?:for|on)\s+(?:today|the\s+day|this\s+morning))?(?:\s+please)?[\s.!?]*$", re.IGNORECASE)
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
         del available_commands, memory_profile, history
@@ -1090,6 +1116,10 @@ class HeuristicPlannerProvider:
         seconds = None if bare else recording_seconds(spoken_to_digits(asked))
         if seconds is not None:
             return self._command(f"record {seconds:f}", "User requested a microphone recording.", 0.99)
+        # "jarvis, what's the total revenue by region in sales.csv": the direct dispatch reads the
+        # question itself, but only without the wake word in front, so it is passed on without it.
+        if breakdown_request(raw) is not None:
+            return self._command(raw, "User asked a question a table answers by computing it.", 0.9)
 
         if lowered in {"commands", "show commands", "command list", "syntax"}:
             return self._command("help", "User asked for the command list.", 0.95)
@@ -1105,6 +1135,15 @@ class HeuristicPlannerProvider:
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
 
+        for pattern, verb in ((_BRIEFING_SET, "set"), (_BRIEFING_ADD, "add"), (_BRIEFING_REMOVE, "remove")):
+            if (found := pattern.match(raw)) is not None:
+                return self._command(f"briefing {verb} {found['items']}", "User is changing what their briefing holds.", 0.9)
+        if _BRIEFING_SHOW.match(raw):
+            return self._command("briefing format", "User asked what their briefing holds.", 0.9)
+        if _BRIEFING_RESET.match(raw):
+            return self._command("briefing reset", "User wants the default briefing back.", 0.9)
+        if _BRIEF_ME.match(raw):
+            return self._command("briefing", "User wants their daily briefing.", 0.88)
         if re.search(r"\b(?:briefing|daily brief|morning brief|status brief|catch me up)\b", lowered):
             return self._command("briefing", "User wants a compact assistant status briefing.", 0.86)
 

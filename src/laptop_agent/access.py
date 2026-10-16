@@ -85,6 +85,7 @@ def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:
 _DEV_EXACT = frozenset({
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
+    "briefing format", "briefing settings", "briefing reset", "briefing default",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
     "self-check", "does everything work", "check yourself", "diagnose", "latency", "traces",
     "why slow", "speed", "watches", "watch health", "watch check health",
@@ -116,6 +117,7 @@ _DEV_EXACT = frozenset({
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
     "timecard", "autopilot", "schedule", "agent", "workflow", "multi", "plan apply job",
+    "briefing set", "briefing add", "briefing remove",
     "watch news", "watch check news", "unwatch",
     # the owner's job search, notes and indexed documents
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",

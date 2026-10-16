@@ -258,6 +258,7 @@ for the area you are about to change before changing it.
 | The page: rendering, design, orb, desktop window, pages | `docs/design/web-ui.md` |
 | Voice, barge-in, the meter, speech-to-text, recordings | `docs/design/voice.md` |
 | Forecasting and diagnostics | `docs/design/analytics.md`, `docs/analytics.md`, `docs/forecasting.md` |
+| CSV breakdowns, the daily briefing | `docs/design/architecture-map.md` (`breakdown`, `briefing.py`) |
 | GPU and system metrics | `docs/design/metrics.md` |
 | The test runner | `docs/design/testing.md`, `tests/README.md` |
 | Running instances safely | `docs/design/running.md` |

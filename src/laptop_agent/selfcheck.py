@@ -187,6 +187,12 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("how long would it take me to drive to dallas from houston", "distance houston to dallas", "start said last"),
     ("hey jarvis, what's my name", "what's my name", "read back, never guessed"),
     ("hey jarvis, flip a coin", "flip a coin", "a model cannot draw at random"),
+    ("set my briefing to weather, AI news and my reminders", "briefing set",
+     "was a briefing read out, by the route that takes any sentence with the word in it"),
+    ("add the shopping list to my briefing", "briefing add", "same"),
+    ("take the news out of my briefing", "briefing remove", "same"),
+    ("what's in my briefing?", "briefing format", "same"),
+    ("jarvis, brief me", "briefing", "'brief me' alone asks for the briefing"),
 )
 # Not in the table: exact command words like `failures`, `latency` and `capabilities`.
 # Those are matched by the orchestrator's own direct-prefix dispatch, which runs BEFORE
@@ -253,6 +259,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("show me my desktop", "may mean the screen; a listing says 'files' or 'folder'"),
     ("how hot will it be if i add more chili", "about the pot, not the sky: the weather form is the whole sentence"),
     ("a bit louder than that sounds odd", "a remark, not a volume step"),
+    ("brief me on the quarterly plan", "asks for an explanation, not the daily briefing"),
+    ("add these points to the brief", "a document called a brief, not the daily briefing"),
     ("should i put the legend on the right", "a decision belongs to the advisor"),
     ("how does tcp congestion control work", "a plain question"),
     ("update my resume", "'resume' is not a media key"),
