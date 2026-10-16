@@ -108,6 +108,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 |---|---|
 | `desktop.py` | Screenshots and opening apps. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
+| `codefix.py` | `code run <script.py>`, `code fix <script.py>`: runs a Python script (asked), and fixes it from its own error with the diff on the card and a backup kept. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
 | `music.py` | Media keys, volume levels and YouTube music; refuses to treat "my voicemail" as a song. |
 | `webcam.py` | One camera frame for the vision model (`vision` extra). |
