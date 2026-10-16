@@ -88,6 +88,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
+from laptop_agent.tools import fileops
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool, page_target
@@ -549,6 +550,7 @@ class AgentOrchestrator:
         self._command_verbs_cache: frozenset[str] | None = None
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
+        self._file_ops_cache: fileops.FileOps | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._copilot_cache: JobCopilot | None = None
         self._resume_copilot_cache: JobCopilot | None = None
@@ -717,7 +719,7 @@ class AgentOrchestrator:
                 trace.route_done(source)
             return decision
 
-        fast = self.router.plan(command, help_text, profile)
+        fast = self.router.plan(command, help_text, profile, history)
         if fast.is_command or self.planner is None:
             return decided("heuristic", fast)
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
@@ -1250,6 +1252,18 @@ class AgentOrchestrator:
 
     async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, scanning and indexing files."""
+        if lowered == "undo file":
+            return self._file_ops().undo()
+        if lowered.startswith(("file move ", "file copy ", "file rename ")):
+            changed = re.match(r"file (move|copy|rename) (.+?) to (.+)$", command, re.IGNORECASE | re.DOTALL)
+            if not changed:
+                return ToolResult.failure("Say where it goes: file move <file> to <folder or path>.")
+            verb, source, target = changed.group(1).lower(), changed.group(2), changed.group(3)
+            if verb == "rename":
+                return self._file_ops().rename(source, target)
+            return self._file_ops().move(source, target, copy=verb == "copy")
+        if lowered.startswith("file delete "):
+            return self._file_ops().delete(command[len("file delete ") :])
         if lowered.startswith("scan files "):
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
@@ -3170,6 +3184,7 @@ class AgentOrchestrator:
                 "  read note <name> | save note <title> : <body>",
                 "  remember note <text>",
                 "  search files <query> <path>",
+                "  file move|copy <file> to <folder> | file rename <file> to <name> | file delete <file> | undo file  (each asks; delete goes to the Recycle Bin)",
                 "  web search <query>",
                 "  news [topic]  (real headlines from free feeds, with article text)",
                 "  watch news <topic> | watch health | watches | unwatch <topic|health>  (told when there's a new headline, or the laptop needs attention)",
@@ -4008,6 +4023,11 @@ class AgentOrchestrator:
         "process file <path>",
         "file info <path>",
         "search files <query> <path>",
+        "file move <file> to <folder>",
+        "file copy <file> to <folder>",
+        "file rename <file> to <name>",
+        "file delete <file>",
+        "undo file",
         "convert file <source> to <destination>",
         "organize folder <path>",
         "index file <path>",
@@ -4325,6 +4345,12 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=6000) or ""
 
         return write
+
+    def _file_ops(self) -> fileops.FileOps:
+        if self._file_ops_cache is None:
+            self._file_ops_cache = fileops.FileOps(self.context.web.approval_gate, self.data_dir / "file_journal.json",
+                                                   recycler=fileops.system_recycler())
+        return self._file_ops_cache
 
     def _knowledge_reindex(self) -> ToolResult:
         """`knowledge reindex` — give older documents the vector newer ones get on save."""
