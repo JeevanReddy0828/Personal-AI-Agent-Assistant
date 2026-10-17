@@ -101,7 +101,7 @@ _DEV_EXACT = frozenset({
     "obsidian status", "notes list", "list notes", "notes audit", "vault audit", "audit notes",
     "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status",
     "knowledge reindex", "reindex knowledge", "knowledge backfill", "knowledge prune",
-    "prune knowledge", "knowledge clear", "forget knowledge", "undo file",
+    "prune knowledge", "knowledge clear", "forget knowledge", "undo file", "undo file move", "undo file copy", "undo file rename",
     # the owner's mailbox: there is one connection, and it is not the personal account's
     "email digest", "summarize inbox", "summarize my inbox", "summarize my emails",
     "summarize my unread", "inbox digest", "email oauth", "email oauth status", "email tokens",

@@ -558,6 +558,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **A "Recycle Bin" delete could be permanent, and "delete the alarm at 6.30" became a file delete**
+  (review of #287) → FOF_NOCONFIRMATION answered Windows' "delete permanently?" for drives with no
+  bin, and any "name.<1-6 chars>" was a file name → a removable or network drive is refused before
+  anything (FOF_WANTNUKEWARNING as a backstop); a bare name's extension starts with a letter and is
+  not a web domain. Same review: a missing destination folder is not a new file name, C:\\Users and
+  the profile folders are protected, a delete no longer blocks undo, and a model-routed `undo file`
+  stands only straight after a file change. (10-17)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a

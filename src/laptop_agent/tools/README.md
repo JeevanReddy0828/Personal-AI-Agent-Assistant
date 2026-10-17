@@ -71,7 +71,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Files and documents
 | File | What it does |
 |---|---|
-| `fileops.py` | `file move|copy|rename|delete …` and `undo file`: each asks, never overwrites, keeps out of Windows' folders; a journal undoes the last change; deletion goes to the Recycle Bin. |
+| `fileops.py` | `file move\|copy\|rename\|delete …` and `undo file`: each asks, never overwrites, keeps out of Windows' folders; a journal undoes the last change; deletion goes to the Recycle Bin. |
 | `files.py` | Scan, read, search, summarize and ask questions of files; spreadsheet stats; the shared CSV reader and number parser. |
 | `file_processor.py` | `process file <path>`: detects the type and picks the right action. |
 | `document.py` | `document …`: the model writes Markdown, rendered to PDF, Word, PowerPoint or Markdown. |

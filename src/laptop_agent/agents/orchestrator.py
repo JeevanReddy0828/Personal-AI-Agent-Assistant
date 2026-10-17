@@ -45,6 +45,7 @@ from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import (
+    follows_a_file_change,
     SMALL_TALK,
     asks_to_arrange,
     asks_to_be_told,
@@ -241,7 +242,8 @@ _CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|kr
 _UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
 _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
                "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
-               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
+               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ", "file move ",
+               "file copy ", "file rename ", "file delete ")
 # Phone keyboards type "what’s", and every route is written with a straight apostrophe: all
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
@@ -752,7 +754,14 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        return decided("llm", self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history)))
+        planned = self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history))
+        # The model knows `undo file` but not what was just done: after "Reminder set", "undo that"
+        # moved an unrelated file back (review of #287). Only straight after a file change of ours.
+        if planned.is_command and (planned.command or "").lower().startswith("undo file") and not (
+                follows_a_file_change(history)):
+            planned = PlanDecision(action="chat", confidence=planned.confidence,
+                                   explanation="An undo of a file change that was not the last thing done.")
+        return decided("llm", planned)
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
     # the user: 'I read "this" as I can't generate or attach images directly...'.
@@ -779,6 +788,7 @@ class AgentOrchestrator:
         "open url", "download", "read file", "index file", "process file", "summarize file",
         "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
         "describe image", "summarize youtube", "organize folder", "scan files",
+        "file move", "file copy", "file rename", "file delete",
     )
     # The part of a target that identifies it: a host without www/TLD, or a filename stem.
     _TARGET_TOKEN = re.compile(r"[A-Za-z0-9_-]{3,}")
@@ -1254,11 +1264,13 @@ class AgentOrchestrator:
         """Direct commands for reading, scanning and indexing files."""
         if lowered == "undo file":
             return self._file_ops().undo()
+        if lowered in {"undo file move", "undo file copy", "undo file rename"}:
+            return self._file_ops().undo(lowered.rsplit(" ", 1)[1])
         if lowered.startswith(("file move ", "file copy ", "file rename ")):
-            changed = re.match(r"file (move|copy|rename) (.+?) to (.+)$", command, re.IGNORECASE | re.DOTALL)
-            if not changed:
+            changed = self._file_change_parts(command)
+            if changed is None:
                 return ToolResult.failure("Say where it goes: file move <file> to <folder or path>.")
-            verb, source, target = changed.group(1).lower(), changed.group(2), changed.group(3)
+            verb, source, target = changed
             if verb == "rename":
                 return self._file_ops().rename(source, target)
             return self._file_ops().move(source, target, copy=verb == "copy")
@@ -4345,6 +4357,24 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=6000) or ""
 
         return write
+
+    def _file_change_parts(self, command: str) -> tuple[str, str, str] | None:
+        """(verb, source, target) of `file move|copy|rename <a> to <b>`. A quoted source ends at its
+        quote; otherwise the split is the " to " whose left side is a file that exists, so "back to
+        school.docx" and "notes to self.txt" are whole names, not "back" and "notes" (review of #287)."""
+        head = re.match(r"file (move|copy|rename) ", command, re.IGNORECASE)
+        if head is None:
+            return None
+        verb, rest = head.group(1).lower(), command[head.end():]
+        quoted = re.match(r"\s*([\"'])(.+?)\1\s+to\s+(.+)$", rest, re.DOTALL)
+        if quoted:
+            return verb, quoted.group(2), quoted.group(3)
+        splits = [(rest[:m.start()], rest[m.end():]) for m in re.finditer(r"\s+to\s+", rest)]
+        if not splits:
+            return None
+        found = [(source, target) for source, target in splits if self._file_ops().find(source)[0] is not None]
+        source, target = (found or splits)[0]
+        return verb, source, target
 
     def _file_ops(self) -> fileops.FileOps:
         if self._file_ops_cache is None:

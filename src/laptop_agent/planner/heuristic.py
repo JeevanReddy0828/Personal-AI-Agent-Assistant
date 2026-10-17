@@ -251,8 +251,11 @@ _ALARM_ASK = re.compile(
 # Moving, copying, renaming or deleting a file, said with something that is plainly a file: a
 # quoted name, a path, or a name with an extension. "move the meeting to friday" and "delete my
 # last note" name no file and are left to their own routes.
+# A bare name's extension starts with a letter and is not a web domain's: "the alarm at 6.30",
+# "chapter 3.1", "v1.2" and "google.com" are not files (review of #287). "my"/"the" before a bare
+# name are words about it, not part of it.
 _FILE_LIKE = (r"(?:\"[^\"]{1,200}\"|'[^']{1,200}'|[A-Za-z]:[\\/][^\"'\n]{1,200}?|~[\\/][^\"'\n]{1,200}?"
-              r"|[\w(][\w .()&,+-]{0,80}?\.[A-Za-z0-9]{1,6})")
+              r"|(?:(?:my|the|this|that)\s+)?[\w(][\w .()&,+-]{0,80}?\.(?!(?:com|org|net|io|gov|edu)\b)[A-Za-z][A-Za-z0-9]{0,5})")
 _FILE_MOVE = re.compile(
     _POLITE + r"(?P<verb>move|copy)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|into)\s+"
     r"(?P<dst>(?:(?:my|the)\s+)?(?:desktop|documents|downloads|pictures|music|videos|home)(?:\s+folder)?"
@@ -269,12 +272,19 @@ _FILE_DELETE = re.compile(
     re.IGNORECASE,
 )
 _FILE_UNDO = re.compile(
-    _POLITE + r"(?:undo|reverse|revert)\s+(?:the\s+last\s+(?:file\s+)?(?P<named>move|rename|copy|change)"
-    r"|(?:that|it|this)(?:\s+(?:move|rename|copy|change))?|my\s+last\s+file\s+change)\s*[.!]*\s*$",
+    # "the last change" names nothing about files; only a file verb does (review of #287).
+    _POLITE + r"(?:undo|reverse|revert)\s+(?:the\s+last\s+(?:file\s+)?(?P<named>move|rename|copy)"
+    r"|(?:that|it|this)(?:\s+(?P<pronamed>move|rename|copy))?|my\s+last\s+file\s+change)\s*[.!]*\s*$",
     re.IGNORECASE,
 )
 # Our own words when a file change is done: "undo that" after one of these means the file.
-_FILE_CHANGED = re.compile(r"^(?:Moved|Copied|Renamed)\s", re.IGNORECASE)
+_FILE_CHANGED = re.compile(r"^(?:Moved|Copied|Renamed)\s(?!.*Recycle Bin)", re.IGNORECASE)
+
+
+def follows_a_file_change(history: list[dict] | None) -> bool:
+    """Whether our last reply was a file change that "undo that" can mean."""
+    last = next((str(turn.get("text") or "") for turn in reversed(history or []) if turn.get("role") == "assistant"), "")
+    return bool(_FILE_CHANGED.match(last))
 
 # "start a pomodoro", "start a 25 minute pomodoro": a work timer, 25 minutes unless a length is said.
 _POMODORO = re.compile(
@@ -2074,7 +2084,7 @@ class HeuristicPlannerProvider:
             return None
         return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
 
-    def _file_change(self, text: str, history) -> PlanDecision | None:
+    def _file_change(self, text: str, history: list[dict] | None) -> PlanDecision | None:
         """'move report.pdf to my desktop', 'rename a.txt to b.txt', 'delete old.log', 'undo that'."""
         text = text or ""
         moved = _FILE_MOVE.match(text)
@@ -2094,8 +2104,9 @@ class HeuristicPlannerProvider:
             # "undo that" is about whatever was just done; only after a file change of ours is it the file.
             last = next((str(turn.get("text") or "") for turn in reversed(history or [])
                          if turn.get("role") == "assistant"), "")
+            named = (undo.group("named") or undo.group("pronamed") or "").lower()
             if undo.group("named") or "file" in text.lower() or _FILE_CHANGED.match(last):
-                return self._command("undo file", "User wants the last file change undone.", 0.88)
+                return self._command(f"undo file {named}".strip(), "User wants the last file change undone.", 0.88)
         return None
 
     def _file_scan(self, text: str) -> PlanDecision | None:

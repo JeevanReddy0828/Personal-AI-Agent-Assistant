@@ -14,6 +14,7 @@ from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
+from laptop_agent.tools import fileops
 from laptop_agent.tools.fileops import FileOps
 
 import test_orchestrator
@@ -173,7 +174,7 @@ class FileOpsRoutingTests(unittest.TestCase):
         'move "old notes" to documents': 'file move "old notes" to documents',
         "rename notes.txt as ideas": "file rename notes.txt to ideas",
         "delete old-notes.txt": "file delete old-notes.txt",
-        "undo the last move": "undo file",
+        "undo the last move": "undo file move",
     }
     STAY = ("move the meeting to friday", "delete my last note", "copy that to my clipboard",
             "how do I move files to another drive", "rename my wifi network", "remove google.com from my bookmarks",
@@ -198,6 +199,96 @@ class FileOpsRoutingTests(unittest.TestCase):
             with self.subTest(text):
                 command = planner.plan(text, "", {}).command or ""
                 self.assertFalse(command.startswith(("file ", "undo file")), f"{text} -> {command}")
+
+
+class ReviewOf287Tests(FileOpsTests):
+    """The review of #287, each finding reproduced first."""
+
+    def test_a_drive_without_a_recycle_bin_is_refused_before_anything(self) -> None:
+        calls: list = []
+        kernel32 = type("K", (), {"GetDriveTypeW": lambda self, root: 2})()   # DRIVE_REMOVABLE
+        shell32 = type("S", (), {"SHFileOperationW": lambda self, op: calls.append(op) or 0})()
+        with self.assertRaisesRegex(OSError, "no Recycle Bin"):
+            fileops.recycle_windows(Path("E:/photos"), kernel32, shell32)
+        with self.assertRaisesRegex(OSError, "network share"):
+            fileops.recycle_windows(Path("//server/share/x.txt"), kernel32, shell32)
+        self.assertEqual(calls, [], "the delete was sent")
+
+    def test_a_folder_that_does_not_exist_is_not_a_new_name(self) -> None:
+        missing = self.home / "backup"
+        result = self.ops.move("report.pdf", str(missing), copy=True)
+        self.assertFalse(result.ok)
+        self.assertIn("There's no folder", result.message)
+        self.assertFalse(missing.exists())
+
+    def test_the_folders_above_and_inside_home_are_protected(self) -> None:
+        for target in (str(self.home.parent), str(self.home / "Desktop")):
+            with self.subTest(target):
+                self.assertFalse(self.ops.delete(target).ok)
+        self.assertEqual(self.recycled, [])
+
+    def test_my_and_the_are_not_part_of_a_name(self) -> None:
+        self.assertEqual(self.ops.find("my report.pdf")[0], self.report)
+
+    def test_a_dotted_name_keeps_its_extension(self) -> None:
+        self.assertTrue(self.ops.rename("report.pdf", "Q3 v2.1").ok)
+        self.assertTrue((self.home / "Downloads" / "Q3 v2.1.pdf").exists())
+
+    def test_something_arriving_during_the_card_is_not_overwritten(self) -> None:
+        arrived = self.home / "Desktop" / "report.pdf"
+
+        def ask(request) -> bool:
+            arrived.write_text("theirs", encoding="utf-8")
+            return True
+
+        ops = fileops.FileOps(fileops.ApprovalGate(ask=ask), self.home / "j2.json", home=self.home)
+        self.assertFalse(ops.move("report.pdf", "desktop", copy=True).ok)
+        self.assertEqual(arrived.read_text(encoding="utf-8"), "theirs")
+
+    def test_a_delete_does_not_block_undoing_what_came_before(self) -> None:
+        self.ops.move("report.pdf", "desktop")
+        (self.home / "Documents" / "old.txt").write_text("x", encoding="utf-8")
+        self.ops.delete("old.txt")
+        self.assertIn("Recycle Bin", self.ops.undo().message)
+        self.assertTrue(self.ops.undo().ok, "the move under the delete could never be undone")
+        self.assertTrue(self.report.exists())
+
+    def test_undoing_a_named_kind_skips_the_others(self) -> None:
+        self.ops.move("report.pdf", "desktop")
+        self.ops.move("report.pdf", "documents", copy=True)
+        self.assertTrue(self.ops.undo("move").ok)
+        self.assertTrue(self.report.exists())
+        self.assertTrue((self.home / "Documents" / "report.pdf").exists(), "undoing a move removed the copy")
+
+
+class ReviewOf287CommandTests(FileOpsCommandTests):
+    def test_a_name_with_to_in_it_is_one_name(self) -> None:
+        (self.home / "Downloads" / "back to school.docx").write_text("x", encoding="utf-8")
+        self.assertEqual(self.orch._file_change_parts("file move back to school.docx to desktop"),
+                         ("move", "back to school.docx", "desktop"))
+        self.assertEqual(self.orch._file_change_parts('file move "back to school.docx" to desktop'),
+                         ("move", "back to school.docx", "desktop"))
+
+    def test_an_invented_target_is_refused(self) -> None:
+        self.assertIn("file delete", self.orch._TARGET_COMMANDS)
+
+
+class ReviewOf287UndoTests(FileOpsCommandTests):
+    def test_the_model_router_cannot_undo_a_file_after_something_else(self) -> None:
+        from laptop_agent.planner.core import PlanDecision
+        fake = type("P", (), {"plan": lambda self, *a, **k: PlanDecision(action="command", command="undo file",
+                                                                          confidence=0.9, explanation="model")})()
+        self.orch.planner = type("Planner", (), {"plan": fake.plan, "provider": None})()
+        after_reminder = [{"role": "assistant", "text": "Reminder set for 5pm."}]
+        after_move = [{"role": "assistant", "text": "Moved report.pdf to C:/Users/me/Desktop/report.pdf."}]
+        routed = self.orch._route("undo that please", {}, after_reminder)
+        self.assertFalse(routed.is_command, routed)
+        self.assertTrue(self.orch._route("undo that please", {}, after_move).is_command)
+
+
+class ReviewOf287RoutingTests(FileOpsRoutingTests):
+    STAY = FileOpsRoutingTests.STAY + ("delete the alarm at 6.30", "remove my alarm at 7.45", "delete google.com",
+                                "remove v1.2", "delete chapter 3.1", "undo the last change", "revert the last change")
 
 
 if __name__ == "__main__":
