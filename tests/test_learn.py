@@ -44,7 +44,7 @@ class ProposedTests(unittest.TestCase):
         self.assertEqual(proposed(reply, {"editor": "vs code"}), [("city", "Austin")])
 
     def test_prose_is_no_facts_and_the_count_is_capped(self) -> None:
-        self.assertEqual(proposed("Sure! Here are the facts.", {}), [])
+        self.assertIsNone(proposed("Sure! Here are the facts.", {}), "unreadable is not 'nothing new'")
         many = facts(*((f"fact_{n:02d}", "v") for n in range(MAX_FACTS + 5)))
         self.assertEqual(len(proposed(many, {})), MAX_FACTS)
 
@@ -65,7 +65,7 @@ class LearnToolTests(unittest.TestCase):
             self.prompts.append(prompt)
             return self.reply
 
-        self.tool = LearnTool(writer, ApprovalGate(ask=ask), lambda key, value: self.saved.append((key, value)))
+        self.tool = LearnTool(writer, ApprovalGate(ask=ask), lambda found: self.saved.extend(found.items()))
 
     def test_only_the_users_own_words_reach_the_model(self) -> None:
         self.tool.learn(HISTORY, {})
@@ -94,7 +94,7 @@ class LearnToolTests(unittest.TestCase):
 
     def test_an_empty_chat_or_no_model_says_so(self) -> None:
         self.assertFalse(self.tool.learn([{"role": "assistant", "text": "hi"}], {}).ok)
-        self.assertFalse(LearnTool(None, ApprovalGate(ask=lambda r: True), lambda k, v: None).learn(HISTORY, {}).ok)
+        self.assertFalse(LearnTool(None, ApprovalGate(ask=lambda r: True), lambda found: None).learn(HISTORY, {}).ok)
         self.assertEqual(self.prompts, [])
 
 
@@ -106,7 +106,7 @@ class LearnCommandTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.orch = self.build(Path(temp.name))
-        self.orch._build_document_writer = lambda: (lambda prompt: facts(("employer", "Nvidia")))
+        self.orch._build_agent_brain = lambda **_: (lambda prompt: facts(("employer", "Nvidia")))
 
     def test_remember_what_we_talked_about_saves_the_approved_facts(self) -> None:
         result = asyncio.run(self.orch.handle("remember what we talked about", history=HISTORY))
@@ -131,9 +131,85 @@ class LearnRoutingTests(unittest.TestCase):
     def test_near_misses_are_not_learning(self) -> None:
         planner = HeuristicPlannerProvider()
         for text in ("remember that my doctor is dr patel", "remember to call mom", "do you remember what we talked about",
+                     "can you remember what we talked about",
                      "remember when we went to paris", "what do you remember about me"):
             with self.subTest(text):
                 self.assertNotEqual(planner.plan(text, "", {}).command, "learn from chat")
+
+
+class ReviewOf288Tests(LearnToolTests):
+    """The review of #288, each finding reproduced first."""
+
+    def test_secret_shapes_and_secret_names_are_dropped(self) -> None:
+        reply = facts(("social_security_number", "123-45-6789"), ("ssn_last", "x"), ("api_key", "AKIAIOSFODNN7EXAMPLE"),
+                      ("github_token", "abcd1234efgh5678"), ("bank_account_number", "12345678901"),
+                      ("door_code", "4821"), ("wifi_key", "hunter2hunter2"), ("note", "mine is 123-45-6789"),
+                      ("employer", "Nvidia"))
+        self.assertEqual(proposed(reply, {}), [("employer", "Nvidia")])
+
+    def test_dates_ranges_and_phone_numbers_are_kept(self) -> None:
+        reply = facts(("dentist_appointment", "2026-10-20 10:30 with Dr. Rao"),
+                      ("trip", "Austin 2026-11-02 - 2026-11-05"), ("mom_phone", "+1 512 555 0100"), ("zip_code", "78701"))
+        self.assertEqual(len(proposed(reply, {})), 4)
+
+    def test_a_null_or_a_list_is_no_value(self) -> None:
+        reply = json.dumps({"facts": [{"key": "employer", "value": None}, {"key": "kids", "value": ["A", "B"]}]})
+        self.assertEqual(proposed(reply, {}), [])
+
+    def test_a_bare_list_and_trailing_prose_are_read(self) -> None:
+        self.assertEqual(proposed('[{"key": "city", "value": "Austin"}]', {}), [("city", "Austin")])
+        self.assertEqual(proposed('Here: {"facts": [{"key": "city", "value": "Austin"}]} hope {that} helps', {}),
+                         [("city", "Austin")])
+
+    def test_a_stored_key_is_matched_however_it_is_spelt(self) -> None:
+        self.assertEqual(proposed(facts(("favourite_editor", "VS Code")), {"favourite editor": "VS Code"}), [])
+        self.assertEqual(proposed(facts(("favourite_editor", "Vim")), {"favourite editor": "VS Code"}),
+                         [("favourite editor", "Vim")])
+
+    def test_a_replacement_says_what_it_replaces(self) -> None:
+        self.tool.learn(HISTORY, {"employer": "Google"})
+        self.assertIn('employer: Nvidia (replaces "Google")', self.cards[0].preview)
+
+    def test_no_answer_and_an_unreadable_answer_are_failures(self) -> None:
+        for reply, said in (("", "No language model answered"), ("Sure! I'll remember that.", "couldn't be read")):
+            with self.subTest(reply):
+                self.reply = reply
+                result = self.tool.learn(HISTORY, {})
+                self.assertFalse(result.ok, result.message)
+                self.assertIn(said, result.message)
+                self.assertEqual(self.saved, [])
+
+    def test_history_written_with_content_is_read(self) -> None:
+        self.tool.learn([{"role": "user", "content": "I just started at Nvidia"}], {})
+        self.assertIn("I just started at Nvidia", self.prompts[0])
+
+
+class ReviewOf288CommandTests(LearnCommandTests):
+    def test_remember_everything_i_told_you_learns_instead_of_saving_a_note(self) -> None:
+        result = asyncio.run(self.orch.handle("remember everything I told you", history=HISTORY))
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(self.orch.context.memory.get_profile().get("employer"), "Nvidia")
+        self.assertNotIn("everything I told you", str(self.orch.context.memory.dump().get("notes")))
+
+    def test_learn_from_chat_with_a_period_is_still_the_command(self) -> None:
+        for said in ("learn from chat.", "Learn from chat!", "learn from chat please"):
+            with self.subTest(said):
+                result = asyncio.run(self.orch.handle(said, history=HISTORY))
+                # The first saves the fact; the others find it already known. Either way it ran.
+                self.assertRegex(result.message, r"Remembered|anything new")
+
+    def test_approved_facts_are_one_write(self) -> None:
+        writes: list = []
+        memory = self.orch.context.memory
+        original = memory.save
+        memory.save = lambda: writes.append(1) or original()
+        try:
+            self.orch._learn_cache = None
+            self.orch._build_agent_brain = lambda **_: (lambda prompt: facts(("employer", "Nvidia"), ("city", "Austin")))
+            asyncio.run(self.orch.handle("learn from chat", history=HISTORY))
+        finally:
+            memory.save = original
+        self.assertEqual(len(writes), 1)
 
 
 if __name__ == "__main__":

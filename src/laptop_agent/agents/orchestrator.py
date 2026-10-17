@@ -45,6 +45,7 @@ from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.planner.heuristic import (
+    asks_to_learn,
     SMALL_TALK,
     asks_to_arrange,
     asks_to_be_told,
@@ -2349,7 +2350,10 @@ class AgentOrchestrator:
             return rest.rstrip(" .!") in {"it", "about it", "that", "this", "it then", "about that", "all that"} or bool(
                 re.match(r"(?:about\s+)?(?:the|my|that)\s+(?:[a-z][\w'-]*\s+){0,3}(?:timers?|alarms?|reminders?)\b", rest))
         if verb == "remember":
-            return bool(re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
+            # "remember everything I told you" asks to learn from the chat; as a note it saved
+            # "everything I told you" (review of #288).
+            return asks_to_learn(command) or bool(
+                re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
         if verb in {"calculate", "calc", "compute"}:
             return not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
         if verb == "map":
@@ -5175,11 +5179,14 @@ class AgentOrchestrator:
 
     def _learn(self) -> LearnTool:
         if self._learn_cache is None:
-            def save(key: str, value: str) -> None:
-                self.context.memory.set_profile_value(key, value)
-                self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
+            def save(facts: dict[str, str]) -> None:
+                self.context.memory.set_profile_values(facts)
+                self._mirror_to_vault("\n".join(f"{key.replace('_', ' ')}: {value}" for key, value in facts.items()))
 
-            self._learn_cache = LearnTool(self._build_document_writer(), self.context.web.approval_gate, save)
+            # A short JSON extraction: the tier ladder (smart, fast, OpenRouter) and a small budget,
+            # not the document writer's smart-only 6,000 thinking tokens.
+            self._learn_cache = LearnTool(self._build_agent_brain(answer_max_tokens=1200),
+                                          self.context.web.approval_gate, save)
         return self._learn_cache
 
     def _remember(self, expression: str) -> ToolResult:

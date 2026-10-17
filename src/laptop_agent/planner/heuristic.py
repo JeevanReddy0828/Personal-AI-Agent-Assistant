@@ -263,14 +263,26 @@ _ALARM_BARE = re.compile(_POLITE + r"(?:(?:set|make|create)\s+(?:an?|the|my)\s+a
                          r"|i\s+need\s+an\s+alarm|alarm)(?:\s+please)?\s*[.!?]*$", re.IGNORECASE)
 # Learning from the conversation: "remember what we talked about", "save what you learned about
 # me". Nothing else answered these, and the chat model cannot write to memory.
+# _POLITE without its start anchor, for use inside an alternation.
+_POLITE_ANYWHERE = _POLITE.removeprefix(r"^\s*")
 _LEARN_ASK = re.compile(
-    _POLITE + r"(?:learn\s+(?:from|about\s+me\s+from)\s+(?:this|our|the)\s+(?:chat|conversation)"
-    r"|remember\s+(?:what|everything|the\s+important\s+(?:things|stuff|bits))\s+(?:we\s+(?:talked|spoke)\s+about|"
-    r"(?:i|i've)\s+(?:said|told\s+you)|from\s+(?:this|our|the)\s+(?:chat|conversation))"
-    r"|(?:save|keep|remember)\s+what\s+you(?:'ve)?\s+learn(?:ed|t)\s+about\s+me(?:\s+(?:today|here|in\s+this\s+chat))?)"
-    r"\s*[.!]*\s*$",
+    r"^\s*(?:"
+    # "learn from chat", with or without "this/our", a period from speech or a "please"
+    + _POLITE_ANYWHERE + r"\s*learn\s+(?:from|about\s+me\s+from)\s+(?:(?:this|our|the)\s+)?(?:chat|conversation)"
+    # "remember what we talked about" as an instruction - never asked: "can you remember what we
+    # talked about" is a question about recall (review of #288)
+    r"|(?:please\s+)?remember\s+(?:what|everything|the\s+important\s+(?:things|stuff|bits))\s+(?:we\s+(?:talked|spoke)\s+about"
+    r"|(?:i|i've)\s+(?:said|told\s+you)|from\s+(?:this|our|the)\s+(?:chat|conversation))"
+    r"|" + _POLITE_ANYWHERE + r"\s*(?:save|keep|remember)\s+what\s+you(?:'ve)?\s+learn(?:ed|t)\s+about\s+me"
+    r"(?:\s+(?:today|here|in\s+this\s+chat))?)"
+    r"(?:[\s,]+please)?\s*[.!]*\s*$",
     re.IGNORECASE,
 )
+
+
+def asks_to_learn(text: str) -> bool:
+    """Whether `text` asks to save this chat's facts. The `remember ` command reads it as prose."""
+    return bool(_LEARN_ASK.match(text or ""))
 # "wake me up early", "at dawn", "next week": no time to set, so it asks, keeping a day if one
 # was said (Codex's review). These reached the chat model too.
 _VAGUE_TIME = (r"(?:early|(?:at\s+)?(?:dawn|sunrise|daybreak)|first\s+thing(?:\s+in\s+the\s+morning)?|soon|later"
