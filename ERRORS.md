@@ -509,6 +509,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **An MCP server received the NVIDIA key and the mail password** (review of #293) → servers were
+  started with `{**os.environ, **env}`, and `.env` is loaded into os.environ → a server inherits
+  only `tools/mcp._INHERITED` plus its own mcp.json `env`. In the same review: a server's
+  `readOnlyHint` no longer lowers a call to MEDIUM (no card in the web app), a half-started server is
+  ended, a dead one restarts, the deadline covers the whole wait, and `mcp` arguments skip the
+  sentence clean-up that unquoted their paths. (10-17)
 - **Blender, a database or any program speaking MCP could not be reached** → no MCP client →
   `tools/mcp.py`: servers from `<data dir>/mcp.json` (`mcpServers` or `servers`), started on first
   use after a HIGH card, newline-delimited JSON-RPC over stdio; a call asks MEDIUM when the tool

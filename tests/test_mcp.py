@@ -8,6 +8,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from laptop_agent.access import acting_as, refused_command
@@ -89,7 +90,8 @@ class McpTests(unittest.TestCase):
         self.assertIn("server.py", starts[0].preview)
 
     def test_a_call_asks_at_the_risk_the_tool_declares(self) -> None:
-        for name, risk in (("echo", RiskLevel.MEDIUM), ("make", RiskLevel.HIGH), ("wipe", RiskLevel.CRITICAL)):
+        # A server's readOnlyHint is its own claim: at MEDIUM the web app ran "echo" with no card.
+        for name, risk in (("echo", RiskLevel.HIGH), ("make", RiskLevel.HIGH), ("wipe", RiskLevel.CRITICAL)):
             with self.subTest(name):
                 self.cards.clear()
                 result = self.tool.call("fake", name, '{"x": 1}')
@@ -138,6 +140,168 @@ class McpCommandTests(unittest.TestCase):
                 self.assertEqual(refused_command("mcp fake echo {}"), "mcp")
             result = asyncio.run(orch.handle("mcp", history=[]))
         self.assertIn("mcpServers", result.message)
+
+
+# A server that misbehaves on purpose, one way per MODE, and writes every tools/call it receives
+# to CALLS so a test can prove a refused call never reached it.
+ODD = textwrap.dedent("""
+    import json, os, sys
+    MODE, CALLS = sys.argv[1], sys.argv[2]
+    listed = os.path.exists(CALLS + ".listed")
+    out = sys.stdout
+    if MODE == "badbytes":
+        out = open(sys.stdout.fileno(), "wb", buffering=0)
+        out.write(b"caf\\xe9 started\\n")
+    def say(message):
+        data = json.dumps(message) + "\\n"
+        if MODE == "badbytes":
+            out.write(data.encode())
+        else:
+            sys.stdout.write(data); sys.stdout.flush()
+    for line in sys.stdin:
+        message = json.loads(line)
+        if "id" not in message:
+            continue
+        method, ident = message["method"], message["id"]
+        if method == "initialize":
+            if MODE == "noinit":
+                continue
+            if MODE == "ping":
+                say({"jsonrpc": "2.0", "id": ident, "method": "ping"})
+                answer = json.loads(sys.stdin.readline())
+                open(CALLS + ".pong", "w").write(json.dumps(answer))
+            if MODE == "junk":
+                print("42", flush=True); print("null", flush=True)
+            say({"jsonrpc": "2.0", "id": ident, "result": {"protocolVersion": "x", "capabilities": {}}})
+        elif method == "tools/list":
+            if MODE == "listfails" and not listed:
+                open(CALLS + ".listed", "w").close()
+                say({"jsonrpc": "2.0", "id": ident, "error": "plain string error"})
+                continue
+            say({"jsonrpc": "2.0", "id": ident, "result": {"tools": [{"name": "env"}, {"name": "wipe",
+                 "annotations": {"destructiveHint": True}}, {"name": "echo"}]}})
+        elif method == "tools/call":
+            name = message["params"]["name"]
+            open(CALLS, "a").write(name + "\\n")
+            if MODE == "chatty":
+                import time
+                for _ in range(40):
+                    say({"jsonrpc": "2.0", "method": "notifications/progress", "params": {}}); time.sleep(0.05)
+            if name == "env":
+                text = json.dumps({k: os.environ.get(k) for k in ("JARVIS_FAKE_SECRET", "FROM_CONFIG")})
+            else:
+                text = json.dumps(message["params"]["arguments"], sort_keys=True)
+            say({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": text}]}})
+""")
+
+
+class ReviewOf293Tests(unittest.TestCase):
+    """Each finding of the review of #293, reproduced against a real subprocess first."""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        (self.root / "odd.py").write_text(ODD, encoding="utf-8")
+        self.calls = self.root / "calls.txt"
+        self.cards: list = []
+        self.approve = True
+
+    def tool(self, mode: str, env: dict | None = None) -> McpTool:
+        config = self.root / "mcp.json"
+        config.write_text(json.dumps({"mcpServers": {"odd": {"command": sys.executable, "env": env or {},
+                                                             "args": ["-u", str(self.root / "odd.py"), mode,
+                                                                      str(self.calls)]}}}), encoding="utf-8")
+
+        def ask(request) -> bool:
+            self.cards.append(request)
+            return self.approve
+
+        tool = McpTool(ApprovalGate(ask=ask), config)
+        self.addCleanup(tool.close)
+        return tool
+
+    def test_a_server_never_inherits_our_secrets(self) -> None:
+        import os
+        os.environ["JARVIS_FAKE_SECRET"] = "nvapi-FAKE-SECRET"
+        self.addCleanup(os.environ.pop, "JARVIS_FAKE_SECRET", None)
+        result = self.tool("plain", env={"FROM_CONFIG": "given"}).call("odd", "env", "{}")
+        self.assertEqual(json.loads(result.message), {"JARVIS_FAKE_SECRET": None, "FROM_CONFIG": "given"})
+
+    def test_a_listing_that_fails_once_is_retried_not_stuck(self) -> None:
+        tool = self.tool("listfails")
+        self.assertIn("not started (plain string error)", tool.listing().message)
+        self.assertTrue(tool.call("odd", "echo", '{"a": 1}').ok, "a failed listing left a server with no tools")
+
+    def test_a_server_that_never_initializes_is_ended(self) -> None:
+        import laptop_agent.tools.mcp as mcp
+        spawned: list = []
+
+        def spawn(argv, env):
+            spawned.append(mcp._spawn(argv, env))
+            return spawned[-1]
+
+        tool = self.tool("noinit")
+        tool._spawn = spawn
+        with unittest.mock.patch.object(mcp, "TIMEOUT", 0.5):
+            self.assertIn("not started", tool.listing().message)
+        spawned[0].wait(timeout=5)
+        self.assertIsNotNone(spawned[0].poll(), "the half-started server was left running")
+
+    def test_a_server_that_exits_is_started_again(self) -> None:
+        tool = self.tool("plain")
+        self.assertTrue(tool.call("odd", "echo", "{}").ok)
+        tool._running["odd"]._process.kill()
+        tool._running["odd"]._process.wait(timeout=5)
+        self.assertTrue(tool.call("odd", "echo", "{}").ok, "a dead server stayed 'running'")
+        self.assertEqual(sum(card.action.startswith("Start MCP server") for card in self.cards), 2)
+
+    def test_junk_lines_bad_bytes_and_its_own_requests_do_not_break_a_call(self) -> None:
+        for mode in ("junk", "badbytes", "ping"):
+            with self.subTest(mode):
+                result = self.tool(mode).call("odd", "echo", '{"k": "v"}')
+                self.assertEqual(result.message, '{"k": "v"}')
+        self.assertEqual(json.loads((self.calls.parent / "calls.txt.pong").read_text())["result"], {})
+
+    def test_a_refused_call_never_reaches_the_server_and_a_refused_start_is_a_refusal(self) -> None:
+        tool = self.tool("plain")
+        tool.listing()
+        self.approve = False
+        with self.assertRaises(ApprovalDenied):
+            tool.call("odd", "wipe", "{}")
+        self.assertNotIn("wipe", self.calls.read_text() if self.calls.exists() else "")
+        with self.assertRaises(ApprovalDenied):
+            self.tool("plain").listing()
+
+    def test_progress_does_not_extend_the_deadline(self) -> None:
+        import laptop_agent.tools.mcp as mcp
+        tool = self.tool("chatty")
+        tool.listing()
+        with unittest.mock.patch.object(mcp, "TIMEOUT", 1.0):
+            started = __import__("time").monotonic()
+            result = tool.call("odd", "echo", "{}")
+        self.assertFalse(result.ok)
+        self.assertLess(__import__("time").monotonic() - started, 1.8, "every progress line restarted the wait")
+
+    def test_a_long_argument_preview_says_it_was_cut(self) -> None:
+        tool = self.tool("plain")
+        tool.call("odd", "echo", json.dumps({"code": "x" * 3000 + "; rm -rf /"}))
+        self.assertIn("CUT:", self.cards[-1].preview)
+
+
+class McpArgumentsTests(unittest.TestCase):
+    build = test_orchestrator.OrchestratorTests.build
+    config = test_orchestrator.OrchestratorTests.config
+
+    def test_json_arguments_reach_the_tool_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            orch = self.build(Path(tmp))
+            seen: list = []
+            orch._mcp_cache = type("Fake", (), {"call": lambda self, s, t, a: seen.append(a) or
+                                                __import__("laptop_agent.tools.base", fromlist=["x"]).ToolResult.success("ok")})()
+            asyncio.run(orch.handle('mcp db query {"sql": "select * from forecast", "out": "C:/r.csv", "t": "it’s"}',
+                                    history=[]))
+        self.assertEqual(json.loads(seen[0]), {"sql": "select * from forecast", "out": "C:/r.csv", "t": "it’s"})
 
 
 if __name__ == "__main__":

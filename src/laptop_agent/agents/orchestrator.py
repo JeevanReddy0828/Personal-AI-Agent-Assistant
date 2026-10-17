@@ -2607,7 +2607,9 @@ class AgentOrchestrator:
     ) -> ToolResult:
         check_cancelled()
         ensure_signed_in()
-        command = _clean_paths(_fold_apostrophes(text.strip()))
+        # An `mcp` call's arguments are JSON data, not a sentence: folded and path-cleaned, a value
+        # such as "C:/r.csv" lost its quotes and "it’s" changed (review of #293).
+        command = text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
         lowered = command.lower()
         history_turns = history or []
         if not command:
