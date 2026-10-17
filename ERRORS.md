@@ -64,6 +64,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **A list was read off a word inside it** - "add machine learning papers to my briefing" saved
+  the laptop line, "bottom 2 regions by revenue" called the lowest the leader, and "calculate total
+  revenue by region in x.csv" went to the chat model (review of #296) → section words matched with
+  `.search`, the insight read the ranking's first as its highest, and the calculate prose rule did
+  not know breakdowns → sections fullmatch the whole part, the insight takes max/min by value, and
+  the prose rule asks `breakdown_request` first. (10-17)
 - **"set my briefing to weather and news" saved a briefing of weather alone, then read the
   news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
   and "set my briefing to weather" and "news" both do; the typed form split the same way,

@@ -55,6 +55,22 @@ class FormatTests(unittest.TestCase):
                          ["1. [Deal](https://x) — The New York Times"])
 
 
+class ReviewOf296FormatTests(unittest.TestCase):
+    def test_a_section_is_the_whole_part_never_a_word_in_it(self) -> None:
+        for text in ("machine learning papers", "my order status", "stock market status", "unread slack messages",
+                     "set a timer for 10 minutes", "the system design newsletter", "add milk to my shopping list",
+                     "the mail from my landlord"):
+            with self.subTest(text):
+                self.assertEqual(parse_format(text)[0], [])
+
+    def test_a_place_keeps_its_comma_and_the_to_do_list_is_the_to_do_list(self) -> None:
+        self.assertEqual(parse_format("weather in Paris, France and news"),
+                         ([Section("weather", "Paris, France"), Section("news")], []))
+        self.assertEqual(parse_format("weather in Boston, stocks"), ([Section("weather", "Boston")], ["stocks"]))
+        self.assertEqual(parse_format("my to do list and reminders"),
+                         ([Section("list", "to-do"), Section("reminders")], []))
+
+
 class BriefingTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -122,7 +138,7 @@ class BriefingTests(unittest.TestCase):
         changed, ran = self.say("set my briefing to weather in Boston, AI news, my shopping list and reminders")
         self.assertEqual(ran, "briefing set weather in Boston, AI news, my shopping list and reminders")
         self.assertIn("Your briefing is now: weather in Boston, news about AI, shopping list, reminders.", changed.message)
-        self.assertEqual(self.orchestrator.context.memory.get_profile()["briefing"],
+        self.assertEqual(self.orchestrator.context.memory.get_profile()["briefing format"],
                          "weather in Boston, news about AI, shopping list, reminders")
         message = self.say("brief me")[0].message
         order = [message.index(label) for label in ("**Weather**", "**News about AI**", "**Shopping list** — milk, eggs.",
@@ -151,7 +167,7 @@ class BriefingTests(unittest.TestCase):
         self.assertFalse(missing.ok)
         self.assertIn("has no news in it", missing.message)
         self.assertIn("back to the default: reminders, weather, news, laptop.", self.say("reset my briefing")[0].message)
-        self.assertNotIn("briefing", self.orchestrator.context.memory.get_profile())
+        self.assertNotIn("briefing format", self.orchestrator.context.memory.get_profile())
 
     def test_a_part_it_cannot_read_saves_nothing(self) -> None:
         self.say("set my briefing to weather and news")
@@ -159,7 +175,7 @@ class BriefingTests(unittest.TestCase):
         self.assertEqual(ran, "briefing set stocks and weather")
         self.assertFalse(refused.ok)
         self.assertIn("I can't put 'stocks' in a briefing. It can include reminders", refused.message)
-        self.assertEqual(self.orchestrator.context.memory.get_profile()["briefing"], "weather, news")
+        self.assertEqual(self.orchestrator.context.memory.get_profile()["briefing format"], "weather, news")
         emptied = self.say("briefing remove weather and news")[0]
         self.assertFalse(emptied.ok)
         self.assertIn("would leave your briefing empty", emptied.message)
@@ -206,7 +222,8 @@ class BriefingTests(unittest.TestCase):
                                                       approval_gate=gate)
         self.orchestrator._weather_tool_cache = WeatherTool(transport=broken, approval_gate=gate)
         self.say("set my briefing to weather in Boston and news")
-        before = len(FAILURES.recent(200))
+        marker = object()
+        FAILURES.record("test/briefing-marker", str(id(marker)))
         with patch.object(WeatherTool, "forecast", side_effect=ValueError("weather exploded")):
             result = self.orchestrator._briefing()
         self.assertTrue(result.ok)
@@ -220,7 +237,13 @@ class BriefingTests(unittest.TestCase):
         with patch.object(WeatherTool, "forecast", return_value=ToolResult.failure("I couldn't find a place called 'Bostn'.")):
             self.assertIn("I couldn't find a place called 'Bostn'.", self.orchestrator._briefing().message)
         self.assertIn("**News**\n1.", result.message)
-        self.assertGreater(len(FAILURES.recent(200)), before, "a swallowed failure was not recorded")
+        # Read after the marker: the ring holds 200, so a length can stop growing (review of #296).
+        since = []
+        for record in FAILURES.recent(200):
+            if record.get("where") == "test/briefing-marker":
+                break
+            since.append(record.get("where"))
+        self.assertIn("briefing/weather", since, "a swallowed failure was not recorded")
         with patch.object(WeatherTool, "forecast", side_effect=OperationCancelled("stopped")):
             with self.assertRaises(OperationCancelled):
                 self.orchestrator._briefing()
@@ -233,7 +256,46 @@ class BriefingTests(unittest.TestCase):
         with acting_as(Principal("p1", "family", "personal")):
             direct = asyncio.run(self.orchestrator.handle("briefing set weather", _allow_planner=False))
         self.assertIn("needs a developer account", direct.message)
-        self.assertNotIn("briefing", self.orchestrator.context.memory.get_profile())
+        self.assertNotIn("briefing format", self.orchestrator.context.memory.get_profile())
+
+
+class ReviewOf296Tests(BriefingTests):
+    """Codex-style adversarial review of #296, each finding reproduced here first."""
+
+    def test_a_second_request_after_a_format_still_runs(self) -> None:
+        _result, ran = self.say("set my briefing to weather and news and set a timer for 10 minutes")
+        self.assertEqual(ran, "briefing set weather and news ;; timer set a timer for 10 minutes")
+        self.assertEqual(self.orchestrator.context.memory.get_profile()["briefing format"], "weather, news")
+
+    def test_changing_the_briefing_keeps_other_facts_about_it(self) -> None:
+        self.say("remember my morning briefing is at 7:30")
+        self.say("add mail to my briefing")
+        self.say("reset my briefing")
+        self.assertEqual(self.orchestrator.context.memory.get_profile().get("morning_briefing"), "at 7:30")
+
+    def test_a_ninth_section_is_refused_not_dropped(self) -> None:
+        saved = self.say("set my briefing to weather in Austin, weather in Boston, weather in Denver, weather in "
+                         "Miami, weather in Seattle, news about AI, news about sports, news about markets")[0]
+        self.assertTrue(saved.ok, saved.message)
+        refused = self.say("add mail to my briefing")[0]
+        self.assertFalse(refused.ok)
+        self.assertIn("at most 8 sections", refused.message)
+
+    def test_a_personal_account_cannot_set_it_by_remembering_it(self) -> None:
+        with acting_as(Principal("p1", "family", "personal")):
+            refused = asyncio.run(self.orchestrator.handle("remember my briefing format is mail and laptop",
+                                                           _allow_planner=False))
+        self.assertIn("needs a developer account", refused.message)
+        self.assertNotIn("briefing_format", self.orchestrator.context.memory.get_profile())
+
+    def test_a_mail_failure_is_not_read_out_as_an_exception(self) -> None:
+        email = self.orchestrator.context.email
+        broken = ToolResult.failure("Could not reach the email server (imap.gmail.com): [Errno 111] Connection refused")
+        self.say("set my briefing to mail")
+        with patch.object(email, "search_inbox", return_value=broken):
+            message = self.orchestrator._briefing().message
+        self.assertIn("**Mail** — couldn't check the inbox just now.", message)
+        self.assertNotIn("Errno", message)
 
 
 if __name__ == "__main__":

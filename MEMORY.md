@@ -19,7 +19,7 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
-- 2026-10-16: **The daily briefing's format is one remembered fact, `briefing`, re-read on every
+- 2026-10-16: **The daily briefing's format is one remembered fact, `briefing format`, re-read on every
   run** - what the user said is the record, so it shows in "what do you remember about me",
   "forget my briefing" restores the default, and a section added later reads an old format the
   same way. The briefing is still **developer-only**, as the status briefing it replaced was;

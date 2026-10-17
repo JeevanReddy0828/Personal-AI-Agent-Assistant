@@ -119,7 +119,8 @@ def _find(header: list[str], wanted: str) -> int | None:
     plural, or the one column whose name contains it as whole words."""
     want = re.sub(r"^(?:the|each|every)\s+", "", _norm(wanted))
     names = [_norm(name) for name in header]
-    forms = {want, want[:-1] if want.endswith("s") else want, want[:-2] if want.endswith("es") else want}
+    forms = {want, want[:-1] if want.endswith("s") else want, want[:-2] if want.endswith("es") else want,
+             want[:-3] + "y" if want.endswith("ies") else want}
     for index, name in enumerate(names):
         if name == want:
             return index
@@ -135,10 +136,18 @@ def _missing(header: list[str], wanted: str) -> SeriesError:
     return SeriesError(f"There is no column called '{wanted}'. Its columns are: {', '.join(header)}.")
 
 
+# Placeholders for a missing number. They are not words, so they never make a column text: half
+# "N/A" made Revenue a column of names and "which region has the highest revenue" counted strings.
+_MISSING = {"n/a", "na", "-", "--", "null", "none", "nan", "?", "#n/a", "tbd"}
+
+
 def _is_numeric(body: list[list[str]], at: int) -> bool:
-    """Mostly numbers: one "N/A" must be refused by its row, not turn Revenue into a text column."""
+    """Mostly numbers, placeholders aside: an "N/A" must be refused by its row, not turn Revenue
+    into a text column."""
     cells = [row[at].strip() for row in body if at < len(row) and row[at].strip()]
-    return 2 * sum(parse_number(cell) is not None for cell in cells) > len(cells)
+    words = [cell for cell in cells if cell.lower() not in _MISSING]
+    numbers = sum(parse_number(cell) is not None for cell in words)
+    return numbers > 0 and 2 * numbers > len(words)
 
 
 def _date_columns(header: list[str], body: list[list[str]]) -> list[int]:
@@ -196,6 +205,8 @@ def run_breakdown(request: Request) -> ToolResult:
     path = Path(request.path).expanduser()
     if request.limit is not None and request.limit < 1:
         return ToolResult.failure("Ask for at least one: top 5, not top 0.")
+    if request.must_match and not path.is_file():
+        raise _NotOurs   # "how do i sort by date in report.csv" with no such file is still a question
     try:
         header, body = _rows(path)
         value_at = _find(header, request.column)
@@ -309,7 +320,6 @@ def _insight(stat: str, distinct: bool, column: str, totals: dict[str, float], r
         return f"{peak[0]} was the highest at {_shown(peak[1])}. The latest, {latest}, is {_shown(now)}, {change} {before}."
     if len(totals) == 1:
         return f"Every row falls in {first}: {_shown(value)}."
-    last, low = ranked[-1]
     if request.single or request.limit == 1:
         word = "lowest" if request.ascending else "highest"
         tied = [key for key, item in ranked if item == value]
@@ -317,26 +327,31 @@ def _insight(stat: str, distinct: bool, column: str, totals: dict[str, float], r
             names = ", ".join(tied[:-1]) + " and " + tied[-1] if len(tied) <= 4 else f"{len(tied)} of them"
             return f"{names} share the {word}, {_shown(value)}."
         return f"{first} has the {word}, {_shown(value)}."
+    # The highest and the lowest by VALUE, never by place in the ranking: a bottom-N or a min
+    # ranking runs low to high, and "West leads with 240" read the ranking's first as its leader.
+    high = max(ranked, key=lambda pair: pair[1])
+    low = min(ranked, key=lambda pair: pair[1])
     if stat == "sum" or (stat == "count" and not distinct):
         whole = sum(totals.values())
         if whole > 0 and all(item >= 0 for item in totals.values()):
             what = "of the rows" if stat == "count" else "of the total"
-            text = f"{first} leads with {_shown(value)}, {_percent(value, whole)} {what} ({_shown(whole)})."
+            text = f"{high[0]} leads with {_shown(high[1])}, {_percent(high[1], whole)} {what} ({_shown(whole)})."
             if len(totals) >= 4:
-                text += f" The top 3 make up {_percent(sum(item for _, item in ranked[:3]), whole)}."
-            return text + f" {last} is lowest at {_shown(low)}."
-        return f"{first} is highest at {_shown(value)} and {last} lowest at {_shown(low)}."
+                top3 = sorted(totals.values(), reverse=True)[:3]
+                text += f" The top 3 make up {_percent(sum(top3), whole)}."
+            return text + f" {low[0]} is lowest at {_shown(low[1])}."
+        return f"{high[0]} is highest at {_shown(high[1])} and {low[0]} lowest at {_shown(low[1])}."
     if stat in {"mean", "median"}:
         every = [number for items in buckets.values() for number in items]
         overall = statistics.fmean(every) if stat == "mean" else statistics.median(every)
         word = "average" if stat == "mean" else "median"
-        high, low_pair = (ranked[-1], ranked[0]) if request.ascending else (ranked[0], ranked[-1])
         return (f"{high[0]} has the highest {word} {column}, {_shown(high[1])}, against {_shown(overall)} overall; "
-                f"{low_pair[0]} the lowest, {_shown(low_pair[1])}.")
+                f"{low[0]} the lowest, {_shown(low[1])}.")
     if distinct:
-        return f"{first} has the most distinct {column}, {_shown(value)}; {last} the fewest, {_shown(low)}."
-    word = "lowest" if stat == "min" else "highest"
-    return f"The {word} {column} is {_shown(value)}, in {first}."
+        return f"{high[0]} has the most distinct {column}, {_shown(high[1])}; {low[0]} the fewest, {_shown(low[1])}."
+    if stat == "min":
+        return f"The lowest {column} is {_shown(low[1])}, in {low[0]}."
+    return f"The highest {column} is {_shown(high[1])}, in {high[0]}."
 
 
 def breakdown_command(command: str) -> ToolResult | None:

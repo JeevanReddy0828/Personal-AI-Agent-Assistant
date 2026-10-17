@@ -232,5 +232,37 @@ class BreakdownThroughTheAssistantTests(unittest.TestCase):
         self.assertIn("isn't available to a personal account", direct.message)
 
 
+class ReviewOf296BreakdownTests(BreakdownTests):
+    def test_a_bottom_ranking_still_names_the_real_highest_and_lowest(self) -> None:
+        bottom = self.ask("bottom 2 regions by revenue")
+        self.assertIn("North leads with 4,870", bottom.message)
+        self.assertIn("West is lowest at 240", bottom.message)
+        self.assertEqual(bottom.data["chart"]["labels"], ["West", "East"])
+        lowest = self.ask("top 3 regions by lowest revenue")
+        self.assertIn("The lowest Revenue is 240, in West.", lowest.message)
+
+    def test_an_ies_plural_names_its_column(self) -> None:
+        self.sales.write_text("Category,Revenue\nToys,5\nBooks,7\n", encoding="utf-8")
+        self.assertTrue(self.ask("top 2 categories by revenue").ok)
+
+    def test_placeholders_never_turn_numbers_into_names(self) -> None:
+        self.sales.write_text("Region,Revenue\nNorth,5\nNorth,N/A\nSouth,3\nSouth,N/A\n", encoding="utf-8")
+        refused = self.ask("which region has the highest revenue")
+        self.assertFalse(refused.ok)
+        self.assertIn("Row 3: 'N/A' in Revenue is not a number", refused.message)
+
+    def test_a_bare_question_about_a_missing_file_is_left_alone(self) -> None:
+        self.assertIsNone(breakdown_command("how do i sort by date in report.csv"))
+
+
+class CalculateBreakdownTests(BreakdownThroughTheAssistantTests):
+    def test_calculate_and_compute_run_the_breakdown(self) -> None:
+        for said in ("calculate total revenue by region in sales.csv",
+                     "compute the total revenue by region in sales.csv"):
+            with self.subTest(said):
+                result, _ran = self.everyday.say(said)
+                self.assertIn("North leads with 4,870", result.message)
+
+
 if __name__ == "__main__":
     unittest.main()

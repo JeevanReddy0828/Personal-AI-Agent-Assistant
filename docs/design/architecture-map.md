@@ -399,8 +399,12 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             AI news, my shopping list and reminders`, `briefing add|remove …`, `briefing format`,
             `briefing reset`, and said naturally: "set my briefing to …", "take the news out of my
             briefing", "what's in my briefing", "brief me". The format is ONE remembered fact,
-            `briefing`, re-read on every run, so it shows in "what do you remember" and a section
-            added later reads an old format the same way. Sections: reminders (due, the rest of
+            `briefing format` (never any other fact about the briefing: "my morning briefing is at
+            7:30" was deleted by "add mail to my briefing"; a personal account may not remember it,
+            since that was `briefing set` by another door), re-read on every run, so it shows in "what do you remember" and a section
+            added later reads an old format the same way. Each section is the WHOLE part,
+            never a word in it ("machine learning papers" was saved as the laptop line); a place keeps
+            its comma ("Paris, France"); "to do list" is the to-do list. Sections: reminders (due, the rest of
             today, running timers, else the next one), weather (the place named, else the
             remembered city, else IP location), news [about a topic], mail (unread, newest three),
             a named list, laptop (CPU/RAM). Default: reminders, weather, news, laptop - with mail

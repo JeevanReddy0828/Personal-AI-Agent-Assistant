@@ -14,8 +14,9 @@ import re
 from dataclasses import dataclass
 
 DEFAULT_FORMAT = "reminders, weather, news, laptop"
-PROFILE_KEY = "briefing"
+PROFILE_KEY = "briefing format"
 MAX_SECTIONS = 8
+MAIL_FETCH = 5      # each is a whole message over IMAP; three are shown and the count is "5+"
 CAN_INCLUDE = ("reminders, weather [in <city>], news [about <topic>], mail, a list (e.g. shopping list) "
                "and laptop")
 
@@ -36,52 +37,68 @@ class Section:
 
 
 _SPLIT = re.compile(r"\s*(?:,|;|&|\+|\band\b|\bthen\b|\bplus\b|\bfollowed\s+by\b|\balso\b)\s*", re.IGNORECASE)
-_FILLER = re.compile(r"^(?:(?:with|to|have|has|include|includes|including|be|cover|covers|show|shows|"
+# "to" goes only when it is not "to do": a speech engine writes the to-do list as "to do list".
+_FILLER = re.compile(r"^(?:(?:with|to(?!\s+do\b)|have|has|include|includes|including|be|cover|covers|show|shows|"
                      r"just|only|me|my|the|a|an|some|today'?s|latest|current|top|any|all|of)\s+)+", re.IGNORECASE)
-_WEATHER = re.compile(r"\b(?:weather|forecast|temperature)\b(?:\s+(?:in|for|at|near)\s+(?P<place>.+))?", re.IGNORECASE)
-_NEWS = re.compile(r"^(?P<before>.*?)\b(?:news|headlines|stories)\b(?:\s+(?:about|on|from|in|for)\s+(?P<after>.+))?$",
-                   re.IGNORECASE)
+# Every section is the WHOLE item, never a word in it: matched anywhere, "machine learning papers"
+# became the laptop line and "unread slack messages" the inbox, and both were saved as accepted.
+_WEATHER = re.compile(r"(?:weather|forecast|temperature)(?:\s+(?:in|for|at|near)\s+(?P<place>[\w .'-]{2,40}))?",
+                      re.IGNORECASE)
+_NEWS = re.compile(r"(?:(?P<before>[\w.&'-]+(?:\s+[\w.&'-]+)?)\s+)?(?:news|headlines|stories)"
+                   r"(?:\s+(?:about|on|from|in|for)\s+(?P<after>[\w .&'-]{1,40}))?", re.IGNORECASE)
 _NO_TOPIC = {"", "world", "top", "general", "breaking", "the", "daily", "morning", "local", "big", "main"}
-_LIST = re.compile(r"^(?P<name>.+?)\s+list$", re.IGNORECASE)
+_LIST = re.compile(r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list", re.IGNORECASE)
+# A list's name is one or two words with no preposition in them ("milk to my shopping list" is no
+# list); "to-do" is one word.
+_NOT_A_LIST = re.compile(r"(?:reminders?|timers?|alarms?|(?:\S+\s+)?(?:to|in|for|from|on|of|my|the)(?:\s+\S+)?)",
+                         re.IGNORECASE)
 # No "calendar" or "schedule": no calendar is connected and "schedule" is the scheduled jobs, so
 # either would be answered with the reminders as if they were the thing asked for.
-_REMINDERS = re.compile(r"\b(?:reminders?|timers?|alarms?|agenda|to-?dos?)\b", re.IGNORECASE)
-_MAIL = re.compile(r"\b(?:mail|e-?mails?|inbox|unread)\b", re.IGNORECASE)
-_LAPTOP = re.compile(r"\b(?:laptop|system|computer|pc|machine|battery|cpu|memory\s+use|status)\b", re.IGNORECASE)
+_REMINDERS = re.compile(r"(?:reminders?|timers?|alarms?|agenda|to-?dos?)(?:\s+list)?", re.IGNORECASE)
+_MAIL = re.compile(r"(?:unread\s+)?(?:mail|e-?mails?|inbox)", re.IGNORECASE)
+_LAPTOP = re.compile(r"(?:(?:laptop|system|computer|pc|machine)(?:\s+status)?|battery|cpu)", re.IGNORECASE)
 
 
 def _section(item: str) -> Section | None:
-    text = _FILLER.sub("", item.strip(" .!?")).strip()
+    # Speech writes the to-do list as "to do list"; memory knows it as one list under either name.
+    text = re.sub(r"\bto\s+do\b", "to-do", _FILLER.sub("", item.strip(" .!?")).strip(), flags=re.IGNORECASE)
     if not text:
         return None
-    if (found := _LIST.fullmatch(text)) is not None and not re.fullmatch(r"(?:reminders?|timers?|alarms?)", found["name"],
-                                                                          re.IGNORECASE):
-        return Section("list", _FILLER.sub("", found["name"]).strip().lower())
-    if (found := _WEATHER.search(text)) is not None:
+    if (found := _LIST.fullmatch(text)) is not None and not _NOT_A_LIST.fullmatch(found["name"]):
+        return Section("list", found["name"].lower())
+    if (found := _WEATHER.fullmatch(text)) is not None:
         return Section("weather", (found["place"] or "").strip())
     if (found := _NEWS.fullmatch(text)) is not None:
         topic = (found["after"] or found["before"] or "").strip()
         return Section("news", "" if topic.lower() in _NO_TOPIC else topic)
-    if _MAIL.search(text):
+    if _MAIL.fullmatch(text):
         return Section("mail")
-    if _REMINDERS.search(text):
+    if _REMINDERS.fullmatch(text):
         return Section("reminders")
-    if _LAPTOP.search(text):
+    if _LAPTOP.fullmatch(text):
         return Section("laptop")
     return None
 
 
 def parse_format(text: str) -> tuple[list[Section], list[str]]:
-    """The sections `text` names, in its order and each once, and the parts it could not read."""
+    """The sections `text` names, in its order and each once, and the parts it could not read.
+    A place may carry its own comma ("weather in Paris, France"): a short capitalised part right
+    after a weather place is the rest of that place. Lower case it is not ("weather in Boston,
+    stocks" must still refuse "stocks")."""
     sections: list[Section] = []
     unknown: list[str] = []
     for item in _SPLIT.split(text or ""):
-        if not item.strip(" .!?"):
+        part = item.strip(" .!?")
+        if not part:
             continue
-        section = _section(item)
-        if section is None:
-            unknown.append(item.strip(" .!?"))
-        elif section not in sections and len(sections) < MAX_SECTIONS:
+        section = _section(part)
+        last = sections[-1] if sections else None
+        if (section is None and last is not None and last.kind == "weather" and last.about
+                and re.fullmatch(r"[A-Z][A-Za-z .'-]{1,30}", part) and len(part.split()) <= 3):
+            sections[-1] = Section("weather", f"{last.about}, {part}")
+        elif section is None:
+            unknown.append(part)
+        elif section not in sections:
             sections.append(section)
     return sections, unknown
 
@@ -126,7 +143,7 @@ def mail_lines(messages: list[dict], shown: int = 3) -> list[str]:
     if not messages:
         return ["No unread mail."]
     count = len(messages)
-    head = f"{count}{'+' if count >= 10 else ''} unread. Newest:"
+    head = f"{count}{'+' if count >= MAIL_FETCH else ''} unread. Newest:"
     lines = [head]
     for message in messages[:shown]:
         sender = re.sub(r"\s*<[^>]+>", "", str(message.get("from", ""))).strip(' "') or "Unknown sender"

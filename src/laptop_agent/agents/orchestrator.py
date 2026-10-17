@@ -44,7 +44,7 @@ from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore, list_name
 from laptop_agent.metrics import battery_status, system_metrics
 from laptop_agent.briefing import (
-    CAN_INCLUDE, DEFAULT_FORMAT, PROFILE_KEY, Section, describe_format, greeting, mail_lines, news_lines,
+    CAN_INCLUDE, DEFAULT_FORMAT, MAIL_FETCH, MAX_SECTIONS, PROFILE_KEY, Section, describe_format, greeting, mail_lines, news_lines,
     parse_format, weather_text,
 )
 from laptop_agent.model_status import ModelStatus
@@ -85,7 +85,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
-from laptop_agent.tools.breakdown import breakdown_command
+from laptop_agent.tools.breakdown import breakdown_command, breakdown_request
 from laptop_agent.tools.diagnostics import ANOMALIES_USAGE, DRIVERS_USAGE, diagnostics_command
 from laptop_agent.tools.forecast import USAGE as FORECAST_USAGE, forecast_command
 from laptop_agent.tools.jobright import JobrightTool
@@ -2370,7 +2370,10 @@ class AgentOrchestrator:
         if verb == "remember":
             return bool(re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
         if verb in {"calculate", "calc", "compute"}:
-            return not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+            # "calculate total revenue by region in sales.csv" is a breakdown, not prose: read as
+            # prose it went to the router, came back unchanged and was answered by the chat model.
+            return (not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+                    and breakdown_request(f"{verb} {rest}") is None)
         if verb == "map":
             return first == "out"
         if verb == "workflow":
@@ -2572,11 +2575,16 @@ class AgentOrchestrator:
         if command.split(None, 1)[0].lower() in _WHOLE_ARGUMENT:
             return None
         # A briefing format is a list joined by "and": split, "set my briefing to weather and news"
-        # saved a briefing of weather alone and then read out the news.
+        # saved a briefing of weather alone and then read out the news. So in a briefing change a
+        # part that is only a section ("news") belongs to the format - but a real second request
+        # ("and set a timer for 10 minutes") still splits off; refusing every split swallowed it.
         changes = ("briefing set ", "briefing add ", "briefing remove ")
         whole = self.router.plan(command, "", {})
-        if command.lower().startswith(changes) or whole.is_command and (whole.command or "").startswith(changes):
-            return None
+        in_format = command.lower().startswith(changes) or whole.is_command and (whole.command or "").startswith(changes)
+
+        def section_only(part: str) -> bool:
+            sections, unknown = parse_format(part)
+            return bool(sections) and not unknown
         routes: dict[str, bool] = {}
 
         def routed(part: str) -> bool:
@@ -2592,6 +2600,8 @@ class AgentOrchestrator:
             if any(not part for part in parts):
                 continue
             if any(not _REQUEST_START.match(part) for part in parts[1:]):
+                continue
+            if in_format and any(section_only(part) for part in parts[1:]):
                 continue
             if all(routed(part) for part in parts) and (best is None or len(parts) > len(best)):
                 best = parts
@@ -3946,7 +3956,7 @@ class AgentOrchestrator:
                 return self._weather_tool().forecast(place, days=1)
             if section.kind == "news":
                 return self._news_tool().headlines(section.about, limit=3, with_text=0)
-            return self.context.email.search_inbox("UNSEEN", limit=10)
+            return self.context.email.search_inbox("UNSEEN", limit=MAIL_FETCH)
         except ApprovalDenied as exc:
             return ToolResult.failure(f"skipped ({exc}).")
         except Exception as exc:
@@ -3972,7 +3982,7 @@ class AgentOrchestrator:
         if not result.ok:
             if result.data.get("missing"):
                 return ["**Mail** — not connected yet. Say \"check my email\" to see how to set it up."]
-            return [f"**Mail** — {result.message}"]
+            return ["**Mail** — couldn't check the inbox just now."]   # the tool's text carries the exception
         return ["**Mail**", *mail_lines(result.data.get("messages") or [])]
 
     def _briefing_reminders(self, now: datetime) -> list[str]:
@@ -4008,10 +4018,11 @@ class AgentOrchestrator:
         return "**Laptop** — " + ", ".join(parts) + "."
 
     def _briefing_profile_keys(self) -> list[str]:
-        """Remembered facts that hold the format: "set my briefing to ..." writes `briefing`, and
-        "remember my morning briefing is ..." may have written another name for it."""
+        """The remembered fact that holds the format, `briefing format`, however it is spelt. Only
+        that one: matching any fact about the briefing let "add mail to my briefing" delete "my
+        morning briefing is at 7:30"."""
         return [key for key in self.context.memory.get_profile()
-                if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() in {"briefing", "morning briefing", "daily briefing"}]
+                if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() == PROFILE_KEY]
 
     def _briefing_sections(self) -> tuple[list[Section], bool]:
         """The user's sections and True, or the default and False. Mail is in the default only when
@@ -4067,6 +4078,9 @@ class AgentOrchestrator:
             if not sections:
                 return ToolResult.failure("That would leave your briefing empty. Say \"reset my briefing\" for "
                                           "the default instead.")
+        if len(sections) > MAX_SECTIONS:
+            return ToolResult.failure(f"A briefing holds at most {MAX_SECTIONS} sections; that would make "
+                                      f"{len(sections)}. Remove one first.")
         for key in self._briefing_profile_keys():
             self.context.memory.forget_profile_value(key)
         self.context.memory.set_profile_value(PROFILE_KEY, describe_format(sections))
@@ -5327,6 +5341,14 @@ class AgentOrchestrator:
             facts["things_the_user_asked_me_to_remember"] = " | ".join(notes[-15:])[-1500:]
         return facts
 
+    @staticmethod
+    def _briefing_by_remember(key: str) -> ToolResult | None:
+        """A personal account may remember anything but the briefing's format, which `briefing set`
+        refuses it: the fact is the format, so remembering it was the same change by another door."""
+        if is_personal() and re.sub(r"[^a-z]+", " ", key.lower()).strip() == PROFILE_KEY:
+            return ToolResult.failure("Changing the briefing needs a developer account.")
+        return None
+
     def _remember(self, expression: str) -> ToolResult:
         # "remember that I parked on level 3" is a note about parking, not "that I parked...".
         text = re.sub(r"^\s*that\s+", "", expression.strip(), flags=re.IGNORECASE).strip().rstrip(".!")
@@ -5338,6 +5360,8 @@ class AgentOrchestrator:
                                         natural.group(1), re.IGNORECASE):
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
+                if refused := self._briefing_by_remember(key):
+                    return refused
                 self.context.memory.set_profile_value(key, value)
                 self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
                 return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
@@ -5351,6 +5375,8 @@ class AgentOrchestrator:
         value = value.strip()
         if not key or not value:
             return ToolResult.failure("Use: remember <key> = <value>")
+        if refused := self._briefing_by_remember(key):
+            return refused
         self.context.memory.set_profile_value(key, value)
         self._mirror_to_vault(f"{key}: {value}")
         return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
