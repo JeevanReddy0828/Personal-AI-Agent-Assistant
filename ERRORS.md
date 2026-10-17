@@ -22,6 +22,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   open, so the first can only play if playback does not wait for it; a page that waits
   deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
   miss is a flake. (10-08)
+- **Web-server tests fail with 403, `403 != 400` or WinError 10054 only while another
+  worktree's suite runs** → eight `test_webui_*` files bound fixed ports (8793-8800), and the
+  stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
+  hit the other run's server and its different API token → bind port 0 and read
+  `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
@@ -553,6 +558,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
+  kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
+  and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a
+  topic's headlines are recorded when the watch starts so only new ones are told, the CPU must be
+  high on two checks running, and the same warning waits two hours. Developer-only (`test_watch.py`). (10-14)
 - **"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
   "cross off eggs" were answered by the chat model**, which can neither see nor change a list →
   `list <name> has <item>` answers from the list by item, never substring ("almond milk" is not
@@ -570,6 +580,16 @@ guard, with the date), and a session entry only when the line cannot carry the l
   save is said as one (a drive or ./ ~/ / start, a single image file name, or one word after
   "to"; "error/bug" and "read the report.png" inside a sentence are not - Codex, #258); "and tell me/describe/read"
   reads the screen; anything else saves to `screenshots/` as usual. (10-09)
+- **"who is my doctor" ran a web search after "my doctor is dr. patel" was saved; "forget where i
+  parked" found nothing; "delete my last note" reached the chat model** → "who is" read as news and
+  `_FACT_ASK` knew only "what's my", a note had to contain "where", and no route dropped a note →
+  "who is my X" is a fact question (and never searched for, told or not), the opening word of an
+  indirect question ("where i parked") is let go only when no note has every word - ignored always,
+  "forget how to file my taxes" dropped "file my taxes on friday" instead (Codex's review) - and
+  only "where/when/who" may go, never "how/why": a repeated "forget how i file my taxes" dropped
+  "i file my taxes on friday" in place of the note already gone (Codex, bdf75e3) - and
+  "delete/forget my last note" drops the newest. Where a note answers a question ("where did i
+  park") the chat model already reads the notes. (10-13)
 - **Test data in the user's real store** → a throwaway instance changed only the port →
   set `LAPTOP_AGENT_DATA_DIR` too; stop it when done. (09-17, 09-12, 09-28)
 - **State leaks between tests or runs** → persistence read the process-wide config → take the

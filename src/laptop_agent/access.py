@@ -88,7 +88,7 @@ _DEV_EXACT = frozenset({
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
     "self-check", "does everything work", "check yourself", "diagnose", "latency", "traces",
-    "why slow", "speed",
+    "why slow", "speed", "watches", "watch health", "watch check health",
     # acting on its own
     "autopilot status", "autonomous status", "schedule", "schedule list", "schedules",
     "show schedule", "schedule run due", "run due schedules", "schedule tick", "agent runs",
@@ -117,6 +117,7 @@ _DEV_EXACT = frozenset({
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
     "timecard", "autopilot", "schedule", "agent", "workflow", "multi", "plan apply job",
+    "watch news", "watch check news", "unwatch",
     # the owner's job search, notes and indexed documents
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",
     "notes search", "note search", "ask vault", "ask notes", "read note", "save note",
