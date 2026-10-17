@@ -29,10 +29,10 @@ class TripApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         object.__setattr__(webui._orchestrator, "_travel_tool_cache", TravelTool(transport=_transport))
-        cls.server = ThreadingHTTPServer((webui.HOST, 8797), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8797"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:

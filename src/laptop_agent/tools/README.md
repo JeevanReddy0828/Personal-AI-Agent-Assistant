@@ -87,6 +87,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
 | `research.py` | Searches, fetches pages, extracts readable text, writes a sourced report. |
 | `browser.py` | Playwright automation: inspect pages and forms, preview and fill forms (asks first). |
+| `watch.py` | `watch news …`, `watch health`: scheduled checks that raise a reminder when a topic has a new headline or the laptop needs attention. |
 | `news.py` | Real headlines from free feeds (BBC first, Google News for topics), with article text. |
 | `weather.py` | Open-Meteo current weather and 3-day forecast; no key. |
 | `translate.py` | Translation between 34 languages by NVIDIA's hosted Riva model (`riva` extra); names the source language from the request, the script, or the fast model. |
