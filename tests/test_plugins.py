@@ -70,10 +70,12 @@ class PluginToolTests(unittest.TestCase):
     def test_the_declared_risk_goes_to_the_gate_and_a_denial_runs_nothing(self) -> None:
         write(self.folder, "wipe.py", GOOD.replace('"shout"', '"wipe"').replace('"low"', '"critical"')
               .replace("return argument.upper()", "raise AssertionError('ran without approval')"))
+        tool = self.tool()
+        tool.listing()                 # the folder is loaded (its own card, approved)
         self.approve = False
         with self.assertRaises(ApprovalDenied):
-            self.tool().run("wipe", "everything")
-        self.assertIs(self.cards[0].risk, RiskLevel.CRITICAL)
+            tool.run("wipe", "everything")
+        self.assertIs(self.cards[-1].risk, RiskLevel.CRITICAL)
 
     def test_broken_plugins_are_listed_with_the_reason_and_the_rest_still_load(self) -> None:
         write(self.folder, "a_syntax.py", "def run(:\n")
@@ -120,6 +122,83 @@ class PluginCommandTests(unittest.TestCase):
         with acting_as(PERSONAL):
             self.assertEqual(refused_command("plugins"), "plugins")
             self.assertEqual(refused_command("plugin shout hi"), "plugin")
+
+
+class ReviewOf292Tests(PluginToolTests):
+    """The review of #292, each finding reproduced first."""
+
+    def test_a_low_or_medium_plugin_still_gets_a_card(self) -> None:
+        for declared in ("low", "medium"):
+            with self.subTest(declared):
+                write(self.folder, "shout.py", GOOD.replace('"low"', f'"{declared}"'))
+                self.cards.clear()
+                self.tool().run("shout", "hi")
+                self.assertIs(self.cards[-1].risk, RiskLevel.HIGH)
+
+    def test_loading_the_folder_asks_first_and_a_refusal_runs_no_file(self) -> None:
+        write(self.folder, "shout.py", GOOD + "\nimport pathlib\npathlib.Path(__file__).with_name('ran').write_text('x')\n")
+        self.approve = False
+        with self.assertRaises(ApprovalDenied):
+            self.tool().listing()
+        self.assertFalse((self.folder / "ran").exists(), "a file ran before anyone said yes")
+        self.assertIn("Load your plugins", self.cards[0].action)
+
+    def test_sys_exit_in_a_plugin_is_a_failure_not_the_end(self) -> None:
+        write(self.folder, "bye.py", GOOD.replace('"shout"', '"bye"').replace("return argument.upper()", "raise SystemExit(0)"))
+        write(self.folder, "quits.py", "raise SystemExit('at import')")
+        result = self.tool().run("bye", "now")
+        self.assertFalse(result.ok)
+        self.assertIn("SystemExit", result.message)
+        self.assertIn("quits.py", self.tool().listing().message)
+
+    def test_a_dataclass_a_relative_helper_and_the_projects_risk_load(self) -> None:
+        write(self.folder, "_helper.py", "WORD = 'helped'\n")
+        write(self.folder, "rich.py", (
+            "from __future__ import annotations\nfrom dataclasses import dataclass\nfrom . import _helper\n"
+            "from laptop_agent.safety import RiskLevel\n"
+            "COMMAND = 'rich'\nDESCRIPTION = 'x'\nRISK = RiskLevel.CRITICAL\n"
+            "@dataclass\nclass Box:\n    word: str\n"
+            "def run(argument):\n    return Box(_helper.WORD).word\n"))
+        tool = self.tool()
+        self.assertEqual(tool.run("rich", "").message, "helped")
+        self.assertIs(self.cards[-1].risk, RiskLevel.CRITICAL)
+
+    def test_an_async_run_is_refused_at_load(self) -> None:
+        write(self.folder, "later.py", GOOD.replace('"shout"', '"later"').replace("def run(", "async def run("))
+        self.assertIn("not async", self.tool().listing().message)
+
+    def test_a_cut_reply_says_so(self) -> None:
+        write(self.folder, "big.py", GOOD.replace('"shout"', '"big"').replace("return argument.upper()", "return 'x' * 30000"))
+        self.assertIn("cut: the plugin's reply was 30,000 characters", self.tool().run("big", "").message)
+
+    def test_names_are_known_before_the_folder_is_loaded(self) -> None:
+        write(self.folder, "shout.py", GOOD)
+        tool = self.tool()
+        self.assertEqual(tool.names(), {"shout"})
+        self.assertEqual(self.cards, [], "finding a name ran the files")
+
+
+class ReviewOf292CommandTests(unittest.TestCase):
+    build = test_orchestrator.OrchestratorTests.build
+    config = test_orchestrator.OrchestratorTests.config
+
+    def test_a_sentence_about_plugins_is_left_to_chat_and_the_agent_has_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            orch = self.build(Path(tmp))
+            for text in ("plugin installation failed in vs code, how do i fix it?", "plugin for chrome that blocks ads?"):
+                with self.subTest(text):
+                    self.assertTrue(orch._reads_as_prose(text, text.lower()))
+            self.assertFalse(any("plugin" in entry for entry in orch._AGENT_COMMANDS))
+
+    def test_a_named_plugin_typed_directly_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            orch = self.build(Path(tmp))
+            folder = Path(tmp) / "plugins"
+            write(folder, "shout.py", GOOD)
+            orch._plugins_cache = PluginTool(orch.context.web.approval_gate, folder, on=True)
+            self.assertFalse(orch._reads_as_prose("plugin shout\nhello there", "plugin shout\nhello there"))
+            result = asyncio.run(orch.handle("plugin shout\nhello there", history=[]))
+        self.assertEqual(result.message, "HELLO THERE")
 
 
 if __name__ == "__main__":

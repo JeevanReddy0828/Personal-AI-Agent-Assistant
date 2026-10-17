@@ -509,6 +509,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **A plugin chose its own card: "low" skipped the gate, "medium" ran with no card in the web app,
+  and agent mode could call it with model-chosen arguments** (review of #292) → RISK was trusted →
+  every run is HIGH or CRITICAL, loading the folder asks first, the agent loop cannot call a plugin,
+  and `sys.exit` in a plugin is a failure, not the app ending. (10-17)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →
@@ -596,11 +600,6 @@ guard, with the date), and a session entry only when the line cannot carry the l
   tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
 - **A scripted edit broke another line or file** → anchored on part of a line → anchor on the
   whole line, newline included. (09-12)
-- **A new command meant changing the orchestrator, the router and the access lists** → there was no
-  way to add one → `plugins` / `plugin <name> <request>` (`tools/plugins.py`): files in
-  `<data dir>/plugins`, read only with `LAPTOP_AGENT_PLUGINS=1` and once; COMMAND, RISK and `run`
-  are checked, a broken file is listed with its reason, every run goes through the gate at the
-  declared risk. Developer-only (`test_plugins.py`). (10-14)
 - **`sed -i` rewrote CRLF as LF** → harmless under autocrlf → check `git diff --stat` for
   whole-file churn. (10-01)
 - **`pkill -f` killed its own shell** → write the pattern as `m laptop_agent[.]webui`. (09-26)

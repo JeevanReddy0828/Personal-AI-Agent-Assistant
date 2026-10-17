@@ -11,6 +11,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
@@ -549,6 +550,7 @@ class AgentOrchestrator:
         self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._plugins_cache: PluginTool | None = None
+        self._plugins_lock = threading.Lock()
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -1159,8 +1161,8 @@ class AgentOrchestrator:
         if lowered == "plugins":
             return self._plugins().listing()
         if lowered.startswith("plugin "):
-            name, _, argument = command[len("plugin ") :].strip().partition(" ")
-            return self._plugins().run(name, argument.strip())
+            parts = command[len("plugin ") :].strip().split(None, 1)   # a newline or tab ends the name too
+            return self._plugins().run(parts[0] if parts else "", parts[1].strip() if len(parts) > 1 else "")
 
         if lowered in {"autopilot status", "autonomous status"}:
             return self._autopilot_status()
@@ -2309,7 +2311,7 @@ class AgentOrchestrator:
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
-        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind",
+        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "plugin",
         "translate",
     })
 
@@ -2329,6 +2331,10 @@ class AgentOrchestrator:
             return asks_to_be_told(command)
         if verb == "translate":
             return parse_translation(rest) is None
+        if verb == "plugin":
+            # "plugin installation failed, how do i fix it" is a question: only a sentence naming a
+            # loaded plugin is a plugin command (review of #292).
+            return first not in self._plugins().names()
         # A typo in the command form ("schedule briefing", "email hello") still gets the
         # tool's usage message; English is recognised by how it goes on.
         if verb == "schedule":
@@ -4034,8 +4040,6 @@ class AgentOrchestrator:
         "remember <key> = <value>",
         "forget <key>",
         "knowledge prune",
-        "plugins",
-        "plugin <name> <request>",
         "window <name> <left|right|top|bottom|full|corner>",
         "windows",
         # web & research
@@ -4824,9 +4828,10 @@ class AgentOrchestrator:
         return rewritten or question
 
     def _plugins(self) -> PluginTool:
-        if self._plugins_cache is None:
-            self._plugins_cache = PluginTool(self.context.web.approval_gate, self.data_dir / "plugins")
-        return self._plugins_cache
+        with self._plugins_lock:
+            if self._plugins_cache is None:
+                self._plugins_cache = PluginTool(self.context.web.approval_gate, self.data_dir / "plugins")
+            return self._plugins_cache
 
     def _knowledge_answer(self, question: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = question.strip().strip("'\"?")
