@@ -10,6 +10,7 @@ from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.planner.core import CutOff
 from laptop_agent.tools.workspace import MAX_FILES, WorkspaceTool, file_plan, folder_and_place, safe_relative
 
 PERSONAL = Principal("p1", "family", "personal")
@@ -158,6 +159,113 @@ class WorkspaceToolTests(unittest.TestCase):
     def test_the_command_is_developer_only(self) -> None:
         with acting_as(PERSONAL):
             self.assertEqual(refused_command("workspace make a folder"), "workspace")
+
+
+class ReviewOf282Tests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+        self.cards: list = []
+
+    def tool(self, reply: str) -> WorkspaceTool:
+        def ask(request) -> bool:
+            self.cards.append(request)
+            return True
+
+        return WorkspaceTool(lambda prompt: reply, ApprovalGate(ask=ask), home=self.home)
+
+    def route(self, text: str):
+        return HeuristicPlannerProvider().plan(text, "", {})
+
+    def test_only_a_whole_sentence_asking_for_a_folder_routes(self) -> None:
+        for text in ("make my downloads folder less cluttered", "create a folder structure for a react app",
+                     "set up a directory of plumbers", "start a project with my manager",
+                     "write a report on folders as a pdf and make a folder", "create a notion workspace with pages"):
+            self.assertFalse(self.route(text).is_command and self.route(text).command.startswith("workspace "), text)
+        for text in ("create a project folder with flask starter files", "make a folder called notes on my desktop.",
+                     "make an empty folder on my desktop", "create a folder called rust, with examples"):
+            self.assertTrue(self.route(text).command.startswith("workspace "), text)
+
+    def test_the_name_and_place_come_from_before_the_contents(self) -> None:
+        home = Path("/h")
+        self.assertEqual(folder_and_place("create a folder with notes on home loans in my downloads", home),
+                         ("workspace", home / "Documents"))
+        self.assertEqual(folder_and_place("make a folder with notes on a book called dune", home)[0], "workspace")
+        self.assertEqual(folder_and_place("make an empty folder on my desktop", home), ("workspace", home / "Desktop"))
+        self.assertEqual(folder_and_place("create a folder with the name rust", home)[0], "rust")
+        self.assertEqual(folder_and_place("create a folder called downloads", home)[0], "downloads")
+        self.assertEqual(folder_and_place('create a folder in "C:/My Projects" called demo', home),
+                         ("demo", Path("C:/My Projects")))
+        self.assertEqual(folder_and_place("make a folder at /tmp/x.", home)[1], Path("/tmp/x"))
+        self.assertEqual(folder_and_place("make a folder with a script that cleans files in /tmp/junk", home)[1],
+                         home / "Documents")
+
+    def test_a_readme_holding_a_fence_and_prose_after_still_parse(self) -> None:
+        reply = "Sure!\n" + plan_json(("README.md", "```py\nprint(1)\n```\n")) + "\nEnjoy."
+        self.assertEqual(file_plan(reply), [("README.md", "```py\nprint(1)\n```\n")])
+
+    def test_files_windows_acts_on_and_null_paths_are_refused(self) -> None:
+        for bad in ("evil.url", "x.LNK", "a.scf", "run.bat", "s.ps1", "desktop.ini", "Desktop.INI", "x.library-ms", None):
+            self.assertIsNone(safe_relative(bad), bad)
+
+    def test_an_unmade_place_is_refused_not_created(self) -> None:
+        result = self.tool(plan_json(("a.py", "1"))).create(f"make a folder in {self.home / 'nope'} with python basics")
+        self.assertFalse(result.ok)
+        self.assertFalse((self.home / "nope").exists())
+        self.assertEqual(self.cards, [])
+
+    def test_a_folder_made_while_the_card_was_open_is_never_written_into(self) -> None:
+        def ask(request) -> bool:
+            (self.home / "Documents" / "workspace").mkdir(parents=True)
+            return True
+
+        tool = WorkspaceTool(lambda prompt: plan_json(("a.py", "1")), ApprovalGate(ask=ask), home=self.home)
+        result = tool.create(REQUEST)
+        self.assertTrue(result.ok, result.message)
+        self.assertEqual(list((self.home / "Documents" / "workspace").iterdir()), [])
+        self.assertTrue((self.home / "Documents" / "workspace-2" / "a.py").exists())
+
+    def test_a_failed_write_removes_the_folder_and_is_a_failure(self) -> None:
+        tool = self.tool(plan_json(("a.py", "1"), ("b.py", "\ud800")))
+        result = tool.create(REQUEST)
+        self.assertFalse(result.ok)
+        self.assertEqual(list((self.home / "Documents").iterdir()), [])
+
+    def test_an_outage_and_a_cut_off_plan_say_different_things(self) -> None:
+        self.assertIn("No language model answered", self.tool("").create(REQUEST).message)
+        cut = CutOff(plan_json(("a.py", "1")))
+        self.assertIn("length limit", self.tool(cut).create(REQUEST).message)
+        self.assertEqual(self.cards, [])
+
+    def test_the_card_shows_what_the_files_hold(self) -> None:
+        self.tool(plan_json(("a.py", "print('hello there')"))).create(REQUEST)
+        self.assertIn("print('hello there')", self.cards[0].preview)
+
+    def test_the_prompt_states_the_limits(self) -> None:
+        prompts: list[str] = []
+        WorkspaceTool(lambda prompt: prompts.append(prompt) or "", ApprovalGate(ask=lambda r: True),
+                      home=self.home).create(REQUEST)
+        self.assertIn(str(MAX_FILES), prompts[0])
+        self.assertIn("12,000", prompts[0])
+
+    def test_the_writer_never_asks_past_the_endpoint_cap(self) -> None:
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+
+        asked: list[int] = []
+
+        class Provider:
+            max_output_tokens = 4096
+
+            def answer(self, prompt, context, max_tokens=None):
+                asked.append(max_tokens)
+                return "ok"
+
+        holder = AgentOrchestrator.__new__(AgentOrchestrator)
+        holder.smart_planner = None
+        holder.planner = type("Planner", (), {"provider": Provider()})()
+        holder._build_document_writer()("x")
+        self.assertEqual(asked, [4096])
 
 
 class RoutingTests(unittest.TestCase):

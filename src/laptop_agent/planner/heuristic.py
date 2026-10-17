@@ -103,11 +103,24 @@ _DECK_ASK = re.compile(
 )
 
 
+# The whole sentence, never a prefix: "make my downloads folder less cluttered", "create a folder
+# structure for a react app", "start a project with my manager" and "set up a directory of plumbers"
+# are not asks for a new folder (review of #282). A named document format goes to the document tool,
+# and a workspace in an app (Slack, Notion...) is not a folder on this laptop.
 _WORKSPACE_ASK = re.compile(
-    r"^\s*(?:(?:can|could|would)\s+you\s+|please\s+|i\s+(?:want|need)\s+(?:you\s+to\s+)?)*"
-    r"(?:create|make|set\s+up|build|generate|start)\s+(?:me\s+)?(?:an?\s+|my\s+|the\s+)?(?:new\s+)?"
-    r"(?:(?:[\w-]+\s+){0,2}(?:folder|directory)\b|(?:[\w-]+\s+){0,2}(?:workspace|project)(?:\s+(?:folder|directory))?"
-    r"(?=\s+(?:with|and\s+(?:fill|put|add|write|create)|full\s+of|containing)\b))",
+    r"^\s*(?!.*\bas\s+an?\s+(?:pdf|word|docx?|pptx?|power\s*point|markdown|md|document|spreadsheet|excel)\b)"
+    r"(?!.*\b(?:slack|notion|teams|discord|asana|trello|jira|clickup|monday|figma|miro|zoom|confluence|airtable"
+    r"|linear|github|gitlab|vs\s*code|vscode|google)\s+(?:workspace|project)\b)"
+    r"(?:(?:can|could|would)\s+you\s+|please\s+|i\s+(?:want|need)\s+(?:you\s+to\s+)?)*"
+    r"(?:create|make|set\s+up|build|generate|start)\s+(?:me\s+)?(?:an?\s+|my\s+|the\s+)?"
+    r"(?:(?:new|empty|blank|fresh)\s+)?(?:[\w-]+\s+){0,3}?"
+    r"(?:folder|directory|workspace(?:\s+(?:folder|directory))?|project\s+(?:folder|directory))"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s+(?:on|in|at|under|inside)\s+(?:\"[^\"]+\"|(?:my\s+|the\s+)?[^\s,]+(?:\s+folder)?))?"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s*,?\s+(?:with|and\s+(?:fill|put|add|write|create)|fill(?:ed)?\s+(?:it|with)|containing|full\s+of"
+    r"|for\s+(?:learning|practising|practicing|studying))\b.*)?"
+    r"\s*[.!?]*\s*$",
     re.IGNORECASE,
 )
 _WORKSPACE_IN_CODE = re.compile(

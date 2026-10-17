@@ -4322,7 +4322,7 @@ class AgentOrchestrator:
     def _workspace_tool(self) -> WorkspaceTool:
         if self._workspace_tool_cache is None:
             self._workspace_tool_cache = WorkspaceTool(
-                writer=self._build_document_writer(max_tokens=8000),
+                writer=self._build_document_writer(),
                 approval_gate=self.context.web.approval_gate,
             )
         return self._workspace_tool_cache
@@ -4337,8 +4337,12 @@ class AgentOrchestrator:
         if provider is None or not hasattr(provider, "answer"):
             return None
 
+        # Never past the endpoint's own cap: one it rejects is an HTTP 400 on every call (review of #282).
+        limit = getattr(provider, "max_output_tokens", None)
+        tokens = min(max_tokens, limit) if isinstance(limit, int) and limit > 0 else max_tokens
+
         def write(prompt: str) -> str:
-            return provider.answer(prompt, {}, max_tokens=max_tokens) or ""
+            return provider.answer(prompt, {}, max_tokens=tokens) or ""
 
         return write
 
