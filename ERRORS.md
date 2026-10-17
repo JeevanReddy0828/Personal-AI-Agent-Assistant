@@ -516,6 +516,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
+  clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
+  the gate, and the routes matched pronouns and verbs about the clipboard itself → not in
+  `_AGENT_COMMANDS`; reads LOW and writes MEDIUM through the gate (audited); a personal account is
+  refused inside `ClipboardTool`; a pronoun copies only with "to my clipboard"; "explain/fix/check"
+  need "what I copied"; a reference ("the summary") copies our reply, never its own words. (10-17)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →

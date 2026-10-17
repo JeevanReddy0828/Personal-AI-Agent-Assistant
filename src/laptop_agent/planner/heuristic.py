@@ -188,18 +188,34 @@ _CLIPBOARD_SHOW = re.compile(
     r"|(?:show|read|tell)(?:\s+me)?\s+what\s+i(?:'ve)?\s+(?:just\s+)?copied)\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
+# "Copy that!" on its own is an acknowledgement ("understood"), so a pronoun needs the clipboard
+# named; a reply named as one ("copy your last answer") does not.
 _CLIPBOARD_COPY_REPLY = re.compile(
-    _POLITE + r"copy\s+(?:that|this|it|(?:your|the|that)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))"
-    r"(?:\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard)?\s*[?.!]*\s*$",
+    _POLITE + r"copy\s+(?:(?:that|this|it|(?:your|the|that)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))"
+    r"\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard"
+    r"|(?:your|the)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
 _CLIPBOARD_COPY_TEXT = re.compile(
-    _POLITE + r"copy\s+[\"']?(?P<text>.+?)[\"']?\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard\s*[.!]*\s*$",
+    _POLITE + r"copy\s+(?P<text>.+?)\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard\s*[.!]*\s*$",
     re.IGNORECASE,
 )
+# What follows "copy" when it names something rather than giving the words: "the summary" means our
+# last reply, "that file" is a file - neither is the literal text "the summary" (review of #284).
+_CLIPBOARD_REFERENCE = re.compile(r"(?:the|that|this|those|these|it|my|your|our|all)\b.*", re.IGNORECASE)
+_CLIPBOARD_OUR_REPLY = re.compile(
+    r"(?:(?:the|that|this|your)\s+(?:last\s+|previous\s+)?(?:summary|answer|reply|response|code|text|result|list"
+    r"|translation|draft|email)|it\s+all|all\s+of\s+(?:it|that))", re.IGNORECASE)
+# Asking about the copied text, as the whole sentence. Doing something to text - summarize, rewrite -
+# may name "my clipboard"; explaining or checking only "what I copied", since "explain the clipboard
+# api", "check the clipboard history" and "fix my clipboard" are about the clipboard itself.
+_CLIPBOARD_TEXT_VERB = (r"(?:summari[sz]e|proofread|rewrite|reword|shorten|simplify|tl;?dr"
+                        r"|give\s+me\s+(?:a\s+)?(?:summary|tl;?dr)\s+of)")
 _CLIPBOARD_ASK = re.compile(
-    _POLITE + r"(?:summari[sz]e|explain|proofread|rewrite|reword|shorten|simplify|fix|correct|check|analy[sz]e|review"
-    r"|tl;?dr|give\s+me\s+(?:a\s+)?(?:summary|tl;?dr)\s+of)\s+" + _COPIED + r"\b",
+    _POLITE + r"(?:" + _CLIPBOARD_TEXT_VERB + r"\s+(?:" + _COPIED + r"|(?:my|the)\s+clipboard(?:'s)?(?:\s+(?:text|contents))?)"
+    r"|(?:explain|fix|correct|check|analy[sz]e|review)\s+(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied"
+    r"|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied))"
+    r"(?:\s+(?:in|into|to|for|as|so|with)\s+[^?.!]{1,60})?\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
 
@@ -2023,7 +2039,13 @@ class HeuristicPlannerProvider:
             return self._command("clipboard copy that", "User wants the last reply copied.", 0.9)
         copied = _CLIPBOARD_COPY_TEXT.match(text or "")
         if copied:
-            return self._command(f"clipboard copy {copied.group('text').strip()}", "User wants text copied.", 0.88)
+            words = copied.group("text").strip().strip("\"'“”‘’")
+            quoted = copied.group("text").strip()[:1] in "\"'“‘"
+            if not quoted and _CLIPBOARD_OUR_REPLY.fullmatch(words):
+                return self._command("clipboard copy that", "User wants the last reply copied.", 0.88)
+            if not quoted and _CLIPBOARD_REFERENCE.fullmatch(words):
+                return None   # "copy that file to clipboard": a thing named, not words given
+            return self._command(f"clipboard copy {words}", "User wants text copied.", 0.88)
         if _CLIPBOARD_ASK.match(text or ""):
             return self._command(f"clipboard ask {text.strip()}", "User asks about the copied text.", 0.88)
         return None

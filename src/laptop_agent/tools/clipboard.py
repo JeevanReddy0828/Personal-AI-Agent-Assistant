@@ -8,11 +8,16 @@ a backend the tests replace, so no test reads or overwrites the real clipboard.
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 import subprocess
 import sys
+import time
 from typing import Protocol
 
+from laptop_agent.access import is_personal
+from laptop_agent.failures import record_failure
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
 MAX_SHOWN = 4000
@@ -65,8 +70,12 @@ class WindowsClipboard:
         self._kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
 
     def _open(self, owner=None) -> None:
-        if not self._user32.OpenClipboard(owner):
-            raise OSError("The clipboard is in use by another app; try again in a moment.")
+        # A clipboard manager holds it for a few milliseconds at a time; one refusal is not "in use".
+        for attempt in range(10):
+            if self._user32.OpenClipboard(owner):
+                return
+            time.sleep(0.03)
+        raise OSError("The clipboard is in use by another app; try again in a moment.")
 
     def read(self) -> str:
         self._open()
@@ -133,41 +142,76 @@ def system_clipboard() -> ClipboardBackend | None:
         return WindowsClipboard()
     if sys.platform == "darwin":
         return CommandClipboard(["pbpaste"], ["pbcopy"])
-    if shutil.which("wl-paste") and shutil.which("wl-copy"):
+    # wl-clipboard only under Wayland: on X11 it fails every call while xclip would have worked.
+    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste") and shutil.which("wl-copy"):
         return CommandClipboard(["wl-paste", "--no-newline"], ["wl-copy"])
     if shutil.which("xclip"):
         return CommandClipboard(["xclip", "-selection", "clipboard", "-o"], ["xclip", "-selection", "clipboard"])
     return None
 
 
+# What a backend can raise: a busy Windows clipboard, xclip/wl-paste exiting non-zero on an empty
+# or non-text clipboard, image bytes that are not text. Each is a sentence for the user, never the
+# generic "unexpected error".
+_BACKEND_ERRORS = (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError)
+
+
 class ClipboardTool:
-    def __init__(self, backend: ClipboardBackend | None) -> None:
+    """The laptop's clipboard, through the approval gate like the screen and the windows: reading is
+    LOW and writing MEDIUM (it replaces what was copied), both audited. A personal account never
+    reaches it, here rather than at each caller - a path that forgot the check read it."""
+
+    def __init__(self, backend: ClipboardBackend | None, approval_gate: ApprovalGate | None = None) -> None:
         self._backend = backend
+        self._gate = approval_gate
 
     def _unreachable(self) -> ToolResult:
         return ToolResult.failure("I can't reach a clipboard on this machine. On Linux, install wl-clipboard or xclip.")
 
-    def text(self) -> str | None:
-        """What is copied, or None when the clipboard cannot be read."""
-        if self._backend is None:
-            return None
-        return self._backend.read()
-
-    def show(self) -> ToolResult:
+    def content(self) -> ToolResult:
+        """What is copied, as `data["text"]`; a failure says why it could not be read, so "no
+        clipboard program installed" is never reported as "your clipboard is empty"."""
+        if is_personal():
+            return ToolResult.failure("Reading the laptop's clipboard needs a developer account.")
         if self._backend is None:
             return self._unreachable()
-        text = self._backend.read().strip()
+        if self._gate is not None:
+            self._gate.require(ApprovalRequest(action="Read the clipboard", risk=RiskLevel.LOW,
+                                               reason="Reads the text you copied, on this laptop."))
+        try:
+            text = self._backend.read()
+        except _BACKEND_ERRORS as exc:
+            record_failure("clipboard/read", exc)
+            return ToolResult.failure(f"I couldn't read the clipboard: {exc}" if isinstance(exc, OSError) and
+                                      "clipboard" in str(exc) else "I couldn't read the clipboard as text.")
+        return ToolResult.success("read", text=text)
+
+    def show(self) -> ToolResult:
+        read = self.content()
+        if not read.ok:
+            return read
+        text = str(read.data["text"]).strip()
         if not text:
             return ToolResult.success("Your clipboard has no text on it.", chars=0)
         shown = text if len(text) <= MAX_SHOWN else text[:MAX_SHOWN] + f"\n\n… ({len(text):,} characters in all)"
         return ToolResult.success(f"On your clipboard:\n\n{shown}", chars=len(text))
 
     def copy(self, text: str) -> ToolResult:
+        if is_personal():
+            return ToolResult.failure("Changing the laptop's clipboard needs a developer account.")
         if self._backend is None:
             return self._unreachable()
         if not text.strip():
             return ToolResult.failure("There is nothing to copy.")
-        self._backend.write(text)
         preview = text.strip().splitlines()[0][:80]
+        if self._gate is not None:
+            self._gate.require(ApprovalRequest(action="Replace what is on the clipboard", risk=RiskLevel.MEDIUM,
+                                               reason="Puts this text on the clipboard; what was copied before is gone.",
+                                               preview=text[:500]))
+        try:
+            self._backend.write(text)
+        except _BACKEND_ERRORS as exc:
+            record_failure("clipboard/write", exc)
+            return ToolResult.failure("I couldn't put that on the clipboard: " + str(exc))
         return ToolResult.success(f"Copied to your clipboard: {preview}" + ("…" if len(text.strip()) > len(preview) else ""),
                                   chars=len(text))
