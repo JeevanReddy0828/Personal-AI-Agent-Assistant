@@ -191,6 +191,41 @@ _ALARM_LIST = re.compile(
     + r"))\s*[?.!]*",
     re.IGNORECASE,
 )
+# Being told when something changes, said as a whole sentence. "watch" alone is a film or a
+# warning ("watch a movie", "watch out for ice"), so news needs its own word.
+_WATCH_NEWS = re.compile(
+    _POLITE + r"(?:(?:watch|track|follow|monitor)\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for|regarding)"
+    r"|keep\s+(?:an\s+eye|tabs)\s+on\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for|regarding)"
+    r"|(?:alert|notify|tell|ping|let)\s+me(?:\s+know)?\s+(?:when(?:ever)?|if)\s+(?:there(?:'s|\s+is|\s+are)\s+)?"
+    r"(?:any\s+)?(?:new\s+)?(?:news|headlines?|stories)\s+(?:about|on|for|regarding))"
+    r"\s+(?P<topic>[\w&.+#' -]{2,60}?)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WATCH_HEALTH = re.compile(
+    _POLITE + r"(?:turn\s+on|enable|start|switch\s+on)\s+(?:the\s+)?(?:health|battery|system)\s+(?:alerts?|warnings?|monitoring)"
+    r"|" + _POLITE + r"(?:watch|monitor|keep\s+an\s+eye\s+on)\s+(?:my|the)\s+(?:laptop|computer|pc|machine|system)(?:'s)?"
+    r"(?:\s+(?:health|battery|resources))?"
+    r"|" + _POLITE + r"(?:warn|alert|tell|notify|let)\s+me(?:\s+know)?\s+(?:when|if)\s+(?:my|the)\s+"
+    r"(?:battery\s+(?:is|gets|goes|runs)\s+low|battery\s+(?:is\s+)?(?:low|dying|running\s+out)"
+    r"|cpu\s+(?:is|gets|goes|stays)\s+(?:high|hot)|memory\s+(?:is|gets|runs)\s+(?:full|low|high)"
+    r"|disk\s+(?:is|gets|runs)\s+(?:full|low))"
+    r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WATCH_LIST = re.compile(
+    _POLITE + r"(?:what\s+(?:am\s+i|are\s+you)\s+watching|(?:show|list)(?:\s+me)?\s+(?:my|the)\s+watch(?:es|\s+list)"
+    r"|what\s+(?:watches|alerts)\s+(?:do\s+i\s+have|are\s+(?:on|set)))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_UNWATCH = re.compile(
+    _POLITE + r"(?:stop\s+(?:watching|tracking|following|monitoring)\s+(?:the\s+)?(?:news|headlines)\s+(?:about|on|for)\s+"
+    r"|unwatch\s+(?:the\s+)?(?:news\s+)?(?:about\s+|on\s+|for\s+)?)"
+    r"(?P<topic>[\w&.+#' -]{2,60}?)\s*[?.!]*\s*$"
+    r"|" + _POLITE + r"(?:turn\s+off|disable|stop)\s+(?:the\s+)?(?P<health>health|battery|system)\s+(?:alerts?|warnings?|monitoring)"
+    r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking to see the scheduler, as a whole sentence. "what are my scheduled jobs" reached the LLM
 # router, which matched "jobs" and answered from the job-application tracker.
 _SCHEDULE_ASK = re.compile(
@@ -658,6 +693,8 @@ _FACT_CHANGE = re.compile(
 _FACT_ASK = re.compile(
     r"^\s*(?:(?:what(?:'s|s|\s+is)|do\s+you\s+(?:remember|know)|tell\s+me|remind\s+me(?:\s+of)?)\s+my\s+"
     r"(?P<key>[a-z][\w']*(?:\s+[a-z][\w']*){0,3}?)(?:\s+is)?(?:\s+again)?"
+    # "who is my doctor" ran a web search for the sentence: it is a fact the user told me.
+    r"|who(?:'s|s|\s+is|\s+are)\s+my\s+(?P<whose>[a-z][\w']*(?:\s+[a-z][\w']*){0,3}?)(?:\s+again)?"
     r"|(?P<live>where\s+do\s+i\s+live|what\s+city\s+do\s+i\s+live\s+in)"
     r"|(?P<who>who\s+am\s+i|what\s+do\s+you\s+call\s+me))\s*[?.!]*$",
     re.IGNORECASE,
@@ -677,13 +714,16 @@ def fact_question(text: str) -> tuple[str, bool] | None:
         return "where i live", True
     if match.group("who"):
         return "name", True
-    key = " ".join(match.group("key").lower().split())
+    key = " ".join((match.group("key") or match.group("whose")).lower().split())
     return key, bool(re.fullmatch(_PERSONAL_KEY, key, re.IGNORECASE))
 _CALL_ME = re.compile(r"^\s*(?:please\s+|from\s+now\s+on[,\s]+)?call\s+me\s+(?P<name>[a-z][\w'-]{1,20})"
                       r"(?:\s+from\s+now\s+on)?\s*[.!]*$", re.IGNORECASE)
 _NOT_A_NAME = {"back", "later", "when", "if", "at", "tomorrow", "tonight", "today", "maybe", "now", "soon",
                "crazy", "out", "anytime", "whenever", "please", "sometime"}
 _I_LIVE = re.compile(r"^\s*i\s+live\s+in\s+(?P<city>[a-z][\w .,'-]{1,40}?)\s*[.!]*$", re.IGNORECASE)
+# "delete my last note" reached the chat model, which cannot delete anything.
+_UNNOTE = re.compile(_POLITE + r"(?:delete|remove|forget|erase|scratch)\s+(?:my|the|that)\s+(?:last|latest|newest)\s+note"
+                     r"\s*[.!]*$", re.IGNORECASE)
 _NOTE = re.compile(
     _POLITE + r"(?:take\s+a\s+note|make\s+a\s+note|note\s+to\s+self|note|jot\s+(?:this\s+)?down"
     r"|write\s+this\s+down)(?:\s+(?:that|to))?\s*[:,-]?\s+(?P<text>\S.*?)\s*$",
@@ -1226,6 +1266,10 @@ class HeuristicPlannerProvider:
             command = spoken if spoken.lower().startswith("convert ") else f"convert {spoken}"
             return self._command(command, "A unit conversion, computed exactly.", 0.95)
 
+        watched = self._watch(raw)
+        if watched:
+            return watched
+
         headlines = self._news(raw)
         if headlines:
             return headlines
@@ -1584,6 +1628,8 @@ class HeuristicPlannerProvider:
         lives = _I_LIVE.match(text)
         if lives:
             return self._command(f"remember city = {lives.group('city')}", "Where the user lives.", 0.84)
+        if _UNNOTE.match(text):
+            return self._command("forget last note", "Drop the newest note.", 0.84)
         noted = _NOTE.match(text)
         if noted:
             return self._command(f"remember {noted.group('text')}", "Something to remember.", 0.84)
@@ -1921,6 +1967,21 @@ class HeuristicPlannerProvider:
         if not request:
             return None
         return self._command(f"document {request}", "User wants a written document file.", 0.85)
+
+    def _watch(self, text: str) -> PlanDecision | None:
+        """'tell me when there's news about nvidia', 'warn me if my battery gets low' -> a watch."""
+        news = _WATCH_NEWS.match(text or "")
+        if news:
+            return self._command(f"watch news {news.group('topic').strip()}", "User wants to hear of new headlines.", 0.88)
+        if _WATCH_HEALTH.match(text or ""):
+            return self._command("watch health", "User wants the laptop's health watched.", 0.88)
+        if _WATCH_LIST.match(text or ""):
+            return self._command("watches", "User asks what is watched.", 0.9)
+        stop = _UNWATCH.match(text or "")
+        if stop:
+            target = "health" if stop.group("health") else stop.group("topic").strip()
+            return self._command(f"unwatch {target}", "User wants a watch stopped.", 0.88)
+        return None
 
     def _image(self, text: str) -> PlanDecision | None:
         """'draw me a picture of a fox' -> the image tool, with no LLM round-trip."""

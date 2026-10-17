@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,21 @@ class IsolationTests(unittest.TestCase):
         out = done.stdout + done.stderr
         self.assertIn("Ran 1 test in", out, "the probe never ran, so nothing was checked")
         self.assertEqual(done.returncode, 0, out)
+
+    def test_no_test_server_binds_a_fixed_port(self) -> None:
+        """Suites run at once from several worktrees. The stdlib servers set SO_REUSEADDR,
+        which on Windows lets a second process bind a port already being served, so a fixed
+        port is shared silently: requests reached the other run's server, whose per-process
+        API token differs, and came back 403 (or reset when it shut down). Port 0 asks the
+        OS for a free one."""
+        fixed = re.compile(r"(?:Server|\.bind)\(\s*\(\s*[^,()]+,\s*([1-9]\d*)\s*\)")
+        found = [
+            f"{path.name}:{source.count(chr(10), 0, match.start()) + 1} port {match.group(1)}"
+            for path in sorted(Path(__file__).resolve().parent.glob("*.py"))
+            for source in [path.read_text(encoding="utf-8")]
+            for match in fixed.finditer(source)
+        ]
+        self.assertEqual(found, [], "bind port 0 and read server.server_address[1]")
 
 
 if __name__ == "__main__":
