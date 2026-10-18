@@ -119,6 +119,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Mail, notes and pictures
 | File | What it does |
 |---|---|
+| `learn.py` | `learn from chat`: the lasting facts the user said in this chat, proposed by the model from the user's own words and saved after one approval card. |
 | `email.py` | IMAP search, unread and digest; SMTP and OAuth (Gmail, Outlook) drafts and sends, which ask first. |
 | `obsidian.py` | Your Obsidian vault: search, read, save notes, link-aware answers, an audit. |
 | `imagegen.py` | Text-to-image through NVIDIA's hosted FLUX models. |
