@@ -513,6 +513,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   and agent mode could call it with model-chosen arguments** (review of #292) → RISK was trusted →
   every run is HIGH or CRITICAL, loading the folder asks first, the agent loop cannot call a plugin,
   and `sys.exit` in a plugin is a failure, not the app ending. (10-17)
+- **A plugin in a second data folder imported the first folder's `_helper.py`** (second review of
+  #292) → a new `jarvis_plugins` package replaced the old one but its submodules stayed in
+  `sys.modules` → each load drops every cached `jarvis_plugins.*` module and starts a fresh
+  package (`test_plugins.py`, two folders). (10-18)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →

@@ -57,11 +57,13 @@ def _risk(declared: object) -> RiskLevel | None:
 
 
 def _package(folder: Path) -> None:
-    package = sys.modules.get(PACKAGE)
-    if package is None or list(getattr(package, "__path__", [])) != [str(folder)]:
-        package = types.ModuleType(PACKAGE)
-        package.__path__ = [str(folder)]
-        sys.modules[PACKAGE] = package
+    """A fresh package for each load: a helper cached from an earlier folder (another data
+    directory) or an earlier version of the file would otherwise answer `from . import _name`."""
+    for name in [name for name in sys.modules if name.startswith(PACKAGE + ".")]:
+        sys.modules.pop(name, None)
+    package = types.ModuleType(PACKAGE)
+    package.__path__ = [str(folder)]
+    sys.modules[PACKAGE] = package
 
 
 def load(folder: Path) -> list[Plugin]:

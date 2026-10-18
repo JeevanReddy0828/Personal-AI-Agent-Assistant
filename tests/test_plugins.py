@@ -163,6 +163,16 @@ class ReviewOf292Tests(PluginToolTests):
         self.assertEqual(tool.run("rich", "").message, "helped")
         self.assertIs(self.cards[-1].risk, RiskLevel.CRITICAL)
 
+    def test_a_helper_comes_from_its_own_folder_not_an_earlier_one(self) -> None:
+        source = ("from . import _review_helper\nCOMMAND = 'which'\nDESCRIPTION = 'x'\nRISK = 'high'\n"
+                  "def run(argument):\n    return _review_helper.WORD\n")
+        other = self.folder.parent / "other-data" / "plugins"
+        for folder, word in ((self.folder, "first"), (other, "second")):
+            write(folder, "_review_helper.py", f"WORD = '{word}'\n")
+            write(folder, "which.py", source)
+        self.assertEqual(self.tool().run("which", "").message, "first")
+        self.assertEqual(PluginTool(self.gate, other, on=True).run("which", "").message, "second")
+
     def test_an_async_run_is_refused_at_load(self) -> None:
         write(self.folder, "later.py", GOOD.replace('"shout"', '"later"').replace("def run(", "async def run("))
         self.assertIn("not async", self.tool().listing().message)
