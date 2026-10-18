@@ -82,6 +82,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   feeds' `with ThreadPoolExecutor` block waited for every thread on exit, and results were read in
   section order → `wait(FIRST_EXCEPTION)` re-raises a section's OperationCancelled at once and the
   pool shuts down without waiting; tests join the `briefing` threads before cleanup (`test_briefing.py`). (10-18)
+- **A personal account could change the developer-only briefing by approving a learned
+  `briefing_format` fact** (found integrating #296 with #288) → `learn from chat` is everyday and
+  saved any proposed key, a second door beside "remember" → `LearnTool(allowed=...)` drops a key the
+  orchestrator refuses before the card (`_briefing_by_remember`), so it is neither shown nor saved
+  (`test_learn.py`). (10-18)
 - **"set my briefing to weather and news" saved a briefing of weather alone, then read the
   news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
   and "set my briefing to weather" and "news" both do; the typed form split the same way,

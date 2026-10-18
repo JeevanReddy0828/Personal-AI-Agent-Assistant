@@ -5519,8 +5519,10 @@ class AgentOrchestrator:
 
             # A short JSON extraction: the tier ladder (smart, fast, OpenRouter) and a small budget,
             # not the document writer's smart-only 6,000 thinking tokens.
+            # A personal account cannot set the briefing's format here either: it is `briefing set`'s.
             self._learn_cache = LearnTool(self._build_agent_brain(answer_max_tokens=1200),
-                                          self.context.web.approval_gate, save)
+                                          self.context.web.approval_gate, save,
+                                          allowed=lambda key: self._briefing_by_remember(key) is None)
         return self._learn_cache
 
     def _remember(self, expression: str) -> ToolResult:
