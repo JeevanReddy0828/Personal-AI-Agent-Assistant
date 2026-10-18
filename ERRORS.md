@@ -557,6 +557,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   grouped card numbers, provider keys, long letter-digit tokens) and by key name (`door_code`,
   `wifi_key`, `api_key`); `proposed` returns None for an unreadable reply, which fails; a
   replacement shows what it replaces; approved facts are one write. (10-17)
+- **"learn from chat" still proposed `recovery_code=4821` and `verification_code=3192`** (second
+  review of #288) → short digit values match no secret shape, and the key-name list knew only door
+  and alarm codes → recovery, verification, one-time, OTP/2FA, backup, auth and security codes are
+  secret names; `zip_code`, `area_code` and `postal_code` stay facts. (10-18)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a

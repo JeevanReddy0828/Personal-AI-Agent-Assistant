@@ -147,6 +147,12 @@ class ReviewOf288Tests(LearnToolTests):
                       ("employer", "Nvidia"))
         self.assertEqual(proposed(reply, {}), [("employer", "Nvidia")])
 
+    def test_sign_in_codes_are_dropped_by_name_and_ordinary_codes_kept(self) -> None:
+        reply = facts(("recovery_code", "4821"), ("verification_code", "3192"), ("one_time_code", "7744"),
+                      ("otp", "552910"), ("backup_code", "8812"), ("employer", "Nvidia"),
+                      ("area_code", "512"), ("postal_code", "78701"))
+        self.assertEqual(proposed(reply, {}), [("employer", "Nvidia"), ("area_code", "512"), ("postal_code", "78701")])
+
     def test_dates_ranges_and_phone_numbers_are_kept(self) -> None:
         reply = facts(("dentist_appointment", "2026-10-20 10:30 with Dr. Rao"),
                       ("trip", "Austin 2026-11-02 - 2026-11-05"), ("mom_phone", "+1 512 555 0100"), ("zip_code", "78701"))

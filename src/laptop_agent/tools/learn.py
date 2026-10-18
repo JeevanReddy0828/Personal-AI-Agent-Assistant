@@ -34,11 +34,14 @@ _SECRET_VALUE = re.compile(
     r"|\b(?:nvapi|sk|ghp|gho|xox[bpas]|AKIA|ASIA)[-_]?[\w-]{8,}"
     r"|\b(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[A-Za-z0-9_-]{16,}\b"
     r"|password|passcode", re.IGNORECASE)
-# A key that names a secret, whatever its value looks like: "door_code=4821", "wifi_key=hunter2".
+# A key that names a secret, whatever its value looks like: "door_code=4821", "wifi_key=hunter2",
+# "recovery_code=4821" - but "zip_code" and "area_code" are not secrets.
 _SECRET_KEY = re.compile(
     r"(?:^|_)(?:ssn|social_security|password|passcode|passphrase|pin|cvv|cvc|secret|token|api_key|apikey"
     r"|private_key|access_key|license_key|account_number|routing|iban|swift|card_number|credit_card|wifi"
-    r"|(?:door|gate|garage|alarm|safe|lock)_?code)(?:_|$)", re.IGNORECASE)
+    r"|otp|totp|mfa|2fa"
+    r"|(?:door|gate|garage|alarm|safe|lock|recovery|verification|one_time|otp|mfa|2fa|backup|auth|security"
+    r"|access)_?code)(?:_|$)", re.IGNORECASE)
 
 _PROMPT = """Below are messages a user wrote to their assistant. List the lasting facts about the user
 they state about themselves: preferences, people in their life, their work, places, plans with a date.
