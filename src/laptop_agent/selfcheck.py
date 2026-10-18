@@ -72,6 +72,8 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("warn me when my battery is low", "watch health", "a watch, not a status"),
     ("draw me a picture of a fox", "image", "image generation"),
     ("what do you remember about me", "memory", "stored profile"),
+    ("summarize what i copied", "clipboard ask", "the clipboard, not a guess from nothing"),
+    ("what did i copy", "clipboard", "the clipboard"),
     ("remember my name is jeevan", "remember", "storing a detail"),
     # Everyday requests — the corpora of 2026-09-26, each once answered by a model that
     # could not act on it, or by the wrong tool.
@@ -223,6 +225,8 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("don't search the web for cats", "same"),
     ("do not run this command: del notes.txt", "same, and it asked to run it"),
     ("what is a reminder", "a definition, not a listing"),
+    ("how do i copy and paste", "a question, not the clipboard"),
+    ("copy the file report.txt to d:", "a file, not the clipboard"),
     ("tell me in one sentence how to cook rice", "'in one' is not a time"),
     ("tell me at least three reasons to learn rust", "'at least' is not a time"),
     ("the value is in the middle and the key is on the left", "prose, not a placement"),
