@@ -75,6 +75,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   `.search`, the insight read the ranking's first as its highest, and the calculate prose rule did
   not know breakdowns → sections fullmatch the whole part, the insight takes max/min by value, and
   the prose rule asks `breakdown_request` first. (10-17)
+- **Stop during a briefing waited for an unrelated slow feed** (Codex's review of #296) → the
+  feeds' `with ThreadPoolExecutor` block waited for every thread on exit, and results were read in
+  section order → `wait(FIRST_EXCEPTION)` re-raises a section's OperationCancelled at once and the
+  pool shuts down without waiting; tests join the `briefing` threads before cleanup (`test_briefing.py`). (10-18)
 - **"set my briefing to weather and news" saved a briefing of weather alone, then read the
   news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
   and "set my briefing to weather" and "news" both do; the typed form split the same way,

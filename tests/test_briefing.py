@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 from datetime import datetime, timedelta
@@ -95,6 +96,10 @@ class BriefingTests(unittest.TestCase):
         self.orchestrator._news_tool_cache = NewsTool(backend=news, page_reader=lambda url: "", approval_gate=gate)
 
     def tearDown(self) -> None:
+        # A Stop returns without waiting for the other sections; they still write into the data dir.
+        for thread in threading.enumerate():
+            if thread.name.startswith("briefing"):
+                thread.join(10)
         self._tmp.cleanup()
 
     def say(self, text: str):
@@ -287,6 +292,28 @@ class ReviewOf296Tests(BriefingTests):
                                                            _allow_planner=False))
         self.assertIn("needs a developer account", refused.message)
         self.assertNotIn("briefing_format", self.orchestrator.context.memory.get_profile())
+
+    def test_stop_in_one_section_does_not_wait_for_a_slower_one(self) -> None:
+        self.say("set my briefing to news and weather")   # the slow feed is read first
+        news_started = threading.Event()
+        release = threading.Event()
+
+        def fetch(section: Section) -> ToolResult:
+            if section.kind == "news":
+                news_started.set()
+                release.wait(5)
+                return ToolResult.success("late")
+            news_started.wait(5)
+            raise OperationCancelled("stopped")
+
+        with patch.object(self.orchestrator, "_briefing_fetch", side_effect=fetch):
+            started = time.monotonic()
+            try:
+                with self.assertRaises(OperationCancelled):
+                    self.orchestrator._briefing()
+                self.assertLess(time.monotonic() - started, 2.0)
+            finally:
+                release.set()
 
     def test_a_mail_failure_is_not_read_out_as_an_exception(self) -> None:
         email = self.orchestrator.context.email

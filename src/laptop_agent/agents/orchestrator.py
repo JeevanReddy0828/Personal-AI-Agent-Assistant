@@ -14,7 +14,7 @@ import re
 import tempfile
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -3912,12 +3912,21 @@ class AgentOrchestrator:
         network = [section for section in sections if section.kind in self._BRIEFING_NETWORK]
         fetched: dict[Section, ToolResult] = {}
         if network:
-            with ThreadPoolExecutor(max_workers=len(network)) as pool:
+            pool = ThreadPoolExecutor(max_workers=len(network), thread_name_prefix="briefing")
+            try:
                 # Each in a copy of this turn's context, so the signed-in check, Stop and the
                 # trace still see the turn the section belongs to.
                 futures = {section: pool.submit(contextvars.copy_context().run, self._briefing_fetch, section)
                            for section in network}
+                # A Stop raised in one section ends the briefing now, not after a slower feed
+                # (review of #296): only OperationCancelled escapes _briefing_fetch.
+                done, _ = wait(futures.values(), return_when=FIRST_EXCEPTION)
+                for future in done:
+                    if future.exception() is not None:
+                        raise future.exception()
                 fetched = {section: future.result() for section, future in futures.items()}
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)  # a stalled feed ends on its own timeout
 
         lines = [f"## {greeting(now.hour)}", f"_Your briefing for {now.strftime('%A, %B')} {now.day}._", ""]
         due_reminders = self.context.reminders.due()
