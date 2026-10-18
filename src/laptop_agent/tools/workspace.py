@@ -253,6 +253,9 @@ class WorkspaceTool:
             # Never half a folder: everything in it was written by this call, so it all goes.
             record_failure("workspace/write", exc, folder=str(folder))
             shutil.rmtree(folder, ignore_errors=True)
+            if folder.exists():
+                return ToolResult.failure(f"Writing the files failed ({type(exc).__name__}), and I couldn't remove "
+                                          f"the folder again: what was written is still at {folder}.")
             return ToolResult.failure(f"Writing the files failed ({type(exc).__name__}), so I removed the folder "
                                       "again; nothing was left half-written.")
         files = "\n".join(f"- `{path}`" for path, _ in plan)

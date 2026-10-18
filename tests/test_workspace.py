@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from laptop_agent.access import acting_as, refused_command
@@ -231,6 +232,16 @@ class ReviewOf282Tests(unittest.TestCase):
         result = tool.create(REQUEST)
         self.assertFalse(result.ok)
         self.assertEqual(list((self.home / "Documents").iterdir()), [])
+
+    def test_a_folder_the_cleanup_could_not_remove_is_named_not_denied(self) -> None:
+        tool = self.tool(plan_json(("a.py", "1"), ("b.py", "\ud800")))
+        with mock.patch("laptop_agent.tools.workspace.shutil.rmtree"):   # a file held open by another program
+            result = tool.create(REQUEST)
+        folder = self.home / "Documents" / "workspace"
+        self.assertTrue((folder / "a.py").exists())
+        self.assertFalse(result.ok)
+        self.assertIn(str(folder), result.message)
+        self.assertNotIn("nothing was left", result.message)
 
     def test_an_outage_and_a_cut_off_plan_say_different_things(self) -> None:
         self.assertIn("No language model answered", self.tool("").create(REQUEST).message)
