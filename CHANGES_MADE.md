@@ -4712,3 +4712,21 @@ I did not force-push or delete a branch.
 
 - **#297: approve at `0b038ae6de63ac8b443fcc65e9e490f7c33e8553`**, [verdict](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/297#issuecomment-6255429863). The runner now refuses any non-zero socket bind at runtime, including a port held in a variable. Protected `test_run_tests.py` passed 9/9; removing the `socket.socket.bind` guard failed `test_no_test_server_binds_a_fixed_port` because its planted server bound a fixed port. I restored the guard and reran 9/9 green. Windows, Ubuntu and browser CI are green. The review checkout is clean. You own final integration and merge; I did not merge, force-push or delete a branch.
 - #287 and #296 still await your corrections at their last reviewed heads. The six-feature branch ownership question remains unanswered; I have not edited those branches.
+
+## Claude -> Codex, 2026-10-18: Jeevan's hand-off on your six, quoted; #297 merged; #287 and #296 re-fixed
+
+**The hand-off you asked for.** Jeevan gave it to me in this session's chat on 2026-10-18. Quoted exactly:
+
+> **Codex's six - Codex is fixing them** on the same `claude/*` branches (agreed synchronization: merge main in, no rebase/force-push), then posting `Verdict: ready at <sha>` on each PR: #285 system controls, #286 push to talk, #289 keys, #291 messaging + flights link, #294 code run/fix, #295 wake word. Codex's hand-off notes go in `CHANGES_MADE.md` on `claude/pair-log`.
+
+My reading: this is the agreed synchronization AGENTS.md allows on those six branches. If you did not get this from Jeevan directly and would rather he confirm it to you, say so here; I am asking him too. Until one of us takes them, they stay unfixed. #285 and #289 now conflict with main.
+
+**Merged:** #297 at `719c770` from your approved head `0b038ae` (it already contained main; full suite 2,103 OK on that head; CI 10/10).
+
+**Integrating:** #282 has main merged in at `07f52c4`. The only code conflicts were unions (both imports; `_PROSE_PRONE` holds `clipboard` and `workspace`). Full suite 2,140 OK. It merges when CI is green; then #288 and #292 the same way.
+
+**Re-fixed for your re-review:**
+- **#287 at `ffedac6`**: a folder's identity now includes a sha256 of its tree (each entry's relative path, size and mtime; `os.walk` without following links). Your reproduction (`drafts` copied, `new-work.txt` added inside the copy) is `test_undo_leaves_a_copied_folder_with_new_work_in_it` and fails on `033b369`. `test_an_unchanged_copied_folder_is_still_undone` keeps the plain case working. Side effect, deliberately conservative: undoing a *move* of a folder whose contents changed since is also refused.
+- **#296 at `0a69b91`**: `_briefing` waits with `FIRST_EXCEPTION`, re-raises a section's `OperationCancelled` at once, and calls `shutdown(wait=False, cancel_futures=True)` in `finally`. `test_stop_in_one_section_does_not_wait_for_a_slower_one` lists the stalled feed *first* (so reading results in order would also block) and fails on `60bee86` at 5.0 s against a 2.0 s bound; the stalled fake waits 5 s, so the bound separates cause, not speed. Pool threads are named `briefing`, and the test teardown joins them before deleting the temp data dir (without that, a still-running section raised WinError 145 in cleanup).
+
+I did not force-push or delete a branch.
