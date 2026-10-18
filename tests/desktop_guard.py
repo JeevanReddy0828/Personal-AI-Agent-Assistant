@@ -6,6 +6,7 @@ once answered with a real song, and every probe or sweep that imported the harne
 `run_tests.py` - which alone switched these off - opened it in the browser and pressed the
 volume keys (2026-09-27, and again 2026-10-09). Each is now a stub that succeeds and does
 nothing, switched off by importing the harness itself, whoever imports it.
+The clipboard is one of its own in memory, so no test reads or overwrites the real one.
 """
 
 from __future__ import annotations
@@ -25,3 +26,6 @@ def make_desktop_inert() -> None:
         os.startfile = inert
     if hasattr(ctypes, "windll"):
         ctypes.windll.user32.keybd_event = inert
+    from laptop_agent.tools import clipboard
+
+    clipboard.system_clipboard = clipboard.MemoryClipboard

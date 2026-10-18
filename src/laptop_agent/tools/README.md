@@ -74,6 +74,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `files.py` | Scan, read, search, summarize and ask questions of files; spreadsheet stats; the shared CSV reader and number parser. |
 | `file_processor.py` | `process file <path>`: detects the type and picks the right action. |
 | `document.py` | `document …`: the model writes Markdown, rendered to PDF, Word, PowerPoint or Markdown. |
+| `workspace.py` | `workspace …`: a folder and the files asked for in it; the model plans them as JSON, every path is checked, one approval card lists them. |
 | `resume_pdf.py` | Renders HTML (resumes, documents) to PDF with the browser extra's Chromium, offline. |
 | `textcard.py` | Renders exact text as an image, because a diffusion model cannot spell. |
 | `forecast.py` | `forecast <column> in <file.csv>`: turns a CSV column into a clean series for `analytics/forecast.py`. |
@@ -85,11 +86,13 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 |---|---|
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
+| `mcp.py` | `mcp`, `mcp <server> <tool> <json>`: tools from MCP servers in `<data dir>/mcp.json`, over stdio JSON-RPC with no extra package; starting a server and each call ask. |
 | `research.py` | Searches, fetches pages, extracts readable text, writes a sourced report. |
 | `browser.py` | Playwright automation: inspect pages and forms, preview and fill forms (asks first). |
 | `watch.py` | `watch news …`, `watch health`: scheduled checks that raise a reminder when a topic has a new headline or the laptop needs attention. |
 | `news.py` | Real headlines from free feeds (BBC first, Google News for topics), with article text. |
 | `weather.py` | Open-Meteo current weather and 3-day forecast; no key. |
+| `clipboard.py` | `clipboard …`: what is copied, copying a reply, and asking the model about the copied text; Win32 through ctypes, pbpaste/xclip elsewhere. |
 | `translate.py` | Translation between 34 languages by NVIDIA's hosted Riva model (`riva` extra); names the source language from the request, the script, or the fast model. |
 | `travel.py` | Driving distance and time (OSRM), multi-stop trips, maps, places nearby. |
 | `youtube.py` | Video transcript → summary, indexed for questions (`youtube` extra). |
@@ -101,6 +104,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `calculator.py` | Exact arithmetic with a hand-written parser (never `eval`); also spoken numbers. |
 | `units.py` | Unit conversions ("5 miles to km", "how many ounces in a pound"). |
 | `dates.py` | Days until a date or holiday, what day something falls on. |
+| `plugins.py` | `plugins`, `plugin <name> <request>`: the owner's own commands from `<data dir>/plugins`, loaded only with `LAPTOP_AGENT_PLUGINS=1`, each run at the risk it declares. |
 | `clock.py` | The time and date from this laptop's clock, in any time zone. |
 | `chance.py` | Coin flips, dice and random numbers, drawn with `secrets`. |
 
@@ -117,6 +121,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Mail, notes and pictures
 | File | What it does |
 |---|---|
+| `learn.py` | `learn from chat`: the lasting facts the user said in this chat, proposed by the model from the user's own words and saved after one approval card. |
 | `email.py` | IMAP search, unread and digest; SMTP and OAuth (Gmail, Outlook) drafts and sends, which ask first. |
 | `obsidian.py` | Your Obsidian vault: search, read, save notes, link-aware answers, an audit. |
 | `imagegen.py` | Text-to-image through NVIDIA's hosted FLUX models. |

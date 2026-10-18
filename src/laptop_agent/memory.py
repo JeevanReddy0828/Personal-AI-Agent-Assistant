@@ -106,6 +106,12 @@ class MemoryStore:
         self.save()
 
     @synchronized
+    def set_profile_values(self, values: dict[str, str]) -> None:
+        """Several facts in one write, so a failure stores none of them rather than some."""
+        self._data.setdefault("profile", {}).update(values)
+        self.save()
+
+    @synchronized
     def forget_profile_value(self, key: str) -> str | None:
         """Remove one remembered fact; returns the key removed, or None if there was none.
 

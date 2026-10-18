@@ -25,6 +25,11 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   same way. The briefing is still **developer-only**, as the status briefing it replaced was;
   letting a personal account have it (without mail or the laptop line) is Jeevan's call, not
   made yet. Its network sections run in parallel threads, each in a copy of the turn's context.
+- 2026-10-17: **Plugins are the owner's own code, opt-in and always asked.** `LAPTOP_AGENT_PLUGINS=1`
+  turns on `<data dir>/plugins/*.py` (COMMAND, DESCRIPTION, RISK, `run`); loading the folder asks
+  once (HIGH) because it runs the files, every run asks at HIGH or CRITICAL whatever RISK says, the
+  agent loop never calls one, and they are developer-only. Files load as the package
+  `jarvis_plugins`, so helpers are imported relatively (`from . import _helper`).
 - 2026-10-09: **Nothing an agent runs while working may reach Jeevan's desktop (his
   instruction: "make sure it never happens again").** Probe and review scripts by both agents
   imported the test harness outside `run_tests.py` and opened Despacito in his browser and
