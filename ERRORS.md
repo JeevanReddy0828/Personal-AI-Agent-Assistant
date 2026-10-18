@@ -565,6 +565,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   not a web domain. Same review: a missing destination folder is not a new file name, C:\\Users and
   the profile folders are protected, a delete no longer blocks undo, and a model-routed `undo file`
   stands only straight after a file change. (10-17)
+- **#287's protected-folder test passed here and failed on CI's Windows runners only** → the
+  target was `resolve()`d but home was not, and the runner's temp dir is an 8.3 name
+  (`RUNNER~1`) that `resolve()` expands, so the two never matched → `_protected` resolves home
+  too; a home spelled with `..` reproduces it on any machine (`test_fileops.py`). Same round:
+  "undo" moved back or recycled a different file put where the moved or copied one had been →
+  the journal records the object's identity (device, inode, and a file's modified time) and
+  undo refuses when what is there now is not it. (10-18)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a

@@ -63,11 +63,18 @@ def system_recycler() -> Recycler | None:
     return recycle_windows if sys.platform == "win32" else None
 
 
+def _identity(path: Path) -> list[int]:
+    """Which object is at `path`, so undo never acts on something else put there since. A file's
+    modified time is part of it: ext4 hands a deleted file's inode number to the next new file."""
+    stat = path.stat()
+    return [stat.st_dev, stat.st_ino] + ([] if path.is_dir() else [stat.st_mtime_ns])
+
+
 def _protected(path: Path, home: Path | None = None) -> bool:
     """Windows' own folders, a drive's root, the folder holding every user's profile, the home
     folder and its own standard folders (Desktop, Documents, ...) are never changed: "delete
     C:\\Users" or "delete Desktop" was one ordinary card away (review of #287)."""
-    home = home or Path.home()
+    home = (home or Path.home()).resolve()
     standard = {home / folder for folder in set(PLACES.values()) if folder}
     if path.parent == path or path in {home, home.parent} or path in standard:
         return True
@@ -162,7 +169,7 @@ class FileOps:
             (shutil.copytree if source.is_dir() else shutil.copy2)(source, target)
         else:
             shutil.move(str(source), str(target))
-        self._record({"op": "copy" if copy else "move", "src": str(source), "dst": str(target),
+        self._record({"op": "copy" if copy else "move", "src": str(source), "dst": str(target), "id": _identity(target),
                       "at": datetime.now().astimezone().isoformat()})
         return ToolResult.success(f"{'Copied' if copy else 'Moved'} {source.name} to {target}.", src=str(source), dst=str(target))
 
@@ -185,7 +192,7 @@ class FileOps:
         self._gate.require(ApprovalRequest(action=f"Rename {source} to {target.name}", risk=RiskLevel.HIGH,
                                            reason="\"undo that\" renames it back.", preview=f"{source.name} -> {target.name}"))
         source.rename(target)
-        self._record({"op": "move", "src": str(source), "dst": str(target), "at": datetime.now().astimezone().isoformat()})
+        self._record({"op": "move", "src": str(source), "dst": str(target), "id": _identity(target), "at": datetime.now().astimezone().isoformat()})
         return ToolResult.success(f"Renamed {source.name} to {target.name}.", src=str(source), dst=str(target))
 
     def delete(self, src: str) -> ToolResult:
@@ -228,6 +235,9 @@ class FileOps:
                                       f"at {src.parent}.")
         if not dst.exists():
             return ToolResult.failure(f"{dst} isn't there any more, so I can't undo that.")
+        if last.get("id") != _identity(dst):
+            return ToolResult.failure(f"{dst} isn't the one I {'copied' if last['op'] == 'copy' else 'moved'} any more "
+                                      "(it was replaced or changed since), so I left it.")
         if last["op"] == "move":
             if src.exists():
                 return ToolResult.failure(f"Something is already at {src}, so moving it back would overwrite it.")

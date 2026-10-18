@@ -227,6 +227,40 @@ class ReviewOf287Tests(FileOpsTests):
                 self.assertFalse(self.ops.delete(target).ok)
         self.assertEqual(self.recycled, [])
 
+    def test_a_home_spelled_differently_from_its_resolved_path_is_still_protected(self) -> None:
+        # CI's Windows temp dir is an 8.3 name (RUNNER~1) that resolve() expands; ".." stands in for it.
+        spelled = self.home / ".." / self.home.name
+        ops = FileOps(ApprovalGate(ask=lambda request: True), self.home.parent / "journal2.json",
+                      home=spelled, recycler=self.recycled.append)
+        for target in (str(self.home.parent), str(self.home / "Desktop")):
+            with self.subTest(target):
+                self.assertFalse(ops.delete(target).ok)
+        self.assertEqual(self.recycled, [])
+
+    def replace(self, path: Path) -> None:
+        stranger = self.home / "stranger.pdf"
+        stranger.write_text("someone else's", encoding="utf-8")
+        path.unlink()
+        stranger.rename(path)
+
+    def test_undo_leaves_a_file_put_where_the_moved_one_was(self) -> None:
+        self.assertTrue(self.ops.move("report.pdf", "my desktop").ok)
+        moved = self.home / "Desktop" / "report.pdf"
+        self.replace(moved)
+        result = self.ops.undo()
+        self.assertFalse(result.ok)
+        self.assertIn("isn't the one I moved", result.message)
+        self.assertEqual(moved.read_text(encoding="utf-8"), "someone else's")
+        self.assertFalse(self.report.exists())
+
+    def test_undo_leaves_a_file_put_where_the_copy_was(self) -> None:
+        self.assertTrue(self.ops.move("report.pdf", "my desktop", copy=True).ok)
+        copied = self.home / "Desktop" / "report.pdf"
+        self.replace(copied)
+        self.assertFalse(self.ops.undo().ok)
+        self.assertEqual(self.recycled, [])
+        self.assertTrue(copied.exists())
+
     def test_my_and_the_are_not_part_of_a_name(self) -> None:
         self.assertEqual(self.ops.find("my report.pdf")[0], self.report)
 
