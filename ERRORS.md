@@ -27,6 +27,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
   hit the other run's server and its different API token → bind port 0 and read
   `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
+- **The fixed-port guard passed a test server bound to `port = 8798`** → it scanned the source
+  for a literal port in `Server((host, N))`, so a variable hid it (Codex, on #290) → the runner
+  refuses any non-zero bind at runtime, and the guard plants a probe that binds a free port. (10-18)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
