@@ -84,6 +84,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 |---|---|
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
+| `mcp.py` | `mcp`, `mcp <server> <tool> <json>`: tools from MCP servers in `<data dir>/mcp.json`, over stdio JSON-RPC with no extra package; starting a server and each call ask. |
 | `research.py` | Searches, fetches pages, extracts readable text, writes a sourced report. |
 | `browser.py` | Playwright automation: inspect pages and forms, preview and fill forms (asks first). |
 | `watch.py` | `watch news …`, `watch health`: scheduled checks that raise a reminder when a topic has a new headline or the laptop needs attention. |

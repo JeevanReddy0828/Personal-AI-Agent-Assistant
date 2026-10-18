@@ -86,6 +86,7 @@ from laptop_agent.tools.jobright import JobrightTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
+from laptop_agent.tools.mcp import McpTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
@@ -553,6 +554,7 @@ class AgentOrchestrator:
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
+        self._mcp_cache: McpTool | None = None
         self._copilot_cache: JobCopilot | None = None
         self._resume_copilot_cache: JobCopilot | None = None
         self._repo_cache: dict[str, list[dict]] | None = None
@@ -1517,6 +1519,15 @@ class AgentOrchestrator:
 
     async def _dispatch_research(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for research and the advisor."""
+        if lowered == "mcp":
+            return self._mcp().listing()
+        if lowered.startswith("mcp "):
+            server, _, rest = command[len("mcp ") :].strip().partition(" ")
+            tool, _, arguments = rest.strip().partition(" ")
+            if not tool:
+                return ToolResult.failure("Say it like: mcp <server> <tool> {\"argument\": \"value\"}. \"mcp\" lists them.")
+            return self._mcp().call(server, tool, arguments)
+
         if lowered.startswith("save research report "):
             return self._save_research_report(command[len("save research report ") :].strip())
 
@@ -2642,7 +2653,9 @@ class AgentOrchestrator:
     ) -> ToolResult:
         check_cancelled()
         ensure_signed_in()
-        command = _clean_paths(_fold_apostrophes(text.strip()))
+        # An `mcp` call's arguments are JSON data, not a sentence: folded and path-cleaned, a value
+        # such as "C:/r.csv" lost its quotes and "it’s" changed (review of #293).
+        command = text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
         lowered = command.lower()
         history_turns = history or []
         if not command:
@@ -3234,6 +3247,7 @@ class AgentOrchestrator:
                 "  around <category>  ·  where am i  (IP location)  ·  map <place|A to B>",
                 "  summarize youtube <url>  (transcript -> summary, asks indexed too)",
                 "  research <topic>",
+                "  mcp | mcp <server> <tool> <json arguments>  (tools from MCP servers set up in <data dir>/mcp.json; each asks)",
                 "  research report <topic>",
                 "  save research report <topic> to <path|obsidian>",
                 "  solve <problem or decision>  (researches, weighs options, recommends a plan)",
@@ -4093,6 +4107,8 @@ class AgentOrchestrator:
         "summarize youtube <url>",
         "research <topic>",
         "research report <topic>",
+        "mcp",
+        "mcp <server> <tool> <json arguments>",
         "solve <problem or decision>",
         "open url <https url>",
         "download <url>",
@@ -4508,6 +4524,11 @@ class AgentOrchestrator:
         if self._travel_tool_cache is None:
             self._travel_tool_cache = TravelTool(approval_gate=self.context.web.approval_gate)
         return self._travel_tool_cache
+
+    def _mcp(self) -> McpTool:
+        if self._mcp_cache is None:
+            self._mcp_cache = McpTool(self.context.web.approval_gate, self.data_dir / "mcp.json")
+        return self._mcp_cache
 
     def _youtube_summary(self, url: str) -> ToolResult:
         cleaned = url.strip().strip("'\"")

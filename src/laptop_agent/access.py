@@ -100,7 +100,7 @@ _DEV_EXACT = frozenset({
     "jobs", "job list", "list jobs", "job tracker", "jobright", "jobright pull", "pull jobs",
     "pull jobright", "jobright sync", "notes", "vault", "notes status", "vault status", "obsidian",
     "obsidian status", "notes list", "list notes", "notes audit", "vault audit", "audit notes",
-    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status",
+    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status", "mcp",
     "knowledge reindex", "reindex knowledge", "knowledge backfill", "knowledge prune",
     "prune knowledge", "knowledge clear", "forget knowledge",
     # the owner's mailbox: there is one connection, and it is not the personal account's
@@ -130,6 +130,7 @@ _DEV_PREFIX = (
     "clipboard copy", "clipboard ask",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
+    "mcp",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
