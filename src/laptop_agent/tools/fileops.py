@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import stat as stat_module
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -64,20 +65,28 @@ def system_recycler() -> Recycler | None:
     return recycle_windows if sys.platform == "win32" else None
 
 
-def _identity(path: Path) -> list[int | str]:
+def _contents(path: str) -> str:
+    with open(path, "rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def _identity(path: Path, contents: bool = False) -> list[int | str]:
     """Which object is at `path`, so undo never acts on something else put there since. A file's
     modified time is part of it: ext4 hands a deleted file's inode number to the next new file. A
-    folder's is everything in it, so undoing a copy never recycles work added inside the copy."""
+    folder's is everything in it. Undoing a copy recycles it, so a copy's identity is its contents
+    too: an edit that keeps the size and the modified time is still an edit (Codex's review)."""
     stat = path.stat()
     if not path.is_dir():
-        return [stat.st_dev, stat.st_ino, stat.st_mtime_ns]
+        return [stat.st_dev, stat.st_ino, stat.st_mtime_ns] + ([_contents(str(path))] if contents else [])
     tree = hashlib.sha256()
     for root, folders, files in os.walk(path):
         folders.sort()
         for name in sorted(folders + files):
-            entry = os.lstat(os.path.join(root, name))
-            relative = os.path.relpath(os.path.join(root, name), path)
-            tree.update(f"{relative}|{entry.st_size}|{entry.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+            full = os.path.join(root, name)
+            entry = os.lstat(full)
+            digest = _contents(full) if contents and stat_module.S_ISREG(entry.st_mode) else ""
+            relative = os.path.relpath(full, path)
+            tree.update(f"{relative}|{entry.st_size}|{entry.st_mtime_ns}|{digest}\n".encode("utf-8", "surrogateescape"))
     return [stat.st_dev, stat.st_ino, tree.hexdigest()]
 
 
@@ -180,7 +189,7 @@ class FileOps:
             (shutil.copytree if source.is_dir() else shutil.copy2)(source, target)
         else:
             shutil.move(str(source), str(target))
-        self._record({"op": "copy" if copy else "move", "src": str(source), "dst": str(target), "id": _identity(target),
+        self._record({"op": "copy" if copy else "move", "src": str(source), "dst": str(target), "id": _identity(target, contents=copy),
                       "at": datetime.now().astimezone().isoformat()})
         return ToolResult.success(f"{'Copied' if copy else 'Moved'} {source.name} to {target}.", src=str(source), dst=str(target))
 
@@ -246,7 +255,7 @@ class FileOps:
                                       f"at {src.parent}.")
         if not dst.exists():
             return ToolResult.failure(f"{dst} isn't there any more, so I can't undo that.")
-        if last.get("id") != _identity(dst):
+        if last.get("id") != _identity(dst, contents=last["op"] == "copy"):
             return ToolResult.failure(f"{dst} isn't the one I {'copied' if last['op'] == 'copy' else 'moved'} any more "
                                       "(it was replaced or changed since), so I left it.")
         if last["op"] == "move":

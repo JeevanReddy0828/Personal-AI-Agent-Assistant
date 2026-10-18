@@ -6,6 +6,7 @@ Every test works in a temporary home folder with a recording Recycle Bin; nothin
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -271,6 +272,25 @@ class ReviewOf287Tests(FileOpsTests):
     def test_undo_leaves_a_copied_folder_with_new_work_in_it(self) -> None:
         copy = self.copied_drafts()
         (copy / "new-work.txt").write_text("mine", encoding="utf-8")
+        self.assertFalse(self.ops.undo().ok)
+        self.assertEqual(self.recycled, [])
+
+    @staticmethod
+    def edit_keeping_size_and_time(path: Path, text: str) -> None:
+        before = path.stat()
+        path.write_text(text, encoding="utf-8")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    def test_undo_leaves_a_copied_folder_whose_file_was_edited_in_place(self) -> None:
+        copy = self.copied_drafts()
+        self.edit_keeping_size_and_time(copy / "outline.txt", "revised")   # same length as "outline"
+        self.assertFalse(self.ops.undo().ok)
+        self.assertEqual(self.recycled, [])
+
+    def test_undo_leaves_a_copied_file_edited_in_place(self) -> None:
+        self.assertTrue(self.ops.move("report.pdf", "my desktop", copy=True).ok)
+        copy = self.home / "Desktop" / "report.pdf"
+        self.edit_keeping_size_and_time(copy, "PDF")
         self.assertFalse(self.ops.undo().ok)
         self.assertEqual(self.recycled, [])
 
