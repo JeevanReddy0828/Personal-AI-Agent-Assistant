@@ -74,6 +74,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `files.py` | Scan, read, search, summarize and ask questions of files; spreadsheet stats; the shared CSV reader and number parser. |
 | `file_processor.py` | `process file <path>`: detects the type and picks the right action. |
 | `document.py` | `document …`: the model writes Markdown, rendered to PDF, Word, PowerPoint or Markdown. |
+| `workspace.py` | `workspace …`: a folder and the files asked for in it; the model plans them as JSON, every path is checked, one approval card lists them. |
 | `resume_pdf.py` | Renders HTML (resumes, documents) to PDF with the browser extra's Chromium, offline. |
 | `textcard.py` | Renders exact text as an image, because a diffusion model cannot spell. |
 | `forecast.py` | `forecast <column> in <file.csv>`: turns a CSV column into a clean series for `analytics/forecast.py`. |

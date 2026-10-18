@@ -103,6 +103,32 @@ _DECK_ASK = re.compile(
 )
 
 
+# The whole sentence, never a prefix: "make my downloads folder less cluttered", "create a folder
+# structure for a react app", "start a project with my manager" and "set up a directory of plumbers"
+# are not asks for a new folder (review of #282). A named document format goes to the document tool,
+# and a workspace in an app (Slack, Notion...) is not a folder on this laptop.
+_WORKSPACE_ASK = re.compile(
+    r"^\s*(?!.*\bas\s+an?\s+(?:pdf|word|docx?|pptx?|power\s*point|markdown|md|document|spreadsheet|excel)\b)"
+    r"(?!.*\b(?:slack|notion|teams|discord|asana|trello|jira|clickup|monday|figma|miro|zoom|confluence|airtable"
+    r"|linear|github|gitlab|vs\s*code|vscode|google)\s+(?:workspace|project)\b)"
+    r"(?:(?:can|could|would)\s+you\s+|please\s+|i\s+(?:want|need)\s+(?:you\s+to\s+)?)*"
+    r"(?:create|make|set\s+up|build|generate|start)\s+(?:me\s+)?(?:an?\s+|my\s+|the\s+)?"
+    r"(?:(?:new|empty|blank|fresh)\s+)?(?:[\w-]+\s+){0,3}?"
+    r"(?:folder|directory|workspace(?:\s+(?:folder|directory))?|project\s+(?:folder|directory))"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s+(?:on|in|at|under|inside)\s+(?:\"[^\"]+\"|(?:my\s+|the\s+)?[^\s,]+(?:\s+folder)?))?"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s*,?\s+(?:with|and\s+(?:fill|put|add|write|create)|fill(?:ed)?\s+(?:it|with)|containing|full\s+of"
+    r"|for\s+(?:learning|practising|practicing|studying))\b.*)?"
+    r"\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_WORKSPACE_IN_CODE = re.compile(
+    r"\b(?:in|using|via|with)\s+(?:python|powershell|bash|javascript|js|node(?:js)?|java|c\+\+|c#|git|cmd|linux|"
+    r"the\s+terminal|code)\b(?!\s+(?:basics|tutorials?|examples?|exercises?|notes|files?|scripts?|lessons?))",
+    re.IGNORECASE,
+)
+
 _DOC_HEAD = re.compile(
     r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
     r"(?:me\s+)?(?:an?\s+)?(?P<length>(?:(?:\d{1,2}|one|two|three|four|five|single)[\s-]+pages?|one[\s-]pager)\s+)?"
@@ -1290,6 +1316,10 @@ class HeuristicPlannerProvider:
         if arranged:
             return arranged
 
+        folder = self._workspace(raw)
+        if folder:
+            return folder
+
         written = self._document(raw)
         if written:
             return written
@@ -1944,6 +1974,13 @@ class HeuristicPlannerProvider:
         if not asks_to_arrange(text):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
+
+    def _workspace(self, text: str) -> PlanDecision | None:
+        """'create a workspace folder and fill files with python basics' -> a folder with files.
+        A question about how to make a folder in code is left to the chat."""
+        if not _WORKSPACE_ASK.match(text or "") or _WORKSPACE_IN_CODE.search(text):
+            return None
+        return self._command(f"workspace {text.strip()}", "User wants a folder created, with files in it.", 0.88)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what
