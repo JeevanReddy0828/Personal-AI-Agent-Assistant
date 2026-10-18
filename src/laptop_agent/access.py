@@ -94,6 +94,8 @@ _DEV_EXACT = frozenset({
     "show schedule", "schedule run due", "run due schedules", "schedule tick", "agent runs",
     "agent history", "autonomous runs", "agent last", "agent status", "last agent run", "agents",
     "agent control", "control room", "agent dashboard", "tasks", "task dashboard", "show tasks",
+    # the owner's own code
+    "plugins",
     "workflow status", "workflows", "workflow dashboard", "workflow retry failed",
     "retry failed workflow", "multi retry failed", "retry failed tasks", "retry failed subtasks",
     # the owner's job search, notes and indexed documents
@@ -117,6 +119,8 @@ _DEV_EXACT = frozenset({
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
     "timecard", "autopilot", "schedule", "agent", "workflow", "multi", "plan apply job",
+    # the owner's own code
+    "plugin",
     "watch news", "watch check news", "unwatch",
     # the owner's job search, notes and indexed documents
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",

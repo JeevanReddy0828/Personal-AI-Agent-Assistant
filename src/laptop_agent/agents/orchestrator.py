@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
@@ -71,6 +72,7 @@ from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
+from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, convert_again, looks_like_conversion
 from laptop_agent.tools.chance import draw, is_chance_request
@@ -557,6 +559,8 @@ class AgentOrchestrator:
         self._learn_cache: LearnTool | None = None
         self._clock_cache: ClockTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
+        self._plugins_cache: PluginTool | None = None
+        self._plugins_lock = threading.Lock()
         self._youtube_tool_cache: YouTubeTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
@@ -1168,6 +1172,12 @@ class AgentOrchestrator:
 
     async def _dispatch_automation(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for autopilot, reminders, schedules and the agent loop."""
+        if lowered == "plugins":
+            return self._plugins().listing()
+        if lowered.startswith("plugin "):
+            parts = command[len("plugin ") :].strip().split(None, 1)   # a newline or tab ends the name too
+            return self._plugins().run(parts[0] if parts else "", parts[1].strip() if len(parts) > 1 else "")
+
         if lowered in {"autopilot status", "autonomous status"}:
             return self._autopilot_status()
 
@@ -2364,7 +2374,7 @@ class AgentOrchestrator:
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
         "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
-        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "clipboard",
+        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "clipboard", "plugin",
         "translate", "workspace",
     })
 
@@ -2384,6 +2394,10 @@ class AgentOrchestrator:
             return asks_to_be_told(command)
         if verb == "translate":
             return parse_translation(rest) is None
+        if verb == "plugin":
+            # "plugin installation failed, how do i fix it" is a question: only a sentence naming a
+            # loaded plugin is a plugin command (review of #292).
+            return first not in self._plugins().names()
         if verb == "clipboard":
             # "clipboard copy paste not working" is a complaint, not text to put on the clipboard.
             words = rest.split()
@@ -3255,6 +3269,7 @@ class AgentOrchestrator:
                 "  time | date | time in <place>  (this machine's clock, never the web)",
                 "  calculate <expression>  (exact arithmetic: big integers, fractions, functions)",
                 "  failures  (what has been caught and swallowed this session)",
+                "  plugins | plugin <name> <request>  (your own commands from <data dir>/plugins, when LAPTOP_AGENT_PLUGINS=1)",
                 "  latency  (where recent turns spent their time)",
                 "  weather <location>  (real current + 3-day forecast)",
                 "  translate <text> to <language> [from <language>]  (NVIDIA's hosted translation model)",
@@ -4943,6 +4958,12 @@ class AgentOrchestrator:
             return question
         rewritten, _turn = resolve_reference(question, normalize_history(history))
         return rewritten or question
+
+    def _plugins(self) -> PluginTool:
+        with self._plugins_lock:
+            if self._plugins_cache is None:
+                self._plugins_cache = PluginTool(self.context.web.approval_gate, self.data_dir / "plugins")
+            return self._plugins_cache
 
     def _knowledge_answer(self, question: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = question.strip().strip("'\"?")
