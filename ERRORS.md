@@ -571,7 +571,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   too; a home spelled with `..` reproduces it on any machine (`test_fileops.py`). Same round:
   "undo" moved back or recycled a different file put where the moved or copied one had been →
   the journal records the object's identity (device, inode, and a file's modified time) and
-  undo refuses when what is there now is not it. (10-18)
+  undo refuses when what is there now is not it. A folder's identity is its whole tree (each
+  entry's path, size and modified time): undoing a copy recycled work added inside the copied
+  folder (Codex's re-review). (10-18)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a

@@ -9,6 +9,7 @@ Recycle Bin, where the user restores it; it is not erased.
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import os
 import re
@@ -63,11 +64,21 @@ def system_recycler() -> Recycler | None:
     return recycle_windows if sys.platform == "win32" else None
 
 
-def _identity(path: Path) -> list[int]:
+def _identity(path: Path) -> list[int | str]:
     """Which object is at `path`, so undo never acts on something else put there since. A file's
-    modified time is part of it: ext4 hands a deleted file's inode number to the next new file."""
+    modified time is part of it: ext4 hands a deleted file's inode number to the next new file. A
+    folder's is everything in it, so undoing a copy never recycles work added inside the copy."""
     stat = path.stat()
-    return [stat.st_dev, stat.st_ino] + ([] if path.is_dir() else [stat.st_mtime_ns])
+    if not path.is_dir():
+        return [stat.st_dev, stat.st_ino, stat.st_mtime_ns]
+    tree = hashlib.sha256()
+    for root, folders, files in os.walk(path):
+        folders.sort()
+        for name in sorted(folders + files):
+            entry = os.lstat(os.path.join(root, name))
+            relative = os.path.relpath(os.path.join(root, name), path)
+            tree.update(f"{relative}|{entry.st_size}|{entry.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+    return [stat.st_dev, stat.st_ino, tree.hexdigest()]
 
 
 def _protected(path: Path, home: Path | None = None) -> bool:

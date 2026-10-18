@@ -261,6 +261,24 @@ class ReviewOf287Tests(FileOpsTests):
         self.assertEqual(self.recycled, [])
         self.assertTrue(copied.exists())
 
+    def copied_drafts(self) -> Path:
+        drafts = self.home / "Downloads" / "drafts"
+        drafts.mkdir()
+        (drafts / "outline.txt").write_text("outline", encoding="utf-8")
+        self.assertTrue(self.ops.move("drafts", "my desktop", copy=True).ok)
+        return self.home / "Desktop" / "drafts"
+
+    def test_undo_leaves_a_copied_folder_with_new_work_in_it(self) -> None:
+        copy = self.copied_drafts()
+        (copy / "new-work.txt").write_text("mine", encoding="utf-8")
+        self.assertFalse(self.ops.undo().ok)
+        self.assertEqual(self.recycled, [])
+
+    def test_an_unchanged_copied_folder_is_still_undone(self) -> None:
+        copy = self.copied_drafts()
+        self.assertTrue(self.ops.undo().ok)
+        self.assertEqual(self.recycled, [copy])
+
     def test_my_and_the_are_not_part_of_a_name(self) -> None:
         self.assertEqual(self.ops.find("my report.pdf")[0], self.report)
 
