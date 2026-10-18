@@ -27,6 +27,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
   hit the other run's server and its different API token → bind port 0 and read
   `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
+- **The fixed-port guard passed a test server bound to `port = 8798`** → it scanned the source
+  for a literal port in `Server((host, N))`, so a variable hid it (Codex, on #290) → the runner
+  refuses any non-zero bind at runtime, and the guard plants a probe that binds a free port. (10-18)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
@@ -398,6 +401,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
+- **"summarize what I copied" and "copy that" had nowhere to go** → no tool could read or write the
+  clipboard, so the model answered from nothing → `clipboard`, `clipboard copy <text|that>`,
+  `clipboard ask <request>` (`tools/clipboard.py`, no extra package), developer-only, and
+  "translate what I copied" refuses a personal account although translation is everyday; the
+  harness swaps in a clipboard of its own, so no test touches the real one (`test_clipboard.py`). A copy
+  opens the clipboard with a hidden owner window: opened with none, EmptyClipboard cleared it and
+  SetClipboardData then failed (Codex's review, from Microsoft's docs). (10-14)
 - **"find the readme in this folder" answered "Path does not exist: …\readme ."** →
   `search files <query> <root>` split at the first space, so any query of two words broke →
   the root is the longest tail that exists, else the first path-shaped one
@@ -512,6 +522,23 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
+  clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
+  the gate, and the routes matched pronouns and verbs about the clipboard itself → not in
+  `_AGENT_COMMANDS`; reads LOW and writes MEDIUM through the gate (audited); a personal account is
+  refused inside `ClipboardTool`; a pronoun copies only with "to my clipboard"; "explain/fix/check"
+  need "what I copied"; a reference ("the summary") copies our reply, never its own words. (10-17)
+- **An MCP server received the NVIDIA key and the mail password** (review of #293) → servers were
+  started with `{**os.environ, **env}`, and `.env` is loaded into os.environ → a server inherits
+  only `tools/mcp._INHERITED` plus its own mcp.json `env`. In the same review: a server's
+  `readOnlyHint` no longer lowers a call to MEDIUM (no card in the web app), a half-started server is
+  ended, a dead one restarts, the deadline covers the whole wait, and `mcp` arguments skip the
+  sentence clean-up that unquoted their paths. (10-17)
+- **Blender, a database or any program speaking MCP could not be reached** → no MCP client →
+  `tools/mcp.py`: servers from `<data dir>/mcp.json` (`mcpServers` or `servers`), started on first
+  use after a HIGH card, newline-delimited JSON-RPC over stdio; a call asks MEDIUM when the tool
+  says it only reads, CRITICAL when it says it destroys, HIGH otherwise; stray stdout lines and
+  notifications are skipped, every page of tools/list is read (`test_mcp.py`). Developer-only. (10-14)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →

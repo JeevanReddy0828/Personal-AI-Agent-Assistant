@@ -83,6 +83,7 @@ def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:
 # both lists to the dispatchers: every entry is a form they match, and every form they
 # match is in exactly one of the two.
 _DEV_EXACT = frozenset({
+    "clipboard",
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
@@ -99,7 +100,7 @@ _DEV_EXACT = frozenset({
     "jobs", "job list", "list jobs", "job tracker", "jobright", "jobright pull", "pull jobs",
     "pull jobright", "jobright sync", "notes", "vault", "notes status", "vault status", "obsidian",
     "obsidian status", "notes list", "list notes", "notes audit", "vault audit", "audit notes",
-    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status",
+    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status", "mcp",
     "knowledge reindex", "reindex knowledge", "knowledge backfill", "knowledge prune",
     "prune knowledge", "knowledge clear", "forget knowledge",
     # the owner's mailbox: there is one connection, and it is not the personal account's
@@ -126,8 +127,10 @@ _DEV_PREFIX = (
     "email", "send email",
     # the laptop itself: files, the screen, the camera, the browser, apps, the shell, sound
     "scan files", "read file", "ask file", "summarize file", "extract text", "index file", "file info",
+    "clipboard copy", "clipboard ask",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
+    "mcp",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",

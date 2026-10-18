@@ -205,6 +205,46 @@ _REMINDER_DAY_TAIL = re.compile(
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# The clipboard, said as a whole sentence. "copy" alone is not enough: "copy the file to D:" is a
+# file move, and "how do I copy and paste" a question.
+_COPIED = r"(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied|(?:my|the)\s+clipboard|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied)"
+_CLIPBOARD_SHOW = re.compile(
+    _POLITE + r"(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+(?:my|the)\s+clipboard|what\s+did\s+i\s+(?:just\s+)?copy"
+    r"|(?:show|read|tell)(?:\s+me)?\s+(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+)?(?:my|the)\s+clipboard"
+    r"|(?:show|read|tell)(?:\s+me)?\s+what\s+i(?:'ve)?\s+(?:just\s+)?copied)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+# "Copy that!" on its own is an acknowledgement ("understood"), so a pronoun needs the clipboard
+# named; a reply named as one ("copy your last answer") does not.
+_CLIPBOARD_COPY_REPLY = re.compile(
+    _POLITE + r"copy\s+(?:(?:that|this|it|(?:your|the|that)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))"
+    r"\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard"
+    r"|(?:your|the)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CLIPBOARD_COPY_TEXT = re.compile(
+    _POLITE + r"copy\s+(?P<text>.+?)\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# What follows "copy" when it names something rather than giving the words: "the summary" means our
+# last reply, "that file" is a file - neither is the literal text "the summary" (review of #284).
+_CLIPBOARD_REFERENCE = re.compile(r"(?:the|that|this|those|these|it|my|your|our|all)\b.*", re.IGNORECASE)
+_CLIPBOARD_OUR_REPLY = re.compile(
+    r"(?:(?:the|that|this|your)\s+(?:last\s+|previous\s+)?(?:summary|answer|reply|response|code|text|result|list"
+    r"|translation|draft|email)|it\s+all|all\s+of\s+(?:it|that))", re.IGNORECASE)
+# Asking about the copied text, as the whole sentence. Doing something to text - summarize, rewrite -
+# may name "my clipboard"; explaining or checking only "what I copied", since "explain the clipboard
+# api", "check the clipboard history" and "fix my clipboard" are about the clipboard itself.
+_CLIPBOARD_TEXT_VERB = (r"(?:summari[sz]e|proofread|rewrite|reword|shorten|simplify|tl;?dr"
+                        r"|give\s+me\s+(?:a\s+)?(?:summary|tl;?dr)\s+of)")
+_CLIPBOARD_ASK = re.compile(
+    _POLITE + r"(?:" + _CLIPBOARD_TEXT_VERB + r"\s+(?:" + _COPIED + r"|(?:my|the)\s+clipboard(?:'s)?(?:\s+(?:text|contents))?)"
+    r"|(?:explain|fix|correct|check|analy[sz]e|review)\s+(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied"
+    r"|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied))"
+    r"(?:\s+(?:in|into|to|for|as|so|with)\s+[^?.!]{1,60})?\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking to see the alarms, as a whole sentence. "what alarms do i have" reached the chat model,
 # which cannot see them: only "when is my alarm" (the next one) was routed. "what"/"which" need
 # "my"/"the" or a "do i have" after them, because "what are alarms?" asks what one is (Codex's
@@ -1288,6 +1328,10 @@ class HeuristicPlannerProvider:
         if picture:
             return picture
 
+        copied = self._clipboard(raw)
+        if copied:
+            return copied
+
         weather = self._weather(raw)
         if weather:
             return weather
@@ -2023,6 +2067,25 @@ class HeuristicPlannerProvider:
         if is_diagram_subject(subject):
             return None
         return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
+
+    def _clipboard(self, text: str) -> PlanDecision | None:
+        """'what did I copy', 'copy that', 'summarize what I copied' -> the clipboard."""
+        if _CLIPBOARD_SHOW.match(text or ""):
+            return self._command("clipboard", "User wants to see the clipboard.", 0.9)
+        if _CLIPBOARD_COPY_REPLY.match(text or ""):
+            return self._command("clipboard copy that", "User wants the last reply copied.", 0.9)
+        copied = _CLIPBOARD_COPY_TEXT.match(text or "")
+        if copied:
+            words = copied.group("text").strip().strip("\"'“”‘’")
+            quoted = copied.group("text").strip()[:1] in "\"'“‘"
+            if not quoted and _CLIPBOARD_OUR_REPLY.fullmatch(words):
+                return self._command("clipboard copy that", "User wants the last reply copied.", 0.88)
+            if not quoted and _CLIPBOARD_REFERENCE.fullmatch(words):
+                return None   # "copy that file to clipboard": a thing named, not words given
+            return self._command(f"clipboard copy {words}", "User wants text copied.", 0.88)
+        if _CLIPBOARD_ASK.match(text or ""):
+            return self._command(f"clipboard ask {text.strip()}", "User asks about the copied text.", 0.88)
+        return None
 
     def _weather(self, text: str) -> PlanDecision | None:
         """Real forecast (Open-Meteo) instead of opening a web search for weather.
