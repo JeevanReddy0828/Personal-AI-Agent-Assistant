@@ -361,6 +361,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (Codex, #251), and a bare "tokyo friday" is left to the geocoder's own fallback. The
   future-tense route shares the pattern and adds "on/over the weekend". (10-08)
 
+- **"send a WhatsApp to mom saying I'm late" had no tool, and "flights from Austin to Tokyo" found
+  pages about fares but no fares** → nothing could prepare a message (the router once made "text
+  john" an email) and there is no free fare API → `message whatsapp|telegram [to <who>] :: <text>`
+  opens the app's share link after a HIGH card showing the text, and the user presses send
+  (`tools/messaging.py`); a flights search leads with a Google Flights link for the same words
+  (`test_messaging.py`). Developer-only. (10-14)
+
 ### Models and providers
 - **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list
   discovery made a separate 15-second blocking HTTP call between two bounded gRPC waits →

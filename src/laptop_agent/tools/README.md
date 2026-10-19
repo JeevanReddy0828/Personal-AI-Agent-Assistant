@@ -113,6 +113,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `desktop.py` | Screenshots and opening apps. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
+| `messaging.py` | `message whatsapp|telegram …`: the message opened in the app's share link after a card; the user presses send. |
 | `music.py` | Media keys, volume levels and YouTube music; refuses to treat "my voicemail" as a song. |
 | `webcam.py` | One camera frame for the vision model (`vision` extra). |
 | `transcribe.py` | OCR (NVIDIA parse, Tesseract) and speech-to-text (Riva, Vosk, Whisper). |

@@ -14,6 +14,7 @@ import secrets
 import tempfile
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -108,6 +109,7 @@ from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.tools.youtube import YouTubeTool
+from laptop_agent.tools.messaging import MessagingTool
 from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
 
@@ -562,6 +564,7 @@ class AgentOrchestrator:
         self._plugins_cache: PluginTool | None = None
         self._plugins_lock = threading.Lock()
         self._youtube_tool_cache: YouTubeTool | None = None
+        self._messaging_cache: MessagingTool | None = None
         self._travel_tool_cache: TravelTool | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._mcp_cache: McpTool | None = None
@@ -1763,6 +1766,18 @@ class AgentOrchestrator:
             return self._travel_tool().nearby(rest[: match.start()].strip(), rest[match.end() :].strip())
         return None
 
+    @staticmethod
+    def _with_flights_link(query: str, result: ToolResult) -> ToolResult:
+        """"flights from Austin to Tokyo" is routed to a web search, which finds pages about fares
+        but no fares: a Google Flights search for the same words goes at the top. No fare is ever
+        stated by us; there is no free fare API to read one from."""
+        if not re.match(r"flights?\s+(?:from\s+\S.*?\s+)?to\s+\S", query, re.IGNORECASE):
+            return result
+        link = "https://www.google.com/travel/flights?q=" + urllib.parse.quote(query)
+        result.message = f"[Search live fares on Google Flights]({link})\n\n" + (result.message or "")
+        result.data["flights_link"] = link
+        return result
+
     async def _dispatch_web(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for YouTube, search, URLs, downloads and the browser."""
         if lowered.startswith("summarize youtube "):
@@ -1772,10 +1787,17 @@ class AgentOrchestrator:
             return self._youtube_summary(command[len("youtube summary ") :].strip())
 
         if lowered.startswith("web search "):
-            return self.context.websearch.search(command[len("web search ") :].strip())
+            query = command[len("web search ") :].strip()
+            return self._with_flights_link(query, self.context.websearch.search(query))
 
         if lowered.startswith("search web "):
             return self.context.websearch.search(command[len("search web ") :].strip())
+
+        if lowered.startswith("message "):
+            parsed = re.match(r"message (whatsapp|telegram)(?: to (.+?))? :: (.+)$", command, re.IGNORECASE | re.DOTALL)
+            if not parsed:
+                return ToolResult.failure("Say it like: message whatsapp to mom :: I'm running late.")
+            return self._messaging().prepare(parsed.group(1), parsed.group(2) or "", parsed.group(3))
 
         if lowered.startswith("open url "):
             return self.context.web.open_url(command[len("open url ") :].strip())
@@ -3284,6 +3306,7 @@ class AgentOrchestrator:
                 "  save research report <topic> to <path|obsidian>",
                 "  solve <problem or decision>  (researches, weighs options, recommends a plan)",
                 "  open url <url>",
+                "  message whatsapp|telegram [to <name or number>] :: <text>  (opened ready to send; you press send)",
                 "  download <url>",
                 "  inspect page <url>",
                 "  inspect forms <url>",
@@ -4145,6 +4168,7 @@ class AgentOrchestrator:
         "mcp <server> <tool> <json arguments>",
         "solve <problem or decision>",
         "open url <https url>",
+        "message whatsapp|telegram [to <who>] :: <text>",
         "download <url>",
         "inspect page <url>",
         # vision / desktop
@@ -4360,6 +4384,11 @@ class AgentOrchestrator:
         if self._file_processor_cache is None:
             self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
         return self._file_processor_cache
+
+    def _messaging(self) -> MessagingTool:
+        if self._messaging_cache is None:
+            self._messaging_cache = MessagingTool(self.context.web.approval_gate)
+        return self._messaging_cache
 
     def _generate_image(self, request: str) -> ToolResult:
         """`image <description>` — the trailing shape word picks the aspect ratio."""
