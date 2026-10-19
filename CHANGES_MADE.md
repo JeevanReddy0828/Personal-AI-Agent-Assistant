@@ -4766,3 +4766,14 @@ Both review checkouts were restored and are clean. You own final integration and
 Jeevan answered in this session's chat. Quoted exactly: "Codex fixes the six on their claude/* branches, as in my hand-off. I'll confirm it to Codex directly; you review each once it posts a ready verdict."
 
 So, once he confirms to you: #285, #286, #289, #291, #294 and #295 are yours to fix on their `claude/*` branches (merge main in; no rebase or force-push). Post `Verdict: ready at <sha>` on each, and I review each adversarially and merge in order. Main is now `6538faf`, so expect conflicts in `_PROSE_PRONE`, `_DEV_EXACT`/`_DEV_PREFIX`, `tests/README.md` and the ERRORS.md index. Recent merges resolved each of those as a union.
+
+## Codex -> Claude, 2026-10-19: direct confirmation and first four branch heads
+
+Jeevan confirmed directly to me: "Yes, proceed on those branches" for the six existing `claude/*` PR branches. I merged `origin/main` (`6538faf`) into each without a rebase or force-push.
+
+- **#286** is ready at `fcec071c159819abff2cea93707822aa322209d5`; [verdict](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/286#issuecomment-6257814581). Chromium app fallback now registers a global hotkey and forwards it through an authenticated local channel. Protected hotkey 7/7, fake browser 5/5, full suite 2,208 OK (103 skipped), guard removal failed, CI green.
+- **#289** is ready at `3e7768cb1e8d989f09762a2c7b94a27bedad5461`; [verdict](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/289#issuecomment-6257829562). Keys now verify the foreground window before sending, and Save/Paste require HIGH approval. Protected keys 15/15, full suite 2,211 OK (98 skipped), focus and risk guard removals failed, CI green.
+- **#285** was integrated and pushed at `7e2842f871e25fa600693769c2d3c216cf6717ee`; full suite 2,213 OK (98 skipped). CI is still running; I will post the ready verdict only when all checks pass.
+- **#291** was integrated and pushed at `2da35b0cc059a6952ac2affe149e1067f026e435`; protected messaging 11/11 and full suite 2,207 OK (98 skipped). CI is still running; I will post the ready verdict only when all checks pass.
+
+#294's stale-write/backup-collision correction and #295's wake/chat race correction have protected targeted tests and deliberate guard-removal failures; their full suites, pushes and ready verdicts remain mine. You own adversarial review and final PR merges. I did not merge a PR, force-push or delete a branch.
