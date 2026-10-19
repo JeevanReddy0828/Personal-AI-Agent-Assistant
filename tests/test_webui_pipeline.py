@@ -21,10 +21,10 @@ class PipelineApiTests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.tracker = JobTracker(Path(cls._tmp.name) / "jobs.json")
         object.__setattr__(webui._orchestrator.context, "jobs", cls.tracker)
-        cls.server = ThreadingHTTPServer((webui.HOST, 8800), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8800"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:
