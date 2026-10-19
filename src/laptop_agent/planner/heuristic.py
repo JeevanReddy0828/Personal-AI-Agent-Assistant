@@ -460,12 +460,12 @@ _KEY_PHRASES = {
 }
 _KEY_ASK = [(action, re.compile(_POLITE + r"(?:" + phrase + r")(?:\s+in\s+(?P<app>[\w .-]{2,30}?))?\s*[.!]*\s*$",
                                 re.IGNORECASE)) for action, phrase in _KEY_PHRASES.items()]
-# Typing needs the text marked off - quoted, or "type out" - or an app named: "type 2 diabetes
-# symptoms" said to an assistant is a search, not text for whatever window is behind it.
+# Typing needs the text marked off by quotes or an app named: "type 2 diabetes symptoms"
+# and "type out a poem" are requests to the assistant, not text for another window.
 _TYPE_ASK = re.compile(
-    _POLITE + r"type\s+(?:out\s+)?(?:\"(?P<quoted>[^\"]{1,500})\"|'(?P<single>[^']{1,500})'"
-    r"|(?P<plain>.{1,500}?)\s+in(?:to)?\s+(?P<app>[\w .-]{2,30}?))\s*[.!]*\s*$"
-    r"|" + _POLITE + r"type\s+out\s+(?P<out>.{1,500}?)\s*[.!]*\s*$",
+    _POLITE + r"type\s+(?:out\s+)?(?:(?:\"(?P<quoted>[^\"]{1,500})\"|'(?P<single>[^']{1,500})')"
+    r"(?:\s+in(?:to)?\s+(?P<quoted_app>[\w .-]{2,30}?))?"
+    r"|(?P<plain>.{1,500}?)\s+in(?:to)?\s+(?P<plain_app>[\w .-]{2,30}?))\s*[.!]*\s*$",
     re.IGNORECASE,
 )
 
@@ -2542,9 +2542,8 @@ class HeuristicPlannerProvider:
                 return self._command(f"keys {action}{app}", "User wants a key pressed in an app.", 0.86)
         typed = _TYPE_ASK.match(text)
         if typed:
-            words = next(group for group in (typed.group("quoted"), typed.group("single"), typed.group("plain"),
-                                             typed.group("out")) if group)
-            app = (typed.group("app") or "").strip()
+            words = next(group for group in (typed.group("quoted"), typed.group("single"), typed.group("plain")) if group)
+            app = (typed.group("quoted_app") or typed.group("plain_app") or "").strip()
             return self._command(f"keys type {app} :: {words.strip()}".replace("type  ::", "type ::"),
                                  "User wants text typed into an app.", 0.86)
         return None

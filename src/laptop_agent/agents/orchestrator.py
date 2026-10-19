@@ -4137,8 +4137,6 @@ class AgentOrchestrator:
         "knowledge prune",
         "window <name> <left|right|top|bottom|full|corner>",
         "windows",
-        "keys <action> [in <app>]",
-        "keys type [<app>] :: <text>",
         # web & research
         "web search <query>",
         "news [topic]",

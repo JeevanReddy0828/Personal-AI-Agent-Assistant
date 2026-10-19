@@ -660,6 +660,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   ran without a HIGH card** → `SetForegroundWindow` can lose focus during the 150 ms settle,
   while Ctrl+S writes and Ctrl+V inserts content → verify `GetForegroundWindow` after settling
   and require HIGH approval for both shortcuts (`test_keys.py`, fake Win32 backend). (10-18)
+- **`type "hello" in notepad` typed quote marks, while "type out a poem" became keystrokes;
+  agent mode could press keys in another app** (review of #289) → the typing route treated
+  quoted text with an app as unquoted text, treated bare "type out" as an instruction to type,
+  and exposed `keys` in the agent menu → parse quoted text and optional app together, require
+  an app for unquoted text, and omit keys from agent mode (`test_keys.py`). (10-19)
 - **Import error on Python 3.11 only** → a backslash inside an f-string expression. (09-26)
 - **Committed to `main`; committed `docs/review/*.png`** → check the branch before the first
   commit; discard noisy paths before `git add`. (09-11, 09-22)

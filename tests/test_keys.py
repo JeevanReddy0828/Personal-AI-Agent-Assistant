@@ -154,9 +154,16 @@ class KeysCommandTests(unittest.TestCase):
     def test_spoken_keys_and_typing_reach_the_named_app(self) -> None:
         self.assertTrue(self.say("new tab in chrome").ok)
         self.assertTrue(self.say("type hello there in notepad").ok)
+        self.assertTrue(self.say('type "hello" in notepad').ok)
         self.assertEqual(self.backend.pressed, [("ctrl", "t")])
-        self.assertEqual(self.backend.focused, [CHROME.title, NOTEPAD.title])
-        self.assertEqual(self.backend.typed, ["hello there"])
+        self.assertEqual(self.backend.focused, [CHROME.title, NOTEPAD.title, NOTEPAD.title])
+        self.assertEqual(self.backend.typed, ["hello there", "hello"])
+
+    def test_agent_mode_is_not_offered_keystrokes_for_other_apps(self) -> None:
+        reference = self.orch._agent_reference()
+        self.assertNotIn("- keys <action> [in <app>]\n", reference + "\n")
+        self.assertNotIn("- keys type [<app>] :: <text>\n", reference + "\n")
+        self.assertIn("- read file <path>\n", reference + "\n")
 
     def test_keys_are_developer_only(self) -> None:
         with acting_as(PERSONAL):
@@ -172,8 +179,10 @@ class KeysRoutingTests(unittest.TestCase):
         "refresh the page": "keys refresh", "scroll to the bottom": "keys bottom", "paste it": "keys paste",
         "scroll down in edge": "keys scroll down in edge", "minimize this window": "keys minimize",
         'type "hello world"': "keys type :: hello world", "type hello in notepad": "keys type notepad :: hello",
+        'type "hello" in notepad': "keys type notepad :: hello",
     }
-    STAY = ("type 2 diabetes symptoms", "go back to sleep", "I need to go back home", "save the planet",
+    STAY = ("type 2 diabetes symptoms", "type out a poem about cats", "type out the steps",
+            "go back to sleep", "I need to go back home", "save the planet",
             "scroll down the list of options for me", "what does select all do", "zoom in on the map of paris")
 
     def test_key_requests_are_routed(self) -> None:

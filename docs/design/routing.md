@@ -26,6 +26,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     article-prefixed places such as the UK and the beach still use the fast path.
   - **Prose guard**: a direct prefix whose words read as English ("schedule a meeting…",
     "time for a break", "forget the timer") goes to the router instead (`_reads_as_prose`).
+  - **Typing into another app** requires quoted text or an explicitly named app. "Type out a
+    poem" stays with the assistant; `type "hello" in notepad` sends hello without quote marks.
   - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
     timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
     more than one asks first (HIGH).
