@@ -4,8 +4,8 @@
 J.A.R.V.I.S its own window has the focus, so a key pressed blindly lands there: each press first
 brings the target forward - the app named, else the window the user was in (the first other window
 in Windows' z-order) - and says which it used. Only the named shortcuts in `ACTIONS` exist, never
-an arbitrary chord from the words. Shortcuts run (MEDIUM); one that can lose work, and typing,
-which reaches whatever that app does with text, ask first (HIGH).
+an arbitrary chord from the words. Read/navigation shortcuts are MEDIUM; typing, paste, save,
+and shortcuts that can lose work ask first (HIGH).
 """
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ ACTIONS: dict[str, tuple[tuple[str, ...], str, RiskLevel]] = {
     "reset zoom": (("ctrl", "0"), "reset the zoom", RiskLevel.MEDIUM),
     "select all": (("ctrl", "a"), "select everything", RiskLevel.MEDIUM),
     "copy": (("ctrl", "c"), "copy the selection", RiskLevel.MEDIUM),
-    "paste": (("ctrl", "v"), "paste", RiskLevel.MEDIUM),
-    "save": (("ctrl", "s"), "save", RiskLevel.MEDIUM),
+    "paste": (("ctrl", "v"), "paste", RiskLevel.HIGH),
+    "save": (("ctrl", "s"), "save", RiskLevel.HIGH),
     "enter": (("enter",), "press Enter", RiskLevel.HIGH),
     "escape": (("esc",), "press Escape", RiskLevel.MEDIUM),
     "close window": (("alt", "f4"), "close the window", RiskLevel.HIGH),
@@ -82,7 +82,7 @@ class WindowsKeys:  # pragma: no cover - needs a real desktop
         self._user32.keybd_event(VK["alt"], 0, self._KEYUP, 0)
         moved = bool(self._user32.SetForegroundWindow(window.handle))
         time.sleep(0.15)
-        return moved
+        return moved and self._user32.GetForegroundWindow() == window.handle
 
     def press(self, keys: tuple[str, ...]) -> None:
         for key in keys:

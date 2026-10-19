@@ -6,6 +6,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
@@ -80,7 +81,8 @@ class KeysToolTests(unittest.TestCase):
         self.assertEqual(self.backend.focused, [])
 
     def test_losing_work_and_typing_ask_first_the_rest_run(self) -> None:
-        for action, risk in (("new tab", RiskLevel.MEDIUM), ("close window", RiskLevel.HIGH), ("enter", RiskLevel.HIGH)):
+        for action, risk in (("new tab", RiskLevel.MEDIUM), ("close window", RiskLevel.HIGH),
+                             ("enter", RiskLevel.HIGH), ("save", RiskLevel.HIGH), ("paste", RiskLevel.HIGH)):
             self.cards.clear()
             self.tool.shortcut(action)
             self.assertIs(self.cards[0].risk, risk, action)
@@ -112,6 +114,27 @@ class KeysToolTests(unittest.TestCase):
 
     def test_the_harness_never_reaches_the_real_keyboard(self) -> None:
         self.assertIsNone(keys.keys_backend())
+
+
+class WindowsFocusTests(unittest.TestCase):
+    def test_focus_is_checked_after_windows_has_had_time_to_change_it(self) -> None:
+        class FakeUser32:
+            def IsIconic(self, handle: int) -> bool:
+                return False
+
+            def keybd_event(self, *args) -> None:
+                pass
+
+            def SetForegroundWindow(self, handle: int) -> bool:
+                return True
+
+            def GetForegroundWindow(self) -> int:
+                return CHROME.handle
+
+        backend = keys.WindowsKeys.__new__(keys.WindowsKeys)
+        backend._user32 = FakeUser32()
+        with patch.object(keys.time, "sleep"):
+            self.assertFalse(backend.focus(NOTEPAD))
 
 
 class KeysCommandTests(unittest.TestCase):
