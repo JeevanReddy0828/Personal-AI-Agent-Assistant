@@ -173,6 +173,37 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("Ran 1 test in", out, "the probe never ran, so nothing was checked")
         self.assertEqual(done.returncode, 0, out)
 
+    def test_no_test_server_binds_a_fixed_port(self) -> None:
+        """Suites run at once from several worktrees. The stdlib servers set SO_REUSEADDR,
+        which on Windows lets a second process bind a port already being served, so a fixed
+        port is shared silently: requests reached the other run's server, whose per-process
+        API token differs, and came back 403 (or reset when it shut down). Port 0 asks the
+        OS for a free one. A source scan missed a port held in a variable, so the runner
+        refuses the bind itself; the probe binds a port it just found free."""
+        planted = Path(__file__).resolve().parent / f"test_probe_fixed_port_{os.getpid()}.py"
+        planted.write_text(
+            "import socket\nimport unittest\n"
+            "from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n\n"
+            "class FixedPort(unittest.TestCase):\n"
+            "    def test_is_refused(self):\n"
+            "        with socket.socket() as free:\n"
+            "            free.bind(('127.0.0.1', 0))\n"
+            "            port = free.getsockname()[1]\n"
+            "        with self.assertRaisesRegex(OSError, 'bind port 0',\n"
+            "                                    msg=f'a test server bound fixed port {port}'):\n"
+            "            ThreadingHTTPServer(('127.0.0.1', port), BaseHTTPRequestHandler).server_close()\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(planted.unlink, True)
+        done = subprocess.run(
+            [sys.executable, "-B", "tests/run_tests.py", planted.name],
+            cwd=run_tests.ROOT, capture_output=True, text=True, timeout=120,
+            env={**os.environ, "PYTHONPATH": "src"},
+        )
+        out = done.stdout + done.stderr
+        self.assertIn("Ran 1 test in", out, "the probe never ran, so nothing was checked")
+        self.assertEqual(done.returncode, 0, out)
+
 
 if __name__ == "__main__":
     unittest.main()
