@@ -103,6 +103,32 @@ _DECK_ASK = re.compile(
 )
 
 
+# The whole sentence, never a prefix: "make my downloads folder less cluttered", "create a folder
+# structure for a react app", "start a project with my manager" and "set up a directory of plumbers"
+# are not asks for a new folder (review of #282). A named document format goes to the document tool,
+# and a workspace in an app (Slack, Notion...) is not a folder on this laptop.
+_WORKSPACE_ASK = re.compile(
+    r"^\s*(?!.*\bas\s+an?\s+(?:pdf|word|docx?|pptx?|power\s*point|markdown|md|document|spreadsheet|excel)\b)"
+    r"(?!.*\b(?:slack|notion|teams|discord|asana|trello|jira|clickup|monday|figma|miro|zoom|confluence|airtable"
+    r"|linear|github|gitlab|vs\s*code|vscode|google)\s+(?:workspace|project)\b)"
+    r"(?:(?:can|could|would)\s+you\s+|please\s+|i\s+(?:want|need)\s+(?:you\s+to\s+)?)*"
+    r"(?:create|make|set\s+up|build|generate|start)\s+(?:me\s+)?(?:an?\s+|my\s+|the\s+)?"
+    r"(?:(?:new|empty|blank|fresh)\s+)?(?:[\w-]+\s+){0,3}?"
+    r"(?:folder|directory|workspace(?:\s+(?:folder|directory))?|project\s+(?:folder|directory))"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s+(?:on|in|at|under|inside)\s+(?:\"[^\"]+\"|(?:my\s+|the\s+)?[^\s,]+(?:\s+folder)?))?"
+    r"(?:\s+(?:called|named)\s+(?:\"[^\"]+\"|'[^']+'|[\w.-]+(?:\s+[\w.-]+){0,3}?))?"
+    r"(?:\s*,?\s+(?:with|and\s+(?:fill|put|add|write|create)|fill(?:ed)?\s+(?:it|with)|containing|full\s+of"
+    r"|for\s+(?:learning|practising|practicing|studying))\b.*)?"
+    r"\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_WORKSPACE_IN_CODE = re.compile(
+    r"\b(?:in|using|via|with)\s+(?:python|powershell|bash|javascript|js|node(?:js)?|java|c\+\+|c#|git|cmd|linux|"
+    r"the\s+terminal|code)\b(?!\s+(?:basics|tutorials?|examples?|exercises?|notes|files?|scripts?|lessons?))",
+    re.IGNORECASE,
+)
+
 _DOC_HEAD = re.compile(
     r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
     r"(?:me\s+)?(?:an?\s+)?(?P<length>(?:(?:\d{1,2}|one|two|three|four|five|single)[\s-]+pages?|one[\s-]pager)\s+)?"
@@ -179,6 +205,46 @@ _REMINDER_DAY_TAIL = re.compile(
 # a timer" missed a prefix that allowed "can you" or "please" but not both.
 _POLITE = (r"^\s*(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?|please\s+|would\s+you\s+mind\s+"
            r"|kindly\s+)?")
+# The clipboard, said as a whole sentence. "copy" alone is not enough: "copy the file to D:" is a
+# file move, and "how do I copy and paste" a question.
+_COPIED = r"(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied|(?:my|the)\s+clipboard|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied)"
+_CLIPBOARD_SHOW = re.compile(
+    _POLITE + r"(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+(?:my|the)\s+clipboard|what\s+did\s+i\s+(?:just\s+)?copy"
+    r"|(?:show|read|tell)(?:\s+me)?\s+(?:what(?:'s|s|\s+is)\s+(?:on|in)\s+)?(?:my|the)\s+clipboard"
+    r"|(?:show|read|tell)(?:\s+me)?\s+what\s+i(?:'ve)?\s+(?:just\s+)?copied)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+# "Copy that!" on its own is an acknowledgement ("understood"), so a pronoun needs the clipboard
+# named; a reply named as one ("copy your last answer") does not.
+_CLIPBOARD_COPY_REPLY = re.compile(
+    _POLITE + r"copy\s+(?:(?:that|this|it|(?:your|the|that)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))"
+    r"\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard"
+    r"|(?:your|the)\s+(?:last\s+|previous\s+)?(?:answer|reply|response))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CLIPBOARD_COPY_TEXT = re.compile(
+    _POLITE + r"copy\s+(?P<text>.+?)\s+(?:to|into|on(?:to)?)\s+(?:(?:my|the)\s+)?clipboard\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# What follows "copy" when it names something rather than giving the words: "the summary" means our
+# last reply, "that file" is a file - neither is the literal text "the summary" (review of #284).
+_CLIPBOARD_REFERENCE = re.compile(r"(?:the|that|this|those|these|it|my|your|our|all)\b.*", re.IGNORECASE)
+_CLIPBOARD_OUR_REPLY = re.compile(
+    r"(?:(?:the|that|this|your)\s+(?:last\s+|previous\s+)?(?:summary|answer|reply|response|code|text|result|list"
+    r"|translation|draft|email)|it\s+all|all\s+of\s+(?:it|that))", re.IGNORECASE)
+# Asking about the copied text, as the whole sentence. Doing something to text - summarize, rewrite -
+# may name "my clipboard"; explaining or checking only "what I copied", since "explain the clipboard
+# api", "check the clipboard history" and "fix my clipboard" are about the clipboard itself.
+_CLIPBOARD_TEXT_VERB = (r"(?:summari[sz]e|proofread|rewrite|reword|shorten|simplify|tl;?dr"
+                        r"|give\s+me\s+(?:a\s+)?(?:summary|tl;?dr)\s+of)")
+_CLIPBOARD_ASK = re.compile(
+    _POLITE + r"(?:" + _CLIPBOARD_TEXT_VERB + r"\s+(?:" + _COPIED + r"|(?:my|the)\s+clipboard(?:'s)?(?:\s+(?:text|contents))?)"
+    r"|(?:explain|fix|correct|check|analy[sz]e|review)\s+(?:what\s+i(?:'ve|\s+have)?\s+(?:just\s+)?copied"
+    r"|the\s+text\s+i(?:'ve)?\s+(?:just\s+)?copied))"
+    r"(?:\s+(?:in|into|to|for|as|so|with)\s+[^?.!]{1,60})?\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking to see the alarms, as a whole sentence. "what alarms do i have" reached the chat model,
 # which cannot see them: only "when is my alarm" (the next one) was routed. "what"/"which" need
 # "my"/"the" or a "do i have" after them, because "what are alarms?" asks what one is (Codex's
@@ -292,6 +358,18 @@ _POMODORO = re.compile(
     + r")\s+)?pomodoro(?:\s+(?:timer|session))?(?:\s+please)?\s*[.!?]*$",
     re.IGNORECASE,
 )
+# A message for WhatsApp or Telegram, said with the app and the words: "send a whatsapp to mom
+# saying i'm late", "text john on telegram that the game moved". The model router once made
+# "text john" an email; without the app named it still goes to the router.
+_MESSAGE_APP = r"(?P<app>whats\s*app|telegram)"
+_MESSAGE_ASK = re.compile(
+    _POLITE + r"(?:(?:send|write)\s+(?:a\s+)?" + _MESSAGE_APP + r"(?:\s+message)?(?:\s+to\s+(?P<to>[^,]{1,40}?))?"
+    r"|(?:message|text|whats\s*app)\s+(?P<to2>[^,]{1,40}?)\s+on\s+(?P<app2>whats\s*app|telegram)"
+    r"|(?:send|write)\s+(?:a\s+)?message\s+to\s+(?P<to3>[^,]{1,40}?)\s+on\s+(?P<app3>whats\s*app|telegram))"
+    r"(?:\s*,?\s+(?:saying|that\s+says|that|with)\s+|\s*:\s*)(?P<text>.+?)\s*$",
+    re.IGNORECASE,
+)
+
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
@@ -299,6 +377,28 @@ _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+p
 # was free to say it had: ask when instead, as a bare timer does.
 _ALARM_BARE = re.compile(_POLITE + r"(?:(?:set|make|create)\s+(?:an?|the|my)\s+alarm|wake\s+me(?:\s+up)?|get\s+me\s+up"
                          r"|i\s+need\s+an\s+alarm|alarm)(?:\s+please)?\s*[.!?]*$", re.IGNORECASE)
+# Learning from the conversation: "remember what we talked about", "save what you learned about
+# me". Nothing else answered these, and the chat model cannot write to memory.
+# _POLITE without its start anchor, for use inside an alternation.
+_POLITE_ANYWHERE = _POLITE.removeprefix(r"^\s*")
+_LEARN_ASK = re.compile(
+    r"^\s*(?:"
+    # "learn from chat", with or without "this/our", a period from speech or a "please"
+    + _POLITE_ANYWHERE + r"\s*learn\s+(?:from|about\s+me\s+from)\s+(?:(?:this|our|the)\s+)?(?:chat|conversation)"
+    # "remember what we talked about" as an instruction - never asked: "can you remember what we
+    # talked about" is a question about recall (review of #288)
+    r"|(?:please\s+)?remember\s+(?:what|everything|the\s+important\s+(?:things|stuff|bits))\s+(?:we\s+(?:talked|spoke)\s+about"
+    r"|(?:i|i've)\s+(?:said|told\s+you)|from\s+(?:this|our|the)\s+(?:chat|conversation))"
+    r"|" + _POLITE_ANYWHERE + r"\s*(?:save|keep|remember)\s+what\s+you(?:'ve)?\s+learn(?:ed|t)\s+about\s+me"
+    r"(?:\s+(?:today|here|in\s+this\s+chat))?)"
+    r"(?:[\s,]+please)?\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def asks_to_learn(text: str) -> bool:
+    """Whether `text` asks to save this chat's facts. The `remember ` command reads it as prose."""
+    return bool(_LEARN_ASK.match(text or ""))
 # "wake me up early", "at dawn", "next week": no time to set, so it asks, keeping a day if one
 # was said (Codex's review). These reached the chat model too.
 _VAGUE_TIME = (r"(?:early|(?:at\s+)?(?:dawn|sunrise|daybreak)|first\s+thing(?:\s+in\s+the\s+morning)?|soon|later"
@@ -1199,6 +1299,9 @@ class HeuristicPlannerProvider:
         if reminder:
             return reminder
 
+        if _LEARN_ASK.match(raw):
+            return self._command("learn from chat", "User wants this chat's facts remembered.", 0.9)
+
         personal = self._personal(raw)
         if personal:
             return personal
@@ -1247,6 +1350,10 @@ class HeuristicPlannerProvider:
         if hotels:
             return hotels
 
+        message = self._message(raw)
+        if message:
+            return message
+
         flights = self._flights(raw)
         if flights:
             return flights
@@ -1288,6 +1395,10 @@ class HeuristicPlannerProvider:
         if arranged:
             return arranged
 
+        folder = self._workspace(raw)
+        if folder:
+            return folder
+
         written = self._document(raw)
         if written:
             return written
@@ -1295,6 +1406,10 @@ class HeuristicPlannerProvider:
         picture = self._image(raw)
         if picture:
             return picture
+
+        copied = self._clipboard(raw)
+        if copied:
+            return copied
 
         weather = self._weather(raw)
         if weather:
@@ -1859,6 +1974,16 @@ class HeuristicPlannerProvider:
         place = m.group(1).strip().strip("?.!,'\"")
         return self._command(f"hotels near {place}", "User wants hotels near a place.", 0.84) if place else None
 
+    def _message(self, text: str) -> PlanDecision | None:
+        """'send a whatsapp to mom saying i'm late' -> the message opened, ready for the user to send."""
+        asked = _MESSAGE_ASK.match(text or "")
+        if not asked:
+            return None
+        app = re.sub(r"\s+", "", asked.group("app") or asked.group("app2") or asked.group("app3")).lower()
+        who = (asked.group("to") or asked.group("to2") or asked.group("to3") or "").strip()
+        to = f" to {who}" if who else ""
+        return self._command(f"message {app}{to} :: {asked.group('text').strip()}", "User wants a message written.", 0.88)
+
     def _flights(self, text: str) -> PlanDecision | None:
         """No free no-key fare API exists, so route flights through web search."""
         m = re.search(r"\bflights?\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$", text, re.IGNORECASE)
@@ -1942,6 +2067,13 @@ class HeuristicPlannerProvider:
         if not asks_to_arrange(text):
             return None
         return self._command(f"window {text.strip()}", "User wants windows arranged.", 0.88)
+
+    def _workspace(self, text: str) -> PlanDecision | None:
+        """'create a workspace folder and fill files with python basics' -> a folder with files.
+        A question about how to make a folder in code is left to the chat."""
+        if not _WORKSPACE_ASK.match(text or "") or _WORKSPACE_IN_CODE.search(text):
+            return None
+        return self._command(f"workspace {text.strip()}", "User wants a folder created, with files in it.", 0.88)
 
     def _document(self, text: str) -> PlanDecision | None:
         """'write a report on X as a pdf' -> the document tool. The named format is what
@@ -2028,6 +2160,25 @@ class HeuristicPlannerProvider:
         if is_diagram_subject(subject):
             return None
         return self._command(f"image {subject}", "User wants a generated picture.", 0.85)
+
+    def _clipboard(self, text: str) -> PlanDecision | None:
+        """'what did I copy', 'copy that', 'summarize what I copied' -> the clipboard."""
+        if _CLIPBOARD_SHOW.match(text or ""):
+            return self._command("clipboard", "User wants to see the clipboard.", 0.9)
+        if _CLIPBOARD_COPY_REPLY.match(text or ""):
+            return self._command("clipboard copy that", "User wants the last reply copied.", 0.9)
+        copied = _CLIPBOARD_COPY_TEXT.match(text or "")
+        if copied:
+            words = copied.group("text").strip().strip("\"'“”‘’")
+            quoted = copied.group("text").strip()[:1] in "\"'“‘"
+            if not quoted and _CLIPBOARD_OUR_REPLY.fullmatch(words):
+                return self._command("clipboard copy that", "User wants the last reply copied.", 0.88)
+            if not quoted and _CLIPBOARD_REFERENCE.fullmatch(words):
+                return None   # "copy that file to clipboard": a thing named, not words given
+            return self._command(f"clipboard copy {words}", "User wants text copied.", 0.88)
+        if _CLIPBOARD_ASK.match(text or ""):
+            return self._command(f"clipboard ask {text.strip()}", "User asks about the copied text.", 0.88)
+        return None
 
     def _weather(self, text: str) -> PlanDecision | None:
         """Real forecast (Open-Meteo) instead of opening a web search for weather.
