@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.codefix import CodeFixTool, corrected, run_python
+import laptop_agent.tools.codefix as codefix
 
 import test_orchestrator
 
@@ -82,6 +85,50 @@ class CodeFixTests(unittest.TestCase):
             tool.fix(str(self.script))
         self.assertEqual(self.script.read_text(encoding="utf-8"), BROKEN)
         self.assertFalse((self.root / "backups").exists())
+
+    def test_a_user_edit_while_the_write_card_is_open_is_not_overwritten(self) -> None:
+        def ask(request) -> bool:
+            if request.action.startswith("Write the fix"):
+                self.script.write_text("my newer work\n", encoding="utf-8")
+            return True
+
+        tool = CodeFixTool(lambda prompt: self.reply, ApprovalGate(ask=ask), self.root / "backups",
+                           lambda path: self.exit)
+        result = tool.fix(str(self.script))
+        self.assertFalse(result.ok)
+        self.assertIn("changed", result.message)
+        self.assertEqual(self.script.read_text(encoding="utf-8"), "my newer work\n")
+        self.assertFalse((self.root / "backups").exists())
+
+    def test_two_fixes_in_one_second_keep_both_originals(self) -> None:
+        class SameSecond:
+            @staticmethod
+            def now() -> datetime:
+                return datetime(2026, 10, 18, 12, 0, 0)
+
+        with patch.object(codefix, "datetime", SameSecond):
+            self.assertTrue(self.tool.fix(str(self.script)).ok)
+            second = "total = 9 + '2'\nprint(total)\n"
+            self.script.write_text(second, encoding="utf-8")
+            self.reply = "```python\ntotal = 9 + int('2')\nprint(total)\n```"
+            self.assertTrue(self.tool.fix(str(self.script)).ok)
+        backups = sorted((self.root / "backups").glob("add-*.py"))
+        self.assertEqual(len(backups), 2)
+        self.assertEqual({path.read_text(encoding="utf-8") for path in backups}, {BROKEN, second})
+
+    def test_an_edit_during_backup_is_not_overwritten(self) -> None:
+        original_mkstemp = codefix.tempfile.mkstemp
+
+        def edit_during_backup(*args, **kwargs):
+            result = original_mkstemp(*args, **kwargs)
+            self.script.write_text("later work\n", encoding="utf-8")
+            return result
+
+        with patch.object(codefix.tempfile, "mkstemp", side_effect=edit_during_backup):
+            result = self.tool.fix(str(self.script))
+        self.assertFalse(result.ok)
+        self.assertIn("changed", result.message)
+        self.assertEqual(self.script.read_text(encoding="utf-8"), "later work\n")
 
     def test_a_script_that_runs_needs_no_fix_and_no_model(self) -> None:
         self.exit = (0, "3")

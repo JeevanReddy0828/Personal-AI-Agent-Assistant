@@ -9,14 +9,17 @@ script runs with list arguments, never through a shell, in its own folder, with 
 from __future__ import annotations
 
 import difflib
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
 Writer = Callable[[str], str]
@@ -102,7 +105,9 @@ class CodeFixTool:
             return ToolResult.failure(why)
         if self._writer is None:
             return ToolResult.failure("Fixing a script needs a language model, and none is configured.")
-        source = path.read_text(encoding="utf-8", errors="replace")
+        original = path.read_bytes()
+        identity = (path.stat().st_dev, path.stat().st_ino)
+        source = original.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         if len(source) > MAX_SOURCE:
             return ToolResult.failure(f"{path.name} is over {MAX_SOURCE:,} characters; that's more than I fix in one go.")
         code, output = self._execute(path)
@@ -116,9 +121,24 @@ class CodeFixTool:
                                             f"{path.name} (now)", f"{path.name} (fixed)"))
         self._gate.require(ApprovalRequest(action=f"Write the fix to {path}", risk=RiskLevel.HIGH,
                                            reason="The old version is kept in code_backups first.", preview=diff[:6000]))
+        def unchanged() -> bool:
+            try:
+                current = path.stat()
+                return (current.st_dev, current.st_ino) == identity and path.read_bytes() == original
+            except OSError as exc:
+                record_failure("codefix/check-source", exc, path=str(path))
+                return False
+
+        if not unchanged():
+            return ToolResult.failure(f"{path.name} changed while I was preparing its fix, so I left the newer file alone.")
         self._backups.mkdir(parents=True, exist_ok=True)
-        backup = self._backups / f"{path.stem}-{datetime.now().strftime('%Y%m%d-%H%M%S')}{path.suffix}"
-        backup.write_text(source, encoding="utf-8")
+        fd, name = tempfile.mkstemp(prefix=f"{path.stem}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-",
+                                    suffix=path.suffix, dir=self._backups)
+        backup = Path(name)
+        with os.fdopen(fd, "wb") as output:
+            output.write(original)
+        if not unchanged():
+            return ToolResult.failure(f"{path.name} changed while I was backing it up, so I left the newer file alone.")
         path.write_text(fixed, encoding="utf-8")
         return ToolResult.success(f"Fixed {path.name}; the old version is at {backup}. Say \"run {path.name}\" to check it.\n\n"
                                   f"```diff\n{diff[:MAX_SHOWN]}\n```", backup=str(backup), path=str(path))
