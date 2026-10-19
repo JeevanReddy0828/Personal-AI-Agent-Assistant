@@ -88,6 +88,18 @@ class PushToTalkInTheBrowser(unittest.TestCase):
         self.page.evaluate("window.jarvisHotkey()")
         self.assertFalse(self.voicing())
 
+    def test_chromium_app_receives_a_global_press_without_a_page_key(self):
+        # A fake hotkey signal, delivered over the app window's private channel; no OS key
+        # or real microphone is used by this browser test.
+        with patch.object(webui, "_DESKTOP_MODE", True):
+            with self.page.expect_request(lambda request: "/api/hotkey?" in request.url and "after=" in request.url):
+                self.page.goto(f"{self.url}/?desktop_hotkey={webui._HOTKEY_CHANNEL}")
+            self.page.wait_for_function("typeof window.jarvisHotkey === 'function'")
+            webui._signal_hotkey()
+            self.page.wait_for_function("() => document.body.classList.contains('voicing')")
+            webui._signal_hotkey()
+            self.page.wait_for_function("() => !document.body.classList.contains('voicing')")
+
 
 if __name__ == "__main__":
     unittest.main()

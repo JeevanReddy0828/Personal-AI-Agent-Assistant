@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from laptop_agent import hotkey
 from laptop_agent.failures import FAILURES
@@ -91,6 +91,45 @@ class GlobalHotkeyTests(unittest.TestCase):
     def test_off_windows_there_is_nothing_to_register(self) -> None:
         with patch.object(hotkey.sys, "platform", "linux"):
             self.assertFalse(GlobalHotkey(lambda: None).start())
+
+
+class FallbackAppHotkeyTests(unittest.TestCase):
+    def test_chromium_fallback_registers_the_global_key_and_signals_the_page(self) -> None:
+        import laptop_agent.webui as webui
+        import laptop_agent.tools.transcribe as transcribe
+
+        server = Mock(server_address=("127.0.0.1", 4321))
+        process = Mock()
+        process.poll.return_value = 0
+        created: list[object] = []
+
+        class FakeHotkey:
+            def __init__(self, on_press) -> None:
+                self.on_press = on_press
+                self.stopped = False
+                created.append(self)
+
+            def start(self) -> bool:
+                self.on_press()
+                return True
+
+            def stop(self) -> None:
+                self.stopped = True
+
+        before = webui._wait_hotkey(None)
+        with patch.object(webui, "_refuse_if_running"), patch.object(webui, "_Server", return_value=server), \
+             patch.object(webui, "_warmup"), patch.object(webui, "_keep_warm"), \
+             patch.object(webui, "_schedule_ticker"), patch.object(transcribe, "warm_stt"), \
+             patch.object(webui, "_launch_webview", return_value=False), \
+             patch.object(webui, "_launch_app_window", return_value=process) as launch, \
+             patch.object(webui, "GlobalHotkey", FakeHotkey), patch.object(webui, "_DESKTOP_MODE", False):
+            webui.run_desktop()
+
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].stopped)
+        self.assertEqual(webui._wait_hotkey(None), before + 1)
+        self.assertIn("desktop_hotkey=", launch.call_args.args[0])
+        server.shutdown.assert_called_once()
 
 
 if __name__ == "__main__":

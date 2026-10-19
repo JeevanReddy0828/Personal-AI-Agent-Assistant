@@ -242,7 +242,10 @@ Ctrl+Alt+J for the whole of Windows (`hotkey.py`, RegisterHotKey through ctypes 
 thread, MOD_NOREPEAT so a held key presses once); a press restores and shows the window and
 calls `window.jarvisHotkey()`, the same toggle. Ctrl+Space is not the global key because
 Windows switches input languages with it. Bringing the window in front of another app is
-best effort: Windows may flash the taskbar button instead. A wake word ("Hey Jarvis") is not
+best effort: Windows may flash the taskbar button instead. In the Chrome/Edge `--app`
+fallback, Ctrl+Alt+J uses the same Windows registration and delivers presses over a private
+local channel to toggle voice; the browser window may remain behind the current app. A wake
+word ("Hey Jarvis") is not
 built: it needs a microphone that is always open, which is Jeevan's call.
 
 ## Recorder integration (REC-01, 2026-09-28)

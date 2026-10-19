@@ -1916,6 +1916,25 @@
   // global hotkey (hotkey.py), which calls jarvisHotkey. Captured first, so the Space handlers
   // below (interrupt, stop a recording) never see the same press.
   window.jarvisHotkey=toggleVoice;
+  const desktopHotkeyChannel=new URLSearchParams(location.search).get('desktop_hotkey');
+  if(desktopHotkeyChannel){
+    let last=null,closed=false;
+    window.addEventListener('pagehide',()=>{closed=true;});
+    (async function listenDesktopHotkey(){
+      while(!closed){
+        try{
+          const query=new URLSearchParams({channel:desktopHotkeyChannel});
+          if(last!==null)query.set('after',String(last));
+          const response=await fetch('/api/hotkey?'+query);
+          if(!response.ok)return;
+          const next=Number((await response.json()).sequence);
+          if(closed||!Number.isSafeInteger(next))return;
+          if(last!==null)for(let n=last;n<next;n++)toggleVoice();
+          last=next;
+        }catch(e){if(!closed)await new Promise(resolve=>setTimeout(resolve,1000));}
+      }
+    })();
+  }
   document.addEventListener('keydown',e=>{
     if(e.ctrlKey&&!e.altKey&&!e.metaKey&&e.code==='Space'&&!e.repeat){e.stopImmediatePropagation();toggleVoice();}
   },true);

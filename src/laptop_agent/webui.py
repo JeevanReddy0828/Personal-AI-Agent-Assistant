@@ -145,6 +145,7 @@ _PERSONAL_ROUTES = frozenset({
     "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
     "/auth/google/status", "/auth/google/launch", "/auth/google/callback",
     "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
+    "/api/hotkey",
 })
 
 
@@ -181,10 +182,27 @@ MAX_UPLOAD_BYTES = 35 * 1024 * 1024
 MAX_REQUEST_BYTES = ((MAX_UPLOAD_BYTES + 2) // 3) * 4 + 65536
 _API_TOKEN = secrets.token_urlsafe(32)
 _SCRIPT_NONCE = secrets.token_urlsafe(24)
+_HOTKEY_CHANNEL = secrets.token_urlsafe(24)
+_HOTKEY_CONDITION = threading.Condition()
+_HOTKEY_SEQUENCE = 0
 _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-up cycle
 # True only when serving the dedicated desktop window (run_desktop), so the HUD's
 # real window effects (opacity / always-on-top) never touch a normal browser window.
 _DESKTOP_MODE = False
+
+
+def _signal_hotkey() -> None:
+    global _HOTKEY_SEQUENCE
+    with _HOTKEY_CONDITION:
+        _HOTKEY_SEQUENCE += 1
+        _HOTKEY_CONDITION.notify_all()
+
+
+def _wait_hotkey(after: int | None) -> int:
+    with _HOTKEY_CONDITION:
+        if after is not None:
+            _HOTKEY_CONDITION.wait_for(lambda: _HOTKEY_SEQUENCE > after, timeout=15)
+        return _HOTKEY_SEQUENCE
 # Only the formats the image tool writes are servable, so the route can never be used
 # to read an arbitrary file that happens to sit in the images directory.
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
@@ -1328,6 +1346,20 @@ class Handler(BaseHTTPRequestHandler):
             # And between its own voice and /api/tts: a tab speaks through Magpie when it is here.
             report["tts"] = {"engine": _tts_engine()}
             self._json(200, report)
+        elif path == "/api/hotkey":
+            query = parse_qs(urlsplit(self.path).query)
+            channel = query.get("channel", [""])[0]
+            if not _DESKTOP_MODE or not secrets.compare_digest(channel, _HOTKEY_CHANNEL):
+                self._json(404, {"ok": False, "message": "No desktop hotkey channel."})
+                return
+            try:
+                after = int(query["after"][0]) if "after" in query else None
+                if after is not None and after < 0:
+                    raise ValueError("negative sequence")
+            except (ValueError, IndexError):
+                self._json(400, {"ok": False, "message": "Invalid hotkey sequence."})
+                return
+            self._json(200, {"sequence": _wait_hotkey(after)})
         elif path == "/api/setup":
             # Developer-only by the route allow-list: it describes this installation.
             self._json(200, {"ok": True, "items": setup_report(
@@ -2266,9 +2298,11 @@ def run_desktop() -> None:
 
     # Fallback when pywebview isn't installed: a frameless Chrome/Edge --app window.
     # It looks like an app and keeps the (browser) Web Speech API for voice.
-    process = _launch_app_window(url)
+    process = _launch_app_window(f"{url}/?desktop_hotkey={_HOTKEY_CHANNEL}")
     if process is not None:
         print("pywebview not installed — opened a frameless Chrome/Edge app window instead.")
+        hotkey = GlobalHotkey(_signal_hotkey)
+        hotkey.start()
         try:
             process.wait()          # quit the app when the window is closed
         except KeyboardInterrupt:
@@ -2276,6 +2310,7 @@ def run_desktop() -> None:
         finally:
             if process.poll() is None:
                 process.terminate()
+            hotkey.stop()
             server.shutdown()
         return
 

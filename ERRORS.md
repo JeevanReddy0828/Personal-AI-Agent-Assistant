@@ -562,6 +562,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
+  fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
+  it too and sends each press to that window through a private, authenticated long-poll
+  channel (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-18)
 - **Voice could only be started by clicking the mic, and only with the window focused** → no key
   started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
   first, so the Space interrupt and recording handlers never see it), and the desktop window
