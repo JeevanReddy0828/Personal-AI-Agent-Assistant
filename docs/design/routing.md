@@ -31,7 +31,11 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     more than one asks first (HIGH).
   - **Two requests in one sentence** split only where every part starts like a request and
     routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
-    "search for flights and hotels in paris" stay whole.
+    "search for flights and hotels in paris" stay whole, and so does a briefing format: "set my
+    briefing to weather and news" split into a briefing of weather and a news read-out, because
+    both halves route. In a sentence that is or routes to `briefing set/add/remove`, a part that is only a section
+    ("news") belongs to the format; a real second request ("and set a timer for 10 minutes") still
+    splits off - refusing every split swallowed it.
   - **A reply to our own question completes it** (`_follow_up`): "set a timer" → "How long
     should the timer run?" → "10 minutes". Keyed to the exact question strings; history
     arrives as `{"role", "text"}` - a test written with "content" passed while the page got

@@ -19,6 +19,12 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-10-16: **The daily briefing's format is one remembered fact, `briefing format`, re-read on every
+  run** - what the user said is the record, so it shows in "what do you remember about me",
+  "forget my briefing" restores the default, and a section added later reads an old format the
+  same way. The briefing is still **developer-only**, as the status briefing it replaced was;
+  letting a personal account have it (without mail or the laptop line) is Jeevan's call, not
+  made yet. Its network sections run in parallel threads, each in a copy of the turn's context.
 - 2026-10-17: **Plugins are the owner's own code, opt-in and always asked.** `LAPTOP_AGENT_PLUGINS=1`
   turns on `<data dir>/plugins/*.py` (COMMAND, DESCRIPTION, RISK, `run`); loading the folder asks
   once (HIGH) because it runs the files, every run asks at HIGH or CRITICAL whatever RISK says, the
