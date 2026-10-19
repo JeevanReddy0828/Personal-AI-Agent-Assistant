@@ -204,6 +204,16 @@ class ReviewOf288CommandTests(LearnCommandTests):
                 # The first saves the fact; the others find it already known. Either way it ran.
                 self.assertRegex(result.message, r"Remembered|anything new")
 
+    def test_a_personal_account_cannot_learn_a_briefing_format(self) -> None:
+        self.orch._build_agent_brain = lambda **_: (
+            lambda prompt: facts(("briefing_format", "mail and laptop"), ("employer", "Nvidia")))
+        with acting_as(PERSONAL):
+            result = asyncio.run(self.orch.handle("learn from this chat", history=HISTORY))
+        self.assertTrue(result.ok, result.message)
+        self.assertNotIn("briefing", result.message)
+        self.assertNotIn("briefing_format", self.orch.context.memory.get_profile())
+        self.assertEqual(self.orch.context.memory.get_profile().get("employer"), "Nvidia")
+
     def test_approved_facts_are_one_write(self) -> None:
         writes: list = []
         memory = self.orch.context.memory

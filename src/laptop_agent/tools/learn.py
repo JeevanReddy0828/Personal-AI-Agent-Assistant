@@ -99,10 +99,12 @@ def proposed(reply: str, known: dict[str, object]) -> list[tuple[str, str]] | No
 
 
 class LearnTool:
-    def __init__(self, writer: Writer | None, approval_gate: ApprovalGate, save: Save) -> None:
+    def __init__(self, writer: Writer | None, approval_gate: ApprovalGate, save: Save,
+                 allowed: Callable[[str], bool] = lambda key: True) -> None:
         self._writer = writer
         self._gate = approval_gate
         self._save = save
+        self._allowed = allowed
 
     def learn(self, history: list[dict], known: dict[str, object]) -> ToolResult:
         said = [text for role, text in normalize_history(history) if role == "user"][-MAX_TURNS:]
@@ -118,6 +120,7 @@ class LearnTool:
         facts = proposed(reply, known)
         if facts is None:
             return ToolResult.failure("The model's answer couldn't be read, so nothing was learned. Try again.")
+        facts = [(key, value) for key, value in facts if self._allowed(key)]
         if not facts:
             return ToolResult.success("I didn't find anything new about you worth keeping in this chat.", facts=[])
         # A fact that replaces one says so: approving "employer: Nvidia" used to erase "Google" unseen.

@@ -175,9 +175,9 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
 # dice, how long a timer has left, a list edit, a date question. Refused: `media volume N`
 # by the `media` prefix, and `record N` (REC-01), a data forecast (`forecast <column> in
 # <file.csv>`, ANALYTICS-03) and the table diagnostics (`what drives` / `anomalies in` a
-# <file.csv>, ANALYTICS-04) - each reads a file - by default-deny, which refuses any
-# dispatched command that is not marked everyday.
-OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 3,
+# <file.csv>, ANALYTICS-04) and a breakdown ("total revenue by region in sales.csv") - each
+# reads a file - by default-deny, which refuses any dispatched command that is not marked everyday.
+OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 4,
                   "_dispatch_personal": 7}
 
 
