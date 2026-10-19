@@ -105,7 +105,7 @@ _DEV_EXACT = frozenset({
     "obsidian status", "notes list", "list notes", "notes audit", "vault audit", "audit notes",
     "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status", "mcp",
     "knowledge reindex", "reindex knowledge", "knowledge backfill", "knowledge prune",
-    "prune knowledge", "knowledge clear", "forget knowledge",
+    "prune knowledge", "knowledge clear", "forget knowledge", "undo file", "undo file move", "undo file copy", "undo file rename",
     # the owner's mailbox: there is one connection, and it is not the personal account's
     "email digest", "summarize inbox", "summarize my inbox", "summarize my emails",
     "summarize my unread", "inbox digest", "email oauth", "email oauth status", "email tokens",
@@ -135,12 +135,13 @@ _DEV_PREFIX = (
     "scan files", "read file", "ask file", "summarize file", "extract text", "index file", "file info",
     "clipboard copy", "clipboard ask",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
+    "file move", "file copy", "file rename", "file delete",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
     "mcp",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
-    "terminal", "shell", "play music", "media", "workspace",
+    "message", "terminal", "shell", "play music", "media", "workspace",
 )
 
 

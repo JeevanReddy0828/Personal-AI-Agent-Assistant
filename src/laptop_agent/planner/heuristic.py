@@ -315,12 +315,62 @@ _ALARM_ASK = re.compile(
     r"(?P<when>.+?)\s*[.!?]*$",
     re.IGNORECASE,
 )
+# Moving, copying, renaming or deleting a file, said with something that is plainly a file: a
+# quoted name, a path, or a name with an extension. "move the meeting to friday" and "delete my
+# last note" name no file and are left to their own routes.
+# A bare name's extension starts with a letter and is not a web domain's: "the alarm at 6.30",
+# "chapter 3.1", "v1.2" and "google.com" are not files (review of #287). "my"/"the" before a bare
+# name are words about it, not part of it.
+_FILE_LIKE = (r"(?:\"[^\"]{1,200}\"|'[^']{1,200}'|[A-Za-z]:[\\/][^\"'\n]{1,200}?|~[\\/][^\"'\n]{1,200}?"
+              r"|(?:(?:my|the|this|that)\s+)?[\w(][\w .()&,+-]{0,80}?\.(?!(?:com|org|net|io|gov|edu)\b)[A-Za-z][A-Za-z0-9]{0,5})")
+_FILE_MOVE = re.compile(
+    _POLITE + r"(?P<verb>move|copy)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|into)\s+"
+    r"(?P<dst>(?:(?:my|the)\s+)?(?:desktop|documents|downloads|pictures|music|videos|home)(?:\s+folder)?"
+    r"|\"[^\"]{1,200}\"|[A-Za-z]:[\\/][^\"'\n]{0,200}|~[\\/][^\"'\n]{0,200})\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_RENAME = re.compile(
+    _POLITE + r"rename\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|as)\s+"
+    r"(?P<name>\"[^\"\\/]{1,120}\"|[\w(][\w .()&,+-]{0,120}?)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_DELETE = re.compile(
+    _POLITE + r"(?:delete|remove|trash|bin|recycle)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_UNDO = re.compile(
+    # "the last change" names nothing about files; only a file verb does (review of #287).
+    _POLITE + r"(?:undo|reverse|revert)\s+(?:the\s+last\s+(?:file\s+)?(?P<named>move|rename|copy)"
+    r"|(?:that|it|this)(?:\s+(?P<pronamed>move|rename|copy))?|my\s+last\s+file\s+change)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# Our own words when a file change is done: "undo that" after one of these means the file.
+_FILE_CHANGED = re.compile(r"^(?:Moved|Copied|Renamed)\s(?!.*Recycle Bin)", re.IGNORECASE)
+
+
+def follows_a_file_change(history: list[dict] | None) -> bool:
+    """Whether our last reply was a file change that "undo that" can mean."""
+    last = next((str(turn.get("text") or "") for turn in reversed(history or []) if turn.get("role") == "assistant"), "")
+    return bool(_FILE_CHANGED.match(last))
+
 # "start a pomodoro", "start a 25 minute pomodoro": a work timer, 25 minutes unless a length is said.
 _POMODORO = re.compile(
     _POLITE + r"(?:(?:set|start|begin|run|do)\s+)?(?:me\s+)?(?:an?\s+|another\s+)?(?:(?P<length>" + _DURATION
     + r")\s+)?pomodoro(?:\s+(?:timer|session))?(?:\s+please)?\s*[.!?]*$",
     re.IGNORECASE,
 )
+# A message for WhatsApp or Telegram, said with the app and the words: "send a whatsapp to mom
+# saying i'm late", "text john on telegram that the game moved". The model router once made
+# "text john" an email; without the app named it still goes to the router.
+_MESSAGE_APP = r"(?P<app>whats\s*app|telegram)"
+_MESSAGE_ASK = re.compile(
+    _POLITE + r"(?:(?:send|write)\s+(?:a\s+)?" + _MESSAGE_APP + r"(?:\s+message)?(?:\s+to\s+(?P<to>[^,]{1,40}?))?"
+    r"|(?:message|text|whats\s*app)\s+(?P<to2>[^,]{1,40}?)\s+on\s+(?P<app2>whats\s*app|telegram)"
+    r"|(?:send|write)\s+(?:a\s+)?message\s+to\s+(?P<to3>[^,]{1,40}?)\s+on\s+(?P<app3>whats\s*app|telegram))"
+    r"(?:\s*,?\s+(?:saying|that\s+says|that|with)\s+|\s*:\s*)(?P<text>.+?)\s*$",
+    re.IGNORECASE,
+)
+
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
@@ -1191,7 +1241,7 @@ _BRIEF_ME = re.compile(_POLITE + r"(?:brief\s+me|give\s+me\s+(?:my|the|a)\s+(?:m
 
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
-        del available_commands, memory_profile, history
+        del available_commands, memory_profile
         raw = strip_address(text)
         if _NEGATED.match(raw):
             return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; left to the model.")
@@ -1339,6 +1389,10 @@ class HeuristicPlannerProvider:
         if hotels:
             return hotels
 
+        message = self._message(raw)
+        if message:
+            return message
+
         flights = self._flights(raw)
         if flights:
             return flights
@@ -1403,6 +1457,10 @@ class HeuristicPlannerProvider:
         local_lookup = self._local_lookup(raw)
         if local_lookup:
             return local_lookup
+
+        file_change = self._file_change(raw, history)
+        if file_change:
+            return file_change
 
         file_scan = self._file_scan(raw)
         if file_scan:
@@ -1955,6 +2013,16 @@ class HeuristicPlannerProvider:
         place = m.group(1).strip().strip("?.!,'\"")
         return self._command(f"hotels near {place}", "User wants hotels near a place.", 0.84) if place else None
 
+    def _message(self, text: str) -> PlanDecision | None:
+        """'send a whatsapp to mom saying i'm late' -> the message opened, ready for the user to send."""
+        asked = _MESSAGE_ASK.match(text or "")
+        if not asked:
+            return None
+        app = re.sub(r"\s+", "", asked.group("app") or asked.group("app2") or asked.group("app3")).lower()
+        who = (asked.group("to") or asked.group("to2") or asked.group("to3") or "").strip()
+        to = f" to {who}" if who else ""
+        return self._command(f"message {app}{to} :: {asked.group('text').strip()}", "User wants a message written.", 0.88)
+
     def _flights(self, text: str) -> PlanDecision | None:
         """No free no-key fare API exists, so route flights through web search."""
         m = re.search(r"\bflights?\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$", text, re.IGNORECASE)
@@ -2205,6 +2273,31 @@ class HeuristicPlannerProvider:
         if root is None:
             return None
         return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
+
+    def _file_change(self, text: str, history: list[dict] | None) -> PlanDecision | None:
+        """'move report.pdf to my desktop', 'rename a.txt to b.txt', 'delete old.log', 'undo that'."""
+        text = text or ""
+        moved = _FILE_MOVE.match(text)
+        if moved:
+            verb = moved.group("verb").lower()
+            return self._command(f"file {verb} {moved.group('src').strip()} to {moved.group('dst').strip()}",
+                                 f"User wants a file {'copied' if verb == 'copy' else 'moved'}.", 0.88)
+        renamed = _FILE_RENAME.match(text)
+        if renamed:
+            return self._command(f"file rename {renamed.group('src').strip()} to {renamed.group('name').strip()}",
+                                 "User wants a file renamed.", 0.88)
+        deleted = _FILE_DELETE.match(text)
+        if deleted:
+            return self._command(f"file delete {deleted.group('src').strip()}", "User wants a file deleted.", 0.86)
+        undo = _FILE_UNDO.match(text)
+        if undo:
+            # "undo that" is about whatever was just done; only after a file change of ours is it the file.
+            last = next((str(turn.get("text") or "") for turn in reversed(history or [])
+                         if turn.get("role") == "assistant"), "")
+            named = (undo.group("named") or undo.group("pronamed") or "").lower()
+            if undo.group("named") or "file" in text.lower() or _FILE_CHANGED.match(last):
+                return self._command(f"undo file {named}".strip(), "User wants the last file change undone.", 0.88)
+        return None
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)

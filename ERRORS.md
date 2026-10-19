@@ -383,6 +383,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (Codex, #251), and a bare "tokyo friday" is left to the geocoder's own fallback. The
   future-tense route shares the pattern and adds "on/over the weekend". (10-08)
 
+- **"send a WhatsApp to mom saying I'm late" had no tool, and "flights from Austin to Tokyo" found
+  pages about fares but no fares** → nothing could prepare a message (the router once made "text
+  john" an email) and there is no free fare API → `message whatsapp|telegram [to <who>] :: <text>`
+  opens the app's share link after a HIGH card showing the text, and the user presses send
+  (`tools/messaging.py`); a flights search leads with a Google Flights link for the same words
+  (`test_messaging.py`). Developer-only. (10-14)
+
 ### Models and providers
 - **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list
   discovery made a separate 15-second blocking HTTP call between two bounded gRPC waits →
@@ -445,6 +452,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   of the same name shadows it → import a common word under an alias. (10-01)
 - **Answers from an unrelated scrape** → passage score re-decided the document → the referent
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
+
+- **"move report.pdf to my desktop" and "delete old-notes.txt" had no tool** → only reading, searching
+  and organising a folder were built, so the model reached for the shell → `tools/fileops.py`: each
+  change asks (HIGH), never overwrites, keeps out of Windows' folders, the home folder and drive
+  roots, and is journaled so "undo that" reverses it; deletion goes to the Recycle Bin. "undo that" is
+  the file only when our last reply was a file change, so the instant router now gets the history
+  too (`test_fileops.py`). Developer-only. (10-14)
 
 ### Time and dates
 - **"when is new year's" and "new years day" reached the chat model while "new years" and "new
@@ -615,6 +629,23 @@ guard, with the date), and a session entry only when the line cannot carry the l
   one cell read "N/A" → the column test demanded every cell be a number, so one odd cell made
   the whole column text and the reply blamed the column → a column is numbers when most of its
   filled cells are, and the odd cell is refused by its row (`tools/breakdown._is_numeric`). (10-16)
+- **A "Recycle Bin" delete could be permanent, and "delete the alarm at 6.30" became a file delete**
+  (review of #287) → FOF_NOCONFIRMATION answered Windows' "delete permanently?" for drives with no
+  bin, and any "name.<1-6 chars>" was a file name → a removable or network drive is refused before
+  anything (FOF_WANTNUKEWARNING as a backstop); a bare name's extension starts with a letter and is
+  not a web domain. Same review: a missing destination folder is not a new file name, C:\\Users and
+  the profile folders are protected, a delete no longer blocks undo, and a model-routed `undo file`
+  stands only straight after a file change. (10-17)
+- **#287's protected-folder test passed here and failed on CI's Windows runners only** → the
+  target was `resolve()`d but home was not, and the runner's temp dir is an 8.3 name
+  (`RUNNER~1`) that `resolve()` expands, so the two never matched → `_protected` resolves home
+  too; a home spelled with `..` reproduces it on any machine (`test_fileops.py`). Same round:
+  "undo" moved back or recycled a different file put where the moved or copied one had been →
+  the journal records the object's identity (device, inode, and a file's modified time) and
+  undo refuses when what is there now is not it. A folder's identity is its whole tree (each
+  entry's path, size and modified time): undoing a copy recycled work added inside the copied
+  folder (Codex's re-review); and a copy's identity includes its contents, since a same-size edit
+  with its modified time restored still recycled the edited copy (third review). (10-18)
 - **"learn from chat" kept an SSN and an AWS key, dropped a dated appointment, and said "nothing new"
   when the model failed** (review of #288) → a single "12+ digits" rule missed 123-45-6789 and hit
   ISO dates and phone numbers, and an empty or unreadable reply became [] → secrets by shape (SSN,

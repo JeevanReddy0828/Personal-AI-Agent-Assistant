@@ -197,6 +197,7 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("take the news out of my briefing", "briefing remove", "same"),
     ("what's in my briefing?", "briefing format", "same"),
     ("jarvis, brief me", "briefing", "'brief me' alone asks for the briefing"),
+    ("move report.pdf to my desktop", "file move", "a file, moved and undoable, not the shell"),
 )
 # Not in the table: exact command words like `failures`, `latency` and `capabilities`.
 # Those are matched by the orchestrator's own direct-prefix dispatch, which runs BEFORE
@@ -246,9 +247,12 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what's the biggest country in the world", "a fact about the world, not its news"),
     ("what are the largest files in a typical linux install", "no folder on this machine"),
     ("turn left and then right", "two positions, no window"),
+    ("move the meeting to friday", "no file named"),
+    ("how do i move files to another drive", "a question, not a move"),
     ("my screen is cracked, what should i do", "'my screen' anywhere took a screenshot for the vision model"),
     ("dim my screen brightness", "same"),
     ("what do you see in this code", "'what do you see' anywhere turned the camera on"),
+    ("text john", "no app and no words: the router asks"),
     ("what do you see happening with ai next year", "same"),
     ("how do i use my webcam with zoom", "a question about the camera, not a request to use it"),
     ("what do you see as the main risk here", "'what … here' anywhere listed the folder"),

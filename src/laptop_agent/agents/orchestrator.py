@@ -15,6 +15,7 @@ import secrets
 import tempfile
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
@@ -53,6 +54,7 @@ from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import CutOff, PlanDecision
 from laptop_agent.planner.heuristic import (
+    follows_a_file_change,
     asks_to_learn,
     SMALL_TALK,
     asks_to_arrange,
@@ -100,6 +102,7 @@ from laptop_agent.tools.mcp import McpTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
+from laptop_agent.tools import fileops
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool, page_target
@@ -115,6 +118,7 @@ from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.tools.youtube import YouTubeTool
+from laptop_agent.tools.messaging import MessagingTool
 from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
 
@@ -255,7 +259,8 @@ _CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|kr
 _UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
 _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
                "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
-               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
+               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ", "file move ",
+               "file copy ", "file rename ", "file delete ")
 # Phone keyboards type "what’s", and every route is written with a straight apostrophe: all
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
@@ -569,7 +574,9 @@ class AgentOrchestrator:
         self._plugins_cache: PluginTool | None = None
         self._plugins_lock = threading.Lock()
         self._youtube_tool_cache: YouTubeTool | None = None
+        self._messaging_cache: MessagingTool | None = None
         self._travel_tool_cache: TravelTool | None = None
+        self._file_ops_cache: fileops.FileOps | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._mcp_cache: McpTool | None = None
         self._copilot_cache: JobCopilot | None = None
@@ -739,7 +746,7 @@ class AgentOrchestrator:
                 trace.route_done(source)
             return decision
 
-        fast = self.router.plan(command, help_text, profile)
+        fast = self.router.plan(command, help_text, profile, history)
         if fast.is_command or self.planner is None:
             return decided("heuristic", fast)
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
@@ -772,7 +779,14 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        return decided("llm", self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history)))
+        planned = self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history))
+        # The model knows `undo file` but not what was just done: after "Reminder set", "undo that"
+        # moved an unrelated file back (review of #287). Only straight after a file change of ours.
+        if planned.is_command and (planned.command or "").lower().startswith("undo file") and not (
+                follows_a_file_change(history)):
+            planned = PlanDecision(action="chat", confidence=planned.confidence,
+                                   explanation="An undo of a file change that was not the last thing done.")
+        return decided("llm", planned)
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
     # the user: 'I read "this" as I can't generate or attach images directly...'.
@@ -799,6 +813,7 @@ class AgentOrchestrator:
         "open url", "download", "read file", "index file", "process file", "summarize file",
         "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
         "describe image", "summarize youtube", "organize folder", "scan files",
+        "file move", "file copy", "file rename", "file delete",
     )
     # The part of a target that identifies it: a host without www/TLD, or a filename stem.
     _TARGET_TOKEN = re.compile(r"[A-Za-z0-9_-]{3,}")
@@ -1296,6 +1311,20 @@ class AgentOrchestrator:
 
     async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, scanning and indexing files."""
+        if lowered == "undo file":
+            return self._file_ops().undo()
+        if lowered in {"undo file move", "undo file copy", "undo file rename"}:
+            return self._file_ops().undo(lowered.rsplit(" ", 1)[1])
+        if lowered.startswith(("file move ", "file copy ", "file rename ")):
+            changed = self._file_change_parts(command)
+            if changed is None:
+                return ToolResult.failure("Say where it goes: file move <file> to <folder or path>.")
+            verb, source, target = changed
+            if verb == "rename":
+                return self._file_ops().rename(source, target)
+            return self._file_ops().move(source, target, copy=verb == "copy")
+        if lowered.startswith("file delete "):
+            return self._file_ops().delete(command[len("file delete ") :])
         if lowered.startswith("scan files "):
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
@@ -1787,6 +1816,18 @@ class AgentOrchestrator:
             return self._travel_tool().nearby(rest[: match.start()].strip(), rest[match.end() :].strip())
         return None
 
+    @staticmethod
+    def _with_flights_link(query: str, result: ToolResult) -> ToolResult:
+        """"flights from Austin to Tokyo" is routed to a web search, which finds pages about fares
+        but no fares: a Google Flights search for the same words goes at the top. No fare is ever
+        stated by us; there is no free fare API to read one from."""
+        if not re.match(r"flights?\s+(?:from\s+\S.*?\s+)?to\s+\S", query, re.IGNORECASE):
+            return result
+        link = "https://www.google.com/travel/flights?q=" + urllib.parse.quote(query)
+        result.message = f"[Search live fares on Google Flights]({link})\n\n" + (result.message or "")
+        result.data["flights_link"] = link
+        return result
+
     async def _dispatch_web(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for YouTube, search, URLs, downloads and the browser."""
         if lowered.startswith("summarize youtube "):
@@ -1796,10 +1837,17 @@ class AgentOrchestrator:
             return self._youtube_summary(command[len("youtube summary ") :].strip())
 
         if lowered.startswith("web search "):
-            return self.context.websearch.search(command[len("web search ") :].strip())
+            query = command[len("web search ") :].strip()
+            return self._with_flights_link(query, self.context.websearch.search(query))
 
         if lowered.startswith("search web "):
             return self.context.websearch.search(command[len("search web ") :].strip())
+
+        if lowered.startswith("message "):
+            parsed = re.match(r"message (whatsapp|telegram)(?: to (.+?))? :: (.+)$", command, re.IGNORECASE | re.DOTALL)
+            if not parsed:
+                return ToolResult.failure("Say it like: message whatsapp to mom :: I'm running late.")
+            return self._messaging().prepare(parsed.group(1), parsed.group(2) or "", parsed.group(3))
 
         if lowered.startswith("open url "):
             return self.context.web.open_url(command[len("open url ") :].strip())
@@ -3300,6 +3348,7 @@ class AgentOrchestrator:
                 "  remember note <text>",
                 "  learn from chat  (the lasting facts you said here, saved after you approve them)",
                 "  search files <query> <path>",
+                "  file move|copy <file> to <folder> | file rename <file> to <name> | file delete <file> | undo file  (each asks; delete goes to the Recycle Bin)",
                 "  web search <query>",
                 "  clipboard | clipboard copy <text|that> | clipboard ask <request>  (what you copied; 'copy that' copies my last reply)",
                 "  news [topic]  (real headlines from free feeds, with article text)",
@@ -3325,6 +3374,7 @@ class AgentOrchestrator:
                 "  save research report <topic> to <path|obsidian>",
                 "  solve <problem or decision>  (researches, weighs options, recommends a plan)",
                 "  open url <url>",
+                "  message whatsapp|telegram [to <name or number>] :: <text>  (opened ready to send; you press send)",
                 "  download <url>",
                 "  inspect page <url>",
                 "  inspect forms <url>",
@@ -4283,6 +4333,11 @@ class AgentOrchestrator:
         "process file <path>",
         "file info <path>",
         "search files <query> <path>",
+        "file move <file> to <folder>",
+        "file copy <file> to <folder>",
+        "file rename <file> to <name>",
+        "file delete <file>",
+        "undo file",
         "convert file <source> to <destination>",
         "organize folder <path>",
         "index file <path>",
@@ -4327,6 +4382,7 @@ class AgentOrchestrator:
         "mcp <server> <tool> <json arguments>",
         "solve <problem or decision>",
         "open url <https url>",
+        "message whatsapp|telegram [to <who>] :: <text>",
         "download <url>",
         "inspect page <url>",
         # vision / desktop
@@ -4545,6 +4601,11 @@ class AgentOrchestrator:
             self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
         return self._file_processor_cache
 
+    def _messaging(self) -> MessagingTool:
+        if self._messaging_cache is None:
+            self._messaging_cache = MessagingTool(self.context.web.approval_gate)
+        return self._messaging_cache
+
     def _generate_image(self, request: str) -> ToolResult:
         """`image <description>` — the trailing shape word picks the aspect ratio."""
         described, shape = request.strip(), "square"
@@ -4618,6 +4679,30 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=tokens) or ""
 
         return write
+
+    def _file_change_parts(self, command: str) -> tuple[str, str, str] | None:
+        """(verb, source, target) of `file move|copy|rename <a> to <b>`. A quoted source ends at its
+        quote; otherwise the split is the " to " whose left side is a file that exists, so "back to
+        school.docx" and "notes to self.txt" are whole names, not "back" and "notes" (review of #287)."""
+        head = re.match(r"file (move|copy|rename) ", command, re.IGNORECASE)
+        if head is None:
+            return None
+        verb, rest = head.group(1).lower(), command[head.end():]
+        quoted = re.match(r"\s*([\"'])(.+?)\1\s+to\s+(.+)$", rest, re.DOTALL)
+        if quoted:
+            return verb, quoted.group(2), quoted.group(3)
+        splits = [(rest[:m.start()], rest[m.end():]) for m in re.finditer(r"\s+to\s+", rest)]
+        if not splits:
+            return None
+        found = [(source, target) for source, target in splits if self._file_ops().find(source)[0] is not None]
+        source, target = (found or splits)[0]
+        return verb, source, target
+
+    def _file_ops(self) -> fileops.FileOps:
+        if self._file_ops_cache is None:
+            self._file_ops_cache = fileops.FileOps(self.context.web.approval_gate, self.data_dir / "file_journal.json",
+                                                   recycler=fileops.system_recycler())
+        return self._file_ops_cache
 
     def _knowledge_reindex(self) -> ToolResult:
         """`knowledge reindex` — give older documents the vector newer ones get on save."""
