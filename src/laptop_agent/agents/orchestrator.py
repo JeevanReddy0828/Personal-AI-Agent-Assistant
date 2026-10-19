@@ -4175,13 +4175,6 @@ class AgentOrchestrator:
         "open app <path-or-app>",
         "screenshot <output.png>",
         "play music <file-folder-or-url>",
-        "lock screen",
-        "power sleep|shutdown|restart|cancel",
-        "brightness <0-100|up|down>",
-        "wallpaper <image path>",
-        "processes",
-        "end process <name>",
-        "settings <page>",
         # email (state-changing steps are approval-gated)
         "email digest",
         "email api search gmail <query>",

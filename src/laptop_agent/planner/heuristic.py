@@ -341,7 +341,7 @@ _PROCESSES_ASK = re.compile(
     re.IGNORECASE,
 )
 _END_PROCESS_ASK = re.compile(
-    _POLITE + r"(?:(?:kill|end|terminate|stop)\s+(?:the\s+)?(?P<name>[\w.+-]{1,40})\s+(?:process|task)(?:es)?"
+    _POLITE + r"(?:(?:kill|end|terminate|stop)\s+(?:the\s+)?(?P<name>[\w.+-]{1,40})\s+process(?:es)?"
     r"|(?:kill|end|terminate)\s+(?:the\s+)?process\s+(?P<name2>[\w.+-]{1,40})"
     r"|force\s+(?:quit|close)\s+(?P<name3>[\w.+-]{1,40}))\s*[.!]*\s*$",
     re.IGNORECASE,

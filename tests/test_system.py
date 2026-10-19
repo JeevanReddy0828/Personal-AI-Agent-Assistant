@@ -210,6 +210,14 @@ class SystemCommandTests(unittest.TestCase):
             self.assertFalse(self.say("lock my computer").ok)
         self.assertEqual(self.backend.calls, [])
 
+    def test_agent_mode_is_not_offered_the_laptops_own_controls(self) -> None:
+        reference = self.orch._agent_reference()
+        for command in ("lock screen", "power sleep|shutdown|restart|cancel", "brightness <0-100|up|down>",
+                        "wallpaper <image path>", "processes", "end process <name>", "settings <page>"):
+            with self.subTest(command):
+                self.assertNotIn(f"- {command}\n", reference + "\n")
+        self.assertIn("- read file <path>\n", reference + "\n")
+
 
 class SystemRoutingTests(unittest.TestCase):
     ROUTED = {
@@ -232,7 +240,8 @@ class SystemRoutingTests(unittest.TestCase):
     }
     STAY = ("lock it", "go to sleep", "i need to shut down for the night", "how do I restart my pc",
             "my screen is too bright", "what is a process", "end the meeting", "the brightness is fine",
-            "restart the timer", "turn off the lights", "open the settings app on my phone")
+            "restart the timer", "turn off the lights", "open the settings app on my phone",
+            "stop the timer task", "stop the backup task", "stop the download task")
 
     def test_controls_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()

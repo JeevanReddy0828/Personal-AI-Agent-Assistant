@@ -29,6 +29,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
     timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
     more than one asks first (HIGH).
+  - **A task is not a process.** "stop the backup task" and "stop the timer task" must not
+    become `end process`. Ending a process requires that word or an explicit "force quit".
   - **Two requests in one sentence** split only where every part starts like a request and
     routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
     "search for flights and hotels in paris" stay whole.
