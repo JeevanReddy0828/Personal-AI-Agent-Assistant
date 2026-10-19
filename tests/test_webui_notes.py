@@ -23,10 +23,10 @@ class NotesApiTests(unittest.TestCase):
         vault.save_note("Leaf", "A leaf note about passkeys.", folder="")
         # AgentContext is frozen; swap the vault in without rebuilding the app.
         object.__setattr__(webui._orchestrator.context, "obsidian", vault)
-        cls.server = ThreadingHTTPServer((webui.HOST, 8796), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8796"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:
