@@ -32,7 +32,7 @@
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
-  let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
+  let attachments=[], busy=false, wakeBusyEpoch=0, voiceActive=false, currentAbort=null, agentMode=false;
   const SEND_ICON=sendBtn.innerHTML, STOP_ICON='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
@@ -775,7 +775,7 @@
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="think" role="status" aria-label="Working"><i></i></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
+  function setBusy(b,tier){if(b&&!busy)wakeBusyEpoch++;busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
     sendBtn.innerHTML=b?STOP_ICON:SEND_ICON; sendBtn.title=b?'Stop':'Send';sendBtn.setAttribute('aria-label',sendBtn.title); sendBtn.classList.toggle('stop',b);}
   let currentRequest=null;
   function stopGen(){twCancel=true;if(currentRequest){fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:currentRequest})}).catch(()=>{hint.textContent='Could not reach the server to confirm stopping.';});}if(currentAbort){currentAbort.abort();}}
@@ -1951,7 +1951,7 @@
     wakeStop=stop;
     proc.onaudioprocess=e=>{
       if(wakeStop!==stop)return;
-      if(voiceActive||speaking||activeRecording||performance.now()-speechEndedAt<800){clip=[];inSpeech=false;loud=0;return;}
+      if(busy||voiceActive||speaking||activeRecording||performance.now()-speechEndedAt<800){clip=[];inSpeech=false;loud=0;return;}
       const ch=e.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<ch.length;i+=4)sum+=ch[i]*ch[i];
       const level=Math.sqrt(sum/(ch.length/4)), bar=Math.max(0.02,floor*3);
       if(!inSpeech){
@@ -1971,13 +1971,14 @@
     src.connect(proc);proc.connect(sink);sink.connect(ac.destination);
   }
   async function wakeCheck(samples,rate){
-    if(wakeChecking)return;                       // one clip at a time; a burst while one is checked is dropped
+    if(wakeChecking||busy)return;                  // a burst while a chat or wake check is running is dropped
     wakeChecking=true;
+    const busyEpoch=wakeBusyEpoch;
     try{
       const r=await fetch('/api/wake',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encodeWavB64(samples,rate)})});
       const d=await r.json();
       if(d.available===false){wakeUnavailable=true;wakePause();paintWake();return;}
-      if(d.wake&&wakeOn&&!voiceActive){wakePause();chime();startVoice((d.rest||'').trim());}
+      if(d.wake&&wakeOn&&!voiceActive&&!busy&&busyEpoch===wakeBusyEpoch){wakePause();chime();startVoice((d.rest||'').trim());}
     }catch(e){}
     finally{wakeChecking=false;}
   }

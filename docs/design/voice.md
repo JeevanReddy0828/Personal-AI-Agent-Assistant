@@ -267,7 +267,10 @@ Measured on synthesized clips: about 0.5 s a clip once loaded; loading takes ~9 
 `_warm_wake` loads it at start. On waking: a chime, and voice mode starts, or, when the words
 went on ("Hey Jarvis, what time is it"), the rest is sent at once. The stream is closed while
 voice mode has the microphone and reopened 800 ms after it ends; while we speak or record, what
-it hears is dropped. The switch is the ear button by Voice (`#wakeBtn`, saved in
+it hears is dropped. A normal chat in progress also drops microphone clips, and a wake reply
+started before that chat is ignored even if the chat finishes before the reply arrives. This
+keeps the spoken remainder from entering voice mode while `send()` is busy and losing it.
+The switch is the ear button by Voice (`#wakeBtn`, saved in
 `localStorage['jarvis_wake']`), and "turn off/on the wake word" or "stop listening for hey jarvis",
 answered by the page itself. Without Whisper on the server the page switches itself off after
 the first clip. Two windows open both listen; the first to hear it answers.

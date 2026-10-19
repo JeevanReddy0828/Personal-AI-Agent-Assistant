@@ -589,6 +589,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   default, Jeevan's choice): the page cuts speech into clips by level and `/api/wake` decides with
   local Whisper only, an opening "Jarvis" only, `no_speech_prob > 0.6` ignored; it closes while voice
   mode has the microphone and never opens while switched off (`test_wake.py`, `test_browser_wake.py`). (10-15)
+- **"Hey Jarvis" entered voice during a pending chat but lost the spoken request** → the wake
+  reply called `send()` while its busy guard rejected another request → discard clips during
+  chat and stale wake replies that span a chat (`test_browser_wake.py`). (10-19)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 

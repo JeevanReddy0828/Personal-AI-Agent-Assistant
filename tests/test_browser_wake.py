@@ -23,6 +23,24 @@ const realGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.medi
 navigator.mediaDevices.getUserMedia = (constraints) => { window.__mics++; return realGetUserMedia(constraints); };
 """
 
+PENDING_WAKE_AND_CHAT = """
+window.__chatRequests=0;
+const upstreamFetch=window.fetch.bind(window);
+window.fetch=(input,options)=>{
+  const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
+  if(path==='/api/wake')return new Promise(resolve=>{
+    window.__releaseWake=()=>resolve(new Response(JSON.stringify(
+      {ok:true,available:true,wake:true,rest:'what time is it'}),
+      {status:200,headers:{'Content-Type':'application/json'}}));
+  });
+  if(path==='/api/stream'){
+    window.__chatRequests++;
+    return new Promise(resolve=>{window.__releaseChat=()=>resolve(new Response('',{status:200}));});
+  }
+  return upstreamFetch(input,options);
+};
+"""
+
 
 @unittest.skipUnless(os.environ.get("JARVIS_BROWSER_TESTS") == "1", "Opt-in Chromium checks")
 class WakeWordInTheBrowser(unittest.TestCase):
@@ -51,10 +69,12 @@ class WakeWordInTheBrowser(unittest.TestCase):
         cls.metrics_patch.stop()
         cls.wake_patch.stop()
 
-    def open(self, wake_reply: dict, stored: str | None = None):
+    def open(self, wake_reply: dict, stored: str | None = None, init_script: str = ""):
         context = self.browser.new_context(viewport={"width": 1280, "height": 900}, permissions=["microphone"])
         self.addCleanup(context.close)
         context.add_init_script(STUB_SPEECH)
+        if init_script:
+            context.add_init_script(init_script)
         if stored is not None:
             context.add_init_script(f"localStorage.setItem('jarvis_wake', {json.dumps(stored)});")
         self.checks: list[str] = []
@@ -116,6 +136,32 @@ class WakeWordInTheBrowser(unittest.TestCase):
         count = len(self.checks)
         page.wait_for_timeout(3000)
         self.assertEqual(len(self.checks), count, "kept sending clips to an engine that is not there")
+
+    def test_wake_reply_during_a_pending_chat_does_not_enter_voice(self):
+        page = self.open({}, stored="off", init_script=PENDING_WAKE_AND_CHAT)
+        page.click("#wakeBtn")
+        page.wait_for_function("() => typeof window.__releaseWake === 'function'", timeout=20000)
+        page.fill("#ta", "hello")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => window.__chatRequests === 1")
+        page.evaluate("window.__releaseWake()")
+        page.wait_for_timeout(500)
+        self.assertFalse(self.voicing(page), "wake entered voice while send() was busy")
+        self.assertEqual(page.evaluate("window.__chatRequests"), 1, "the spoken request entered a second send")
+        page.evaluate("window.__releaseChat()")
+
+    def test_an_old_wake_reply_is_ignored_after_chat_finished(self):
+        page = self.open({}, stored="off", init_script=PENDING_WAKE_AND_CHAT)
+        page.click("#wakeBtn")
+        page.wait_for_function("() => typeof window.__releaseWake === 'function'", timeout=20000)
+        page.fill("#ta", "hello")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => window.__chatRequests === 1")
+        page.evaluate("window.__releaseChat()")
+        page.wait_for_function("() => !document.getElementById('reactor').classList.contains('busy')")
+        page.evaluate("window.__releaseWake()")
+        page.wait_for_timeout(500)
+        self.assertFalse(self.voicing(page), "wake response from before the chat started was replayed afterward")
 
 
 if __name__ == "__main__":
