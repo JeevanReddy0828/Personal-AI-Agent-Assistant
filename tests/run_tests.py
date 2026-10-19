@@ -67,6 +67,16 @@ def main() -> int:
         return connect(sock, address)
 
     socket.socket.connect = local_only
+    bind = socket.socket.bind
+
+    # SO_REUSEADDR lets a second Windows process bind a port another worktree's suite is
+    # serving, and requests then reach that server and its different API token.
+    def free_port_only(sock, address):
+        if isinstance(address, tuple) and len(address) > 1 and address[1]:
+            raise OSError(f"Tests bind port 0, not {address[1]}: read server_address[1]")
+        return bind(sock, address)
+
+    socket.socket.bind = free_port_only
 
     # Nothing a test does may reach the desktop: see desktop_guard.py.
     from desktop_guard import make_desktop_inert
