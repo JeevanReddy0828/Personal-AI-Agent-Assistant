@@ -86,6 +86,7 @@ _DEV_EXACT = frozenset({
     "clipboard",
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
+    "briefing format", "briefing settings", "briefing reset", "briefing default",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
     "self-check", "does everything work", "check yourself", "diagnose", "latency", "traces",
     "why slow", "speed", "watches", "watch health", "watch check health",
@@ -119,6 +120,7 @@ _DEV_EXACT = frozenset({
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
     "timecard", "autopilot", "schedule", "agent", "workflow", "multi", "plan apply job",
+    "briefing set", "briefing add", "briefing remove",
     # the owner's own code
     "plugin",
     "watch news", "watch check news", "unwatch",

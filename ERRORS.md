@@ -72,6 +72,28 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **A list was read off a word inside it** - "add machine learning papers to my briefing" saved
+  the laptop line, "bottom 2 regions by revenue" called the lowest the leader, and "calculate total
+  revenue by region in x.csv" went to the chat model (review of #296) → section words matched with
+  `.search`, the insight read the ranking's first as its highest, and the calculate prose rule did
+  not know breakdowns → sections fullmatch the whole part, the insight takes max/min by value, and
+  the prose rule asks `breakdown_request` first. (10-17)
+- **Stop during a briefing waited for an unrelated slow feed** (Codex's review of #296) → the
+  feeds' `with ThreadPoolExecutor` block waited for every thread on exit, and results were read in
+  section order → `wait(FIRST_EXCEPTION)` re-raises a section's OperationCancelled at once and the
+  pool shuts down without waiting; tests join the `briefing` threads before cleanup (`test_briefing.py`). (10-18)
+- **A personal account could change the developer-only briefing by approving a learned
+  `briefing_format` fact** (found integrating #296 with #288) → `learn from chat` is everyday and
+  saved any proposed key, a second door beside "remember" → `LearnTool(allowed=...)` drops a key the
+  orchestrator refuses before the card (`_briefing_by_remember`), so it is neither shown nor saved
+  (`test_learn.py`). (10-18)
+- **"set my briefing to weather and news" saved a briefing of weather alone, then read the
+  news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
+  and "set my briefing to weather" and "news" both do; the typed form split the same way,
+  because the catch-all `briefing` route reads it as a plain briefing → a sentence that is, or
+  routes to, `briefing set/add/remove` stays whole (`_split_requests`); "give me my briefing
+  and set a timer" still splits. A list joined by "and" inside one argument needs this for
+  every new verb that takes one. (10-16)
 - **"create a workspace folder and fill files with python basics" made one Markdown document** → no tool could make a folder or write several files, so the model router substituted the document tool → `workspace <request>` (`tools/workspace.py`): the name and place come from the words, the model only plans the files as JSON, one unsafe path refuses the whole plan, and one HIGH card lists every file before anything is written; developer-only; the router leaves "how do I create a folder in python" to the chat; a path that is both a file and a folder ("src" and "src/app.py", any case) is refused before the card (Codex's review) (`test_workspace.py`). (10-13)
 - **A failed workspace write said "nothing was left half-written" while the folder was still there** → `rmtree(ignore_errors=True)` can silently leave files Windows holds open → the folder is checked after the cleanup and, if it survived, the reply names it (Codex's review of #282, `test_workspace.py`). (10-18)
 - **"make my downloads folder less cluttered" made a folder; a plan with a README fence was "not usable"; a folder that appeared while the card was open was written into; "in C:\My Projects" created C:\My** → the router matched a prefix, the fence regex stopped at the inner ```, the free name was checked before the card and not claimed, and an unquoted path stopped at the space → the whole sentence must ask for a folder (`_WORKSPACE_ASK`), the plan is read with `raw_decode`, the folder is claimed by an exclusive mkdir after the card and removed again if a write fails, a place that does not exist is refused, the name and place come only from before the contents, .url/.lnk/.scf/script files are never written, the card shows the start of each file, and the writer's tokens are clamped to the endpoint's cap (`ReviewOf282Tests`). (10-17)
@@ -603,6 +625,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"total revenue by region in sales.csv" said Revenue "is not a column of numbers"** because
+  one cell read "N/A" → the column test demanded every cell be a number, so one odd cell made
+  the whole column text and the reply blamed the column → a column is numbers when most of its
+  filled cells are, and the odd cell is refused by its row (`tools/breakdown._is_numeric`). (10-16)
 - **A "Recycle Bin" delete could be permanent, and "delete the alarm at 6.30" became a file delete**
   (review of #287) → FOF_NOCONFIRMATION answered Windows' "delete permanently?" for drives with no
   bin, and any "name.<1-6 chars>" was a file name → a removable or network drive is refused before

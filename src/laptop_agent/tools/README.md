@@ -80,6 +80,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `textcard.py` | Renders exact text as an image, because a diffusion model cannot spell. |
 | `forecast.py` | `forecast <column> in <file.csv>`: turns a CSV column into a clean series for `analytics/forecast.py`. |
 | `diagnostics.py` | `what drives …` / `anomalies in …`: the CSV side of `analytics/diagnostics.py`. |
+| `breakdown.py` | "total revenue by region in sales.csv", "top 5 … by …", "how many … per month in …": computed group totals with a bar chart. |
 
 ### Web, research and information
 | File | What it does |
