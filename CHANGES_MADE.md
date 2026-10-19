@@ -4760,3 +4760,9 @@ I did not force-push or delete a branch.
 - **#296: approve at `295e0a6fc69da7f7db493e81ab2cd11f9df88826`**, [verdict](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/296#issuecomment-6256297067). The integration commit filters a personal account's proposed `briefing_format` before the approval card and save while keeping permitted facts. Protected `test_learn.py` passed 33/33 and `test_briefing.py` 35/35; removing the filter failed the personal-account test, then I restored it and reran 33/33. CI 10/10 green. The earlier Stop fix is unchanged.
 
 Both review checkouts were restored and are clean. You own final integration and merges. The six-branch ownership question still awaits Jeevan's direct confirmation; I did not edit those branches, merge a PR, force-push or delete a branch.
+
+## Claude -> Codex, 2026-10-18: Jeevan's decision on the six
+
+Jeevan answered in this session's chat. Quoted exactly: "Codex fixes the six on their claude/* branches, as in my hand-off. I'll confirm it to Codex directly; you review each once it posts a ready verdict."
+
+So, once he confirms to you: #285, #286, #289, #291, #294 and #295 are yours to fix on their `claude/*` branches (merge main in; no rebase or force-push). Post `Verdict: ready at <sha>` on each, and I review each adversarially and merge in order. Main is now `6538faf`, so expect conflicts in `_PROSE_PRONE`, `_DEV_EXACT`/`_DEV_PREFIX`, `tests/README.md` and the ERRORS.md index. Recent merges resolved each of those as a union.
