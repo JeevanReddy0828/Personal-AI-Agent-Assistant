@@ -181,6 +181,29 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             the contract requires. One dispatcher branch (`diagnostics_command`) serves both,
             and like `forecast` a sentence naming a table it cannot follow gets the usage.
             Developer-only by default-deny),
+        breakdown (`tools/breakdown.py`: "total revenue by region in sales.csv", "average price
+            per category in …", "how many orders by month in …", "top 5 products by revenue in …",
+            "which region has the highest revenue in …" - a question about a table, said the way
+            people say it, computed and never generated. The dispatcher hands it the sentence
+            itself (after `forecast` and the diagnostics, so their sentences stay theirs), and the
+            instant router passes it on with the wake word removed. The file is the last
+            "in/from <x>.csv" that exists, so a column called "Revenue in USD" keeps its "in".
+            A bare "<column> by <column> in x.csv" is ours only when its words name a column;
+            otherwise it falls through to the router, so "how do i sort by date in x.csv" is still
+            a question. No stat word means a total of numbers or a count of anything else. A count
+            of names counts each once ("how many customers by region"), a count of numbers counts
+            filled cells (equal amounts are separate sales), and a word that is no column counts
+            rows ("how many orders"). "by month/quarter/year/week/day" buckets the one date column,
+            or the one named ("by month of Shipped"); a year column of plain numbers is not a
+            date, and two date columns are asked about, never chosen between. A blank is left out
+            and said; a cell that is not a number is refused with its row, but a column is numbers
+            when MOST of its cells are - when all had to be, one "N/A" made Revenue "not a column
+            of numbers". The lead sentence is the answer (who leads, their share, the top three's,
+            the lowest; or for a time breakdown the peak and how the latest moved), then the
+            ranking, then `data.chart` ({kind: bar, labels, values}) drawn by `barChart` in
+            app.js as DOM nodes, so a group name from the file is never markup; it is saved on the
+            message like the forecast's chart, so a reopened chat draws it. Developer-only by
+            default-deny, since it reads a file),
         windows (`window <name> <position>` / `windows` - arrange the desktop by voice:
             "put WhatsApp on the left and Chrome on the right". Positions: left/right/top/
             bottom, the four corners, thirds, centre, full. `parse_placements` finds the
@@ -372,6 +395,28 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
         via `schedule command "jobright pull"`),
         tools/resume_pdf.py (renders the tailored HTML resume to a Letter PDF via the
         `browser` Chromium — no LaTeX toolchain needed), reminders.py, metrics.py, health.py,
+        briefing.py (the daily briefing in the user's own format: `briefing set weather in Boston,
+            AI news, my shopping list and reminders`, `briefing add|remove …`, `briefing format`,
+            `briefing reset`, and said naturally: "set my briefing to …", "take the news out of my
+            briefing", "what's in my briefing", "brief me". The format is ONE remembered fact,
+            `briefing format` (never any other fact about the briefing: "my morning briefing is at
+            7:30" was deleted by "add mail to my briefing"; a personal account may not remember it,
+            since that was `briefing set` by another door), re-read on every run, so it shows in "what do you remember" and a section
+            added later reads an old format the same way. Each section is the WHOLE part,
+            never a word in it ("machine learning papers" was saved as the laptop line); a place keeps
+            its comma ("Paris, France"); "to do list" is the to-do list. Sections: reminders (due, the rest of
+            today, running timers, else the next one), weather (the place named, else the
+            remembered city, else IP location), news [about a topic], mail (unread, newest three),
+            a named list, laptop (CPU/RAM). Default: reminders, weather, news, laptop - with mail
+            after reminders only when an inbox is connected, since "not connected" every morning is
+            noise. A format with any part it cannot read saves NOTHING and names what it can
+            include; "calendar" and "schedule" are refused rather than answered with the reminders.
+            Weather, news and mail are fetched at once (a thread each, in a copy of the turn's
+            context so the signed-in check and Stop still apply): one after another they cost
+            their sum, with 15-20s timeouts each offline. A section that fails is one line and is
+            recorded; OperationCancelled still ends the turn. Still developer-only, as the old
+            status briefing was: widening it to a personal account is a decision not yet made.
+            Schedule it with `schedule daily at 07:30 :: briefing`),
         agents/control_room.py (specialist roster), safety.py, audit.py,
         failures.py (FailureLog: every `except` that swallows also records here -
             `failures` command, `/api/failures`. This exists because graceful

@@ -271,7 +271,7 @@ class ReviewOf284Tests(ClipboardCommandTests):
         import subprocess
         broken = clipboard.ClipboardTool(SimpleNamespace(
             read=lambda: (_ for _ in ()).throw(subprocess.CalledProcessError(1, ["wl-paste"])),
-            write=lambda text: (_ for _ in ()).throw(OSError("The clipboard is in use by another app")))) 
+            write=lambda text: (_ for _ in ()).throw(OSError("The clipboard is in use by another app"))))
         self.assertFalse(broken.show().ok)
         self.assertNotIn("CalledProcessError", broken.show().message)
         self.assertFalse(broken.copy("x").ok)
