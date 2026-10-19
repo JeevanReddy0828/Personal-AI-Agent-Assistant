@@ -631,6 +631,43 @@ class BrowserRegressions(unittest.TestCase):
         self.assertLess(outcome["size"], 4000)
         self.assertEqual(self.errors, [])
 
+    def test_a_breakdown_draws_its_bars_with_names_as_text(self):
+        """"total revenue by region in sales.csv" answers with a bar per group, drawn from the
+        numbers the tool computed. A group's name comes from the user's file, so it is text in
+        the chart, never markup, and a reopened chat draws the bars again."""
+        outcome = self.page.evaluate(
+            """async () => {
+                const NL = String.fromCharCode(10), realFetch = window.fetch;
+                const hostile = '<img src=x onerror="window.__bar=1">';
+                const done = {type: 'done', ok: true, message: '**Total Revenue by Region** · sales.csv, 10 rows',
+                    data: {stat: 'sum', groups: [], chart: {kind: 'bar', title: 'Total Revenue by Region',
+                           labels: ['North', 'South', hostile], values: [4870, 2240, -30], time: false}}};
+                window.fetch = (url, opts) => String(url).indexOf('/api/stream') >= 0
+                    ? Promise.resolve(new Response('data: ' + JSON.stringify(done) + NL + NL, {status: 200}))
+                    : realFetch(url, opts);
+                try { await send('total revenue by region in sales.csv'); } finally { window.fetch = realFetch; }
+                const last = () => { const charts = document.querySelectorAll('.msg .bchart');
+                    return charts.length ? charts[charts.length - 1] : null; };
+                const chart = last();
+                if (!chart) return null;
+                const live = {bars: chart.querySelectorAll('rect').length, height: chart.getBoundingClientRect().height,
+                              text: chart.textContent, images: chart.querySelectorAll('img').length,
+                              finite: !/NaN|Infinity/.test(chart.outerHTML)};
+                loadSession(current);
+                const again = last();
+                return {live, reopened: again ? again.textContent : null, injected: window.__bar || 0};
+            }"""
+        )
+        self.assertIsNotNone(outcome, "no bar chart was drawn for a breakdown")
+        live = outcome["live"]
+        self.assertEqual(live["bars"], 3)
+        self.assertGreater(live["height"], 40)
+        self.assertIn('<img src=x onerror="window.__bar=1">'[:21], live["text"])
+        self.assertEqual((live["images"], outcome["injected"]), (0, 0), "a name from the file was read as markup")
+        self.assertTrue(live["finite"])
+        self.assertEqual(outcome["reopened"], live["text"], "the reopened chat drew a different chart, or none")
+        self.assertEqual(self.errors, [])
+
     def test_copying_works_without_a_secure_context(self):
         """navigator.clipboard is also absent outside a secure context. One Copy button
         used it unguarded and reported 'Blocked' on a phone."""

@@ -3,6 +3,7 @@ from __future__ import annotations
 from laptop_agent.cancellation import check_cancelled, OperationCancelled
 
 import asyncio
+import contextvars
 import difflib
 import errno
 import html
@@ -14,7 +15,9 @@ import secrets
 import tempfile
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -43,10 +46,15 @@ from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore, list_name
 from laptop_agent.metrics import battery_status, system_metrics
+from laptop_agent.briefing import (
+    CAN_INCLUDE, DEFAULT_FORMAT, MAIL_FETCH, MAX_SECTIONS, PROFILE_KEY, Section, describe_format, greeting, mail_lines, news_lines,
+    parse_format, weather_text,
+)
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import CutOff, PlanDecision
 from laptop_agent.planner.heuristic import (
+    follows_a_file_change,
     asks_to_learn,
     SMALL_TALK,
     asks_to_arrange,
@@ -84,6 +92,7 @@ from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailDraft, EmailTool
 from laptop_agent.tools.file_processor import FileProcessor
 from laptop_agent.tools.files import FileTool
+from laptop_agent.tools.breakdown import breakdown_command, breakdown_request
 from laptop_agent.tools.diagnostics import ANOMALIES_USAGE, DRIVERS_USAGE, diagnostics_command
 from laptop_agent.tools.forecast import USAGE as FORECAST_USAGE, forecast_command
 from laptop_agent.tools.jobright import JobrightTool
@@ -94,6 +103,7 @@ from laptop_agent.tools.mcp import McpTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 from laptop_agent.tools.travel import TravelTool
+from laptop_agent.tools import fileops
 from laptop_agent.config import load_config
 from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 from laptop_agent.tools.document import DocumentTool, page_target
@@ -109,6 +119,7 @@ from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.tools.youtube import YouTubeTool
+from laptop_agent.tools.messaging import MessagingTool
 from laptop_agent.workflows import WorkflowStep, WorkflowTracker
 
 
@@ -249,7 +260,8 @@ _CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|kr
 _UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
 _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
                "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
-               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ")
+               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ", "file move ",
+               "file copy ", "file rename ", "file delete ")
 # Phone keyboards type "what’s", and every route is written with a straight apostrophe: all
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
 # own characters, since a file may really be named with one.
@@ -564,7 +576,9 @@ class AgentOrchestrator:
         self._plugins_cache: PluginTool | None = None
         self._plugins_lock = threading.Lock()
         self._youtube_tool_cache: YouTubeTool | None = None
+        self._messaging_cache: MessagingTool | None = None
         self._travel_tool_cache: TravelTool | None = None
+        self._file_ops_cache: fileops.FileOps | None = None
         self._problem_solver_cache: ProblemSolver | None = None
         self._mcp_cache: McpTool | None = None
         self._copilot_cache: JobCopilot | None = None
@@ -734,7 +748,7 @@ class AgentOrchestrator:
                 trace.route_done(source)
             return decision
 
-        fast = self.router.plan(command, help_text, profile)
+        fast = self.router.plan(command, help_text, profile, history)
         if fast.is_command or self.planner is None:
             return decided("heuristic", fast)
         if type(self.planner.provider).__name__ == "HeuristicPlannerProvider":
@@ -767,7 +781,14 @@ class AgentOrchestrator:
                     explanation="A plain question with nothing to act on; answered without a routing call.",
                 ),
             )
-        return decided("llm", self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history)))
+        planned = self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history))
+        # The model knows `undo file` but not what was just done: after "Reminder set", "undo that"
+        # moved an unrelated file back (review of #287). Only straight after a file change of ours.
+        if planned.is_command and (planned.command or "").lower().startswith("undo file") and not (
+                follows_a_file_change(history)):
+            planned = PlanDecision(action="chat", confidence=planned.confidence,
+                                   explanation="An undo of a file change that was not the last thing done.")
+        return decided("llm", planned)
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
     # the user: 'I read "this" as I can't generate or attach images directly...'.
@@ -794,6 +815,7 @@ class AgentOrchestrator:
         "open url", "download", "read file", "index file", "process file", "summarize file",
         "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
         "describe image", "summarize youtube", "organize folder", "scan files",
+        "file move", "file copy", "file rename", "file delete",
     )
     # The part of a target that identifies it: a host without www/TLD, or a filename stem.
     _TARGET_TOKEN = re.compile(r"[A-Za-z0-9_-]{3,}")
@@ -1145,6 +1167,21 @@ class AgentOrchestrator:
 
         if lowered in {"briefing", "daily briefing", "status briefing", "morning briefing"}:
             return self._briefing()
+
+        if lowered in {"briefing format", "briefing settings"}:
+            return self._briefing_format()
+
+        if lowered in {"briefing reset", "briefing default"}:
+            return self._briefing_reset()
+
+        if lowered.startswith("briefing set "):
+            return self._briefing_change("set", command[len("briefing set ") :])
+
+        if lowered.startswith("briefing add "):
+            return self._briefing_change("add", command[len("briefing add ") :])
+
+        if lowered.startswith("briefing remove "):
+            return self._briefing_change("remove", command[len("briefing remove ") :])
         return None
 
     async def _dispatch_jobs(self, command: str, lowered: str, history_turns) -> ToolResult | None:
@@ -1276,6 +1313,20 @@ class AgentOrchestrator:
 
     async def _dispatch_files(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, scanning and indexing files."""
+        if lowered == "undo file":
+            return self._file_ops().undo()
+        if lowered in {"undo file move", "undo file copy", "undo file rename"}:
+            return self._file_ops().undo(lowered.rsplit(" ", 1)[1])
+        if lowered.startswith(("file move ", "file copy ", "file rename ")):
+            changed = self._file_change_parts(command)
+            if changed is None:
+                return ToolResult.failure("Say where it goes: file move <file> to <folder or path>.")
+            verb, source, target = changed
+            if verb == "rename":
+                return self._file_ops().rename(source, target)
+            return self._file_ops().move(source, target, copy=verb == "copy")
+        if lowered.startswith("file delete "):
+            return self._file_ops().delete(command[len("file delete ") :])
         if lowered.startswith("scan files "):
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
@@ -1443,6 +1494,8 @@ class AgentOrchestrator:
         if (result := forecast_command(command)) is not None:
             return result
         if (result := diagnostics_command(command)) is not None:
+            return result
+        if (result := breakdown_command(command)) is not None:
             return result
         if lowered == "record" or re.fullmatch(r"record -?\d+(?:\.\d+)?", lowered):
             from laptop_agent.recordings import MAX_SECONDS, recording_seconds
@@ -1765,6 +1818,18 @@ class AgentOrchestrator:
             return self._travel_tool().nearby(rest[: match.start()].strip(), rest[match.end() :].strip())
         return None
 
+    @staticmethod
+    def _with_flights_link(query: str, result: ToolResult) -> ToolResult:
+        """"flights from Austin to Tokyo" is routed to a web search, which finds pages about fares
+        but no fares: a Google Flights search for the same words goes at the top. No fare is ever
+        stated by us; there is no free fare API to read one from."""
+        if not re.match(r"flights?\s+(?:from\s+\S.*?\s+)?to\s+\S", query, re.IGNORECASE):
+            return result
+        link = "https://www.google.com/travel/flights?q=" + urllib.parse.quote(query)
+        result.message = f"[Search live fares on Google Flights]({link})\n\n" + (result.message or "")
+        result.data["flights_link"] = link
+        return result
+
     async def _dispatch_web(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for YouTube, search, URLs, downloads and the browser."""
         if lowered.startswith("summarize youtube "):
@@ -1774,10 +1839,17 @@ class AgentOrchestrator:
             return self._youtube_summary(command[len("youtube summary ") :].strip())
 
         if lowered.startswith("web search "):
-            return self.context.websearch.search(command[len("web search ") :].strip())
+            query = command[len("web search ") :].strip()
+            return self._with_flights_link(query, self.context.websearch.search(query))
 
         if lowered.startswith("search web "):
             return self.context.websearch.search(command[len("search web ") :].strip())
+
+        if lowered.startswith("message "):
+            parsed = re.match(r"message (whatsapp|telegram)(?: to (.+?))? :: (.+)$", command, re.IGNORECASE | re.DOTALL)
+            if not parsed:
+                return ToolResult.failure("Say it like: message whatsapp to mom :: I'm running late.")
+            return self._messaging().prepare(parsed.group(1), parsed.group(2) or "", parsed.group(3))
 
         if lowered.startswith("open url "):
             return self.context.web.open_url(command[len("open url ") :].strip())
@@ -2447,7 +2519,10 @@ class AgentOrchestrator:
             return asks_to_learn(command) or bool(
                 re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
         if verb in {"calculate", "calc", "compute"}:
-            return not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+            # "calculate total revenue by region in sales.csv" is a breakdown, not prose: read as
+            # prose it went to the router, came back unchanged and was answered by the chat model.
+            return (not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+                    and breakdown_request(f"{verb} {rest}") is None)
         if verb == "map":
             return first == "out"
         if verb == "workflow":
@@ -2648,6 +2723,17 @@ class AgentOrchestrator:
             return None
         if command.split(None, 1)[0].lower() in _WHOLE_ARGUMENT:
             return None
+        # A briefing format is a list joined by "and": split, "set my briefing to weather and news"
+        # saved a briefing of weather alone and then read out the news. So in a briefing change a
+        # part that is only a section ("news") belongs to the format - but a real second request
+        # ("and set a timer for 10 minutes") still splits off; refusing every split swallowed it.
+        changes = ("briefing set ", "briefing add ", "briefing remove ")
+        whole = self.router.plan(command, "", {})
+        in_format = command.lower().startswith(changes) or whole.is_command and (whole.command or "").startswith(changes)
+
+        def section_only(part: str) -> bool:
+            sections, unknown = parse_format(part)
+            return bool(sections) and not unknown
         routes: dict[str, bool] = {}
 
         def routed(part: str) -> bool:
@@ -2663,6 +2749,8 @@ class AgentOrchestrator:
             if any(not part for part in parts):
                 continue
             if any(not _REQUEST_START.match(part) for part in parts[1:]):
+                continue
+            if in_format and any(section_only(part) for part in parts[1:]):
                 continue
             if all(routed(part) for part in parts) and (best is None or len(parts) > len(best)):
                 best = parts
@@ -3214,7 +3302,7 @@ class AgentOrchestrator:
                 "  windows",
                 "  memory",
                 "  audit",
-                "  briefing",
+                "  briefing  ·  briefing set <sections>  ·  briefing add|remove <sections>  ·  briefing format|reset",
                 "  jobs  ·  job add <company> [stage]  ·  job stage <id> <stage>  ·  job remove <id>",
                 "  autopilot <goal>",
                 "  autopilot workflow <safe command 1> ;; <safe command 2>",
@@ -3249,6 +3337,7 @@ class AgentOrchestrator:
                 "  analyze spreadsheet <path>  (per-column stats for CSV/TSV)",
                 f"  {FORECAST_USAGE}  (computed, with a range from its own past errors)",
                 f"  {DRIVERS_USAGE}  (associations, scored on rows the fit never saw)",
+                "  total|average|count <column> by <column> in <file.csv>  (computed, with a chart; also top N, by month)",
                 f"  {ANOMALIES_USAGE}  (robust median/MAD scores)",
                 "  process file <path> [as <operation>]  (auto-detects type, picks the best action)",
                 "  convert file <source> to <destination>",
@@ -3274,6 +3363,7 @@ class AgentOrchestrator:
                 "  remember note <text>",
                 "  learn from chat  (the lasting facts you said here, saved after you approve them)",
                 "  search files <query> <path>",
+                "  file move|copy <file> to <folder> | file rename <file> to <name> | file delete <file> | undo file  (each asks; delete goes to the Recycle Bin)",
                 "  web search <query>",
                 "  clipboard | clipboard copy <text|that> | clipboard ask <request>  (what you copied; 'copy that' copies my last reply)",
                 "  news [topic]  (real headlines from free feeds, with article text)",
@@ -3299,6 +3389,7 @@ class AgentOrchestrator:
                 "  save research report <topic> to <path|obsidian>",
                 "  solve <problem or decision>  (researches, weighs options, recommends a plan)",
                 "  open url <url>",
+                "  message whatsapp|telegram [to <name or number>] :: <text>  (opened ready to send; you press send)",
                 "  download <url>",
                 "  inspect page <url>",
                 "  inspect forms <url>",
@@ -3969,61 +4060,202 @@ class AgentOrchestrator:
         removed = self.context.jobs.remove(int(raw.lstrip("#")))
         return ToolResult.success("Removed." if removed else f"No tracked job #{raw.lstrip('#')}.", removed=removed)
 
+    # The briefing's network sections are fetched at once: weather, three news feeds and an inbox
+    # one after another is their sum, and each has a 15-20 second timeout when offline.
+    _BRIEFING_NETWORK = frozenset({"weather", "news", "mail"})
+
     def _briefing(self) -> ToolResult:
+        """The daily briefing, in the sections and order the user chose (`briefing set ...`)."""
+        sections, custom = self._briefing_sections()
+        now = datetime.now().astimezone()
+        network = [section for section in sections if section.kind in self._BRIEFING_NETWORK]
+        fetched: dict[Section, ToolResult] = {}
+        if network:
+            pool = ThreadPoolExecutor(max_workers=len(network), thread_name_prefix="briefing")
+            try:
+                # Each in a copy of this turn's context, so the signed-in check, Stop and the
+                # trace still see the turn the section belongs to.
+                futures = {section: pool.submit(contextvars.copy_context().run, self._briefing_fetch, section)
+                           for section in network}
+                # A Stop raised in one section ends the briefing now, not after a slower feed
+                # (review of #296): only OperationCancelled escapes _briefing_fetch.
+                done, _ = wait(futures.values(), return_when=FIRST_EXCEPTION)
+                for future in done:
+                    if future.exception() is not None:
+                        raise future.exception()
+                fetched = {section: future.result() for section, future in futures.items()}
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)  # a stalled feed ends on its own timeout
+
+        lines = [f"## {greeting(now.hour)}", f"_Your briefing for {now.strftime('%A, %B')} {now.day}._", ""]
         due_reminders = self.context.reminders.due()
-        active_reminders = self.context.reminders.list()
-        latest_tasks = self.context.tasks.latest()
-        knowledge_stats = self.context.knowledge.stats()
-        agents = self.control_room.snapshot()
-        metrics = system_metrics(force=True)
-
-        lines = ["## Briefing", ""]
-        if due_reminders:
-            lines.append(f"**Due reminders:** {len(due_reminders)}")
-            lines.extend(f"- #{item.get('id')} {item.get('message')} ({item.get('due_at')})" for item in due_reminders[:5])
-        else:
-            lines.append("**Due reminders:** none")
-
-        upcoming = [item for item in active_reminders if item not in due_reminders]
-        if upcoming:
+        metrics: dict[str, object] | None = None
+        for section in sections:
+            if section.kind == "reminders":
+                lines += self._briefing_reminders(now)
+            elif section.kind == "laptop":
+                metrics = system_metrics(force=True)
+                lines.append(self._briefing_laptop(metrics))
+            elif section.kind == "list":
+                items = self.context.memory.list_items(section.about)
+                name = f"{section.about.capitalize()} list"
+                lines.append(f"**{name}** — " + (", ".join(items) + "." if items else "empty."))
+            else:
+                lines += self._briefing_network_lines(section, fetched[section])
             lines.append("")
-            lines.append(f"**Upcoming:** {len(upcoming)} active reminder(s)")
-            lines.extend(f"- #{item.get('id')} {item.get('message')} ({item.get('due_at')})" for item in upcoming[:3])
-
-        lines.append("")
-        if latest_tasks:
-            lines.append(
-                "**Latest task run:** "
-                f"{latest_tasks.get('ok_count', 0)} ok, {latest_tasks.get('failed_count', 0)} failed "
-                f"across {latest_tasks.get('task_count', 0)} task(s)"
-            )
-        else:
-            lines.append("**Latest task run:** none yet")
-
-        lines.append(
-            "**Knowledge:** "
-            f"{knowledge_stats['document_count']} document(s), {knowledge_stats['total_char_count']} indexed character(s)"
-        )
-        agent_summary = agents["summary"]
-        lines.append(
-            "**Agents:** "
-            f"{agent_summary['working']} working, {agent_summary['idle']} idle, {agent_summary['unavailable']} unavailable"
-        )
-        cpu = metrics.get("cpu_percent")
-        ram = metrics.get("ram_percent")
-        lines.append(
-            "**System:** "
-            f"CPU {cpu if cpu is not None else 'n/a'}%, RAM {ram if ram is not None else 'n/a'}%"
-        )
-
+        if not custom:
+            lines.append("_Change what's in it: \"set my briefing to weather, AI news and my reminders\"._")
         return ToolResult.success(
-            "\n".join(lines),
+            "\n".join(lines).strip(),
+            briefing={"sections": [section.describe() for section in sections], "custom": custom},
             due_reminders=due_reminders,
-            active_reminders=active_reminders,
-            latest_tasks=latest_tasks,
-            knowledge=knowledge_stats,
-            agents=agents,
             metrics=metrics,
+        )
+
+    def _briefing_fetch(self, section: Section) -> ToolResult:
+        """One network section. A failure is that section's line, never the whole briefing; a
+        Stop or a sign-out still ends the turn (OperationCancelled is not an Exception)."""
+        try:
+            if section.kind == "weather":
+                place = section.about or self._home_place()
+                if not place:
+                    return ToolResult.failure("Tell me your city once - \"remember my city is Austin\" - and the "
+                                              "weather will be here.", no_place=True)
+                return self._weather_tool().forecast(place, days=1)
+            if section.kind == "news":
+                return self._news_tool().headlines(section.about, limit=3, with_text=0)
+            return self.context.email.search_inbox("UNSEEN", limit=MAIL_FETCH)
+        except ApprovalDenied as exc:
+            return ToolResult.failure(f"skipped ({exc}).")
+        except Exception as exc:
+            record_failure("briefing/" + section.kind, exc)
+            return ToolResult.failure("couldn't check just now.")
+
+    @staticmethod
+    def _briefing_network_lines(section: Section, result: ToolResult) -> list[str]:
+        if section.kind == "weather":
+            if not result.ok:
+                # The tool's own wording carries the exception ("<urlopen error Tunnel connection
+                # failed: 403 Forbidden>"), which voice reads out; "no place called X" is useful.
+                said = ("couldn't reach the weather service just now." if result.message.startswith("Couldn't reach")
+                        else result.message)
+                return [f"**Weather** — {said}"]
+            return [f"**Weather** — {weather_text(result.data)}"]
+        if section.kind == "news":
+            label = f"**News about {section.about}**" if section.about else "**News**"
+            headlines = result.data.get("headlines") or [] if result.ok else []
+            if not headlines:
+                return [f"{label} — couldn't reach the news feeds just now."]
+            return [label, *news_lines(headlines)]
+        if not result.ok:
+            if result.data.get("missing"):
+                return ["**Mail** — not connected yet. Say \"check my email\" to see how to set it up."]
+            return ["**Mail** — couldn't check the inbox just now."]   # the tool's text carries the exception
+        return ["**Mail**", *mail_lines(result.data.get("messages") or [])]
+
+    def _briefing_reminders(self, now: datetime) -> list[str]:
+        """What is due, what is left today and the timers running, each once."""
+        timer_ids = {item.get("id") for _due, item in self._running_timers()}
+        lines = ["**Reminders**"]
+        later: list[tuple[datetime, dict]] = []
+        for due, item in self._dated():
+            message = str(item.get("message", "")).strip()
+            if item.get("id") in timer_ids:
+                left = round((due - now).total_seconds())
+                name = re.sub(r"\s*\(.*\)$", "", message)
+                lines.append(f"- {name}: " + ("going off now" if left <= 0 else f"{_say_seconds(left)} left"))
+            elif due <= now:
+                lines.append(f"- Due: {message}")
+            elif on_laptop_clock(due, now.tzinfo).date() == now.date():
+                lines.append(f"- {message.capitalize() if message == 'alarm' else message} — "
+                             f"{describe(due, now, local=True)}")
+            else:
+                later.append((due, item))
+        if len(lines) == 1:
+            if later:
+                due, item = later[0]
+                lines.append(f"- Nothing due today. Next: {item.get('message')}, {describe(due, now, local=True)}.")
+            else:
+                lines.append("- Nothing set. Say \"remind me to ...\" to add one.")
+        return lines
+
+    @staticmethod
+    def _briefing_laptop(metrics: dict[str, object]) -> str:
+        cpu, ram = metrics.get("cpu_percent"), metrics.get("ram_percent")
+        parts = [f"CPU {cpu}%" if cpu is not None else "CPU n/a", f"RAM {ram}%" if ram is not None else "RAM n/a"]
+        return "**Laptop** — " + ", ".join(parts) + "."
+
+    def _briefing_profile_keys(self) -> list[str]:
+        """The remembered fact that holds the format, `briefing format`, however it is spelt. Only
+        that one: matching any fact about the briefing let "add mail to my briefing" delete "my
+        morning briefing is at 7:30"."""
+        return [key for key in self.context.memory.get_profile()
+                if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() == PROFILE_KEY]
+
+    def _briefing_sections(self) -> tuple[list[Section], bool]:
+        """The user's sections and True, or the default and False. Mail is in the default only when
+        an inbox is connected: a briefing that opens with "not connected" every morning is noise."""
+        profile = self.context.memory.get_profile()
+        for key in self._briefing_profile_keys():
+            sections, _unknown = parse_format(str(profile[key]))
+            if sections:
+                return sections, True
+        sections, _unknown = parse_format(DEFAULT_FORMAT)
+        config = getattr(self.context.email, "config", None)
+        if config is not None and config.imap_host and config.imap_username and config.imap_password:
+            sections.insert(1, Section("mail"))
+        return sections, False
+
+    def _briefing_format(self) -> ToolResult:
+        sections, custom = self._briefing_sections()
+        which = "Your briefing has" if custom else "Your briefing is the default"
+        return ToolResult.success(
+            f"{which}: {describe_format(sections)}.\n\nChange it with \"set my briefing to ...\", "
+            f"\"add ... to my briefing\" or \"remove ... from my briefing\". It can include {CAN_INCLUDE}.",
+            briefing={"sections": [section.describe() for section in sections], "custom": custom},
+        )
+
+    def _briefing_reset(self) -> ToolResult:
+        removed = [key for key in self._briefing_profile_keys() if self.context.memory.forget_profile_value(key)]
+        sections, _custom = self._briefing_sections()
+        return ToolResult.success(
+            ("Your briefing is back to the default" if removed else "Your briefing already is the default")
+            + f": {describe_format(sections)}.",
+            briefing={"sections": [section.describe() for section in sections], "custom": False},
+        )
+
+    def _briefing_change(self, how: str, raw: str) -> ToolResult:
+        """`briefing set|add|remove <sections>`. Nothing is saved if any part cannot be read: a
+        format that silently dropped "stocks" would look accepted and never show it."""
+        wanted, unknown = parse_format(raw)
+        if unknown or not wanted:
+            said = "', '".join(unknown) if unknown else raw.strip()
+            return ToolResult.failure(f"I can't put '{said}' in a briefing. It can include {CAN_INCLUDE}.")
+        current, _custom = self._briefing_sections()
+        if how == "set":
+            sections = wanted
+        elif how == "add":
+            sections = current + [section for section in wanted if section not in current]
+        else:
+            sections = [section for section in current if not any(
+                section.kind == gone.kind and (not gone.about or section.about.lower() == gone.about.lower())
+                for gone in wanted)]
+            if sections == current:
+                return ToolResult.failure(f"Your briefing has no {describe_format(wanted)} in it. "
+                                          f"It has: {describe_format(current)}.")
+            if not sections:
+                return ToolResult.failure("That would leave your briefing empty. Say \"reset my briefing\" for "
+                                          "the default instead.")
+        if len(sections) > MAX_SECTIONS:
+            return ToolResult.failure(f"A briefing holds at most {MAX_SECTIONS} sections; that would make "
+                                      f"{len(sections)}. Remove one first.")
+        for key in self._briefing_profile_keys():
+            self.context.memory.forget_profile_value(key)
+        self.context.memory.set_profile_value(PROFILE_KEY, describe_format(sections))
+        return ToolResult.success(
+            f"Your briefing is now: {describe_format(sections)}. Say \"briefing\" to hear it, or "
+            f"\"schedule daily at 07:30 :: briefing\" to get it every morning.",
+            briefing={"sections": [section.describe() for section in sections], "custom": True},
         )
 
     def _run_terminal_command(self, expression: str) -> ToolResult:
@@ -4117,6 +4349,11 @@ class AgentOrchestrator:
         "process file <path>",
         "file info <path>",
         "search files <query> <path>",
+        "file move <file> to <folder>",
+        "file copy <file> to <folder>",
+        "file rename <file> to <name>",
+        "file delete <file>",
+        "undo file",
         "convert file <source> to <destination>",
         "organize folder <path>",
         "index file <path>",
@@ -4161,6 +4398,7 @@ class AgentOrchestrator:
         "mcp <server> <tool> <json arguments>",
         "solve <problem or decision>",
         "open url <https url>",
+        "message whatsapp|telegram [to <who>] :: <text>",
         "download <url>",
         "inspect page <url>",
         # vision / desktop
@@ -4177,6 +4415,8 @@ class AgentOrchestrator:
         "email api send gmail to <addr> subject <subject> body <body>",
         # tasks, reminders, status
         "briefing",
+        "briefing set <reminders, weather [in city], news [about topic], mail, <name> list, laptop>",
+        "total|average|count <column> by <column> in <file.csv>",
         "jobs",
         "job add <company> [stage]",
         "tasks",
@@ -4377,6 +4617,11 @@ class AgentOrchestrator:
             self._file_processor_cache = FileProcessor(self.context.files, self.context.transcribe)
         return self._file_processor_cache
 
+    def _messaging(self) -> MessagingTool:
+        if self._messaging_cache is None:
+            self._messaging_cache = MessagingTool(self.context.web.approval_gate)
+        return self._messaging_cache
+
     def _generate_image(self, request: str) -> ToolResult:
         """`image <description>` — the trailing shape word picks the aspect ratio."""
         described, shape = request.strip(), "square"
@@ -4450,6 +4695,30 @@ class AgentOrchestrator:
             return provider.answer(prompt, {}, max_tokens=tokens) or ""
 
         return write
+
+    def _file_change_parts(self, command: str) -> tuple[str, str, str] | None:
+        """(verb, source, target) of `file move|copy|rename <a> to <b>`. A quoted source ends at its
+        quote; otherwise the split is the " to " whose left side is a file that exists, so "back to
+        school.docx" and "notes to self.txt" are whole names, not "back" and "notes" (review of #287)."""
+        head = re.match(r"file (move|copy|rename) ", command, re.IGNORECASE)
+        if head is None:
+            return None
+        verb, rest = head.group(1).lower(), command[head.end():]
+        quoted = re.match(r"\s*([\"'])(.+?)\1\s+to\s+(.+)$", rest, re.DOTALL)
+        if quoted:
+            return verb, quoted.group(2), quoted.group(3)
+        splits = [(rest[:m.start()], rest[m.end():]) for m in re.finditer(r"\s+to\s+", rest)]
+        if not splits:
+            return None
+        found = [(source, target) for source, target in splits if self._file_ops().find(source)[0] is not None]
+        source, target = (found or splits)[0]
+        return verb, source, target
+
+    def _file_ops(self) -> fileops.FileOps:
+        if self._file_ops_cache is None:
+            self._file_ops_cache = fileops.FileOps(self.context.web.approval_gate, self.data_dir / "file_journal.json",
+                                                   recycler=fileops.system_recycler())
+        return self._file_ops_cache
 
     def _knowledge_reindex(self) -> ToolResult:
         """`knowledge reindex` — give older documents the vector newer ones get on save."""
@@ -5335,6 +5604,14 @@ class AgentOrchestrator:
             facts["things_the_user_asked_me_to_remember"] = " | ".join(notes[-15:])[-1500:]
         return facts
 
+    @staticmethod
+    def _briefing_by_remember(key: str) -> ToolResult | None:
+        """A personal account may remember anything but the briefing's format, which `briefing set`
+        refuses it: the fact is the format, so remembering it was the same change by another door."""
+        if is_personal() and re.sub(r"[^a-z]+", " ", key.lower()).strip() == PROFILE_KEY:
+            return ToolResult.failure("Changing the briefing needs a developer account.")
+        return None
+
     def _learn(self) -> LearnTool:
         if self._learn_cache is None:
             def save(facts: dict[str, str]) -> None:
@@ -5343,8 +5620,10 @@ class AgentOrchestrator:
 
             # A short JSON extraction: the tier ladder (smart, fast, OpenRouter) and a small budget,
             # not the document writer's smart-only 6,000 thinking tokens.
+            # A personal account cannot set the briefing's format here either: it is `briefing set`'s.
             self._learn_cache = LearnTool(self._build_agent_brain(answer_max_tokens=1200),
-                                          self.context.web.approval_gate, save)
+                                          self.context.web.approval_gate, save,
+                                          allowed=lambda key: self._briefing_by_remember(key) is None)
         return self._learn_cache
 
     def _remember(self, expression: str) -> ToolResult:
@@ -5358,6 +5637,8 @@ class AgentOrchestrator:
                                         natural.group(1), re.IGNORECASE):
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
+                if refused := self._briefing_by_remember(key):
+                    return refused
                 self.context.memory.set_profile_value(key, value)
                 self._mirror_to_vault(f"{key.replace('_', ' ')}: {value}")
                 return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
@@ -5371,6 +5652,8 @@ class AgentOrchestrator:
         value = value.strip()
         if not key or not value:
             return ToolResult.failure("Use: remember <key> = <value>")
+        if refused := self._briefing_by_remember(key):
+            return refused
         self.context.memory.set_profile_value(key, value)
         self._mirror_to_vault(f"{key}: {value}")
         return ToolResult.success(f"Got it — your {key.replace('_', ' ')} is {value}.", remembered=key)
