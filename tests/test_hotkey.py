@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import threading
+import urllib.error
+import urllib.request
 import unittest
+from http.server import ThreadingHTTPServer
 from unittest.mock import Mock, patch
 
 from laptop_agent import hotkey
@@ -94,6 +99,36 @@ class GlobalHotkeyTests(unittest.TestCase):
 
 
 class FallbackAppHotkeyTests(unittest.TestCase):
+    def test_hotkey_channel_is_private_to_the_desktop_window(self) -> None:
+        import laptop_agent.webui as webui
+
+        server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://{webui.HOST}:{server.server_address[1]}"
+
+        def get(path: str) -> tuple[int, dict]:
+            request = urllib.request.Request(base + path, headers={"X-Jarvis-Token": webui._API_TOKEN})
+            try:
+                response = urllib.request.urlopen(request, timeout=5)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                return response.status, json.loads(response.read())
+
+        with patch.object(webui, "ACCOUNTS", Mock(exists=lambda: False)), \
+             patch.object(webui, "_HOTKEY_CHANNEL", "private-test-channel"):
+            with patch.object(webui, "_DESKTOP_MODE", False):
+                self.assertEqual(get("/api/hotkey?channel=private-test-channel")[0], 404)
+            with patch.object(webui, "_DESKTOP_MODE", True):
+                self.assertEqual(get("/api/hotkey")[0], 404)
+                self.assertEqual(get("/api/hotkey?channel=wrong")[0], 404)
+                status, body = get("/api/hotkey?channel=private-test-channel")
+                self.assertEqual(status, 200)
+                self.assertIsInstance(body["sequence"], int)
+
     def test_chromium_fallback_registers_the_global_key_and_signals_the_page(self) -> None:
         import laptop_agent.webui as webui
         import laptop_agent.tools.transcribe as transcribe

@@ -566,6 +566,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
   it too and sends each press to that window through a private, authenticated long-poll
   channel (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-18)
+- **The desktop hotkey channel could be exposed without a failing test** → UI checks only
+  exercised the valid token → a loopback server test rejects absent and wrong channels and
+  non-desktop mode, and succeeds only for the desktop channel (`test_hotkey.py`). (10-19)
 - **Voice could only be started by clicking the mic, and only with the window focused** → no key
   started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
   first, so the Space interrupt and recording handlers never see it), and the desktop window
