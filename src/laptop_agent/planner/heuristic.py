@@ -314,6 +314,44 @@ _ALARM_ASK = re.compile(
     r"(?P<when>.+?)\s*[.!?]*$",
     re.IGNORECASE,
 )
+# Moving, copying, renaming or deleting a file, said with something that is plainly a file: a
+# quoted name, a path, or a name with an extension. "move the meeting to friday" and "delete my
+# last note" name no file and are left to their own routes.
+# A bare name's extension starts with a letter and is not a web domain's: "the alarm at 6.30",
+# "chapter 3.1", "v1.2" and "google.com" are not files (review of #287). "my"/"the" before a bare
+# name are words about it, not part of it.
+_FILE_LIKE = (r"(?:\"[^\"]{1,200}\"|'[^']{1,200}'|[A-Za-z]:[\\/][^\"'\n]{1,200}?|~[\\/][^\"'\n]{1,200}?"
+              r"|(?:(?:my|the|this|that)\s+)?[\w(][\w .()&,+-]{0,80}?\.(?!(?:com|org|net|io|gov|edu)\b)[A-Za-z][A-Za-z0-9]{0,5})")
+_FILE_MOVE = re.compile(
+    _POLITE + r"(?P<verb>move|copy)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|into)\s+"
+    r"(?P<dst>(?:(?:my|the)\s+)?(?:desktop|documents|downloads|pictures|music|videos|home)(?:\s+folder)?"
+    r"|\"[^\"]{1,200}\"|[A-Za-z]:[\\/][^\"'\n]{0,200}|~[\\/][^\"'\n]{0,200})\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_RENAME = re.compile(
+    _POLITE + r"rename\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|as)\s+"
+    r"(?P<name>\"[^\"\\/]{1,120}\"|[\w(][\w .()&,+-]{0,120}?)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_DELETE = re.compile(
+    _POLITE + r"(?:delete|remove|trash|bin|recycle)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_UNDO = re.compile(
+    # "the last change" names nothing about files; only a file verb does (review of #287).
+    _POLITE + r"(?:undo|reverse|revert)\s+(?:the\s+last\s+(?:file\s+)?(?P<named>move|rename|copy)"
+    r"|(?:that|it|this)(?:\s+(?P<pronamed>move|rename|copy))?|my\s+last\s+file\s+change)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# Our own words when a file change is done: "undo that" after one of these means the file.
+_FILE_CHANGED = re.compile(r"^(?:Moved|Copied|Renamed)\s(?!.*Recycle Bin)", re.IGNORECASE)
+
+
+def follows_a_file_change(history: list[dict] | None) -> bool:
+    """Whether our last reply was a file change that "undo that" can mean."""
+    last = next((str(turn.get("text") or "") for turn in reversed(history or []) if turn.get("role") == "assistant"), "")
+    return bool(_FILE_CHANGED.match(last))
+
 # "start a pomodoro", "start a 25 minute pomodoro": a work timer, 25 minutes unless a length is said.
 _POMODORO = re.compile(
     _POLITE + r"(?:(?:set|start|begin|run|do)\s+)?(?:me\s+)?(?:an?\s+|another\s+)?(?:(?P<length>" + _DURATION
@@ -1177,7 +1215,7 @@ def _folder_path(where: str) -> str | None:
 
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
-        del available_commands, memory_profile, history
+        del available_commands, memory_profile
         raw = strip_address(text)
         if _NEGATED.match(raw):
             return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; left to the model.")
@@ -1380,6 +1418,10 @@ class HeuristicPlannerProvider:
         local_lookup = self._local_lookup(raw)
         if local_lookup:
             return local_lookup
+
+        file_change = self._file_change(raw, history)
+        if file_change:
+            return file_change
 
         file_scan = self._file_scan(raw)
         if file_scan:
@@ -2192,6 +2234,31 @@ class HeuristicPlannerProvider:
         if root is None:
             return None
         return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
+
+    def _file_change(self, text: str, history: list[dict] | None) -> PlanDecision | None:
+        """'move report.pdf to my desktop', 'rename a.txt to b.txt', 'delete old.log', 'undo that'."""
+        text = text or ""
+        moved = _FILE_MOVE.match(text)
+        if moved:
+            verb = moved.group("verb").lower()
+            return self._command(f"file {verb} {moved.group('src').strip()} to {moved.group('dst').strip()}",
+                                 f"User wants a file {'copied' if verb == 'copy' else 'moved'}.", 0.88)
+        renamed = _FILE_RENAME.match(text)
+        if renamed:
+            return self._command(f"file rename {renamed.group('src').strip()} to {renamed.group('name').strip()}",
+                                 "User wants a file renamed.", 0.88)
+        deleted = _FILE_DELETE.match(text)
+        if deleted:
+            return self._command(f"file delete {deleted.group('src').strip()}", "User wants a file deleted.", 0.86)
+        undo = _FILE_UNDO.match(text)
+        if undo:
+            # "undo that" is about whatever was just done; only after a file change of ours is it the file.
+            last = next((str(turn.get("text") or "") for turn in reversed(history or [])
+                         if turn.get("role") == "assistant"), "")
+            named = (undo.group("named") or undo.group("pronamed") or "").lower()
+            if undo.group("named") or "file" in text.lower() or _FILE_CHANGED.match(last):
+                return self._command(f"undo file {named}".strip(), "User wants the last file change undone.", 0.88)
+        return None
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)
