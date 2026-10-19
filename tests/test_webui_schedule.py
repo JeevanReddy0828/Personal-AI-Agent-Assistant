@@ -22,10 +22,10 @@ class ScheduleApiTests(unittest.TestCase):
         store = SchedulerStore(Path(cls._tmp.name) / "sched.json")
         # AgentContext is a frozen dataclass; swap the store in without rebuilding the app.
         object.__setattr__(webui._orchestrator.context, "scheduler", store)
-        cls.server = ThreadingHTTPServer((webui.HOST, 8793), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8793"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:

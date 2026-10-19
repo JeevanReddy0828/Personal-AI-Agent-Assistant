@@ -83,23 +83,26 @@ def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:
 # both lists to the dispatchers: every entry is a form they match, and every form they
 # match is in exactly one of the two.
 _DEV_EXACT = frozenset({
+    "clipboard",
     # the app's internals
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
     "self-check", "does everything work", "check yourself", "diagnose", "latency", "traces",
-    "why slow", "speed",
+    "why slow", "speed", "watches", "watch health", "watch check health",
     # acting on its own
     "autopilot status", "autonomous status", "schedule", "schedule list", "schedules",
     "show schedule", "schedule run due", "run due schedules", "schedule tick", "agent runs",
     "agent history", "autonomous runs", "agent last", "agent status", "last agent run", "agents",
     "agent control", "control room", "agent dashboard", "tasks", "task dashboard", "show tasks",
+    # the owner's own code
+    "plugins",
     "workflow status", "workflows", "workflow dashboard", "workflow retry failed",
     "retry failed workflow", "multi retry failed", "retry failed tasks", "retry failed subtasks",
     # the owner's job search, notes and indexed documents
     "jobs", "job list", "list jobs", "job tracker", "jobright", "jobright pull", "pull jobs",
     "pull jobright", "jobright sync", "notes", "vault", "notes status", "vault status", "obsidian",
     "obsidian status", "notes list", "list notes", "notes audit", "vault audit", "audit notes",
-    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status",
+    "audit vault", "knowledge list", "knowledge", "knowledge stats", "knowledge status", "mcp",
     "knowledge reindex", "reindex knowledge", "knowledge backfill", "knowledge prune",
     "prune knowledge", "knowledge clear", "forget knowledge",
     # the owner's mailbox: there is one connection, and it is not the personal account's
@@ -117,6 +120,9 @@ _DEV_EXACT = frozenset({
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
     "timecard", "autopilot", "schedule", "agent", "workflow", "multi", "plan apply job",
+    # the owner's own code
+    "plugin",
+    "watch news", "watch check news", "unwatch",
     # the owner's job search, notes and indexed documents
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",
     "notes search", "note search", "ask vault", "ask notes", "read note", "save note",
@@ -126,13 +132,15 @@ _DEV_PREFIX = (
     "email", "send email",
     # the laptop itself: files, the screen, the camera, the browser, apps, the shell, sound
     "scan files", "read file", "ask file", "summarize file", "extract text", "index file", "file info",
+    "clipboard copy", "clipboard ask",
     "extract tables", "analyze spreadsheet", "analyse spreadsheet", "inspect file", "process file",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
+    "mcp",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "brightness", "wallpaper", "end process", "settings",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
-    "terminal", "shell", "play music", "media",
+    "terminal", "shell", "play music", "media", "workspace",
 )
 
 
@@ -143,7 +151,7 @@ _DEV_PREFIX = (
 # by a pattern (a coin, a date question, a list edit) are checked beside the dispatch table,
 # in `AgentOrchestrator._everyday`.
 EVERYDAY_EXACT = frozenset({
-    "help", "/help", "memory", "show memory",
+    "help", "/help", "memory", "show memory", "learn from chat",
     "reminders", "reminders list", "show reminders", "reminders due", "due reminders", "show due reminders",
     "reminders next", "reminders next alarm", "reminders next timer", "reminder done", "reminder stop",
     "reminder snooze", "timers", "timer", "alarms", "alarm",

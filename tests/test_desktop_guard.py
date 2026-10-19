@@ -24,6 +24,8 @@ assert system.system_backend() is None, "the laptop's controls are live"
 assert webbrowser.open is inert, "webbrowser.open is live"
 assert getattr(os, "startfile", inert) is inert, "os.startfile is live"
 assert not hasattr(ctypes, "windll") or ctypes.windll.user32.keybd_event is inert, "keybd_event is live"
+from laptop_agent.tools import clipboard
+assert isinstance(clipboard.system_clipboard(), clipboard.MemoryClipboard), "the clipboard is live"
 print("inert")
 """
 

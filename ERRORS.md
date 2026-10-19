@@ -22,6 +22,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   open, so the first can only play if playback does not wait for it; a page that waits
   deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
   miss is a flake. (10-08)
+- **Web-server tests fail with 403, `403 != 400` or WinError 10054 only while another
+  worktree's suite runs** → eight `test_webui_*` files bound fixed ports (8793-8800), and the
+  stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
+  hit the other run's server and its different API token → bind port 0 and read
+  `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
+- **The fixed-port guard passed a test server bound to `port = 8798`** → it scanned the source
+  for a literal port in `Server((host, N))`, so a variable hid it (Codex, on #290) → the runner
+  refuses any non-zero bind at runtime, and the guard plants a probe that binds a free port. (10-18)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
@@ -64,6 +72,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **"create a workspace folder and fill files with python basics" made one Markdown document** → no tool could make a folder or write several files, so the model router substituted the document tool → `workspace <request>` (`tools/workspace.py`): the name and place come from the words, the model only plans the files as JSON, one unsafe path refuses the whole plan, and one HIGH card lists every file before anything is written; developer-only; the router leaves "how do I create a folder in python" to the chat; a path that is both a file and a folder ("src" and "src/app.py", any case) is refused before the card (Codex's review) (`test_workspace.py`). (10-13)
+- **A failed workspace write said "nothing was left half-written" while the folder was still there** → `rmtree(ignore_errors=True)` can silently leave files Windows holds open → the folder is checked after the cleanup and, if it survived, the reply names it (Codex's review of #282, `test_workspace.py`). (10-18)
+- **"make my downloads folder less cluttered" made a folder; a plan with a README fence was "not usable"; a folder that appeared while the card was open was written into; "in C:\My Projects" created C:\My** → the router matched a prefix, the fence regex stopped at the inner ```, the free name was checked before the card and not claimed, and an unquoted path stopped at the space → the whole sentence must ask for a folder (`_WORKSPACE_ASK`), the plan is read with `raw_decode`, the folder is claimed by an exclusive mkdir after the card and removed again if a write fails, a place that does not exist is refused, the name and place come only from before the contents, .url/.lnk/.scf/script files are never written, the card shows the start of each file, and the writer's tokens are clamped to the endpoint's cap (`ReviewOf282Tests`). (10-17)
 - **"and in feet?" after "convert 5 miles to km", "and in london?" after the time in Tokyo,
   "and halloween?" after the days until Christmas all went to the chat model** → a follow-up
   was only ever an answer to a question we had asked, and the refusal check reads "what about
@@ -390,6 +401,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
+- **"summarize what I copied" and "copy that" had nowhere to go** → no tool could read or write the
+  clipboard, so the model answered from nothing → `clipboard`, `clipboard copy <text|that>`,
+  `clipboard ask <request>` (`tools/clipboard.py`, no extra package), developer-only, and
+  "translate what I copied" refuses a personal account although translation is everyday; the
+  harness swaps in a clipboard of its own, so no test touches the real one (`test_clipboard.py`). A copy
+  opens the clipboard with a hidden owner window: opened with none, EmptyClipboard cleared it and
+  SetClipboardData then failed (Codex's review, from Microsoft's docs). (10-14)
 - **"find the readme in this folder" answered "Path does not exist: …\readme ."** →
   `search files <query> <root>` split at the first space, so any query of two words broke →
   the root is the longest tail that exists, else the first path-shaped one
@@ -504,6 +522,31 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
+  clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
+  the gate, and the routes matched pronouns and verbs about the clipboard itself → not in
+  `_AGENT_COMMANDS`; reads LOW and writes MEDIUM through the gate (audited); a personal account is
+  refused inside `ClipboardTool`; a pronoun copies only with "to my clipboard"; "explain/fix/check"
+  need "what I copied"; a reference ("the summary") copies our reply, never its own words. (10-17)
+- **An MCP server received the NVIDIA key and the mail password** (review of #293) → servers were
+  started with `{**os.environ, **env}`, and `.env` is loaded into os.environ → a server inherits
+  only `tools/mcp._INHERITED` plus its own mcp.json `env`. In the same review: a server's
+  `readOnlyHint` no longer lowers a call to MEDIUM (no card in the web app), a half-started server is
+  ended, a dead one restarts, the deadline covers the whole wait, and `mcp` arguments skip the
+  sentence clean-up that unquoted their paths. (10-17)
+- **Blender, a database or any program speaking MCP could not be reached** → no MCP client →
+  `tools/mcp.py`: servers from `<data dir>/mcp.json` (`mcpServers` or `servers`), started on first
+  use after a HIGH card, newline-delimited JSON-RPC over stdio; a call asks MEDIUM when the tool
+  says it only reads, CRITICAL when it says it destroys, HIGH otherwise; stray stdout lines and
+  notifications are skipped, every page of tools/list is read (`test_mcp.py`). Developer-only. (10-14)
+- **A plugin chose its own card: "low" skipped the gate, "medium" ran with no card in the web app,
+  and agent mode could call it with model-chosen arguments** (review of #292) → RISK was trusted →
+  every run is HIGH or CRITICAL, loading the folder asks first, the agent loop cannot call a plugin,
+  and `sys.exit` in a plugin is a failure, not the app ending. (10-17)
+- **A plugin in a second data folder imported the first folder's `_helper.py`** (second review of
+  #292) → a new `jarvis_plugins` package replaced the old one but its submodules stayed in
+  `sys.modules` → each load drops every cached `jarvis_plugins.*` module and starts a fresh
+  package (`test_plugins.py`, two folders). (10-18)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →
@@ -546,6 +589,21 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"learn from chat" kept an SSN and an AWS key, dropped a dated appointment, and said "nothing new"
+  when the model failed** (review of #288) → a single "12+ digits" rule missed 123-45-6789 and hit
+  ISO dates and phone numbers, and an empty or unreadable reply became [] → secrets by shape (SSN,
+  grouped card numbers, provider keys, long letter-digit tokens) and by key name (`door_code`,
+  `wifi_key`, `api_key`); `proposed` returns None for an unreadable reply, which fails; a
+  replacement shows what it replaces; approved facts are one write. (10-17)
+- **"learn from chat" still proposed `recovery_code=4821` and `verification_code=3192`** (second
+  review of #288) → short digit values match no secret shape, and the key-name list knew only door
+  and alarm codes → recovery, verification, one-time, OTP/2FA, backup, auth and security codes are
+  secret names; `zip_code`, `area_code` and `postal_code` stay facts. (10-18)
+- **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
+  kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
+  and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a
+  topic's headlines are recorded when the watch starts so only new ones are told, the CPU must be
+  high on two checks running, and the same warning waits two hours. Developer-only (`test_watch.py`). (10-14)
 - **"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
   "cross off eggs" were answered by the chat model**, which can neither see nor change a list →
   `list <name> has <item>` answers from the list by item, never substring ("almond milk" is not
@@ -563,6 +621,16 @@ guard, with the date), and a session entry only when the line cannot carry the l
   save is said as one (a drive or ./ ~/ / start, a single image file name, or one word after
   "to"; "error/bug" and "read the report.png" inside a sentence are not - Codex, #258); "and tell me/describe/read"
   reads the screen; anything else saves to `screenshots/` as usual. (10-09)
+- **"who is my doctor" ran a web search after "my doctor is dr. patel" was saved; "forget where i
+  parked" found nothing; "delete my last note" reached the chat model** → "who is" read as news and
+  `_FACT_ASK` knew only "what's my", a note had to contain "where", and no route dropped a note →
+  "who is my X" is a fact question (and never searched for, told or not), the opening word of an
+  indirect question ("where i parked") is let go only when no note has every word - ignored always,
+  "forget how to file my taxes" dropped "file my taxes on friday" instead (Codex's review) - and
+  only "where/when/who" may go, never "how/why": a repeated "forget how i file my taxes" dropped
+  "i file my taxes on friday" in place of the note already gone (Codex, bdf75e3) - and
+  "delete/forget my last note" drops the newest. Where a note answers a question ("where did i
+  park") the chat model already reads the notes. (10-13)
 - **Test data in the user's real store** → a throwaway instance changed only the port →
   set `LAPTOP_AGENT_DATA_DIR` too; stop it when done. (09-17, 09-12, 09-28)
 - **State leaks between tests or runs** → persistence read the process-wide config → take the
@@ -570,6 +638,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A TTL cache blocks every caller on a miss** → collection under the lock → background
   refresh. (10-01)
 - **Vault links "broken"** → audited the subfolder → the root holds `.obsidian`. (09-09, 09-12)
+- **A whole conversation about a new job or a dentist left nothing in memory** → a fact was kept only
+  when said as "remember …" → `learn from chat` ("remember what we talked about"): the model reads
+  the user's own messages only (never replies, which carry pages and tool output), secrets are
+  dropped, and one card lists the facts before any is saved (`tools/learn.py`, `test_learn.py`). (10-14)
 
 ### Shell, git and editing
 - **"lock my computer", "turn the brightness down" and "set my wallpaper to a beach photo" had no
