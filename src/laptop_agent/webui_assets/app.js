@@ -2046,7 +2046,7 @@
   paintWake();wakeResume();
   // A conversation that "Hey Jarvis" or the greeting opened ends when the user goes quiet, and the
   // microphone goes back to listening for the name. One started from the Voice button stays on.
-  const QUIET_END_MS=12000;
+  const QUIET_END_MS=12000, UNHEARD_SPEECH_MS=30000;
   let voiceCasual=false, lastVoiceActivity=0;
   // Greeted once a window when the app opens (Jeevan, 2026-10-15). In the app window it is spoken
   // and the conversation is open for an answer; in a tab, where sound needs a click first, it is
@@ -2361,14 +2361,17 @@
     };
     const finalize=()=>{vmark('settle');handle(fin||vtrans.textContent);};
     // A recognizer can stay open in silence without a result or an end, so the quiet end of a
-    // casual talk cannot wait for the next listen(): give up on it here. Speech starting pushes
-    // the deadline back, since its first result can come well after it starts, but a start that
-    // never turns into words (a false start, a dropped result) still ends quietly.
-    let soundAt=lastVoiceActivity;
-    const quietCheck=()=>{if(handled||heard)return;const left=QUIET_END_MS-(performance.now()-soundAt);if(left<=0)handle('');else setTimeout(quietCheck,left+50);};
+    // casual talk cannot wait for the next listen(): give up on it here. The quiet is counted from
+    // when speech ends, since a first result can come long after speech starts; a recognizer that
+    // reports speech and then nothing at all, ever, is given up on after UNHEARD_SPEECH_MS.
+    let soundAt=lastVoiceActivity,speechSince=0;
+    const quietCheck=()=>{if(handled||heard)return;const now=performance.now();
+      const left=speechSince?UNHEARD_SPEECH_MS-(now-speechSince):QUIET_END_MS-(now-soundAt);
+      if(left<=0)handle('');else setTimeout(quietCheck,left+50);};
     if(voiceCasual)setTimeout(quietCheck,Math.max(0,QUIET_END_MS-(performance.now()-soundAt))+50);
     rec.onstart=()=>vmark('mic-on');
-    rec.onspeechstart=()=>{vmark('speech');soundAt=performance.now();};
+    rec.onspeechstart=()=>{vmark('speech');speechSince=performance.now();};
+    rec.onspeechend=()=>{soundAt=performance.now();speechSince=0;};
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
     rec.onerror=(e)=>{const err=(e&&e.error)||'?';vmark('err:'+err);
       if(err==='no-speech'||err==='aborted')return;         // benign — silence timer / restart handles it

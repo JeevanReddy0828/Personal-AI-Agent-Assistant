@@ -160,15 +160,54 @@ class GreetingInTheBrowser(unittest.TestCase):
         self.assertEqual(page.evaluate("window.__aborts"), 0)
 
     def test_speech_that_never_turns_into_words_still_ends_when_quiet(self):
-        # Codex, review of #298: a false speech start, or a result that never comes.
+        # Codex, review of #298: a false speech start - it starts and ends, and no words come.
         page = self.open("/")
         page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
         page.reload()
         page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
         page.evaluate("startVoice(''); 0")
         page.wait_for_timeout(1000)
-        page.evaluate("rec.onspeechstart()")
+        page.evaluate("rec.onspeechstart(); 0")
+        page.wait_for_timeout(1000)
+        page.evaluate("rec.onspeechend(); 0")
         page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=20000)
+
+    def test_a_long_utterance_with_a_delayed_first_result_is_not_cut_off(self):
+        # Codex, review of #298: still speaking 13 s in, with no result yet.
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        page.evaluate("startVoice(''); window.__aborts = 0; rec.abort = () => { window.__aborts++; }; 0")
+        page.wait_for_timeout(1000)
+        page.evaluate("rec.onspeechstart(); 0")
+        page.wait_for_timeout(13000)
+        self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"), "speech in progress was ended")
+        self.assertEqual(page.evaluate("window.__aborts"), 0)
+
+    def test_the_quiet_is_counted_from_when_speech_ends(self):
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        page.evaluate("startVoice(''); 0")
+        page.wait_for_timeout(5000)
+        page.evaluate("rec.onspeechstart(); 0")
+        page.wait_for_timeout(6000)
+        page.evaluate("rec.onspeechend(); 0")
+        page.wait_for_timeout(3000)
+        self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"), "ended 3 s after speech")
+
+    def test_a_recognizer_stuck_in_speech_still_ends(self):
+        # A start with no end and no result, ever: the cap on unheard speech ends the talk.
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        page.evaluate("startVoice(''); 0")
+        page.wait_for_timeout(1000)
+        page.evaluate("rec.onspeechstart(); 0")
+        page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=40000)
 
     def test_with_the_wake_word_off_the_app_window_only_shows_it(self):
         context_script = "localStorage.setItem('jarvis_wake', 'off');"
