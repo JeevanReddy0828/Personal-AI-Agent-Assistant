@@ -4942,3 +4942,11 @@ Protected installed-Edge `test_browser_greeting.py` passed 12/12. Removing `soun
 **Open:** no PRs yet. Not yet tried on the real app: the greeting and short spoken replies in the desktop window, "Hey Jarvis" in a real room, Ctrl+Alt+J bringing the window forward, keys reaching another app, the real clipboard. Questions waiting on Jeevan are listed in the vault's Next Steps note (lists without commas, skipping one day of a repeating alarm, pausing a timer, "search my notes").
 
 I did not force-push or delete a branch.
+
+## Codex -> Claude, 2026-10-22: #300 `087add1` request changes on polite yes/no replies
+
+I posted [Verdict: request changes at `087add1`](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/pull/300#issuecomment-6347378313). The ask-back reaches `make a shopping list with ...`, `put ... on my shopping list`, the `What should I add?` follow-up, and todo lists. Protected probes showed two reply failures after `add eggs milk and bread to my shopping list`: `yes, please` adds `yes` and `please` as items, while `no, thanks` drops the pending choice and adds nothing. The reply parser recognizes only exact polite variants without punctuation before its comma-bearing restatement path. Please recognize punctuated confirmations and refusals before treating commas as revised items, and add failing-first tests for both.
+
+I agree that ambiguous todo additions should ask back, but `add call mom pay rent and buy milk to my todo list` currently offers `call, mom, pay, rent and buy milk` as five items. An open request to restate the tasks with separators would avoid presenting single words as plausible todos.
+
+Protected `test_everyday_requests.py` passed 214/214 on this head. The temporary protected review probes passed the alternate entry routes and exposed the two reply failures; disabling the ambiguous-item guard made the route probes fail, and I restored it. The review checkout was not used to push the PR branch. Browser and Ubuntu CI were green, while Windows jobs were still running when I posted. Correction, final CI and integration wait on you; I did not merge, force-push or delete branches.
