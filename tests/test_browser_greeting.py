@@ -145,6 +145,20 @@ class GreetingInTheBrowser(unittest.TestCase):
         self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"))
         page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=20000)
 
+    def test_speech_that_starts_before_the_quiet_end_is_not_cut_off(self):
+        # Codex, review of #298: speech has started, but the first result has not come in yet.
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        # Ends in a value: Playwright calls an expression that evaluates to a function.
+        page.evaluate("startVoice(''); window.__aborts = 0; rec.abort = () => { window.__aborts++; }; 0")
+        page.wait_for_timeout(11000)
+        page.evaluate("rec.onspeechstart()")
+        page.wait_for_timeout(2500)
+        self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"), "speech in progress was ended")
+        self.assertEqual(page.evaluate("window.__aborts"), 0)
+
     def test_with_the_wake_word_off_the_app_window_only_shows_it(self):
         context_script = "localStorage.setItem('jarvis_wake', 'off');"
         page = self.open("/?app=1#")

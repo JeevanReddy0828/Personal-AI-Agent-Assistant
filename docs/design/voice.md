@@ -238,7 +238,8 @@ evening, Jeevan. What can I do for you?", varied; no name invented) and listens 
 a tab, where sound needs a click first, shows it, and with the wake word off it is only shown. A
 conversation opened by "Hey Jarvis" or the greeting ends after 12 s of quiet and goes back to
 listening for the name (on browser speech too, by a timer, since a recognizer can sit open in
-silence without ending); one started from the Voice button stays until stopped.
+silence without ending; speech that has started holds it off, because its first result can come
+well after); one started from the Voice button stays until stopped.
 
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
