@@ -1392,7 +1392,9 @@ class UnclearListItemsTests(unittest.TestCase):
 
     def test_yes_adds_each_word_as_an_item(self) -> None:
         # "yes, please" was added as the items "yes" and "please" (Codex, #300).
-        for reply in ("yes", "yeah", "yes please", "yes, please", "Yes.", "ok, thanks", "separately", "3 items"):
+        # "yes, three items" was added as the items "yes" and "three items" (Codex, #300).
+        for reply in ("yes", "yeah", "yes please", "yes, please", "Yes.", "ok, thanks", "separately", "3 items",
+                      "yes, three items", "yes separately please", "yeah, split them"):
             with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
                 everyday = Everyday(Path(tmp))
                 everyday.say(reply, history=self.ask(everyday), stream=False)
@@ -1400,7 +1402,9 @@ class UnclearListItemsTests(unittest.TestCase):
 
     def test_no_adds_it_as_it_was_said(self) -> None:
         # "no, thanks" added nothing (Codex, #300).
-        for reply in ("no", "nope", "no, thanks", "No thank you.", "as i said", "one item"):
+        # "no, as I said it" lost the request (Codex, #300).
+        for reply in ("no", "nope", "no, thanks", "No thank you.", "as i said", "one item",
+                      "no, as I said it", "no, keep it as it was, thanks", "nope one item"):
             with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
                 everyday = Everyday(Path(tmp))
                 everyday.say(reply, history=self.ask(everyday), stream=False)
@@ -1459,7 +1463,7 @@ class UnclearListItemsTests(unittest.TestCase):
             self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [])
 
     def test_cancelling_adds_nothing(self) -> None:
-        for reply in ("never mind", "no, cancel that", "cancel, never mind"):
+        for reply in ("never mind", "no, cancel that", "cancel, never mind", "yes, no", "one item, three items"):
             with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
                 everyday = Everyday(Path(tmp))
                 everyday.say(reply, history=self.ask(everyday), stream=False)

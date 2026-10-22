@@ -403,11 +403,14 @@ _PHRASE_WORD = re.compile(r"\d|\b(?:a|an|the|some|of|for|with|to)\b", re.IGNOREC
 _UNCLEAR_ITEMS = re.compile(r'Add (?P<split>.+) to your (?P<name>.+?) list as \d+ items\? Say yes, no to add '
                             r'"(?P<said>.+)" as you said it, or say them again with "and" between\.')
 # Read with the punctuation dropped: "yes, please" was taken as the items "yes" and "please" (Codex).
-_POLITE = r"(?:\s+(?:please|thanks|thank\s+you))?"
-_SPLIT_THEM = re.compile(r"(?:(?:yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right)" + _POLITE + r"|separately|split\s+(?:them|it)"
-                         r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things))", re.IGNORECASE)
-_KEEP_THEM = re.compile(r"(?:no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?)"
-                        + _POLITE, re.IGNORECASE)
+# An answer may be several of its own phrases: "yes, three items", "no, as I said it" (Codex).
+_POLITE = r"please|thanks|thank\s+you"
+_YES = (r"yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right|separately|split\s+(?:them|it)"
+        r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things)")
+_NO = r"no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?"
+_SPLIT_THEM = re.compile(rf"(?:{_YES})(?:\s+(?:{_YES}|{_POLITE}))*", re.IGNORECASE)
+_KEEP_THEM = re.compile(rf"(?:{_NO})(?:\s+(?:{_NO}|{_POLITE}))*", re.IGNORECASE)
+_YES_AND_NO = re.compile(rf"(?:{_YES}|{_NO})(?:\s+(?:{_YES}|{_NO}|{_POLITE}))*", re.IGNORECASE)
 
 
 def _meaningful(value: str) -> bool:
@@ -2603,7 +2606,8 @@ class AgentOrchestrator:
         if _KEEP_THEM.fullmatch(plain):
             said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
             return f"list {name} add {', '.join(said)}"
-        if (not re.search(r",|\s+and\s+", reply) or len(reply.split()) > 40 or _NOT_AN_ANSWER.match(reply)
+        # "yes, no" says both: not items, and not an answer either.
+        if (_YES_AND_NO.fullmatch(plain) or not re.search(r",|\s+and\s+", reply) or len(reply.split()) > 40 or _NOT_AN_ANSWER.match(reply)
                 or self.router.plan(reply, "", {}).is_command):
             return None
 

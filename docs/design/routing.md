@@ -50,8 +50,9 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     milk and bread to your shopping list as 3 items? Say yes, no to add ... as you said it, or say
     them again with "and" between." A digit or a joining word ("2 apples", "a loaf of bread")
     marks a phrase and is not asked about. "yes" splits and "no" keeps it as said, read with
-    punctuation dropped and a "please" or "thanks" allowed ("yes, please" was once added as two
-    items - Codex); the items said again with more separators than before are added as said, the
+    punctuation dropped, a "please" or "thanks" allowed, and several of the answer's own phrases
+    together ("yes, three items", "no, as I said it"; "yes, please" was once added as two items -
+    Codex); a mix of yes and no adds nothing; the items said again with more separators than before are added as said, the
     same words again are asked about again (not taken as a "no"), a new request is not taken as
     items, and a cancel adds nothing. The answer is read ahead of the refusal check ("no") and of
     the eight-word limit on follow-ups (tasks said again run longer). The question is matched on the turn's
