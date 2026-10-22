@@ -1,7 +1,8 @@
 """Opt-in Chromium check of "Hey Jarvis" in the real page: JARVIS_BROWSER_TESTS=1.
 
-Chromium's fake microphone plays beeps, which the page cuts into clips like speech; /api/wake is
-answered by the test, so no speech model runs, and speech recognition is a stub.
+The microphone is Chromium's fake one, but the wake listener is handed its sound by the test, a
+frame at a time; /api/wake is answered by the test, so no speech model runs, and speech recognition
+is a stub.
 """
 from __future__ import annotations
 
@@ -21,6 +22,42 @@ window.webkitSpeechRecognition = window.SpeechRecognition = class {
 window.__mics = 0;
 const realGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 navigator.mediaDevices.getUserMedia = (constraints) => { window.__mics++; return realGetUserMedia(constraints); };
+"""
+
+# The fake microphone's beep is shorter than one 4096-sample frame and repeats every 512 ms: a clip
+# opened only when a beep happened to straddle a frame boundary, and never found 600 ms of quiet, so
+# it ran to the 6 s cap. On a loaded CI runner that missed the 20 s wait. The listener's processor
+# now counts the microphone frames that carry sound, and the test speaks to it with frames of a
+# known level.
+DRIVEN_WAKE = """
+window.__wakeHeard = 0;
+const createProcessor = AudioContext.prototype.createScriptProcessor;
+AudioContext.prototype.createScriptProcessor = function(...args) {
+  const node = createProcessor.apply(this, args);
+  if ((new Error().stack || '').indexOf('wakeListen') < 0) return node;
+  node.addEventListener('audioprocess', e => {
+    if (e.inputBuffer.getChannelData(0).some(v => v !== 0)) window.__wakeHeard++;
+  });
+  Object.defineProperty(node, 'onaudioprocess', {configurable: true, set(handler) { window.__wakeFrame = handler; }});
+  return node;
+};
+window.__speakToWake = () => {
+  const frame = level => window.__wakeFrame({inputBuffer: {getChannelData: () => new Float32Array(4096).fill(level)}});
+  for (let i = 0; i < 10; i++) frame(0.001);
+  for (let i = 0; i < 4; i++) frame(0.3);
+  for (let i = 0; i < 10; i++) frame(0.001);
+};
+"""
+
+# The page reads the wake reply late, so an assertion that only waits for the network response
+# looks before the page has decided (Codex, on #299).
+SLOW_WAKE_REPLY = """
+const readJson = Response.prototype.json;
+Response.prototype.json = function() {
+  const read = readJson.call(this);
+  if (new URL(this.url).pathname !== '/api/wake') return read;
+  return read.then(reply => new Promise(resolve => setTimeout(() => resolve(reply), 1500)));
+};
 """
 
 PENDING_WAKE_AND_CHAT = """
@@ -73,6 +110,7 @@ class WakeWordInTheBrowser(unittest.TestCase):
         context = self.browser.new_context(viewport={"width": 1280, "height": 900}, permissions=["microphone"])
         self.addCleanup(context.close)
         context.add_init_script(STUB_SPEECH)
+        context.add_init_script(DRIVEN_WAKE)
         if init_script:
             context.add_init_script(init_script)
         if stored is not None:
@@ -93,23 +131,33 @@ class WakeWordInTheBrowser(unittest.TestCase):
         page.goto(self.url)
         return page
 
+    def speak(self, page) -> None:
+        """A burst of sound then quiet, long enough to make one clip, handed to the wake listener."""
+        page.wait_for_function("() => typeof window.__wakeFrame === 'function'")
+        page.evaluate("window.__speakToWake()")
+
+    def decided(self, page) -> None:
+        """Until the page has acted on the wake reply it is waiting for."""
+        page.wait_for_function("() => !wakeChecking")
+
     def voicing(self, page) -> bool:
         return page.evaluate("document.body.classList.contains('voicing')")
 
     def test_on_by_default_a_clip_reaches_the_check_and_waking_starts_voice(self):
         page = self.open({"available": True, "wake": True, "rest": ""})
-        page.wait_for_function("() => document.body.classList.contains('voicing')", timeout=20000)
+        page.wait_for_function("() => window.__wakeHeard > 0")
+        self.speak(page)
+        page.wait_for_function("() => document.body.classList.contains('voicing')")
         self.assertTrue(self.checks, "no clip was sent to /api/wake")
         self.assertTrue(self.checks[0].startswith('{"audio":"data:audio/wav;base64,'))
         self.assertEqual(page.get_attribute("#wakeBtn", "aria-pressed"), "true")
 
     def test_not_woken_stays_quiet(self):
-        page = self.open({"available": True, "wake": False})
-        for _ in range(40):
-            if self.checks:
-                break
-            page.wait_for_timeout(500)
-        self.assertTrue(self.checks, "no clip was sent to /api/wake")
+        page = self.open({"available": True, "wake": False}, init_script=SLOW_WAKE_REPLY)
+        with page.expect_response("**/api/wake"):
+            self.speak(page)
+        self.decided(page)
+        self.assertEqual(len(self.checks), 1)
         self.assertFalse(self.voicing(page))
 
     def test_switched_off_it_sends_nothing_and_remembers(self):
@@ -131,21 +179,23 @@ class WakeWordInTheBrowser(unittest.TestCase):
 
     def test_no_local_recognition_switches_it_off_quietly(self):
         page = self.open({"available": False, "wake": False})
-        page.wait_for_function("() => document.getElementById('wakeBtn').title.indexOf('needs local speech') >= 0",
-                               timeout=20000)
+        self.speak(page)
+        page.wait_for_function("() => document.getElementById('wakeBtn').title.indexOf('needs local speech') >= 0")
         count = len(self.checks)
+        self.speak(page)
         page.wait_for_timeout(3000)
         self.assertEqual(len(self.checks), count, "kept sending clips to an engine that is not there")
 
     def test_wake_reply_during_a_pending_chat_does_not_enter_voice(self):
         page = self.open({}, stored="off", init_script=PENDING_WAKE_AND_CHAT)
         page.click("#wakeBtn")
-        page.wait_for_function("() => typeof window.__releaseWake === 'function'", timeout=20000)
+        self.speak(page)
+        page.wait_for_function("() => typeof window.__releaseWake === 'function'")
         page.fill("#ta", "hello")
         page.keyboard.press("Enter")
         page.wait_for_function("() => window.__chatRequests === 1")
         page.evaluate("window.__releaseWake()")
-        page.wait_for_timeout(500)
+        self.decided(page)
         self.assertFalse(self.voicing(page), "wake entered voice while send() was busy")
         self.assertEqual(page.evaluate("window.__chatRequests"), 1, "the spoken request entered a second send")
         page.evaluate("window.__releaseChat()")
@@ -153,14 +203,15 @@ class WakeWordInTheBrowser(unittest.TestCase):
     def test_an_old_wake_reply_is_ignored_after_chat_finished(self):
         page = self.open({}, stored="off", init_script=PENDING_WAKE_AND_CHAT)
         page.click("#wakeBtn")
-        page.wait_for_function("() => typeof window.__releaseWake === 'function'", timeout=20000)
+        self.speak(page)
+        page.wait_for_function("() => typeof window.__releaseWake === 'function'")
         page.fill("#ta", "hello")
         page.keyboard.press("Enter")
         page.wait_for_function("() => window.__chatRequests === 1")
         page.evaluate("window.__releaseChat()")
         page.wait_for_function("() => !document.getElementById('reactor').classList.contains('busy')")
         page.evaluate("window.__releaseWake()")
-        page.wait_for_timeout(500)
+        self.decided(page)
         self.assertFalse(self.voicing(page), "wake response from before the chat started was replayed afterward")
 
 
