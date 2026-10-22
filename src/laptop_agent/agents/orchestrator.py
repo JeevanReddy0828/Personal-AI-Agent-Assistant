@@ -2594,6 +2594,30 @@ class AgentOrchestrator:
             )
         return self._command_verbs_cache
 
+    def _unclear_items_answer(self, unclear: re.Match[str], reply: str) -> str | None:
+        """The answer to "Add eggs, milk and bread to your shopping list as 3 items? ...", made into
+        the list command it means; None when the reply is not an answer to it."""
+        name, plain = unclear.group("name"), " ".join(re.sub(r"[,.!]", " ", reply).split())
+        if _SPLIT_THEM.fullmatch(plain):
+            return f"list {name} add {unclear.group('split')}"
+        if _KEEP_THEM.fullmatch(plain):
+            said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
+            return f"list {name} add {', '.join(said)}"
+        if (not re.search(r",|\s+and\s+", reply) or len(reply.split()) > 40 or _NOT_AN_ANSWER.match(reply)
+                or self.router.plan(reply, "", {}).is_command):
+            return None
+
+        def items(text: str) -> list[str]:
+            return [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", text) if item.strip(" .")]
+
+        # Said again with more separators than before: each piece is an item, joined with commas so
+        # the list does not ask about the same words twice. No clearer than before ("eggs milk and
+        # bread" once more), the list asks again instead of taking it as a "no" (Codex).
+        again = items(reply)
+        if len(again) > len(items(unclear.group("said"))):
+            return f"list {name} add {', '.join(again)}"
+        return f"list {name} add {reply}"
+
     def _follow_up(self, command: str, history_turns) -> str | None:
         """A short reply to a question this assistant just asked, made into the request it
         completes: "set a timer" -> "How long should the timer run?" -> "10 minutes" used to
@@ -2607,6 +2631,11 @@ class AgentOrchestrator:
         asked = turns[-1][1]
         before = next((text.rstrip(".!?") for role, text in reversed(turns[:-1]) if role == "user"), "")
         reply = command.strip().rstrip(".!")
+        # Ahead of the eight-word limit: tasks said again run longer ("call my mom and pay the rent
+        # and buy some milk" - Codex). Ahead of the refusal check too: "no" is an answer here.
+        unclear = _UNCLEAR_ITEMS.fullmatch(asked.split("\n", 1)[0].strip())
+        if unclear and reply:
+            return self._unclear_items_answer(unclear, reply)
         if not reply or len(reply.split()) > 8:
             return None
         # "again" after a coin, a die or a number runs the user's own request once more: "You rolled
@@ -2618,22 +2647,6 @@ class AgentOrchestrator:
         again = self._asked_again(asked, reply)
         if again is not None:
             return again
-        # Ahead of it too: "no" is an answer here, and adds the items as they were said. The commas
-        # in both commands keep the list from asking again.
-        unclear = _UNCLEAR_ITEMS.fullmatch(asked.split("\n", 1)[0].strip())
-        if unclear:
-            name, plain = unclear.group("name"), " ".join(re.sub(r"[,.!]", " ", reply).split())
-            if _SPLIT_THEM.fullmatch(plain):
-                return f"list {name} add {unclear.group('split')}"
-            if _KEEP_THEM.fullmatch(plain):
-                said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
-                return f"list {name} add {', '.join(said)}"
-            # Said again with commas or "and" between: each piece is an item, joined with commas so
-            # the list does not ask about the same words twice.
-            if re.search(r",|\s+and\s+", reply) and not _NOT_AN_ANSWER.match(reply):
-                again = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", reply) if item.strip(" .")]
-                return f"list {name} add {', '.join(again)}"
-            return None
         if _NOT_AN_ANSWER.match(reply):
             return None
         routed = self.router.plan(reply, "", {})

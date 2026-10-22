@@ -733,7 +733,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`UnclearListItemsTests`; the question is matched on the turn's first line, since the page
   appends tool data). Then "yes, please" was added as the items "yes" and "please", and "no,
   thanks" lost the request → yes/no are read without punctuation, with a "please"/"thanks"
-  allowed (Codex, #300). (10-22)
+  allowed (Codex, #300). The same words said again were taken as a "no", and an 11-word answer
+  never reached the handler (the follow-up eight-word limit) → a restatement must add separators
+  or is asked about again, and the answer is read ahead of the limit (Codex, #300). (10-22)
 - **"add dune to my books to read list" and "create a list called books to read" reached the chat
   model** → a list name could be two words at most, and a list could only be made with items →
   a name is up to four words, none of them "my"/"the"/"our" (or "add go to the store to my todo

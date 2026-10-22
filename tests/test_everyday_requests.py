@@ -1431,11 +1431,39 @@ class UnclearListItemsTests(unittest.TestCase):
             everyday.say("call mom and pay rent and buy milk", history=history, stream=False)
             self.assertEqual(everyday.orchestrator.context.memory.list_items("todo"), ["call mom", "pay rent", "buy milk"])
 
-    def test_cancelling_adds_nothing(self) -> None:
+    def test_tasks_said_again_in_a_long_sentence(self) -> None:
+        # Codex, #300: eleven words were cut off by the eight-word limit on a reply.
         with tempfile.TemporaryDirectory() as tmp:
             everyday = Everyday(Path(tmp))
-            everyday.say("never mind", history=self.ask(everyday), stream=False)
+            said = "add call mom pay rent and buy milk to my todo list"
+            asked, _ = everyday.say(said, stream=False)
+            history = [{"role": "user", "text": said},
+                       {"role": "assistant", "text": AskedAgainTests.page_turn(asked)}]
+            everyday.say("call my mom and pay the rent and buy some milk", history=history, stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("todo"),
+                             ["call my mom", "pay the rent", "buy some milk"])
+
+    def test_the_same_words_said_again_are_asked_about_again(self) -> None:
+        # Codex, #300: repeating it unchanged was taken as a "no".
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            again, _ = everyday.say("eggs milk and bread", history=self.ask(everyday), stream=False)
+            self.assertEqual(again.message, self.ASKED)
             self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [])
+
+    def test_a_new_request_is_not_taken_as_items(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("set a timer for 10 minutes and remind me to stretch at 5pm",
+                         history=self.ask(everyday), stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [])
+
+    def test_cancelling_adds_nothing(self) -> None:
+        for reply in ("never mind", "no, cancel that", "cancel, never mind"):
+            with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
+                everyday = Everyday(Path(tmp))
+                everyday.say(reply, history=self.ask(everyday), stream=False)
+                self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [])
 
     def test_clear_items_are_added_without_asking(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
