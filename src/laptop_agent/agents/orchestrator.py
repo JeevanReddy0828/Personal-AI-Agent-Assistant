@@ -79,6 +79,7 @@ from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
+from laptop_agent.tools import keys as keys_tools
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
 from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.textcard import wants_text_rendered
@@ -572,6 +573,7 @@ class AgentOrchestrator:
         self._calculator_cache: CalculatorTool | None = None
         self._learn_cache: LearnTool | None = None
         self._clock_cache: ClockTool | None = None
+        self._keys_cache: keys_tools.KeysTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._plugins_cache: PluginTool | None = None
         self._plugins_lock = threading.Lock()
@@ -1928,6 +1930,14 @@ class AgentOrchestrator:
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
 
+        if lowered.startswith("keys type "):
+            app, _, text = command[len("keys type ") :].partition("::")
+            return self._keys().type_text(text, app.strip())
+
+        if lowered.startswith("keys "):
+            action, _, app = command[len("keys ") :].partition(" in ")
+            return self._keys().shortcut(action, app)
+
         if lowered.startswith("run command "):
             return self._run_terminal_command(command[len("run command ") :].strip())
 
@@ -2348,6 +2358,11 @@ class AgentOrchestrator:
                                    else "I tried to set a reminder instead, but: ") + result.message
         return result
 
+    def _keys(self) -> keys_tools.KeysTool:
+        if self._keys_cache is None:
+            self._keys_cache = keys_tools.KeysTool(self.context.web.approval_gate, keys_tools.keys_backend())
+        return self._keys_cache
+
     def _system_status(self) -> ToolResult:
         """Battery, CPU, memory and disk, read from this machine rather than guessed."""
         import shutil
@@ -2464,7 +2479,7 @@ class AgentOrchestrator:
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
         "clock", "weather", "news", "distance", "trip", "download", "forget", "remember", "brightness",
         "wallpaper", "settings", "processes",
-        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
+        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc", "keys",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "clipboard", "plugin",
         "translate", "workspace",
     })
@@ -3401,6 +3416,7 @@ class AgentOrchestrator:
                 "  fill form <url>",
                 "  open app <path-or-app>",
                 "  screenshot <output.png>",
+                "  keys <new tab|back|scroll down|zoom in|…> [in <app>] | keys type [<app>] :: <text>  (sent to the app you name, else the one you were in)",
                 "  run command <command>",
                 "  run command in <cwd> :: <command>",
                 "  play music <file-folder-or-url>",

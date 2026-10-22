@@ -731,6 +731,20 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **`sed -i` rewrote CRLF as LF** → harmless under autocrlf → check `git diff --stat` for
   whole-file churn. (10-01)
 - **`pkill -f` killed its own shell** → write the pattern as `m laptop_agent[.]webui`. (09-26)
+- **"new tab", "scroll down" and "type hello in notepad" had no tool, and a key pressed blindly lands
+  in J.A.R.V.I.S, which has the focus while the user speaks** → `tools/keys.py`: only named
+  shortcuts, each sent after bringing the app named, else the first other window in z-order, to
+  the front (nothing is pressed if it will not come); closing a window, Enter and typing ask, and
+  typing is one line (a newline would run a terminal's command). Harness switches it off (`test_keys.py`). (10-14)
+- **Keys went to a different app after Windows reported a successful focus change; Save and Paste
+  ran without a HIGH card** → `SetForegroundWindow` can lose focus during the 150 ms settle,
+  while Ctrl+S writes and Ctrl+V inserts content → verify `GetForegroundWindow` after settling
+  and require HIGH approval for both shortcuts (`test_keys.py`, fake Win32 backend). (10-18)
+- **`type "hello" in notepad` typed quote marks, while "type out a poem" became keystrokes;
+  agent mode could press keys in another app** (review of #289) → the typing route treated
+  quoted text with an app as unquoted text, treated bare "type out" as an instruction to type,
+  and exposed `keys` in the agent menu → parse quoted text and optional app together, require
+  an app for unquoted text, and omit keys from agent mode (`test_keys.py`). (10-19)
 - **Import error on Python 3.11 only** → a backslash inside an f-string expression. (09-26)
 - **Committed to `main`; committed `docs/review/*.png`** → check the branch before the first
   commit; discard noisy paths before `git add`. (09-11, 09-22)

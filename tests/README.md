@@ -59,6 +59,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Model tiers and reliability | `test_model_fallback.py`, `test_model_status.py`, `test_openrouter_fallback.py`, `test_failures*.py`, `test_tracing.py`, `test_reliability_regressions.py` |
 | Links you finish | `test_messaging.py`: WhatsApp/Telegram messages opened ready to send, the Google Flights link |
 | Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
+| Keys to other apps | `test_keys.py`: shortcuts and typing reach the app named or the one in use, never J.A.R.V.I.S |
 | Web server and page | `test_webui*.py` (one per panel or route group), `test_page_assets.py`, `test_webui_caching.py`, `test_window_fx.py` |
 | Browser (opt-in) | `test_browser_*.py`: the real page in Chromium, including accounts, reminders, GPU status and the regression screenshots in `docs/review/` |
 | Plugins | `test_plugins.py`: loaded only when switched on, broken ones reported, each run at its declared risk |

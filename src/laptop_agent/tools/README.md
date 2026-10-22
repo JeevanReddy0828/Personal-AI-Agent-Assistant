@@ -85,6 +85,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Web, research and information
 | File | What it does |
 |---|---|
+| `keys.py` | `keys <new tab|back|scroll down|…>` and `keys type`: a named shortcut or one line of text, sent only after the target remains in the foreground; closing, Enter, Save, Paste and typing ask at HIGH risk. |
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
 | `mcp.py` | `mcp`, `mcp <server> <tool> <json>`: tools from MCP servers in `<data dir>/mcp.json`, over stdio JSON-RPC with no extra package; starting a server and each call ask. |
