@@ -1375,6 +1375,64 @@ class ListNameTests(unittest.TestCase):
             self.assertIsNone(everyday.say("make me a reading list", stream=False)[1])
 
 
+class UnclearListItemsTests(unittest.TestCase):
+    """"add eggs milk and bread" saved "eggs milk" as one item: said without commas, nothing tells
+    "eggs milk" from "almond milk". Jeevan, 2026-10-22: ask back when it is unclear."""
+
+    ASKED = ('Add eggs, milk and bread to your shopping list as 3 items? '
+             'Say yes, or no to add "eggs milk and bread" as you said it.')
+
+    def ask(self, everyday) -> list[dict]:
+        asked, _ = everyday.say("add eggs milk and bread to my shopping list", stream=False)
+        self.assertEqual(asked.message, self.ASKED)
+        self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [], "added before the answer")
+        # As the page sends it back, with the tool data after a line break.
+        return [{"role": "user", "text": "add eggs milk and bread to my shopping list"},
+                {"role": "assistant", "text": AskedAgainTests.page_turn(asked)}]
+
+    def test_yes_adds_each_word_as_an_item(self) -> None:
+        for reply in ("yes", "yeah", "yes please", "separately", "3 items"):
+            with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
+                everyday = Everyday(Path(tmp))
+                everyday.say(reply, history=self.ask(everyday), stream=False)
+                self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs", "milk", "bread"])
+
+    def test_no_adds_it_as_it_was_said(self) -> None:
+        for reply in ("no", "nope", "as i said", "one item"):
+            with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
+                everyday = Everyday(Path(tmp))
+                everyday.say(reply, history=self.ask(everyday), stream=False)
+                self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs milk", "bread"])
+
+    def test_the_items_said_again_are_added_as_said(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("eggs, almond milk and bread", history=self.ask(everyday), stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs", "almond milk", "bread"])
+
+    def test_cancelling_adds_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("never mind", history=self.ask(everyday), stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), [])
+
+    def test_clear_items_are_added_without_asking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            memory = everyday.orchestrator.context.memory
+            for text, items in (("add milk and eggs to my shopping list", ["milk", "eggs"]),
+                                ("add bread, almond milk and eggs to my shopping list", ["bread", "almond milk"]),
+                                ("add eggs and almond milk to my shopping list", ["almond milk"]),
+                                ("add peanut butter to my shopping list", ["peanut butter"]),
+                                ("add 2 apples and bread to my shopping list", ["2 apples"]),
+                                ("add a loaf of bread and jam to my shopping list", ["a loaf of bread", "jam"])):
+                with self.subTest(text):
+                    message = everyday.say(text, stream=False)[0].message
+                    self.assertTrue(message.startswith(("Added", "")) and "as you said it" not in message, message)
+                    for item in items:
+                        self.assertIn(item, memory.list_items("shopping"))
+
+
 class ListAsksTests(unittest.TestCase):
     """"is milk on my shopping list", "make a packing list with …", "delete my packing list" and
     "cross off eggs" reached the chat model, which can neither see nor change a list."""

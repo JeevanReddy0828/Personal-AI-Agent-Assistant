@@ -44,6 +44,15 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     should the timer run?" → "10 minutes". Keyed to the exact question strings; history
     arrives as `{"role", "text"}` - a test written with "content" passed while the page got
     nothing. Refusals, questions, new requests and filler ("it's", "to") are not answers.
+  - **List items said without commas are asked about** (Jeevan, 2026-10-22): "add eggs milk and
+    bread" may be three items or "eggs milk" one, and nothing tells it from "almond milk and
+    bread", so a multi-word item before the last "and", with no comma anywhere, asks "Add eggs,
+    milk and bread to your shopping list as 3 items? Say yes, or no to add ... as you said it."
+    A digit or a joining word ("2 apples", "a loaf of bread") marks a phrase and is not asked
+    about. "yes" splits, "no" keeps it as said, the items said again with commas are added, and
+    a cancel adds nothing. "no" is answered ahead of the refusal check. The question is matched
+    on the turn's first line, because the page appends the tool data after a line break. It
+    asks about todo phrases too ("call mom and pay rent"); "no" is the answer there.
   - **A computed answer can be asked again with one thing changed** (`_asked_again`): "and in
     feet?" after a conversion, "what about london" after the time, "and halloween?" or "in
     weeks?" after a count of days. Keyed to the answer's own shape, never the user's words,

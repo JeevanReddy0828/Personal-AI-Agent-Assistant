@@ -727,6 +727,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "milk"), and says so when there is no such list; "make a <name> list with …" adds only items
   said outright ("with suggestions for a trip" and "a reading list of novels" ask for ideas -
   Codex, #262); delete clears, and "cross/check off X" is a no-list-named remove. (10-10)
+- **"add eggs milk and bread" saved "eggs milk" as one item** → items split only on commas and
+  "and", and "eggs milk" cannot be told from "almond milk" → with no comma and a multi-word item
+  before the last "and", ask "as 3 items?" and act on yes / no / the items said again
+  (`UnclearListItemsTests`; the question is matched on the turn's first line, since the page
+  appends tool data). (10-22)
 - **"add dune to my books to read list" and "create a list called books to read" reached the chat
   model** → a list name could be two words at most, and a list could only be made with items →
   a name is up to four words, none of them "my"/"the"/"our" (or "add go to the store to my todo

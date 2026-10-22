@@ -398,6 +398,16 @@ _DRAW_AGAIN = re.compile(r"(?:(?:ok(?:ay)?|and|now)\s+)?(?:again|one\s+more(?:\s
                          r"(?:\s+please)?\s*[?!.]*", re.IGNORECASE)
 
 
+_PHRASE_WORD = re.compile(r"\d|\b(?:a|an|the|some|of|for|with|to)\b", re.IGNORECASE)
+# The answers to "Add eggs, milk and bread to your shopping list as 3 items? Say yes, or no ...".
+_UNCLEAR_ITEMS = re.compile(r'Add (?P<split>.+) to your (?P<name>.+?) list as \d+ items\? '
+                            r'Say yes, or no to add "(?P<said>.+)" as you said it\.')
+_SPLIT_THEM = re.compile(r"(?:yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right)(?:\s+please)?|separately|split\s+(?:them|it)"
+                         r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things)", re.IGNORECASE)
+_KEEP_THEM = re.compile(r"no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?",
+                        re.IGNORECASE)
+
+
 def _meaningful(value: str) -> bool:
     """Whether a reply carries an answer: "it's" and "to" alone do not - they were filed as
     a name and as a reminder."""
@@ -2327,6 +2337,14 @@ class AgentOrchestrator:
                 return ToolResult.failure(f"{raw_items} isn't on {label}.")
             return ToolResult.success(f"Removed {removed_item} from {label}.", removed=removed_item)
         items = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", raw_items) if item.strip(" .")]
+        # Said without commas, "eggs milk and bread" may be three things or "eggs milk" one, and nothing
+        # tells it from "almond milk and bread": ask back (Jeevan, 2026-10-22). A quantity or a joining
+        # word ("2 apples", "a loaf of bread") marks a phrase, so that is not asked about.
+        if "," not in raw_items and any(len(item.split()) > 1 and not _PHRASE_WORD.search(item) for item in items[:-1]):
+            split = [word for item in items[:-1] for word in item.split()] + items[-1:]
+            return ToolResult.success(
+                f"Add {', '.join(split[:-1])} and {split[-1]} to {label} as {len(split)} items? "
+                f'Say yes, or no to add "{raw_items}" as you said it.', items=self.context.memory.list_items(name))
         added = self.context.memory.add_to_list(name, items)
         total = len(self.context.memory.list_items(name))
 
@@ -2597,6 +2615,19 @@ class AgentOrchestrator:
         again = self._asked_again(asked, reply)
         if again is not None:
             return again
+        # Ahead of it too: "no" is an answer here, and adds the items as they were said. The commas
+        # in both commands keep the list from asking again.
+        unclear = _UNCLEAR_ITEMS.fullmatch(asked.split("\n", 1)[0].strip())
+        if unclear:
+            name = unclear.group("name")
+            if _SPLIT_THEM.fullmatch(reply):
+                return f"list {name} add {unclear.group('split')}"
+            if _KEEP_THEM.fullmatch(reply):
+                said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
+                return f"list {name} add {', '.join(said)}"
+            if "," in reply and not _NOT_AN_ANSWER.match(reply):
+                return f"list {name} add {reply}"
+            return None
         if _NOT_AN_ANSWER.match(reply):
             return None
         routed = self.router.plan(reply, "", {})
