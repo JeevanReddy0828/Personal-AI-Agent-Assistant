@@ -102,6 +102,7 @@ from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.mcp import McpTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
+from laptop_agent.tools.codefix import CodeFixTool
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools import fileops
 from laptop_agent.config import load_config
@@ -586,6 +587,7 @@ class AgentOrchestrator:
         self._copilot_cache: JobCopilot | None = None
         self._resume_copilot_cache: JobCopilot | None = None
         self._repo_cache: dict[str, list[dict]] | None = None
+        self._code_fix_cache: CodeFixTool | None = None
         # The rolling summary of older turns is written by the fast tier in the background
         # (see context.py); with no model configured it simply never appears.
         register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
@@ -1547,6 +1549,11 @@ class AgentOrchestrator:
 
     async def _dispatch_tasks(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for task dashboards, workflows and folder operations."""
+        if lowered.startswith("code run "):
+            return self._code_fix().run(command[len("code run ") :])
+        if lowered.startswith("code fix "):
+            return self._code_fix().fix(command[len("code fix ") :])
+
         if lowered in {"tasks", "task dashboard", "show tasks"}:
             dashboard = self.context.tasks.latest()
             if dashboard is None:
@@ -3419,6 +3426,7 @@ class AgentOrchestrator:
                 "  keys <new tab|back|scroll down|zoom in|…> [in <app>] | keys type [<app>] :: <text>  (sent to the app you name, else the one you were in)",
                 "  run command <command>",
                 "  run command in <cwd> :: <command>",
+                "  code run <script.py> | code fix <script.py>  (run it; fix it from its own error, shown as a diff first)",
                 "  play music <file-folder-or-url>",
                 "  media playpause|next|previous|stop|volumeup|volumedown|mute",
                 "  lock screen | power sleep|shutdown|restart|cancel | brightness [0-100|up|down]  (the laptop itself; sleep and power ask)",
@@ -4453,6 +4461,8 @@ class AgentOrchestrator:
         "calendar",
         "convert <amount> <unit> to <unit>",
         "run command <command>",
+        "code run <script.py>",
+        "code fix <script.py>",
         "memory",
         "audit",
     )
@@ -4590,6 +4600,12 @@ class AgentOrchestrator:
         if self.context.scheduler.remove(job_id):
             return ToolResult.success(f"Removed scheduled job #{job_id}.")
         return ToolResult.failure(f"No scheduled job #{job_id}.")
+
+    def _code_fix(self) -> CodeFixTool:
+        if self._code_fix_cache is None:
+            self._code_fix_cache = CodeFixTool(self._build_document_writer(), self.context.web.approval_gate,
+                                               self.data_dir / "code_backups")
+        return self._code_fix_cache
 
     def _schedule_list(self) -> ToolResult:
         jobs = [job.to_dict() for job in self.context.scheduler.list_jobs()]

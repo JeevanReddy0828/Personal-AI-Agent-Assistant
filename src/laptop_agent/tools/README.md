@@ -116,6 +116,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `desktop.py` | Screenshots and opening apps. |
 | `system.py` | Lock, sleep, shut down (60 s grace, CRITICAL), brightness, wallpaper with restore, processes and ending one, Settings pages; Windows calls behind a backend the harness switches off. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
+| `codefix.py` | `code run <script.py>`, `code fix <script.py>`: runs a Python script (asked), then shows a proposed fix on a card; refuses a script changed since the proposal and keeps each old version in a unique backup. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
 | `messaging.py` | `message whatsapp|telegram …`: the message opened in the app's share link after a card; the user presses send. |
 | `music.py` | Media keys, volume levels and YouTube music; refuses to treat "my voicemail" as a song. |

@@ -40,6 +40,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A layering bug in a screenshot** → a 250ms fade-in → check computed opacity and
   `elementFromPoint` before touching z-index. (09-26)
 - **`FAILED (errors=1)` with no test name** → `| tail` cut it → read `test-failures.log`. (09-22)
+- **"fix my script hello.py" reached the chat model, which guesses at an error it never saw** → no tool
+  ran the script → `code run` / `code fix` (`tools/codefix.py`): the script runs (asked) in its own
+  folder with a time limit and list arguments; a failure goes to the model with the file, the whole
+  corrected file comes back, the diff is on the card, and the old version is backed up before it is
+  written (`test_codefix.py`). Developer-only. (10-14)
+- **Two code fixes in one second lost the first backup; a file edited while the write card was
+  open was overwritten** → timestamp-only names collided, and approval resumed with stale
+  source → create backups atomically with unique names, preserve the original bytes, and
+  refuse if the script changes before or during backup (`test_codefix.py`). (10-18)
 - **A targeted run said OK, CI went red** → `run_tests.py` reads only its FIRST argument, and
   structural guards live elsewhere (`_handle` < 220 lines, `OTHER_BRANCHES`, page scans) →
   one file per invocation; full suite for orchestrator, dispatch, `access.py` or page changes. (10-01)
