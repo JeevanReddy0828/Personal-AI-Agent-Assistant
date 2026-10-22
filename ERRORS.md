@@ -713,6 +713,17 @@ guard, with the date), and a session entry only when the line cannot carry the l
   dropped, and one card lists the facts before any is saved (`tools/learn.py`, `test_learn.py`). (10-14)
 
 ### Shell, git and editing
+- **"lock my computer", "turn the brightness down" and "set my wallpaper to a beach photo" had no
+  tool** → the router reached for the nearest one, and the wallpaper became a generated picture →
+  `tools/system.py`: lock (MEDIUM), sleep and wallpaper (HIGH), shutdown, restart and ending a
+  process (CRITICAL), brightness and Settings pages; a wallpaper needs an image file's full path,
+  Windows' own processes and this one are never ended, and the harness switches the backend off
+  so no test reaches the laptop (`test_system.py`). Developer-only. (10-14)
+- **Agent mode could lock the laptop or end a model-chosen process without a card; "stop the
+  backup task" became `end process backup`** (review of #285) → laptop controls were offered
+  in the agent command menu and "task" meant process in the heuristic → keep system controls
+  out of agent mode and require the word "process" (or explicit "force quit") for process
+  termination (`test_system.py`). (10-19)
 - **A file mangled by escapes** → a heredoc collapsed `\\` → exact-match edits or the Write
   tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
 - **A scripted edit broke another line or file** → anchored on part of a line → anchor on the

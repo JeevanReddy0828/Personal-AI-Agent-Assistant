@@ -113,6 +113,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | File | What it does |
 |---|---|
 | `desktop.py` | Screenshots and opening apps. |
+| `system.py` | Lock, sleep, shut down (60 s grace, CRITICAL), brightness, wallpaper with restore, processes and ending one, Settings pages; Windows calls behind a backend the harness switches off. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
 | `messaging.py` | `message whatsapp|telegram …`: the message opened in the app's share link after a card; the user presses send. |
