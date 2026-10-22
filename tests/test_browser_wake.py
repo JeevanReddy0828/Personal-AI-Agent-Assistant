@@ -49,6 +49,17 @@ window.__speakToWake = () => {
 };
 """
 
+# The page reads the wake reply late, so an assertion that only waits for the network response
+# looks before the page has decided (Codex, on #299).
+SLOW_WAKE_REPLY = """
+const readJson = Response.prototype.json;
+Response.prototype.json = function() {
+  const read = readJson.call(this);
+  if (new URL(this.url).pathname !== '/api/wake') return read;
+  return read.then(reply => new Promise(resolve => setTimeout(() => resolve(reply), 1500)));
+};
+"""
+
 PENDING_WAKE_AND_CHAT = """
 window.__chatRequests=0;
 const upstreamFetch=window.fetch.bind(window);
@@ -125,6 +136,10 @@ class WakeWordInTheBrowser(unittest.TestCase):
         page.wait_for_function("() => typeof window.__wakeFrame === 'function'")
         page.evaluate("window.__speakToWake()")
 
+    def decided(self, page) -> None:
+        """Until the page has acted on the wake reply it is waiting for."""
+        page.wait_for_function("() => !wakeChecking")
+
     def voicing(self, page) -> bool:
         return page.evaluate("document.body.classList.contains('voicing')")
 
@@ -138,10 +153,10 @@ class WakeWordInTheBrowser(unittest.TestCase):
         self.assertEqual(page.get_attribute("#wakeBtn", "aria-pressed"), "true")
 
     def test_not_woken_stays_quiet(self):
-        page = self.open({"available": True, "wake": False})
+        page = self.open({"available": True, "wake": False}, init_script=SLOW_WAKE_REPLY)
         with page.expect_response("**/api/wake"):
             self.speak(page)
-        page.wait_for_timeout(500)
+        self.decided(page)
         self.assertEqual(len(self.checks), 1)
         self.assertFalse(self.voicing(page))
 
@@ -180,7 +195,7 @@ class WakeWordInTheBrowser(unittest.TestCase):
         page.keyboard.press("Enter")
         page.wait_for_function("() => window.__chatRequests === 1")
         page.evaluate("window.__releaseWake()")
-        page.wait_for_timeout(500)
+        self.decided(page)
         self.assertFalse(self.voicing(page), "wake entered voice while send() was busy")
         self.assertEqual(page.evaluate("window.__chatRequests"), 1, "the spoken request entered a second send")
         page.evaluate("window.__releaseChat()")
@@ -196,7 +211,7 @@ class WakeWordInTheBrowser(unittest.TestCase):
         page.evaluate("window.__releaseChat()")
         page.wait_for_function("() => !document.getElementById('reactor').classList.contains('busy')")
         page.evaluate("window.__releaseWake()")
-        page.wait_for_timeout(500)
+        self.decided(page)
         self.assertFalse(self.voicing(page), "wake response from before the chat started was replayed afterward")
 
 
