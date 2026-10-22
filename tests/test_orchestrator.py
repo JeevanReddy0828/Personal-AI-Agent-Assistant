@@ -778,9 +778,9 @@ class OrchestratorTests(unittest.TestCase):
             asyncio.run(orchestrator.handle("reminder add 2026-06-10 09:00 Call Alex"))
             result = asyncio.run(orchestrator.handle("briefing"))
             self.assertTrue(result.ok)
-            self.assertIn("Briefing", result.message)
+            self.assertIn("Your briefing for", result.message)
+            self.assertIn("- Due: Call Alex", result.message)
             self.assertEqual(result.data["due_reminders"][0]["message"], "Call Alex")
-            self.assertIn("knowledge", result.data)
             self.assertIn("metrics", result.data)
 
     def test_autopilot_runs_safe_plan(self) -> None:

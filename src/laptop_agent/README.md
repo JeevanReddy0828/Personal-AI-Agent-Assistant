@@ -59,6 +59,7 @@ data.
 | `wake.py` | "Hey Jarvis": whether a clip opens with the wake word, decided by local Whisper behind `/api/wake`. |
 | `spoken.py` | A spoken turn: the conversational style, the ~45-word spoken budget with "The rest is on screen.", and the greeting. |
 | `voice.py` | Text-to-speech, and cleaning a reply so it can be spoken (no URLs or code read aloud). |
+| `hotkey.py` | The desktop window's global push-to-talk key, Ctrl+Alt+J, through RegisterHotKey on its own thread. |
 | `recordings.py` | Saving voice recordings the user asked for, separate from throwaway speech clips. |
 
 ### Wiring and settings
@@ -110,6 +111,7 @@ data.
 | File | What it does |
 |---|---|
 | `reminders.py` | Reminders and timers; the interfaces deliver them when due. |
+| `briefing.py` | The daily briefing's format ("set my briefing to weather, AI news and reminders") and how its sections read. |
 | `scheduler.py` | Recurring jobs ("every weekday at 8"), run by the web server's ticker. |
 | `timeparse.py` | "6pm", "tomorrow at 9", "in 20 minutes" → an exact time on this laptop's clock. |
 

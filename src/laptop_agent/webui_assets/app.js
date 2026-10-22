@@ -32,7 +32,7 @@
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
-  let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
+  let attachments=[], busy=false, wakeBusyEpoch=0, voiceActive=false, currentAbort=null, agentMode=false;
   const SEND_ICON=sendBtn.innerHTML, STOP_ICON='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
@@ -713,7 +713,7 @@
   // so "summarize this" after `read file …` has the file text, not just the status line.
   function sessionHistory(s){return s?s.msgs.slice(-80).map(m=>({role:m.role==='bot'?'assistant':'user',text:(String(m.text||'')+(m.extra?'\n'+m.extra:'')).slice(0,40000)})):[];}
   function dataDigest(data){try{const d=Object.assign({},data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete d[k]);return Object.keys(d).length?('[tool result data, context only - not a format to imitate] '+JSON.stringify(d).slice(0,2000)):'';}catch(e){return '';}}
-  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);const chart=m.chart&&forecastChart(m.chart);if(chart)node.querySelector('.md').after(chart);});}renderSessions();}
+  function loadSession(id){current=id;const s=curSession();document.body.classList.toggle('ghosting',!!(s&&s.ghost));chat.innerHTML='';if(!s||!s.msgs.length){chat.appendChild(emptyEl());}else{s.msgs.forEach(m=>{const node=renderMsg(m.role,m.text,m.atts,m.at);if(m.recording)renderRecording(node,s,m);const chart=m.chart&&drawChart(m.chart);if(chart)node.querySelector('.md').after(chart);});}renderSessions();}
   let emptyNode=document.getElementById('empty');
   function emptyEl(){const el=emptyNode.cloneNode(true);el.querySelectorAll('.scard').forEach((b,i)=>b.onclick=()=>send(SUG[i][1]));return el;}
   function closeChats(){document.body.classList.remove('showChats');document.getElementById('mobileChats').setAttribute('aria-expanded','false');}
@@ -775,7 +775,7 @@
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="think" role="status" aria-label="Working"><i></i></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
+  function setBusy(b,tier){if(b&&!busy)wakeBusyEpoch++;busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
     sendBtn.innerHTML=b?STOP_ICON:SEND_ICON; sendBtn.title=b?'Stop':'Send';sendBtn.setAttribute('aria-label',sendBtn.title); sendBtn.classList.toggle('stop',b);}
   let currentRequest=null;
   function stopGen(){twCancel=true;if(currentRequest){fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:currentRequest})}).catch(()=>{hint.textContent='Could not reach the server to confirm stopping.';});}if(currentAbort){currentAbort.abort();}}
@@ -965,7 +965,7 @@
   // agent-mode toggle
   function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
     ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file to auto-process it, or tap the mic)';
-    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
+    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat · Ctrl+Space to talk.';}
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
@@ -1049,7 +1049,7 @@
       // whole (streamed==''), so give it the same live feel with a typewriter pass.
       if(streamed||(d.data&&d.data.record))setMd(md,reply); else typewriter(md,reply);
       const chartable=d.ok?chartData(d.data):null;
-      if(chartable){const chart=forecastChart(chartable);if(chart)md.after(chart);}
+      if(chartable){const chart=drawChart(chartable);if(chart)md.after(chart);}
       activeTier=(d.data&&d.data.planner&&d.data.planner.model)||predicted;
       const data=Object.assign({},d.data||{});['planner','messages','sources','fields','fill_preview','field_mappings','results'].forEach(k=>delete data[k]);
       if(Object.keys(data).length){const det=document.createElement('details');det.className='det';det.innerHTML='<summary>details</summary>';const pre=document.createElement('div');pre.className='data';pre.textContent=JSON.stringify(data,null,2);det.appendChild(pre);node.querySelector('.content').appendChild(det);}
@@ -1574,10 +1574,36 @@
   // What a chart needs and nothing more, kept on the saved message so a reopened chat draws it
   // again: the tool digest is cut at 2,000 characters, and a series can hold 4,096 values.
   function chartData(data){
+    const c=data&&data.chart;
+    if(c&&c.kind==='bar'&&Array.isArray(c.labels)&&Array.isArray(c.values))
+      return {bar:{title:String(c.title||''),labels:c.labels.slice(0,24).map(String),values:c.values.slice(0,24).map(Number)}};
     if(!(data&&data.forecast&&data.series))return null;
     const f=data.forecast, s=data.series, values=s.values||[];
     return {labels:data.labels||[],forecast:{enough_data:f.enough_data,points:f.points||[],lower:f.lower||[],upper:f.upper||[]},
             series:{labels:(s.labels||[]).slice(-48),values:values.slice(-48),total:values.length}};
+  }
+  function drawChart(c){return c&&c.bar?barChart(c.bar):forecastChart(c);}
+  // A breakdown ("total revenue by region in sales.csv"): one horizontal bar per group, in the
+  // order the tool chose - largest first, or by period for a time breakdown. Built as DOM nodes,
+  // like the forecast, so a group's name from the user's file is never read as markup.
+  function barChart(b){
+    const labels=b.labels||[], values=b.values||[], n=Math.min(labels.length,values.length);
+    if(!n||!values.slice(0,n).every(v=>Number.isFinite(v)))return null;
+    const lo=Math.min(0,...values.slice(0,n)), hi=Math.max(0,...values.slice(0,n)), span=(hi-lo)||1;
+    const W=600,row=22,T=6,L=150,R=70,H=T+n*row+4, x=v=>L+(W-L-R)*(v-lo)/span;
+    const NS='http://www.w3.org/2000/svg', svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','fchart bchart');svg.setAttribute('role','img');
+    svg.setAttribute('aria-label',(b.title||'Bar chart')+': '+n+' bars');
+    const add=(tag,attrs,text)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;svg.appendChild(e);return e;};
+    const fmt=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():Math.abs(v)>=1||v===0?String(+v.toFixed(2)):String(+v.toPrecision(3));
+    for(let i=0;i<n;i++){
+      const v=values[i], y=T+i*row, x0=x(Math.min(0,v)), w=Math.max(2,Math.abs(x(v)-x(0)));
+      const name=labels[i].length>22?labels[i].slice(0,21)+'…':labels[i];
+      add('text',{x:L-8,y:y+14,'text-anchor':'end','font-size':11,style:'fill:var(--text-2);font-family:var(--sans)'},name);
+      add('rect',{x:x0,y:y+3,width:w,height:row-8,rx:3,style:'fill:var(--accent);fill-opacity:'+(i?'.55':'.85')});
+      add('text',{x:x0+w+6,y:y+14,'font-size':11,style:'fill:var(--muted);font-family:var(--sans)'},fmt(v));
+    }
+    return svg;
   }
   function forecastChart(data){
     const f=data.forecast||{}, s=data.series||{}, next=data.labels||[], pts=f.points||[];
@@ -1915,6 +1941,32 @@
   function toggleVoice(){if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();}
   voiceBtn.onclick=toggleVoice;
   if(orbVoiceBtn)orbVoiceBtn.onclick=toggleVoice;
+  // Push to talk: Ctrl+Space here, and Ctrl+Alt+J from any app through the desktop window's
+  // global hotkey (hotkey.py), which calls jarvisHotkey. Captured first, so the Space handlers
+  // below (interrupt, stop a recording) never see the same press.
+  window.jarvisHotkey=toggleVoice;
+  const desktopHotkeyChannel=new URLSearchParams(location.search).get('desktop_hotkey');
+  if(desktopHotkeyChannel){
+    let last=null,closed=false;
+    window.addEventListener('pagehide',()=>{closed=true;});
+    (async function listenDesktopHotkey(){
+      while(!closed){
+        try{
+          const query=new URLSearchParams({channel:desktopHotkeyChannel});
+          if(last!==null)query.set('after',String(last));
+          const response=await fetch('/api/hotkey?'+query);
+          if(!response.ok)return;
+          const next=Number((await response.json()).sequence);
+          if(closed||!Number.isSafeInteger(next))return;
+          if(last!==null)for(let n=last;n<next;n++)toggleVoice();
+          last=next;
+        }catch(e){if(!closed)await new Promise(resolve=>setTimeout(resolve,1000));}
+      }
+    })();
+  }
+  document.addEventListener('keydown',e=>{
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&e.code==='Space'&&!e.repeat){e.stopImmediatePropagation();toggleVoice();}
+  },true);
   // Both surfaces show the same state. Whichever one is on screen has to be right.
   function paintVoiceButtons(on){
     voiceBtn.classList.toggle('on',on);
@@ -1952,7 +2004,7 @@
     wakeStop=stop;
     proc.onaudioprocess=e=>{
       if(wakeStop!==stop)return;
-      if(voiceActive||speaking||activeRecording||performance.now()-speechEndedAt<800){clip=[];inSpeech=false;loud=0;return;}
+      if(busy||voiceActive||speaking||activeRecording||performance.now()-speechEndedAt<800){clip=[];inSpeech=false;loud=0;return;}
       const ch=e.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<ch.length;i+=4)sum+=ch[i]*ch[i];
       const level=Math.sqrt(sum/(ch.length/4)), bar=Math.max(0.02,floor*3);
       if(!inSpeech){
@@ -1972,13 +2024,14 @@
     src.connect(proc);proc.connect(sink);sink.connect(ac.destination);
   }
   async function wakeCheck(samples,rate){
-    if(wakeChecking)return;                       // one clip at a time; a burst while one is checked is dropped
+    if(wakeChecking||busy)return;                  // a burst while a chat or wake check is running is dropped
     wakeChecking=true;
+    const busyEpoch=wakeBusyEpoch;
     try{
       const r=await fetch('/api/wake',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encodeWavB64(samples,rate)})});
       const d=await r.json();
       if(d.available===false){wakeUnavailable=true;wakePause();paintWake();return;}
-      if(d.wake&&wakeOn&&!voiceActive){wakePause();chime();startVoice((d.rest||'').trim());}
+      if(d.wake&&wakeOn&&!voiceActive&&!busy&&busyEpoch===wakeBusyEpoch){wakePause();chime();startVoice((d.rest||'').trim());}
     }catch(e){}
     finally{wakeChecking=false;}
   }

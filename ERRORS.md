@@ -22,6 +22,14 @@ guard, with the date), and a session entry only when the line cannot carry the l
   open, so the first can only play if playback does not wait for it; a page that waits
   deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
   miss is a flake. (10-08)
+- **Web-server tests fail with 403, `403 != 400` or WinError 10054 only while another
+  worktree's suite runs** → eight `test_webui_*` files bound fixed ports (8793-8800), and the
+  stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
+  hit the other run's server and its different API token → bind port 0 and read
+  `server_address[1]` (`test_no_test_server_binds_a_fixed_port`). (10-14)
+- **The fixed-port guard passed a test server bound to `port = 8798`** → it scanned the source
+  for a literal port in `Server((host, N))`, so a variable hid it (Codex, on #290) → the runner
+  refuses any non-zero bind at runtime, and the guard plants a probe that binds a free port. (10-18)
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
@@ -32,6 +40,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A layering bug in a screenshot** → a 250ms fade-in → check computed opacity and
   `elementFromPoint` before touching z-index. (09-26)
 - **`FAILED (errors=1)` with no test name** → `| tail` cut it → read `test-failures.log`. (09-22)
+- **"fix my script hello.py" reached the chat model, which guesses at an error it never saw** → no tool
+  ran the script → `code run` / `code fix` (`tools/codefix.py`): the script runs (asked) in its own
+  folder with a time limit and list arguments; a failure goes to the model with the file, the whole
+  corrected file comes back, the diff is on the card, and the old version is backed up before it is
+  written (`test_codefix.py`). Developer-only. (10-14)
+- **Two code fixes in one second lost the first backup; a file edited while the write card was
+  open was overwritten** → timestamp-only names collided, and approval resumed with stale
+  source → create backups atomically with unique names, preserve the original bytes, and
+  refuse if the script changes before or during backup (`test_codefix.py`). (10-18)
 - **A targeted run said OK, CI went red** → `run_tests.py` reads only its FIRST argument, and
   structural guards live elsewhere (`_handle` < 220 lines, `OTHER_BRANCHES`, page scans) →
   one file per invocation; full suite for orchestrator, dispatch, `access.py` or page changes. (10-01)
@@ -64,6 +81,31 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **Windows CI: same file, different path** (`RUNNER~1`) → compare with `samefile`. (09-28)
 
 ### Routing and the chat model
+- **A list was read off a word inside it** - "add machine learning papers to my briefing" saved
+  the laptop line, "bottom 2 regions by revenue" called the lowest the leader, and "calculate total
+  revenue by region in x.csv" went to the chat model (review of #296) → section words matched with
+  `.search`, the insight read the ranking's first as its highest, and the calculate prose rule did
+  not know breakdowns → sections fullmatch the whole part, the insight takes max/min by value, and
+  the prose rule asks `breakdown_request` first. (10-17)
+- **Stop during a briefing waited for an unrelated slow feed** (Codex's review of #296) → the
+  feeds' `with ThreadPoolExecutor` block waited for every thread on exit, and results were read in
+  section order → `wait(FIRST_EXCEPTION)` re-raises a section's OperationCancelled at once and the
+  pool shuts down without waiting; tests join the `briefing` threads before cleanup (`test_briefing.py`). (10-18)
+- **A personal account could change the developer-only briefing by approving a learned
+  `briefing_format` fact** (found integrating #296 with #288) → `learn from chat` is everyday and
+  saved any proposed key, a second door beside "remember" → `LearnTool(allowed=...)` drops a key the
+  orchestrator refuses before the card (`_briefing_by_remember`), so it is neither shown nor saved
+  (`test_learn.py`). (10-18)
+- **"set my briefing to weather and news" saved a briefing of weather alone, then read the
+  news out** → the multi-request splitter cuts at "and" wherever every part routes on its own,
+  and "set my briefing to weather" and "news" both do; the typed form split the same way,
+  because the catch-all `briefing` route reads it as a plain briefing → a sentence that is, or
+  routes to, `briefing set/add/remove` stays whole (`_split_requests`); "give me my briefing
+  and set a timer" still splits. A list joined by "and" inside one argument needs this for
+  every new verb that takes one. (10-16)
+- **"create a workspace folder and fill files with python basics" made one Markdown document** → no tool could make a folder or write several files, so the model router substituted the document tool → `workspace <request>` (`tools/workspace.py`): the name and place come from the words, the model only plans the files as JSON, one unsafe path refuses the whole plan, and one HIGH card lists every file before anything is written; developer-only; the router leaves "how do I create a folder in python" to the chat; a path that is both a file and a folder ("src" and "src/app.py", any case) is refused before the card (Codex's review) (`test_workspace.py`). (10-13)
+- **A failed workspace write said "nothing was left half-written" while the folder was still there** → `rmtree(ignore_errors=True)` can silently leave files Windows holds open → the folder is checked after the cleanup and, if it survived, the reply names it (Codex's review of #282, `test_workspace.py`). (10-18)
+- **"make my downloads folder less cluttered" made a folder; a plan with a README fence was "not usable"; a folder that appeared while the card was open was written into; "in C:\My Projects" created C:\My** → the router matched a prefix, the fence regex stopped at the inner ```, the free name was checked before the card and not claimed, and an unquoted path stopped at the space → the whole sentence must ask for a folder (`_WORKSPACE_ASK`), the plan is read with `raw_decode`, the folder is claimed by an exclusive mkdir after the card and removed again if a write fails, a place that does not exist is refused, the name and place come only from before the contents, .url/.lnk/.scf/script files are never written, the card shows the start of each file, and the writer's tokens are clamped to the endpoint's cap (`ReviewOf282Tests`). (10-17)
 - **"and in feet?" after "convert 5 miles to km", "and in london?" after the time in Tokyo,
   "and halloween?" after the days until Christmas all went to the chat model** → a follow-up
   was only ever an answer to a question we had asked, and the refusal check reads "what about
@@ -350,6 +392,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (Codex, #251), and a bare "tokyo friday" is left to the geocoder's own fallback. The
   future-tense route shares the pattern and adds "on/over the weekend". (10-08)
 
+- **"send a WhatsApp to mom saying I'm late" had no tool, and "flights from Austin to Tokyo" found
+  pages about fares but no fares** → nothing could prepare a message (the router once made "text
+  john" an email) and there is no free fare API → `message whatsapp|telegram [to <who>] :: <text>`
+  opens the app's share link after a HIGH card showing the text, and the user presses send
+  (`tools/messaging.py`); a flights search leads with a Google Flights link for the same words
+  (`test_messaging.py`). Developer-only. (10-14)
+
 ### Models and providers
 - **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list
   discovery made a separate 15-second blocking HTTP call between two bounded gRPC waits →
@@ -390,6 +439,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   request again to a smaller budget instead (#176). (10-02)
 
 ### Retrieval: knowledge, files, context
+- **"summarize what I copied" and "copy that" had nowhere to go** → no tool could read or write the
+  clipboard, so the model answered from nothing → `clipboard`, `clipboard copy <text|that>`,
+  `clipboard ask <request>` (`tools/clipboard.py`, no extra package), developer-only, and
+  "translate what I copied" refuses a personal account although translation is everyday; the
+  harness swaps in a clipboard of its own, so no test touches the real one (`test_clipboard.py`). A copy
+  opens the clipboard with a hidden owner window: opened with none, EmptyClipboard cleared it and
+  SetClipboardData then failed (Codex's review, from Microsoft's docs). (10-14)
 - **"find the readme in this folder" answered "Path does not exist: …\readme ."** →
   `search files <query> <root>` split at the first space, so any query of two words broke →
   the root is the longest tail that exists, else the first path-shaped one
@@ -405,6 +461,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   of the same name shadows it → import a common word under an alias. (10-01)
 - **Answers from an unrelated scrape** → passage score re-decided the document → the referent
   picks the document, the question the passage; generated kinds are discounted. (CLAUDE.md)
+
+- **"move report.pdf to my desktop" and "delete old-notes.txt" had no tool** → only reading, searching
+  and organising a folder were built, so the model reached for the shell → `tools/fileops.py`: each
+  change asks (HIGH), never overwrites, keeps out of Windows' folders, the home folder and drive
+  roots, and is journaled so "undo that" reverses it; deletion goes to the Recycle Bin. "undo that" is
+  the file only when our last reply was a file change, so the instant router now gets the history
+  too (`test_fileops.py`). Developer-only. (10-14)
 
 ### Time and dates
 - **"when is new year's" and "new years day" reached the chat model while "new years" and "new
@@ -504,6 +567,31 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
+  clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
+  the gate, and the routes matched pronouns and verbs about the clipboard itself → not in
+  `_AGENT_COMMANDS`; reads LOW and writes MEDIUM through the gate (audited); a personal account is
+  refused inside `ClipboardTool`; a pronoun copies only with "to my clipboard"; "explain/fix/check"
+  need "what I copied"; a reference ("the summary") copies our reply, never its own words. (10-17)
+- **An MCP server received the NVIDIA key and the mail password** (review of #293) → servers were
+  started with `{**os.environ, **env}`, and `.env` is loaded into os.environ → a server inherits
+  only `tools/mcp._INHERITED` plus its own mcp.json `env`. In the same review: a server's
+  `readOnlyHint` no longer lowers a call to MEDIUM (no card in the web app), a half-started server is
+  ended, a dead one restarts, the deadline covers the whole wait, and `mcp` arguments skip the
+  sentence clean-up that unquoted their paths. (10-17)
+- **Blender, a database or any program speaking MCP could not be reached** → no MCP client →
+  `tools/mcp.py`: servers from `<data dir>/mcp.json` (`mcpServers` or `servers`), started on first
+  use after a HIGH card, newline-delimited JSON-RPC over stdio; a call asks MEDIUM when the tool
+  says it only reads, CRITICAL when it says it destroys, HIGH otherwise; stray stdout lines and
+  notifications are skipped, every page of tools/list is read (`test_mcp.py`). Developer-only. (10-14)
+- **A plugin chose its own card: "low" skipped the gate, "medium" ran with no card in the web app,
+  and agent mode could call it with model-chosen arguments** (review of #292) → RISK was trusted →
+  every run is HIGH or CRITICAL, loading the folder asks first, the agent loop cannot call a plugin,
+  and `sys.exit` in a plugin is a failure, not the app ending. (10-17)
+- **A plugin in a second data folder imported the first folder's `_helper.py`** (second review of
+  #292) → a new `jarvis_plugins` package replaced the old one but its submodules stayed in
+  `sys.modules` → each load drops every cached `jarvis_plugins.*` module and starts a fresh
+  package (`test_plugins.py`, two folders). (10-18)
 - **Client sees a connection reset, not the 4xx** → the body was not read →
   `_drain_request_body` (bytes, not a flag). (09-17)
 - **Flaky phone pairing; two apps answering** → a second process bound the port →
@@ -519,6 +607,18 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
+  fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
+  it too and sends each press to that window through a private, authenticated long-poll
+  channel (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-18)
+- **The desktop hotkey channel could be exposed without a failing test** → UI checks only
+  exercised the valid token → a loopback server test rejects absent and wrong channels and
+  non-desktop mode, and succeeds only for the desktop channel (`test_hotkey.py`). (10-19)
+- **Voice could only be started by clicking the mic, and only with the window focused** → no key
+  started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
+  first, so the Space interrupt and recording handlers never see it), and the desktop window
+  registers Ctrl+Alt+J with RegisterHotKey (`hotkey.py`), which calls `jarvisHotkey()`; a key another
+  app holds is recorded, not raised (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-14)
 - **A long tool reply waits to speak, or the browser reads only its first 800 characters** →
   no streamed tokens meant `voiceTurnDone` sent the entire result as one TTS request. The
   server now emits bounded `tts` events for the cleaned final result through the same
@@ -551,10 +651,44 @@ guard, with the date), and a session entry only when the line cannot carry the l
   default, Jeevan's choice): the page cuts speech into clips by level and `/api/wake` decides with
   local Whisper only, an opening "Jarvis" only, `no_speech_prob > 0.6` ignored; it closes while voice
   mode has the microphone and never opens while switched off (`test_wake.py`, `test_browser_wake.py`). (10-15)
+- **"Hey Jarvis" entered voice during a pending chat but lost the spoken request** → the wake
+  reply called `send()` while its busy guard rejected another request → discard clips during
+  chat and stale wake replies that span a chat (`test_browser_wake.py`). (10-19)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
 
 ### Data and state
+- **"total revenue by region in sales.csv" said Revenue "is not a column of numbers"** because
+  one cell read "N/A" → the column test demanded every cell be a number, so one odd cell made
+  the whole column text and the reply blamed the column → a column is numbers when most of its
+  filled cells are, and the odd cell is refused by its row (`tools/breakdown._is_numeric`). (10-16)
+- **A "Recycle Bin" delete could be permanent, and "delete the alarm at 6.30" became a file delete**
+  (review of #287) → FOF_NOCONFIRMATION answered Windows' "delete permanently?" for drives with no
+  bin, and any "name.<1-6 chars>" was a file name → a removable or network drive is refused before
+  anything (FOF_WANTNUKEWARNING as a backstop); a bare name's extension starts with a letter and is
+  not a web domain. Same review: a missing destination folder is not a new file name, C:\\Users and
+  the profile folders are protected, a delete no longer blocks undo, and a model-routed `undo file`
+  stands only straight after a file change. (10-17)
+- **#287's protected-folder test passed here and failed on CI's Windows runners only** → the
+  target was `resolve()`d but home was not, and the runner's temp dir is an 8.3 name
+  (`RUNNER~1`) that `resolve()` expands, so the two never matched → `_protected` resolves home
+  too; a home spelled with `..` reproduces it on any machine (`test_fileops.py`). Same round:
+  "undo" moved back or recycled a different file put where the moved or copied one had been →
+  the journal records the object's identity (device, inode, and a file's modified time) and
+  undo refuses when what is there now is not it. A folder's identity is its whole tree (each
+  entry's path, size and modified time): undoing a copy recycled work added inside the copied
+  folder (Codex's re-review); and a copy's identity includes its contents, since a same-size edit
+  with its modified time restored still recycled the edited copy (third review). (10-18)
+- **"learn from chat" kept an SSN and an AWS key, dropped a dated appointment, and said "nothing new"
+  when the model failed** (review of #288) → a single "12+ digits" rule missed 123-45-6789 and hit
+  ISO dates and phone numbers, and an empty or unreadable reply became [] → secrets by shape (SSN,
+  grouped card numbers, provider keys, long letter-digit tokens) and by key name (`door_code`,
+  `wifi_key`, `api_key`); `proposed` returns None for an unreadable reply, which fails; a
+  replacement shows what it replaces; approved facts are one write. (10-17)
+- **"learn from chat" still proposed `recovery_code=4821` and `verification_code=3192`** (second
+  review of #288) → short digit values match no secret shape, and the key-name list knew only door
+  and alarm codes → recovery, verification, one-time, OTP/2FA, backup, auth and security codes are
+  secret names; `zip_code`, `area_code` and `postal_code` stay facts. (10-18)
 - **"tell me when there's news about Nvidia" and "warn me if my battery runs low" could not be
   kept** → headlines and the machine's readings were answered only when asked → `watch news <topic>`
   and `watch health` are scheduled jobs (`tools/watch.py`) whose finding is a reminder due now; a
@@ -594,8 +728,23 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A TTL cache blocks every caller on a miss** → collection under the lock → background
   refresh. (10-01)
 - **Vault links "broken"** → audited the subfolder → the root holds `.obsidian`. (09-09, 09-12)
+- **A whole conversation about a new job or a dentist left nothing in memory** → a fact was kept only
+  when said as "remember …" → `learn from chat` ("remember what we talked about"): the model reads
+  the user's own messages only (never replies, which carry pages and tool output), secrets are
+  dropped, and one card lists the facts before any is saved (`tools/learn.py`, `test_learn.py`). (10-14)
 
 ### Shell, git and editing
+- **"lock my computer", "turn the brightness down" and "set my wallpaper to a beach photo" had no
+  tool** → the router reached for the nearest one, and the wallpaper became a generated picture →
+  `tools/system.py`: lock (MEDIUM), sleep and wallpaper (HIGH), shutdown, restart and ending a
+  process (CRITICAL), brightness and Settings pages; a wallpaper needs an image file's full path,
+  Windows' own processes and this one are never ended, and the harness switches the backend off
+  so no test reaches the laptop (`test_system.py`). Developer-only. (10-14)
+- **Agent mode could lock the laptop or end a model-chosen process without a card; "stop the
+  backup task" became `end process backup`** (review of #285) → laptop controls were offered
+  in the agent command menu and "task" meant process in the heuristic → keep system controls
+  out of agent mode and require the word "process" (or explicit "force quit") for process
+  termination (`test_system.py`). (10-19)
 - **A file mangled by escapes** → a heredoc collapsed `\\` → exact-match edits or the Write
   tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
 - **A scripted edit broke another line or file** → anchored on part of a line → anchor on the
@@ -603,6 +752,20 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **`sed -i` rewrote CRLF as LF** → harmless under autocrlf → check `git diff --stat` for
   whole-file churn. (10-01)
 - **`pkill -f` killed its own shell** → write the pattern as `m laptop_agent[.]webui`. (09-26)
+- **"new tab", "scroll down" and "type hello in notepad" had no tool, and a key pressed blindly lands
+  in J.A.R.V.I.S, which has the focus while the user speaks** → `tools/keys.py`: only named
+  shortcuts, each sent after bringing the app named, else the first other window in z-order, to
+  the front (nothing is pressed if it will not come); closing a window, Enter and typing ask, and
+  typing is one line (a newline would run a terminal's command). Harness switches it off (`test_keys.py`). (10-14)
+- **Keys went to a different app after Windows reported a successful focus change; Save and Paste
+  ran without a HIGH card** → `SetForegroundWindow` can lose focus during the 150 ms settle,
+  while Ctrl+S writes and Ctrl+V inserts content → verify `GetForegroundWindow` after settling
+  and require HIGH approval for both shortcuts (`test_keys.py`, fake Win32 backend). (10-18)
+- **`type "hello" in notepad` typed quote marks, while "type out a poem" became keystrokes;
+  agent mode could press keys in another app** (review of #289) → the typing route treated
+  quoted text with an app as unquoted text, treated bare "type out" as an instruction to type,
+  and exposed `keys` in the agent menu → parse quoted text and optional app together, require
+  an app for unquoted text, and omit keys from agent mode (`test_keys.py`). (10-19)
 - **Import error on Python 3.11 only** → a backslash inside an f-string expression. (09-26)
 - **Committed to `main`; committed `docs/review/*.png`** → check the branch before the first
   commit; discard noisy paths before `git add`. (09-11, 09-22)

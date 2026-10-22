@@ -33,10 +33,10 @@ class MapApiTests(unittest.TestCase):
         # Inject a stubbed travel tool into the orchestrator's lazy cache (no gate).
         object.__setattr__(webui._orchestrator, "_travel_tool_cache",
                            TravelTool(transport=_transport))
-        cls.server = ThreadingHTTPServer((webui.HOST, 8794), webui.Handler)
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        cls.base = f"http://{webui.HOST}:8794"
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:

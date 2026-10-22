@@ -246,6 +246,19 @@ once without and once with explicit `--collect-all riva --collect-all grpc`: bot
 selected Parakeet and translated, at the same size. Without the extra on the build machine,
 the exe falls back to its local engines as before.
 
+**Push to talk** (2026-10-14). Ctrl+Space turns voice on and off in the page, in a tab and in
+the app window; it is a capture-phase listener that stops the event, so the Space handlers
+(interrupt a reply, stop a recording) never see the same press. The app window also registers
+Ctrl+Alt+J for the whole of Windows (`hotkey.py`, RegisterHotKey through ctypes on its own
+thread, MOD_NOREPEAT so a held key presses once); a press restores and shows the window and
+calls `window.jarvisHotkey()`, the same toggle. Ctrl+Space is not the global key because
+Windows switches input languages with it. Bringing the window in front of another app is
+best effort: Windows may flash the taskbar button instead. In the Chrome/Edge `--app`
+fallback, Ctrl+Alt+J uses the same Windows registration and delivers presses over a private
+local channel to toggle voice; the browser window may remain behind the current app. A wake
+word ("Hey Jarvis") is not
+built: it needs a microphone that is always open, which is Jeevan's call.
+
 ## Recorder integration (REC-01, 2026-09-28)
 
 - `recordings.py` parses requested durations and validates saved WAV bytes (16 kHz,
@@ -278,7 +291,10 @@ Measured on synthesized clips: about 0.5 s a clip once loaded; loading takes ~9 
 `_warm_wake` loads it at start. On waking: a chime, and voice mode starts, or, when the words
 went on ("Hey Jarvis, what time is it"), the rest is sent at once. The stream is closed while
 voice mode has the microphone and reopened 800 ms after it ends; while we speak or record, what
-it hears is dropped. The switch is the ear button by Voice (`#wakeBtn`, saved in
+it hears is dropped. A normal chat in progress also drops microphone clips, and a wake reply
+started before that chat is ignored even if the chat finishes before the reply arrives. This
+keeps the spoken remainder from entering voice mode while `send()` is busy and losing it.
+The switch is the ear button by Voice (`#wakeBtn`, saved in
 `localStorage['jarvis_wake']`), and "turn off/on the wake word" or "stop listening for hey jarvis",
 answered by the page itself. Without Whisper on the server the page switches itself off after
 the first clip. Two windows open both listen; the first to hear it answers.
