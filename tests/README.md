@@ -69,7 +69,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Autonomy and jobs | `test_reasoning.py`, `test_autopilot.py`, `test_workflows.py`, `test_tasks.py`, `test_advisor.py`, `test_control_room.py`, `test_jobs.py`, `test_copilot.py`, `test_jobright.py`, `test_watch.py` |
 | Analytics | `test_forecast.py`, `test_analytics_diagnostics.py` |
 | Files on disk | `test_fileops.py`: move, copy, rename, delete to the Recycle Bin, undo |
-| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py` |
+| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py`, `test_hotkey.py`, `test_browser_push_to_talk.py` |
 | `data/` | Shared fixtures; see its README. |
 | MCP | `test_mcp.py`: a real MCP server subprocess - start asked once, calls at the declared risk, paging, stray lines |
 

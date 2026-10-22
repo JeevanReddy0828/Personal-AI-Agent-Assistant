@@ -598,6 +598,18 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
+  fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
+  it too and sends each press to that window through a private, authenticated long-poll
+  channel (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-18)
+- **The desktop hotkey channel could be exposed without a failing test** → UI checks only
+  exercised the valid token → a loopback server test rejects absent and wrong channels and
+  non-desktop mode, and succeeds only for the desktop channel (`test_hotkey.py`). (10-19)
+- **Voice could only be started by clicking the mic, and only with the window focused** → no key
+  started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
+  first, so the Space interrupt and recording handlers never see it), and the desktop window
+  registers Ctrl+Alt+J with RegisterHotKey (`hotkey.py`), which calls `jarvisHotkey()`; a key another
+  app holds is recorded, not raised (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-14)
 - **A long tool reply waits to speak, or the browser reads only its first 800 characters** →
   no streamed tokens meant `voiceTurnDone` sent the entire result as one TTS request. The
   server now emits bounded `tts` events for the cleaned final result through the same
