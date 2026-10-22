@@ -21,6 +21,7 @@ from laptop_agent.cancellation import operation, cancel, check_cancelled, Operat
 import asyncio
 import base64
 import contextlib
+import io
 import ipaddress
 import json
 import math
@@ -34,6 +35,7 @@ import hashlib
 import socket
 import threading
 import time
+import wave
 import webbrowser
 from collections import OrderedDict
 from datetime import datetime
@@ -59,6 +61,7 @@ from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
 from laptop_agent.timeparse import describe
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav, tts_engine_name
+from laptop_agent.wake import SAMPLE_RATE, WakeDetector, whisper_recognizer
 from laptop_agent.webui_page import PAGE, SIGNIN_PAGE
 from laptop_agent.window_fx import apply_window_effects
 
@@ -145,6 +148,7 @@ _PERSONAL_ROUTES = frozenset({
     "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
     "/auth/google/status", "/auth/google/launch", "/auth/google/callback",
     "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
+    "/api/wake",
     "/api/hotkey",
 })
 
@@ -553,6 +557,24 @@ def _refresh_llm_status() -> None:
 
 def _warmup() -> None:
     threading.Thread(target=_refresh_llm_status, daemon=True).start()
+
+
+# "Hey Jarvis" is heard on this laptop only (wake.py): local Whisper, never the hosted engine.
+_WAKE = WakeDetector(whisper_recognizer())
+
+
+def _warm_wake() -> None:
+    """Load the wake model in the background: the page listens from the start, and the first
+    clip otherwise waited ~9 s for Whisper to load."""
+    if not _WAKE.available:
+        return
+    silence = io.BytesIO()
+    with wave.open(silence, "wb") as clip:
+        clip.setnchannels(1)
+        clip.setsampwidth(2)
+        clip.setframerate(SAMPLE_RATE)
+        clip.writeframes(bytes(SAMPLE_RATE))      # half a second of silence
+    threading.Thread(target=_WAKE.check, args=(silence.getvalue(),), daemon=True).start()
 
 
 def _keep_warm(interval: float = 200.0) -> None:
@@ -1539,6 +1561,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_transcribe()
         elif self.path == "/api/tts":
             self._handle_tts()
+        elif self.path == "/api/wake":
+            self._handle_wake()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1812,6 +1836,18 @@ class Handler(BaseHTTPRequestHandler):
         # must tell those apart: a broken engine is worth a notice, silence is not.
         self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message,
                          "failed": not result.ok})
+
+    def _handle_wake(self) -> None:
+        """Whether a clip of speech opens with "Hey Jarvis", decided locally (wake.py)."""
+        try:
+            data = str(self._read_json().get("audio", ""))
+            if data.startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            raw = base64.b64decode(data, validate=True)
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "could not read audio"})
+            return
+        self._json(200, {"ok": True, **_WAKE.check(raw)})
 
     def _handle_tts(self) -> None:
         """Text-to-speech for the native app's voice loop: render a sentence to WAV
@@ -2205,6 +2241,7 @@ def main() -> None:
     server = _Server((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     _warmup()
+    _warm_wake()
     _keep_warm()
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat running at {url}")
@@ -2279,6 +2316,7 @@ def run_desktop() -> None:
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     _warmup()
+    _warm_wake()
     _keep_warm()
     _schedule_ticker()
     # Warm the speech model in the background so the first voice turn isn't slow

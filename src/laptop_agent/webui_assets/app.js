@@ -32,7 +32,7 @@
         vtrans=document.getElementById('vtrans'), vend=document.getElementById('vend'), vint=document.getElementById('vint'),
         sessionsEl=document.getElementById('sessions'), agentBtn=document.getElementById('agentBtn'),
         hint=document.getElementById('hint');
-  let attachments=[], busy=false, voiceActive=false, currentAbort=null, agentMode=false;
+  let attachments=[], busy=false, wakeBusyEpoch=0, voiceActive=false, currentAbort=null, agentMode=false;
   const SEND_ICON=sendBtn.innerHTML, STOP_ICON='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 
   /* ---- AI core animation (Iron-Man / Jarvis style) ---- */
@@ -775,7 +775,7 @@
     chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;
   }
   function thinking(tier){clearEmpty();const m=document.createElement('div');m.className='msg bot';const note=tier==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':tier==='smart'?'<span class="tiernote">smart model</span>':'';m.innerHTML='<div class="av">J</div><div class="content"><div class="who">J.A.R.V.I.S</div><div class="md"><span class="think" role="status" aria-label="Working"><i></i></span>'+note+'</div></div>';chat.appendChild(m);chat.scrollTop=chat.scrollHeight;return m;}
-  function setBusy(b,tier){busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
+  function setBusy(b,tier){if(b&&!busy)wakeBusyEpoch++;busy=b;reactor.classList.toggle('busy',b);setCore(b?'thinking':(voiceActive?'listening':'idle'),tier);
     sendBtn.innerHTML=b?STOP_ICON:SEND_ICON; sendBtn.title=b?'Stop':'Send';sendBtn.setAttribute('aria-label',sendBtn.title); sendBtn.classList.toggle('stop',b);}
   let currentRequest=null;
   function stopGen(){twCancel=true;if(currentRequest){fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:currentRequest})}).catch(()=>{hint.textContent='Could not reach the server to confirm stopping.';});}if(currentAbort){currentAbort.abort();}}
@@ -1003,6 +1003,8 @@
 
   async function send(text){
     text=(text||'').trim(); if((!text&&!attachments.length)||busy)return;
+    const waked=wakeCommand(text);
+    if(waked!==null){renderMsg('user',text);setMd(renderMsg('bot','').querySelector('.md'),waked);ta.value='';auto();return;}
     if(agentMode&&text){return runAgent(text);}
     if(!current)newSession();
     const sent=attachments.slice(), attNames=sent.map(a=>a.name);
@@ -1969,6 +1971,78 @@
     voiceBtn.classList.toggle('on',on);
     if(orbVoiceBtn){orbVoiceBtn.classList.toggle('on',on);orbVoiceBtn.setAttribute('aria-pressed',String(on));}
   }
+  // "Hey Jarvis" (Jeevan's choice, 2026-10-15: on unless switched off). The microphone stays open,
+  // each burst of speech is cut into a clip and checked on this laptop (/api/wake, local Whisper),
+  // and nothing else is done with it. It steps aside while voice mode has the microphone and comes
+  // back after; while we speak, record or think, what it hears is dropped.
+  const WAKE_KEY='jarvis_wake', wakeBtn=document.getElementById('wakeBtn');
+  let wakeOn=true; try{wakeOn=localStorage.getItem(WAKE_KEY)!=='off';}catch(e){}
+  let wakeStop=null, wakeChecking=false, wakeUnavailable=false;
+  function paintWake(){
+    if(!wakeBtn)return;
+    wakeBtn.classList.toggle('on',wakeOn&&!wakeUnavailable);wakeBtn.setAttribute('aria-pressed',String(wakeOn));
+    wakeBtn.title=wakeUnavailable?'"Hey Jarvis" needs local speech recognition on the server (pip install openai-whisper)'
+      :wakeOn?'Listening for "Hey Jarvis" - click to stop':'"Hey Jarvis" is off - click to listen for it';
+  }
+  function setWake(on){wakeOn=on;try{localStorage.setItem(WAKE_KEY,on?'on':'off');}catch(e){}paintWake();if(on)wakeResume();else wakePause();}
+  if(wakeBtn)wakeBtn.onclick=()=>setWake(!wakeOn);
+  function wakePause(){if(wakeStop){const stop=wakeStop;wakeStop=null;stop();}}
+  function wakeResume(){setTimeout(wakeListen,800);}
+  async function wakeListen(){
+    if(!wakeOn||wakeUnavailable||wakeStop||voiceActive)return;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;   // http on a LAN address: no microphone at all
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});}
+    catch(e){return;}
+    if(!wakeOn||voiceActive||wakeStop){stream.getTracks().forEach(t=>t.stop());return;}
+    const ac=new (window.AudioContext||window.webkitAudioContext)();try{await ac.resume();}catch(e){}
+    const src=ac.createMediaStreamSource(stream), proc=ac.createScriptProcessor(4096,1,1), sink=ac.createGain();sink.gain.value=0;
+    const rate=ac.sampleRate||48000, frameMs=4096/rate*1000;
+    let floor=0.01, clip=[], loud=0, quiet=0, inSpeech=false;
+    const stop=()=>{try{proc.disconnect();}catch(e){}try{src.disconnect();}catch(e){}try{ac.close();}catch(e){}stream.getTracks().forEach(t=>t.stop());};
+    wakeStop=stop;
+    proc.onaudioprocess=e=>{
+      if(wakeStop!==stop)return;
+      if(busy||voiceActive||speaking||activeRecording||performance.now()-speechEndedAt<800){clip=[];inSpeech=false;loud=0;return;}
+      const ch=e.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<ch.length;i+=4)sum+=ch[i]*ch[i];
+      const level=Math.sqrt(sum/(ch.length/4)), bar=Math.max(0.02,floor*3);
+      if(!inSpeech){
+        floor=floor*0.95+level*0.05;
+        clip.push(new Float32Array(ch));if(clip.length>3)clip.shift();     // a little from before the voice began
+        if(level>bar){loud+=frameMs;if(loud>=150){inSpeech=true;quiet=0;}}else loud=0;
+        return;
+      }
+      clip.push(new Float32Array(ch));
+      quiet=level>bar?0:quiet+frameMs;
+      const length=clip.length*frameMs;
+      if(quiet>=600||length>=6000){
+        const samples=flattenF32(clip);clip=[];inSpeech=false;loud=0;quiet=0;
+        if(length>=400)wakeCheck(samples,rate);
+      }
+    };
+    src.connect(proc);proc.connect(sink);sink.connect(ac.destination);
+  }
+  async function wakeCheck(samples,rate){
+    if(wakeChecking||busy)return;                  // a burst while a chat or wake check is running is dropped
+    wakeChecking=true;
+    const busyEpoch=wakeBusyEpoch;
+    try{
+      const r=await fetch('/api/wake',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encodeWavB64(samples,rate)})});
+      const d=await r.json();
+      if(d.available===false){wakeUnavailable=true;wakePause();paintWake();return;}
+      if(d.wake&&wakeOn&&!voiceActive&&!busy&&busyEpoch===wakeBusyEpoch){wakePause();chime();startVoice((d.rest||'').trim());}
+    }catch(e){}
+    finally{wakeChecking=false;}
+  }
+  // "turn off the wake word", "stop listening for hey jarvis", and back on: answered here.
+  const WAKE_SAID=/^\s*(?:please\s+)?(?:(?:turn|switch)\s+(off|on)\s+(?:the\s+)?(?:wake\s*word|hey\s+jarvis|always[\s-]listening)|(stop|start|resume)\s+listening\s+for\s+(?:the\s+)?(?:wake\s*word|hey\s+jarvis))\s*[.!]*\s*$/i;
+  function wakeCommand(text){
+    const m=WAKE_SAID.exec(text||'');if(!m)return null;
+    const on=(m[1]||m[2]).toLowerCase(), want=on==='on'||on==='start'||on==='resume';
+    setWake(want);
+    return want?'Listening for "Hey Jarvis" again.':'Okay, I\'ve stopped listening for "Hey Jarvis". Say or type "turn on the wake word" to bring it back.';
+  }
+  paintWake();wakeResume();
   vend.onclick=endVoice;
   if(vint)vint.onclick=interruptNow;
   function vSet(st,l){voice.dataset.state=st;vstate.textContent=l;}
@@ -1976,8 +2050,8 @@
   // written overlay. The conversation itself still streams into the chat panel.
   let captureStop=null,activeAudio=null,activeAudioURL=null,voiceGeneration=0;
   function releaseAudio(){if(activeAudio){activeAudio.onended=activeAudio.onerror=null;activeAudio.pause();activeAudio.src='';activeAudio=null;}if(activeAudioURL){URL.revokeObjectURL(activeAudioURL);activeAudioURL=null;}}
-  function startVoice(){if(activeRecording){voiceNotice('Stop the current recording before starting voice chat.');return;}voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);listen();}
-  function endVoice(){voiceGeneration++;voiceActive=false;bargePaused=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}}
+  function startVoice(first){if(activeRecording){voiceNotice('Stop the current recording before starting voice chat.');return;}voiceGeneration++;voiceActive=true;spokenRecent=[];bargeReset();document.body.classList.add('voicing');paintVoiceButtons(true);wakePause();if(typeof first==='string'&&first){vtrans.textContent=first;vSet('thinking','Thinking');send(first);}else listen();}
+  function endVoice(){voiceGeneration++;voiceActive=false;bargePaused=false;if(captureStop){captureStop();captureStop=null;}releaseAudio();recognizing=false;bargeStop();document.body.classList.remove('voicing');paintVoiceButtons(false);setCore('idle');ttsQueue=[];speaking=false;streamComplete=true;try{rec&&rec.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}wakeResume();}
   let recognizing=false, speaking=false;
   // streaming speech: sentences arrive as `tts` events mid-generation and are spoken
   // one at a time so the first sentence plays while the rest is still being written.
