@@ -26,12 +26,20 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     article-prefixed places such as the UK and the beach still use the fast path.
   - **Prose guard**: a direct prefix whose words read as English ("schedule a meeting…",
     "time for a break", "forget the timer") goes to the router instead (`_reads_as_prose`).
+  - **Typing into another app** requires quoted text or an explicitly named app. "Type out a
+    poem" stays with the assistant; `type "hello" in notepad` sends hello without quote marks.
   - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
     timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
     more than one asks first (HIGH).
+  - **A task is not a process.** "stop the backup task" and "stop the timer task" must not
+    become `end process`. Ending a process requires that word or an explicit "force quit".
   - **Two requests in one sentence** split only where every part starts like a request and
     routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
-    "search for flights and hotels in paris" stay whole.
+    "search for flights and hotels in paris" stay whole, and so does a briefing format: "set my
+    briefing to weather and news" split into a briefing of weather and a news read-out, because
+    both halves route. In a sentence that is or routes to `briefing set/add/remove`, a part that is only a section
+    ("news") belongs to the format; a real second request ("and set a timer for 10 minutes") still
+    splits off - refusing every split swallowed it.
   - **A reply to our own question completes it** (`_follow_up`): "set a timer" → "How long
     should the timer run?" → "10 minutes". Keyed to the exact question strings; history
     arrives as `{"role", "text"}` - a test written with "content" passed while the page got
@@ -88,6 +96,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     for being told when a reminder counts, found nothing to catch outside reminders, and
     would add ~350 ms to every LLM-routed picture, email and document - not shipped, by
     agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
+    (2026-10-14: the wallpaper no longer reaches the LLM router. `tools/system.py` takes "set my
+    wallpaper to …" and asks for an image file when none is named.)
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

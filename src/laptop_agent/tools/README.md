@@ -71,6 +71,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Files and documents
 | File | What it does |
 |---|---|
+| `fileops.py` | `file move\|copy\|rename\|delete …` and `undo file`: each asks, never overwrites, keeps out of Windows' folders; a journal undoes the last change; deletion goes to the Recycle Bin. |
 | `files.py` | Scan, read, search, summarize and ask questions of files; spreadsheet stats; the shared CSV reader and number parser. |
 | `file_processor.py` | `process file <path>`: detects the type and picks the right action. |
 | `document.py` | `document …`: the model writes Markdown, rendered to PDF, Word, PowerPoint or Markdown. |
@@ -79,10 +80,12 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `textcard.py` | Renders exact text as an image, because a diffusion model cannot spell. |
 | `forecast.py` | `forecast <column> in <file.csv>`: turns a CSV column into a clean series for `analytics/forecast.py`. |
 | `diagnostics.py` | `what drives …` / `anomalies in …`: the CSV side of `analytics/diagnostics.py`. |
+| `breakdown.py` | "total revenue by region in sales.csv", "top 5 … by …", "how many … per month in …": computed group totals with a bar chart. |
 
 ### Web, research and information
 | File | What it does |
 |---|---|
+| `keys.py` | `keys <new tab|back|scroll down|…>` and `keys type`: a named shortcut or one line of text, sent only after the target remains in the foreground; closing, Enter, Save, Paste and typing ask at HIGH risk. |
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
 | `mcp.py` | `mcp`, `mcp <server> <tool> <json>`: tools from MCP servers in `<data dir>/mcp.json`, over stdio JSON-RPC with no extra package; starting a server and each call ask. |
@@ -111,8 +114,11 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | File | What it does |
 |---|---|
 | `desktop.py` | Screenshots and opening apps. |
+| `system.py` | Lock, sleep, shut down (60 s grace, CRITICAL), brightness, wallpaper with restore, processes and ending one, Settings pages; Windows calls behind a backend the harness switches off. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
+| `codefix.py` | `code run <script.py>`, `code fix <script.py>`: runs a Python script (asked), then shows a proposed fix on a card; refuses a script changed since the proposal and keeps each old version in a unique backup. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
+| `messaging.py` | `message whatsapp|telegram …`: the message opened in the app's share link after a card; the user presses send. |
 | `music.py` | Media keys, volume levels and YouTube music; refuses to treat "my voicemail" as a song. |
 | `webcam.py` | One camera frame for the vision model (`vision` extra). |
 | `transcribe.py` | OCR (NVIDIA parse, Tesseract) and speech-to-text (Riva, Vosk, Whisper). |

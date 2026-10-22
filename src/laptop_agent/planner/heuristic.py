@@ -7,6 +7,7 @@ from laptop_agent.memory import KNOWN_LISTS as _KNOWN_LISTS
 from laptop_agent.planner.core import PlanDecision
 from laptop_agent.recordings import recording_seconds
 from laptop_agent.timeparse import TimeParseError, parse_when, spoken_to_digits
+from laptop_agent.tools.breakdown import breakdown_request
 from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
@@ -302,6 +303,56 @@ _SCHEDULE_ASK = re.compile(
     r"|" + _POLITE + r"what\s+(?:jobs?|tasks?)\s+(?:are|do\s+i\s+have)\s+scheduled)\s*[?.!]*",
     re.IGNORECASE,
 )
+# The laptop's own controls, said as whole sentences that name the machine, the screen or a
+# process: "lock it" or "go to sleep" alone are said to an assistant about itself.
+_MACHINE = r"(?:my|the|this)\s+(?:computer|pc|laptop|machine|system|device)"
+_LOCK_ASK = re.compile(
+    _POLITE + r"lock\s+(?:my|the|this)\s+(?:screen|computer|pc|laptop|machine|workstation)\s*[.!]*\s*$", re.IGNORECASE)
+_POWER_ASK = re.compile(
+    _POLITE + r"(?:(?P<sleep>(?:put|send)\s+" + _MACHINE + r"\s+to\s+sleep|sleep\s+" + _MACHINE + r")"
+    r"|(?P<shutdown>(?:shut\s*down|power\s+(?:off|down)|turn\s+off)\s+" + _MACHINE + r")"
+    r"|(?P<restart>(?:restart|reboot)\s+" + _MACHINE + r")"
+    r"|(?P<cancel>(?:cancel|abort|stop)\s+(?:the\s+)?(?:shut\s*down|restart|reboot)))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_BRIGHTNESS_ASK = re.compile(
+    _POLITE + r"(?:(?:set|change|put|turn|adjust)\s+(?:the\s+|my\s+)?(?:screen\s+|display\s+)?brightness\s+(?:to|at)\s+"
+    r"(?P<level>\d{1,3})\s*(?:%|percent)?"
+    r"|(?:screen\s+)?brightness\s+(?P<bare>\d{1,3})\s*(?:%|percent)?"
+    r"|(?:turn|put|bring)\s+(?:the\s+|my\s+)?(?:screen\s+)?brightness\s+(?P<way>up|down)"
+    r"|turn\s+(?P<way2>up|down)\s+(?:the\s+|my\s+)?(?:screen\s+)?brightness"
+    r"|(?:make|turn)\s+(?:the|my)\s+(?:screen|display)\s+(?P<feel>brighter|dimmer|darker)"
+    r"|(?P<dim>dim)\s+(?:the|my)\s+(?:screen|display)(?:\s+brightness)?"
+    r"|(?P<brighten>brighten)\s+(?:the|my)\s+(?:screen|display)"
+    r"|(?P<ask>what(?:'s|s|\s+is)\s+(?:the|my)\s+(?:screen\s+)?brightness(?:\s+(?:at|set\s+to))?))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_WALLPAPER_ASK = re.compile(
+    _POLITE + r"(?:(?:set|change|make|switch)\s+(?:my|the)\s+(?:desktop\s+)?(?:wallpaper|background)\s+(?:to|as)\s+(?P<to>.+?)"
+    r"|(?:set|make|use)\s+(?P<as>.+?)\s+as\s+(?:my|the)\s+(?:desktop\s+)?(?:wallpaper|background)"
+    r"|(?P<back>(?:restore|reset|undo|revert|put\s+back)\s+(?:my|the)\s+(?:old\s+|previous\s+)?(?:desktop\s+)?"
+    r"(?:wallpaper|background)(?:\s+change)?))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_PROCESSES_ASK = re.compile(
+    _POLITE + r"(?:(?:show|list)(?:\s+me)?\s+(?:all\s+)?(?:the\s+|my\s+)?running\s+(?:processes|programs|apps)"
+    r"|(?:show|list)(?:\s+me)?\s+(?:all\s+)?(?:the\s+|my\s+)?processes"
+    r"|what\s+(?:processes|programs|apps)\s+are\s+running"
+    r"|what(?:'s|s|\s+is)\s+(?:using|eating|hogging|taking\s+up)\s+(?:all\s+)?(?:my|the)\s+(?:memory|ram))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_END_PROCESS_ASK = re.compile(
+    _POLITE + r"(?:(?:kill|end|terminate|stop)\s+(?:the\s+)?(?P<name>[\w.+-]{1,40})\s+process(?:es)?"
+    r"|(?:kill|end|terminate)\s+(?:the\s+)?process\s+(?P<name2>[\w.+-]{1,40})"
+    r"|force\s+(?:quit|close)\s+(?P<name3>[\w.+-]{1,40}))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_SETTINGS_ASK = re.compile(
+    _POLITE + r"(?:open|show|go\s+to|take\s+me\s+to)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?P<page>[a-z][\w -]{1,25}?)\s+settings"
+    r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Timers, alarms and managing reminders, read after spoken numbers become digits.
 _DURATION = r"(?:\d+(?:\.\d+)?|\ban?|\bhalf\s+an?)[\s-]*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
 _TIMER_ASK = re.compile(
@@ -314,12 +365,62 @@ _ALARM_ASK = re.compile(
     r"(?P<when>.+?)\s*[.!?]*$",
     re.IGNORECASE,
 )
+# Moving, copying, renaming or deleting a file, said with something that is plainly a file: a
+# quoted name, a path, or a name with an extension. "move the meeting to friday" and "delete my
+# last note" name no file and are left to their own routes.
+# A bare name's extension starts with a letter and is not a web domain's: "the alarm at 6.30",
+# "chapter 3.1", "v1.2" and "google.com" are not files (review of #287). "my"/"the" before a bare
+# name are words about it, not part of it.
+_FILE_LIKE = (r"(?:\"[^\"]{1,200}\"|'[^']{1,200}'|[A-Za-z]:[\\/][^\"'\n]{1,200}?|~[\\/][^\"'\n]{1,200}?"
+              r"|(?:(?:my|the|this|that)\s+)?[\w(][\w .()&,+-]{0,80}?\.(?!(?:com|org|net|io|gov|edu)\b)[A-Za-z][A-Za-z0-9]{0,5})")
+_FILE_MOVE = re.compile(
+    _POLITE + r"(?P<verb>move|copy)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|into)\s+"
+    r"(?P<dst>(?:(?:my|the)\s+)?(?:desktop|documents|downloads|pictures|music|videos|home)(?:\s+folder)?"
+    r"|\"[^\"]{1,200}\"|[A-Za-z]:[\\/][^\"'\n]{0,200}|~[\\/][^\"'\n]{0,200})\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_RENAME = re.compile(
+    _POLITE + r"rename\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s+(?:to|as)\s+"
+    r"(?P<name>\"[^\"\\/]{1,120}\"|[\w(][\w .()&,+-]{0,120}?)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_DELETE = re.compile(
+    _POLITE + r"(?:delete|remove|trash|bin|recycle)\s+(?:the\s+(?:file|folder)\s+)?(?P<src>" + _FILE_LIKE + r")\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_FILE_UNDO = re.compile(
+    # "the last change" names nothing about files; only a file verb does (review of #287).
+    _POLITE + r"(?:undo|reverse|revert)\s+(?:the\s+last\s+(?:file\s+)?(?P<named>move|rename|copy)"
+    r"|(?:that|it|this)(?:\s+(?P<pronamed>move|rename|copy))?|my\s+last\s+file\s+change)\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# Our own words when a file change is done: "undo that" after one of these means the file.
+_FILE_CHANGED = re.compile(r"^(?:Moved|Copied|Renamed)\s(?!.*Recycle Bin)", re.IGNORECASE)
+
+
+def follows_a_file_change(history: list[dict] | None) -> bool:
+    """Whether our last reply was a file change that "undo that" can mean."""
+    last = next((str(turn.get("text") or "") for turn in reversed(history or []) if turn.get("role") == "assistant"), "")
+    return bool(_FILE_CHANGED.match(last))
+
 # "start a pomodoro", "start a 25 minute pomodoro": a work timer, 25 minutes unless a length is said.
 _POMODORO = re.compile(
     _POLITE + r"(?:(?:set|start|begin|run|do)\s+)?(?:me\s+)?(?:an?\s+|another\s+)?(?:(?P<length>" + _DURATION
     + r")\s+)?pomodoro(?:\s+(?:timer|session))?(?:\s+please)?\s*[.!?]*$",
     re.IGNORECASE,
 )
+# A message for WhatsApp or Telegram, said with the app and the words: "send a whatsapp to mom
+# saying i'm late", "text john on telegram that the game moved". The model router once made
+# "text john" an email; without the app named it still goes to the router.
+_MESSAGE_APP = r"(?P<app>whats\s*app|telegram)"
+_MESSAGE_ASK = re.compile(
+    _POLITE + r"(?:(?:send|write)\s+(?:a\s+)?" + _MESSAGE_APP + r"(?:\s+message)?(?:\s+to\s+(?P<to>[^,]{1,40}?))?"
+    r"|(?:message|text|whats\s*app)\s+(?P<to2>[^,]{1,40}?)\s+on\s+(?P<app2>whats\s*app|telegram)"
+    r"|(?:send|write)\s+(?:a\s+)?message\s+to\s+(?P<to3>[^,]{1,40}?)\s+on\s+(?P<app3>whats\s*app|telegram))"
+    r"(?:\s*,?\s+(?:saying|that\s+says|that|with)\s+|\s*:\s*)(?P<text>.+?)\s*$",
+    re.IGNORECASE,
+)
+
 # "set a timer" with no length: ask for one rather than let a model claim it set one.
 _TIMER_BARE = re.compile(_POLITE + r"(?:set|start)\s+(?:a|the|my)\s+timer(?:\s+please)?\s*[.!?]*$|^\s*timer\s*$",
                          re.IGNORECASE)
@@ -442,6 +543,33 @@ _MAIL_DIGEST_ASK = re.compile(
     r"(?:my\s+|the\s+|all\s+(?:my\s+)?)?" + _MAIL_KIND + _MAIL + _MAIL_TAIL,
     re.IGNORECASE,
 )
+# A key press for the app the user is in, said as a whole sentence: "new tab", "scroll down in
+# edge", "go back". Each phrasing names one of the fixed shortcuts in tools/keys.py.
+_KEY_PHRASES = {
+    "new tab": r"(?:open\s+)?(?:a\s+)?new\s+tab", "close tab": r"close\s+(?:this|the)\s+tab",
+    "reopen tab": r"reopen\s+(?:the\s+)?(?:last\s+)?(?:closed\s+)?tab", "next tab": r"(?:go\s+to\s+the\s+)?next\s+tab",
+    "previous tab": r"(?:go\s+to\s+the\s+)?(?:previous|last)\s+tab", "back": r"go\s+back(?:\s+a\s+page)?",
+    "forward": r"go\s+forward(?:\s+a\s+page)?", "refresh": r"(?:refresh|reload)\s+(?:this|the)\s+page",
+    "scroll down": r"scroll\s+down", "scroll up": r"scroll\s+up",
+    "top": r"(?:scroll|go)\s+to\s+the\s+top(?:\s+of\s+the\s+page)?",
+    "bottom": r"(?:scroll|go)\s+to\s+the\s+bottom(?:\s+of\s+the\s+page)?",
+    "zoom in": r"zoom\s+in", "zoom out": r"zoom\s+out", "reset zoom": r"reset\s+(?:the\s+)?zoom",
+    "select all": r"select\s+all", "paste": r"paste\s+(?:it|that)(?:\s+here)?", "save": r"save\s+(?:the\s+file|it)",
+    "escape": r"press\s+escape", "enter": r"press\s+enter", "close window": r"close\s+(?:this|the)\s+window",
+    "minimize": r"minimi[sz]e\s+(?:this|the)\s+window", "maximize": r"maximi[sz]e\s+(?:this|the)\s+window",
+    "show desktop": r"show\s+(?:me\s+)?the\s+desktop",
+}
+_KEY_ASK = [(action, re.compile(_POLITE + r"(?:" + phrase + r")(?:\s+in\s+(?P<app>[\w .-]{2,30}?))?\s*[.!]*\s*$",
+                                re.IGNORECASE)) for action, phrase in _KEY_PHRASES.items()]
+# Typing needs the text marked off by quotes or an app named: "type 2 diabetes symptoms"
+# and "type out a poem" are requests to the assistant, not text for another window.
+_TYPE_ASK = re.compile(
+    _POLITE + r"type\s+(?:out\s+)?(?:(?:\"(?P<quoted>[^\"]{1,500})\"|'(?P<single>[^']{1,500})')"
+    r"(?:\s+in(?:to)?\s+(?P<quoted_app>[\w .-]{2,30}?))?"
+    r"|(?P<plain>.{1,500}?)\s+in(?:to)?\s+(?P<plain_app>[\w .-]{2,30}?))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # Asking for research opens the sentence. Matched anywhere, 14 of 16 ordinary sentences
 # started the multi-search workflow: "the police will investigate the crash", "I'll look
 # into it", "my professor told me to read up on kant".
@@ -483,6 +611,23 @@ def _inner_question(text: str) -> str | None:
 
 _PREFIX_POLITE = re.compile(r"[\s,]*(?:(?:can|could|would|will)\s+(?:you|u)|please|kindly)(?:\s+please)?\s*$",
                             re.IGNORECASE)
+# Running or fixing one's own Python script, named with its .py: "fix my script hello.py",
+# "what's wrong with app.py", "run hello.py". Without the file name it is a coding question.
+_SCRIPT = r"(?P<file>\"[^\"]{1,200}\.py\"|[A-Za-z]:[\\/][^\"\n]{1,200}?\.py|[\w.~\\/-]{1,120}\.py)"
+_CODE_FIX_ASK = re.compile(
+    _POLITE + r"(?:fix|debug|repair)\s+(?:the\s+(?:error|errors|bug|bugs)\s+in\s+)?(?:my\s+|the\s+|this\s+)?"
+    r"(?:script\s+|file\s+|code\s+(?:in\s+)?)?" + _SCRIPT + r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_CODE_WRONG_ASK = re.compile(
+    _POLITE + r"what(?:'s|s|\s+is)\s+wrong\s+with\s+(?:my\s+|the\s+)?(?:script\s+)?" + _SCRIPT + r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+_CODE_RUN_ASK = re.compile(
+    _POLITE + r"(?:run|execute|test)\s+(?:my\s+|the\s+|this\s+)?(?:python\s+)?(?:script\s+|file\s+)?" + _SCRIPT
+    + r"\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
 # "tell me at 3pm to join the call" asks for a reminder, but starts like a question and was
 # answered as one. Only when a time comes first: "tell me in one sentence how to cook rice"
 # and "tell me at least three reasons to learn rust" are questions.
@@ -1163,9 +1308,34 @@ def _folder_path(where: str) -> str | None:
     return f"~/{known}" if known else None
 
 
+# Changing what the briefing holds. Checked before the catch-all `briefing` route below, which
+# takes any sentence with the word in it: "set my briefing to weather and news" ran a briefing.
+# "brief" alone is a document as often ("add these points to the brief"), so only "briefing" or a
+# morning or daily brief.
+_BRIEFING = r"(?:my\s+|the\s+)?(?:(?:morning|daily)\s+brief(?:ing)?|briefing)"
+_BRIEFING_SET = re.compile(
+    _POLITE + r"(?:(?:set|make|change|update|customi[sz]e)\s+" + _BRIEFING
+    + r"\s+(?:to|into|as|so\s+(?:it|that\s+it)\s+(?:has|includes|covers))"
+    r"|i\s+(?:want|would\s+like|'d\s+like)\s+" + _BRIEFING + r"\s+to\s+(?:have|include|cover|be)"
+    r"|" + _BRIEFING + r"\s+should\s+(?:have|include|cover|be))\s+(?P<items>.+?)[\s.!?]*$",
+    re.IGNORECASE)
+_BRIEFING_ADD = re.compile(_POLITE + r"(?:add|put|include)\s+(?P<items>.+?)\s+(?:to|in|into)\s+" + _BRIEFING
+                           + r"[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_REMOVE = re.compile(_POLITE + r"(?:remove|drop|take)\s+(?P<items>.+?)\s+(?:from|out\s+of)\s+" + _BRIEFING
+                              + r"(?:\s+out)?[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_SHOW = re.compile(_POLITE + r"(?:what(?:'s|\s+is)\s+in\s+" + _BRIEFING
+                            + r"|(?:show|tell)\s+(?:me\s+)?" + _BRIEFING + r"\s+(?:format|settings|layout|set\s*up))"
+                            r"[\s.!?]*$", re.IGNORECASE)
+_BRIEFING_RESET = re.compile(_POLITE + r"(?:reset|restore)\s+" + _BRIEFING + r"(?:\s+to\s+(?:the\s+)?default)?[\s.!?]*$",
+                             re.IGNORECASE)
+# "brief me" alone, never "brief me on the project", which asks for an explanation.
+_BRIEF_ME = re.compile(_POLITE + r"(?:brief\s+me|give\s+me\s+(?:my|the|a)\s+(?:morning\s+|daily\s+)?(?:brief|briefing|rundown))"
+                       r"(?:\s+(?:for|on)\s+(?:today|the\s+day|this\s+morning))?(?:\s+please)?[\s.!?]*$", re.IGNORECASE)
+
+
 class HeuristicPlannerProvider:
     def plan(self, text: str, available_commands: str, memory_profile: dict[str, object], history=None) -> PlanDecision:
-        del available_commands, memory_profile, history
+        del available_commands, memory_profile
         raw = strip_address(text)
         if _NEGATED.match(raw):
             return PlanDecision(action="chat", confidence=0.25, explanation="A negated request; left to the model.")
@@ -1178,6 +1348,10 @@ class HeuristicPlannerProvider:
         seconds = None if bare else recording_seconds(spoken_to_digits(asked))
         if seconds is not None:
             return self._command(f"record {seconds:f}", "User requested a microphone recording.", 0.99)
+        # "jarvis, what's the total revenue by region in sales.csv": the direct dispatch reads the
+        # question itself, but only without the wake word in front, so it is passed on without it.
+        if breakdown_request(raw) is not None:
+            return self._command(raw, "User asked a question a table answers by computing it.", 0.9)
 
         if lowered in {"commands", "show commands", "command list", "syntax"}:
             return self._command("help", "User asked for the command list.", 0.95)
@@ -1193,6 +1367,15 @@ class HeuristicPlannerProvider:
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)
 
+        for pattern, verb in ((_BRIEFING_SET, "set"), (_BRIEFING_ADD, "add"), (_BRIEFING_REMOVE, "remove")):
+            if (found := pattern.match(raw)) is not None:
+                return self._command(f"briefing {verb} {found['items']}", "User is changing what their briefing holds.", 0.9)
+        if _BRIEFING_SHOW.match(raw):
+            return self._command("briefing format", "User asked what their briefing holds.", 0.9)
+        if _BRIEFING_RESET.match(raw):
+            return self._command("briefing reset", "User wants the default briefing back.", 0.9)
+        if _BRIEF_ME.match(raw):
+            return self._command("briefing", "User wants their daily briefing.", 0.88)
         if re.search(r"\b(?:briefing|daily brief|morning brief|status brief|catch me up)\b", lowered):
             return self._command("briefing", "User wants a compact assistant status briefing.", 0.86)
 
@@ -1256,6 +1439,11 @@ class HeuristicPlannerProvider:
         if personal:
             return personal
 
+        script = _CODE_FIX_ASK.match(raw) or _CODE_WRONG_ASK.match(raw) or _CODE_RUN_ASK.match(raw)
+        if script:
+            verb = "run" if script.re is _CODE_RUN_ASK else "fix"
+            return self._command(f"code {verb} {script.group('file').strip()}", f"User wants a script {verb}.", 0.88)
+
         terminal = self._terminal(raw)
         if terminal:
             return terminal
@@ -1263,6 +1451,10 @@ class HeuristicPlannerProvider:
         remember = self._remember(raw)
         if remember:
             return remember
+
+        pressed = self._keys(raw)
+        if pressed:
+            return pressed
 
         email = self._email(raw)
         if email:
@@ -1299,6 +1491,10 @@ class HeuristicPlannerProvider:
         hotels = self._hotels(raw)
         if hotels:
             return hotels
+
+        message = self._message(raw)
+        if message:
+            return message
 
         flights = self._flights(raw)
         if flights:
@@ -1337,6 +1533,10 @@ class HeuristicPlannerProvider:
         if headlines:
             return headlines
 
+        controlled = self._system(raw)
+        if controlled:
+            return controlled
+
         arranged = self._arrange(raw)
         if arranged:
             return arranged
@@ -1364,6 +1564,10 @@ class HeuristicPlannerProvider:
         local_lookup = self._local_lookup(raw)
         if local_lookup:
             return local_lookup
+
+        file_change = self._file_change(raw, history)
+        if file_change:
+            return file_change
 
         file_scan = self._file_scan(raw)
         if file_scan:
@@ -1916,6 +2120,16 @@ class HeuristicPlannerProvider:
         place = m.group(1).strip().strip("?.!,'\"")
         return self._command(f"hotels near {place}", "User wants hotels near a place.", 0.84) if place else None
 
+    def _message(self, text: str) -> PlanDecision | None:
+        """'send a whatsapp to mom saying i'm late' -> the message opened, ready for the user to send."""
+        asked = _MESSAGE_ASK.match(text or "")
+        if not asked:
+            return None
+        app = re.sub(r"\s+", "", asked.group("app") or asked.group("app2") or asked.group("app3")).lower()
+        who = (asked.group("to") or asked.group("to2") or asked.group("to3") or "").strip()
+        to = f" to {who}" if who else ""
+        return self._command(f"message {app}{to} :: {asked.group('text').strip()}", "User wants a message written.", 0.88)
+
     def _flights(self, text: str) -> PlanDecision | None:
         """No free no-key fare API exists, so route flights through web search."""
         m = re.search(r"\bflights?\b.*?\bfrom\s+(.+?)\s+to\s+(.+)$", text, re.IGNORECASE)
@@ -2139,6 +2353,38 @@ class HeuristicPlannerProvider:
             return self._command("weather", "User wants the forecast where they are.", 0.85)
         return None
 
+    def _system(self, text: str) -> PlanDecision | None:
+        """'lock my computer', 'turn the brightness down', 'open bluetooth settings' -> the system tool."""
+        text = text or ""
+        if _LOCK_ASK.match(text):
+            return self._command("lock screen", "User wants the screen locked.", 0.9)
+        power = _POWER_ASK.match(text)
+        if power:
+            action = next(name for name in ("sleep", "shutdown", "restart", "cancel") if power.group(name))
+            return self._command(f"power {action}", "User wants the computer's power changed.", 0.88)
+        bright = _BRIGHTNESS_ASK.match(text)
+        if bright:
+            if bright.group("ask"):
+                return self._command("brightness", "User asks the brightness.", 0.9)
+            level = bright.group("level") or bright.group("bare")
+            way = (bright.group("way") or bright.group("way2") or
+                   ("up" if bright.group("brighten") or bright.group("feel") == "brighter" else "down"))
+            return self._command(f"brightness {level or way.lower()}", "User wants the brightness changed.", 0.9)
+        paper = _WALLPAPER_ASK.match(text)
+        if paper:
+            what = "restore" if paper.group("back") else (paper.group("to") or paper.group("as")).strip()
+            return self._command(f"wallpaper {what}", "User wants the wallpaper changed.", 0.88)
+        if _PROCESSES_ASK.match(text):
+            return self._command("processes", "User wants the running processes.", 0.9)
+        end = _END_PROCESS_ASK.match(text)
+        if end:
+            name = end.group("name") or end.group("name2") or end.group("name3")
+            return self._command(f"end process {name}", "User wants a process ended.", 0.86)
+        settings = _SETTINGS_ASK.match(text)
+        if settings:
+            return self._command(f"settings {settings.group('page').strip()}", "User wants a Settings page.", 0.88)
+        return None
+
     def _local_lookup(self, text: str) -> PlanDecision | None:
         """Recommendation / local-place queries go to web search — live data beats
         stale model knowledge. e.g. 'find me Indian restaurants in Kyle, TX'."""
@@ -2166,6 +2412,31 @@ class HeuristicPlannerProvider:
         if root is None:
             return None
         return self._command(f"scan files {root} by size", "User wants the largest files in a folder.", 0.86)
+
+    def _file_change(self, text: str, history: list[dict] | None) -> PlanDecision | None:
+        """'move report.pdf to my desktop', 'rename a.txt to b.txt', 'delete old.log', 'undo that'."""
+        text = text or ""
+        moved = _FILE_MOVE.match(text)
+        if moved:
+            verb = moved.group("verb").lower()
+            return self._command(f"file {verb} {moved.group('src').strip()} to {moved.group('dst').strip()}",
+                                 f"User wants a file {'copied' if verb == 'copy' else 'moved'}.", 0.88)
+        renamed = _FILE_RENAME.match(text)
+        if renamed:
+            return self._command(f"file rename {renamed.group('src').strip()} to {renamed.group('name').strip()}",
+                                 "User wants a file renamed.", 0.88)
+        deleted = _FILE_DELETE.match(text)
+        if deleted:
+            return self._command(f"file delete {deleted.group('src').strip()}", "User wants a file deleted.", 0.86)
+        undo = _FILE_UNDO.match(text)
+        if undo:
+            # "undo that" is about whatever was just done; only after a file change of ours is it the file.
+            last = next((str(turn.get("text") or "") for turn in reversed(history or [])
+                         if turn.get("role") == "assistant"), "")
+            named = (undo.group("named") or undo.group("pronamed") or "").lower()
+            if undo.group("named") or "file" in text.lower() or _FILE_CHANGED.match(last):
+                return self._command(f"undo file {named}".strip(), "User wants the last file change undone.", 0.88)
+        return None
 
     def _file_scan(self, text: str) -> PlanDecision | None:
         match = re.search(r"\b(?:scan|list|show)\s+files?\s+(?:in|under|inside)?\s*(.+)$", text, re.IGNORECASE)
@@ -2500,6 +2771,22 @@ class HeuristicPlannerProvider:
         if not match:
             return None
         return self._command(f"plan apply job {match.group(1)}", "User wants a job application workflow prepared.", 0.8)
+
+    def _keys(self, text: str) -> PlanDecision | None:
+        """'new tab', 'scroll down in edge', 'type "hello" in notepad' -> keys for that app."""
+        text = text or ""
+        for action, pattern in _KEY_ASK:
+            asked = pattern.match(text)
+            if asked:
+                app = f" in {asked.group('app').strip()}" if asked.group("app") else ""
+                return self._command(f"keys {action}{app}", "User wants a key pressed in an app.", 0.86)
+        typed = _TYPE_ASK.match(text)
+        if typed:
+            words = next(group for group in (typed.group("quoted"), typed.group("single"), typed.group("plain")) if group)
+            app = (typed.group("quoted_app") or typed.group("plain_app") or "").strip()
+            return self._command(f"keys type {app} :: {words.strip()}".replace("type  ::", "type ::"),
+                                 "User wants text typed into an app.", 0.86)
+        return None
 
     def _email(self, text: str) -> PlanDecision | None:
         api_provider = self._email_api_provider(text.lower())
