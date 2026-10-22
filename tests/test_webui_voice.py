@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui
 from laptop_agent.voice import clean_for_speech
+from laptop_agent.spoken import MORE_ON_SCREEN, SPOKEN_WORDS
 from laptop_agent.tools.base import ToolResult
 
 
@@ -87,12 +88,16 @@ class VoiceStreamTests(unittest.TestCase):
                 events = self._stream({"command": "tool result", "voice": True})
                 chunks = [e["text"] for e in events if e.get("type") == "tts"]
                 expected = clean_for_speech(reply)
-                self.assertEqual(" ".join(chunks).split(), expected.split())
+                # Jeevan, 2026-10-15: a long result is not read out whole. What is said is the start
+                # of it, in bounded pieces, then one pointer to the screen (spoken.py).
+                if len(expected.split()) <= SPOKEN_WORDS:
+                    self.assertEqual(" ".join(chunks).split(), expected.split())
+                    continue
+                self.assertEqual(chunks[-1], MORE_ON_SCREEN)
+                said = " ".join(chunks[:-1]).split()
+                self.assertEqual(said, expected.split()[:len(said)])
+                self.assertLess(len(said), len(expected.split()))
                 self.assertTrue(all(len(chunk) <= 360 for chunk in chunks))
-                if len(expected) > 360:
-                    self.assertGreater(len(chunks), 1)
-                else:
-                    self.assertEqual(chunks, [expected])
 
     def test_final_result_is_cleaned_before_splitting_and_reset_discards_old_text(self) -> None:
         reply = ("The user-facing report is ready. " * 14) + "\n```python\nsecret_code()\n```\nThe final check passed."
@@ -107,8 +112,37 @@ class VoiceStreamTests(unittest.TestCase):
         after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
         chunks = [e["text"] for e in after_reset if e.get("type") == "tts"]
         self.assertGreater(len(chunks), 1)
-        self.assertEqual(" ".join(chunks).split(), clean_for_speech(reply).split())
+        self.assertEqual(chunks[-1], MORE_ON_SCREEN)
+        said = " ".join(chunks[:-1]).split()
+        self.assertEqual(said, clean_for_speech(reply).split()[:len(said)])
+        self.assertNotIn("Old draft", " ".join(chunks))
         self.assertNotIn("secret_code", " ".join(chunks))
+
+    def test_a_long_failure_still_says_why_it_failed(self) -> None:
+        reason = "The operation failed because the destination is protected. Ask for approval before retrying."
+        reply = " ".join(f"Step {n} finished." for n in range(1, 19)) + " " + reason
+
+        async def failing(*args, **kwargs):
+            return ToolResult.failure(reply)
+
+        webui._orchestrator.handle = failing
+        events = self._stream({"command": "move it", "voice": True})
+        said = " ".join(e["text"] for e in events if e.get("type") == "tts")
+        self.assertIn(reason, said)
+        self.assertLessEqual(len(said.split()), SPOKEN_WORDS + len(MORE_ON_SCREEN.split()) + 5)
+
+    def test_a_reset_gives_the_replacement_answer_a_fresh_budget(self) -> None:
+        async def replaced(*args, on_token=None, **kwargs):
+            for n in range(1, 19):
+                on_token(f"Step {n} finished. ")
+            on_token.reset()
+            return ToolResult.failure("The operation failed. Ask for approval before retrying.")
+
+        webui._orchestrator.handle = replaced
+        events = self._stream({"command": "move it", "voice": True})
+        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
+        self.assertEqual([e["text"] for e in after_reset if e.get("type") == "tts"],
+                         ["The operation failed. Ask for approval before retrying."])
 
 
 if __name__ == "__main__":

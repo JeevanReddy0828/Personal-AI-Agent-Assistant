@@ -62,6 +62,7 @@ from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
 from laptop_agent.timeparse import describe
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav, tts_engine_name
 from laptop_agent.wake import SAMPLE_RATE, WakeDetector, whisper_recognizer
+from laptop_agent.spoken import SpokenBudget, greeting, spoken_turn
 from laptop_agent.webui_page import PAGE, SIGNIN_PAGE
 from laptop_agent.window_fx import apply_window_effects
 
@@ -148,7 +149,7 @@ _PERSONAL_ROUTES = frozenset({
     "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
     "/auth/google/status", "/auth/google/launch", "/auth/google/callback",
     "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
-    "/api/wake",
+    "/api/wake", "/api/greeting",
     "/api/hotkey",
 })
 
@@ -1358,6 +1359,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, body, "text/html; charset=utf-8", etag=etag)
         elif path == "/api/me":
             self._json(200, self._me())
+        elif path == "/api/greeting":
+            name = str(_orchestrator.context.memory.get_profile().get("name") or "").strip().title() or None
+            self._json(200, {"ok": True, "text": greeting(name, datetime.now())})
         elif path == "/api/accounts":
             self._list_accounts()
         elif path == "/api/health":
@@ -1598,6 +1602,13 @@ class Handler(BaseHTTPRequestHandler):
         # first sentence instead of waiting for the whole reply (low time-to-audio).
         chunker = SpeechChunker() if voice else None
         streamed_tokens = False
+        # Said aloud: about SPOKEN_WORDS, then "The rest is on screen." once (spoken.py).
+        budget = SpokenBudget()
+
+        def say(text: str) -> None:
+            kept = budget.take(text)
+            if kept:
+                emit({"type": "tts", "text": kept})
 
         def on_token(token: str) -> None:
             nonlocal streamed_tokens
@@ -1606,13 +1617,12 @@ class Handler(BaseHTTPRequestHandler):
             emit({"type": "token", "text": token})
             if chunker is not None:
                 for sentence in chunker.feed(token):
-                    spoken = clean_for_speech(sentence)
-                    if spoken:
-                        emit({"type": "tts", "text": spoken})
+                    say(clean_for_speech(sentence))
 
         def reset_tokens():
-            nonlocal streamed_tokens
+            nonlocal streamed_tokens, budget
             streamed_tokens = False
+            budget = SpokenBudget()
             if chunker is not None:
                 chunker.flush()
             emit({"type": "reset"})
@@ -1626,26 +1636,30 @@ class Handler(BaseHTTPRequestHandler):
         _APPROVALS.add_listener(on_approval)
         agent_id = _orchestrator.control_room.start(command)
         try:
-            result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
+            with spoken_turn(voice):
+                result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
             if chunker is not None:
-                tail = clean_for_speech(chunker.flush() or "")
-                if tail:
-                    emit({"type": "tts", "text": tail})
+                say(clean_for_speech(chunker.flush() or ""))
                 if not streamed_tokens:
                     spoken = clean_for_speech(result.message)
                     if spoken:
-                        # Keep the fast, short tool-result path as one utterance. A long
-                        # result uses the same sentence rules as streamed model text,
-                        # with a word-boundary cap below the browser fallback's 800 chars.
-                        final_chunker = SpeechChunker(max_chars=360) if len(spoken) > 360 else None
-                        if final_chunker is None:
-                            emit({"type": "tts", "text": spoken})
+                        # A short tool result stays one utterance. A long one is said sentence by
+                        # sentence until the spoken budget runs out; the screen has all of it.
+                        if len(spoken) <= 240:
+                            say(spoken)
                         else:
-                            for sentence in final_chunker.feed(spoken):
-                                emit({"type": "tts", "text": sentence})
-                            final_tail = final_chunker.flush()
-                            if final_tail:
-                                emit({"type": "tts", "text": final_tail})
+                            final_chunker = SpeechChunker(max_chars=240)
+                            pieces = [*final_chunker.feed(spoken), final_chunker.flush() or ""]
+                            if result.ok:
+                                for sentence in pieces:
+                                    say(sentence)
+                            else:
+                                # A failure says why at its end, after any progress: say that part.
+                                for sentence in budget.take_last(pieces):
+                                    emit({"type": "tts", "text": sentence})
+                closing = budget.closing()
+                if closing:
+                    emit({"type": "tts", "text": closing})
             _orchestrator.control_room.finish(agent_id, result.message, ok=result.ok)
             emit({"type": "done", "ok": result.ok, "message": result.message, "data": _json_safe(result.data)})
         except SignedOut as exc:

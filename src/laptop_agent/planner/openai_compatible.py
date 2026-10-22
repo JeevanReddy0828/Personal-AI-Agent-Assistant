@@ -14,6 +14,7 @@ from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
 from laptop_agent.model_status import BROKEN, DEGRADED
 from laptop_agent.planner.core import CutOff, PlanDecision
+from laptop_agent.spoken import reply_style
 from laptop_agent.tools.clock import prompt_stamp
 
 # Transient statuses the free hosted endpoints actually return. A 400/401/404 is the
@@ -418,7 +419,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} {reply_style()} "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },
@@ -460,7 +461,7 @@ class OpenAICompatiblePlannerProvider:
                 {
                     "role": "system",
                     "content": (
-                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} Answer directly and helpfully in Markdown. "
+                        f"{_PERSONA}{_CAPABILITIES}{_NO_TOOL_CLAIMS} {prompt_stamp()} {reply_style()} "
                         f"Known facts about the user: {facts}.\n{context_block(history, context_query or text, budget=CHAT_BUDGET)}"
                     ),
                 },

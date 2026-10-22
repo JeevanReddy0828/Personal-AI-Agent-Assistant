@@ -17,6 +17,7 @@ import laptop_agent.webui as webui
 
 NEWLINE = chr(10)
 BACKSLASH = chr(92)
+from laptop_agent.spoken import MORE_ON_SCREEN
 from laptop_agent.tools.base import ToolResult
 
 
@@ -1324,12 +1325,14 @@ class BrowserRegressions(unittest.TestCase):
         # suggested the hold, review of #256).
         self.assertLess(outcome["firstMs"], 4000, outcome)
         self.assertTrue(outcome["secondPending"], outcome)
+        # About SPOKEN_WORDS are said aloud, then the pointer to the screen (spoken.py, #298).
+        heard = (first, second, third, fourth, MORE_ON_SCREEN)
         self.assertEqual([entry for entry in outcome["log"] if entry.startswith("ask ")],
-                         ["ask " + sentence for sentence in (first, second, third, fourth, first, third)],
+                         ["ask " + sentence for sentence in heard],
                          "the final done message was synthesized again")
         self.assertIn("ask " + second, outcome["duringFirst"], "the next sentence was not prefetched")
         self.assertIn("browser " + second, outcome["log"], "a failed sentence lost its fallback")
-        self.assertEqual(" ".join(outcome["spoken"]).split(), reply.split())
+        self.assertEqual(" ".join(outcome["spoken"]).split(), " ".join(heard).split())
 
     def test_stop_drops_a_long_tool_reply_whose_first_chunk_is_still_fetching(self):
         reply = "A long tool result should be spoken sentence by sentence. " * 12

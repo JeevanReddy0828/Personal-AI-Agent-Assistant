@@ -220,11 +220,27 @@ voice spoke 126/190 and 137/234 words before, versus all 190 and 234 after; the 
 `Done.` reply remained one request and measured 141 ms before versus 116 ms after. These
 are local fake-backend measurements, not a claim about live Magpie performance.
 
-**Open, kept as a to-do (Jeevan, 2026-10-07): should a very long spoken reply be capped?**
-Since this change a long tool result is read aloud in full. "what can you do" ran about
-two minutes, and a long file read or file listing could run longer. Space stops it. The
-other option is to speak the first ~1,500 characters and say the rest is on screen. Nothing
-is decided, so do not add a cap without asking.
+**Decided (Jeevan, 2026-10-15): talking, not reading out.** It should feel like talking to
+J.A.R.V.I.S, not a chatbot: short spoken answers in a real back-and-forth, no long replies read
+out, nothing said twice. So (`spoken.py`): a voice turn runs marked `spoken_turn`, and the chat
+prompt's "Answer directly and helpfully in Markdown" becomes `VOICE_STYLE` - one to three short
+sentences, under about 40 words unless asked for more, no lists or Markdown, no restating the
+question or repeating itself, no talk of the app's port or setup, the gist first with an offer to
+go deeper. Measured on the fast tier, written against spoken: "what do you know about black
+holes" 271 words against 75, "I had a long day at work" 66 against 27; before the setup rule,
+"how's it going" volunteered "running smooth on localhost:8770". What is said aloud then stops
+after about `SPOKEN_WORDS` (45) and "The rest is on screen." is said once; the screen keeps all
+of it, and a long tool result is cut into 240-character pieces for the same budget. A failed
+result says its closing pieces instead, where the reason and what to do next are, and an answer
+that replaces a streamed draft (`on_token.reset`) starts with a fresh budget (Codex, #298). When the app
+window opens it greets once a window by the time of day and the remembered `name` ("Good
+evening, Jeevan. What can I do for you?", varied; no name invented) and listens for the answer;
+a tab, where sound needs a click first, shows it, and with the wake word off it is only shown. A
+conversation opened by "Hey Jarvis" or the greeting ends after 12 s of quiet and goes back to
+listening for the name (on browser speech too, by a timer, since a recognizer can sit open in
+silence without ending; the quiet is counted from when speech ends, because a first result can
+come long after speech starts, and a recognizer that reports speech and then nothing at all is
+given up on after 30 s); one started from the Voice button stays until stopped.
 
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside
