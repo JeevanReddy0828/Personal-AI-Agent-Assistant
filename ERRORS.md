@@ -22,6 +22,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   open, so the first can only play if playback does not wait for it; a page that waits
   deadlocks into the 4 s hang bound (Codex's design, #256). A threshold a shared runner can
   miss is a flake. (10-08)
+- **The wake test failed on CI with "no clip was sent to /api/wake" after 20 s** → Chromium's
+  fake microphone beeps for less than one 4096-sample frame every 512 ms, so a clip opened only
+  when a beep straddled a frame boundary and never met 600 ms of quiet (each ran to the 6 s cap);
+  under CPU throttling dropped frames lost the straddle → the test hands the wake listener frames
+  of a known level, and separately waits for microphone frames carrying sound (`DRIVEN_WAKE`,
+  `test_browser_wake.py`). (10-21)
 - **Web-server tests fail with 403, `403 != 400` or WinError 10054 only while another
   worktree's suite runs** → eight `test_webui_*` files bound fixed ports (8793-8800), and the
   stdlib server's SO_REUSEADDR lets a second Windows process bind a served port, so requests
