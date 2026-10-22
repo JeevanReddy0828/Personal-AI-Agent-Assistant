@@ -661,8 +661,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   entering `listen()`, and a recognizer can sit open in silence → a timer in the browser path ends
   it unless speech came in (`test_a_wake_opened_talk_on_browser_speech_ends_when_quiet`; Codex, #298). (10-22)
   That timer first watched only results, so speech begun just before the deadline was aborted
-  as quiet → `onspeechstart` holds it off (`test_speech_that_starts_before_the_quiet_end_is_not_cut_off`;
-  Codex, #298). (10-22)
+  as quiet → `onspeechstart` pushes the deadline back to 12 s after it, re-checked, so a start
+  that never yields words still ends (`test_speech_that_starts_before_the_quiet_end_is_not_cut_off`,
+  `test_speech_that_never_turns_into_words_still_ends_when_quiet`; Codex, #298). (10-22)
 - **The greeting vanished when the user answered it** → the first message starts a session and
   `newSession()` clears the chat → `keepGreeting()` puts it back (`test_answering_the_greeting_keeps_it_on_screen`;
   `test_browser_accounts` timed out on it). (10-22)

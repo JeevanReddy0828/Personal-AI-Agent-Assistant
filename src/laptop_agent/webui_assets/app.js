@@ -2344,7 +2344,7 @@
     // wait many seconds before firing onend, which feels like a long "thinking" pause.
     // We finalize ~1.2s after the user stops talking so the turn snaps to the reply.
     rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;recognizing=true;
-    let fin='',heard=false,spoke=false,silence=null,handled=false;
+    let fin='',heard=false,silence=null,handled=false;
     // Act on the transcript we already have the moment the user pauses, and abort()
     // immediately — waiting for Chrome's stop()/onend stalled ~28s in testing.
     const handle=async(raw)=>{
@@ -2361,11 +2361,14 @@
     };
     const finalize=()=>{vmark('settle');handle(fin||vtrans.textContent);};
     // A recognizer can stay open in silence without a result or an end, so the quiet end of a
-    // casual talk cannot wait for the next listen(): give up on it here, unless speech has begun
-    // (its first result can come in well after it starts).
-    if(voiceCasual)setTimeout(()=>{if(!heard&&!spoke)handle('');},Math.max(0,QUIET_END_MS-(performance.now()-lastVoiceActivity))+50);
+    // casual talk cannot wait for the next listen(): give up on it here. Speech starting pushes
+    // the deadline back, since its first result can come well after it starts, but a start that
+    // never turns into words (a false start, a dropped result) still ends quietly.
+    let soundAt=lastVoiceActivity;
+    const quietCheck=()=>{if(handled||heard)return;const left=QUIET_END_MS-(performance.now()-soundAt);if(left<=0)handle('');else setTimeout(quietCheck,left+50);};
+    if(voiceCasual)setTimeout(quietCheck,Math.max(0,QUIET_END_MS-(performance.now()-soundAt))+50);
     rec.onstart=()=>vmark('mic-on');
-    rec.onspeechstart=()=>{vmark('speech');spoke=true;};
+    rec.onspeechstart=()=>{vmark('speech');soundAt=performance.now();};
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};
     rec.onerror=(e)=>{const err=(e&&e.error)||'?';vmark('err:'+err);
       if(err==='no-speech'||err==='aborted')return;         // benign — silence timer / restart handles it

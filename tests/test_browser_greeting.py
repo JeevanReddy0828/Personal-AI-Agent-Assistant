@@ -159,6 +159,17 @@ class GreetingInTheBrowser(unittest.TestCase):
         self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"), "speech in progress was ended")
         self.assertEqual(page.evaluate("window.__aborts"), 0)
 
+    def test_speech_that_never_turns_into_words_still_ends_when_quiet(self):
+        # Codex, review of #298: a false speech start, or a result that never comes.
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        page.evaluate("startVoice(''); 0")
+        page.wait_for_timeout(1000)
+        page.evaluate("rec.onspeechstart()")
+        page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=20000)
+
     def test_with_the_wake_word_off_the_app_window_only_shows_it(self):
         context_script = "localStorage.setItem('jarvis_wake', 'off');"
         page = self.open("/?app=1#")
