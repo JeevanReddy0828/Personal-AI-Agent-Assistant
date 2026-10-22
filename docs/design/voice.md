@@ -230,12 +230,15 @@ go deeper. Measured on the fast tier, written against spoken: "what do you know 
 holes" 271 words against 75, "I had a long day at work" 66 against 27; before the setup rule,
 "how's it going" volunteered "running smooth on localhost:8770". What is said aloud then stops
 after about `SPOKEN_WORDS` (45) and "The rest is on screen." is said once; the screen keeps all
-of it, and a long tool result is cut into 240-character pieces for the same budget. When the app
+of it, and a long tool result is cut into 240-character pieces for the same budget. A failed
+result says its closing pieces instead, where the reason and what to do next are, and an answer
+that replaces a streamed draft (`on_token.reset`) starts with a fresh budget (Codex, #298). When the app
 window opens it greets once a window by the time of day and the remembered `name` ("Good
 evening, Jeevan. What can I do for you?", varied; no name invented) and listens for the answer;
 a tab, where sound needs a click first, shows it, and with the wake word off it is only shown. A
 conversation opened by "Hey Jarvis" or the greeting ends after 12 s of quiet and goes back to
-listening for the name; one started from the Voice button stays until stopped.
+listening for the name (on browser speech too, by a timer, since a recognizer can sit open in
+silence without ending); one started from the Voice button stays until stopped.
 
 **The packaged app carries the Riva client whenever the build machine has it.** This note
 once said `JARVIS.exe` did not, which was a guess. PyInstaller follows imports made inside

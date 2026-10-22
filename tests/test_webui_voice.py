@@ -118,6 +118,32 @@ class VoiceStreamTests(unittest.TestCase):
         self.assertNotIn("Old draft", " ".join(chunks))
         self.assertNotIn("secret_code", " ".join(chunks))
 
+    def test_a_long_failure_still_says_why_it_failed(self) -> None:
+        reason = "The operation failed because the destination is protected. Ask for approval before retrying."
+        reply = " ".join(f"Step {n} finished." for n in range(1, 19)) + " " + reason
+
+        async def failing(*args, **kwargs):
+            return ToolResult.failure(reply)
+
+        webui._orchestrator.handle = failing
+        events = self._stream({"command": "move it", "voice": True})
+        said = " ".join(e["text"] for e in events if e.get("type") == "tts")
+        self.assertIn(reason, said)
+        self.assertLessEqual(len(said.split()), SPOKEN_WORDS + len(MORE_ON_SCREEN.split()) + 5)
+
+    def test_a_reset_gives_the_replacement_answer_a_fresh_budget(self) -> None:
+        async def replaced(*args, on_token=None, **kwargs):
+            for n in range(1, 19):
+                on_token(f"Step {n} finished. ")
+            on_token.reset()
+            return ToolResult.failure("The operation failed. Ask for approval before retrying.")
+
+        webui._orchestrator.handle = replaced
+        events = self._stream({"command": "move it", "voice": True})
+        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
+        self.assertEqual([e["text"] for e in after_reset if e.get("type") == "tts"],
+                         ["The operation failed. Ask for approval before retrying."])
+
 
 if __name__ == "__main__":
     unittest.main()

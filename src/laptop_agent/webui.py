@@ -1620,8 +1620,9 @@ class Handler(BaseHTTPRequestHandler):
                     say(clean_for_speech(sentence))
 
         def reset_tokens():
-            nonlocal streamed_tokens
+            nonlocal streamed_tokens, budget
             streamed_tokens = False
+            budget = SpokenBudget()
             if chunker is not None:
                 chunker.flush()
             emit({"type": "reset"})
@@ -1648,9 +1649,14 @@ class Handler(BaseHTTPRequestHandler):
                             say(spoken)
                         else:
                             final_chunker = SpeechChunker(max_chars=240)
-                            for sentence in final_chunker.feed(spoken):
-                                say(sentence)
-                            say(final_chunker.flush() or "")
+                            pieces = [*final_chunker.feed(spoken), final_chunker.flush() or ""]
+                            if result.ok:
+                                for sentence in pieces:
+                                    say(sentence)
+                            else:
+                                # A failure says why at its end, after any progress: say that part.
+                                for sentence in budget.take_last(pieces):
+                                    emit({"type": "tts", "text": sentence})
                 closing = budget.closing()
                 if closing:
                     emit({"type": "tts", "text": closing})

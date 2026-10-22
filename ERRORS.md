@@ -646,6 +646,17 @@ guard, with the date), and a session entry only when the line cannot carry the l
   was shown whenever it came back → show it only while the chat is still empty
   (`test_a_greeting_that_arrives_after_the_user_spoke_is_dropped`; CI's `test_browser_accounts`
   caught it on #298). (10-21)
+- **A long failed result was spoken as progress and "The rest is on screen", never the reason** →
+  the spoken budget kept the start of every result, and a reset kept the spent budget → a failure
+  says its closing sentences (`SpokenBudget.take_last`), a reset starts a fresh budget
+  (`test_a_long_failure_still_says_why_it_failed`, `test_a_reset_gives_the_replacement_answer_a_fresh_budget`;
+  Codex, #298). (10-22)
+- **"Hey Jarvis" on browser speech never ended on 12 s of quiet** → the quiet end was checked only on
+  entering `listen()`, and a recognizer can sit open in silence → a timer in the browser path ends
+  it unless speech came in (`test_a_wake_opened_talk_on_browser_speech_ends_when_quiet`; Codex, #298). (10-22)
+- **The greeting vanished when the user answered it** → the first message starts a session and
+  `newSession()` clears the chat → `keepGreeting()` puts it back (`test_answering_the_greeting_keeps_it_on_screen`;
+  `test_browser_accounts` timed out on it). (10-22)
 - **Several reminders at once: one loud, harsh chime and a pile of OS notifications** → each
   card chimed at the same instant (5 due = 10 tones summed to 0.9 of full scale) → announce
   the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)

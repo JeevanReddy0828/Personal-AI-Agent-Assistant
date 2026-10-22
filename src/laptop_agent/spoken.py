@@ -61,6 +61,18 @@ class SpokenBudget:
         self._left -= len(sentence.split())
         return sentence
 
+    def take_last(self, sentences: list[str]) -> list[str]:
+        """The closing sentences that fit what is left, in order; the last one always."""
+        kept: list[str] = []
+        for sentence in reversed([s.strip() for s in sentences if s and s.strip()]):
+            words = len(sentence.split())
+            if kept and words > self._left:
+                self.held_back = True
+                break
+            self._left -= words
+            kept.insert(0, sentence)
+        return kept
+
     def closing(self) -> str | None:
         return MORE_ON_SCREEN if self.held_back else None
 

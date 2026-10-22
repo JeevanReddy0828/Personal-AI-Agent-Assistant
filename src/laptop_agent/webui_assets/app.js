@@ -1007,7 +1007,7 @@
     if(voiceActive)lastVoiceActivity=performance.now();
     if(waked!==null){renderMsg('user',text);setMd(renderMsg('bot','').querySelector('.md'),waked);ta.value='';auto();return;}
     if(agentMode&&text){return runAgent(text);}
-    if(!current)newSession();
+    if(!current){newSession();keepGreeting();}
     const sent=attachments.slice(), attNames=sent.map(a=>a.name);
     const s=curSession();
     const history=sessionHistory(s);
@@ -1072,7 +1072,7 @@
 
   /* autonomous agent mode — streams plan/act/observe steps into a live trace */
   async function runAgent(goal){
-    if(!current)newSession();
+    if(!current){newSession();keepGreeting();}
     const s=curSession();
     const history=sessionHistory(s);   // captured before this goal is added, like send()
     renderMsg('user',goal); if(s){s.msgs.push({role:'user',text:goal,at:Date.now()});if(!s.title)s.title=goal.slice(0,32);saveSessions();renderSessions();}
@@ -2051,13 +2051,16 @@
   // Greeted once a window when the app opens (Jeevan, 2026-10-15). In the app window it is spoken
   // and the conversation is open for an answer; in a tab, where sound needs a click first, it is
   // shown. With the wake word off the microphone stays closed, so it is shown only.
+  // The first message starts a session, which clears the chat; the greeting it answers stays.
+  let greetNode=null;
+  function keepGreeting(){if(greetNode){clearEmpty();chat.appendChild(greetNode);greetNode=null;}}
   async function greet(){
     try{if(sessionStorage.getItem('jarvis_greeted'))return;sessionStorage.setItem('jarvis_greeted','1');}catch(e){}
     let d=null;try{d=await (await fetch('/api/greeting')).json();}catch(e){}
     if(!d||!d.ok||!d.text)return;
     // Too late once the user has started: it would land under their own message.
     if(!chat.querySelector('.empty'))return;
-    setMd(renderMsg('bot','').querySelector('.md'),d.text);
+    greetNode=renderMsg('bot','');setMd(greetNode.querySelector('.md'),d.text);
     if(!NATIVE||!wakeOn||voiceActive||busy||activeRecording)return;
     voiceGeneration++;voiceActive=true;voiceCasual=true;lastVoiceActivity=performance.now();spokenRecent=[];bargeReset();
     document.body.classList.add('voicing');paintVoiceButtons(true);wakePause();voiceTurnReset();streamComplete=true;enqueueTTS(d.text);
@@ -2357,6 +2360,9 @@
       await send(q);                                    // send() streams sentences back via voiceTurnDone; it drives speech, not us
     };
     const finalize=()=>{vmark('settle');handle(fin||vtrans.textContent);};
+    // A recognizer can stay open in silence without a result or an end, so the quiet end of a
+    // casual talk cannot wait for the next listen(): give up on it here, unless speech came in.
+    if(voiceCasual)setTimeout(()=>{if(!heard)handle('');},Math.max(0,QUIET_END_MS-(performance.now()-lastVoiceActivity))+50);
     rec.onstart=()=>vmark('mic-on');
     rec.onspeechstart=()=>vmark('speech');
     rec.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!heard)vmark('heard');heard=true;fin=t;vtrans.textContent=t;clearTimeout(silence);silence=setTimeout(finalize,1000);};

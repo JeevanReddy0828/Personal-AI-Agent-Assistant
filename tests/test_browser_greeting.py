@@ -122,6 +122,29 @@ class GreetingInTheBrowser(unittest.TestCase):
         self.assertNotIn("Late greeting sentinel.", page.inner_text("#chat"))
         self.assertIn("Answered.", page.locator(".msg.bot").last.inner_text())
 
+    def test_answering_the_greeting_keeps_it_on_screen(self):
+        async def instant(*args, **kwargs):
+            return ToolResult.success("Answered.")
+
+        with patch.object(webui._orchestrator, "handle", instant):
+            page = self.open("/")
+            page.wait_for_function("() => document.querySelectorAll('.msg.bot').length > 0", timeout=10000)
+            greeting = page.locator(".msg.bot").first.inner_text()
+            page.fill("#ta", "hello")
+            page.press("#ta", "Enter")
+            page.wait_for_function("() => document.querySelectorAll('.msg').length >= 3", timeout=10000)
+        self.assertEqual(page.locator(".msg").first.inner_text(), greeting)
+
+    def test_a_wake_opened_talk_on_browser_speech_ends_when_quiet(self):
+        # The stub recognizer never reports a result or an end, like one left open in silence.
+        page = self.open("/")
+        page.evaluate("localStorage.setItem('jarvis_stt', 'browser')")
+        page.reload()
+        page.wait_for_function("() => typeof startVoice === 'function'", timeout=10000)
+        page.evaluate("startVoice('')")
+        self.assertTrue(page.evaluate("document.body.classList.contains('voicing')"))
+        page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=20000)
+
     def test_with_the_wake_word_off_the_app_window_only_shows_it(self):
         context_script = "localStorage.setItem('jarvis_wake', 'off');"
         page = self.open("/?app=1#")
