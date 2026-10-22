@@ -1379,8 +1379,8 @@ class UnclearListItemsTests(unittest.TestCase):
     """"add eggs milk and bread" saved "eggs milk" as one item: said without commas, nothing tells
     "eggs milk" from "almond milk". Jeevan, 2026-10-22: ask back when it is unclear."""
 
-    ASKED = ('Add eggs, milk and bread to your shopping list as 3 items? '
-             'Say yes, or no to add "eggs milk and bread" as you said it.')
+    ASKED = ('Add eggs, milk and bread to your shopping list as 3 items? Say yes, no to add '
+             '"eggs milk and bread" as you said it, or say them again with "and" between.')
 
     def ask(self, everyday) -> list[dict]:
         asked, _ = everyday.say("add eggs milk and bread to my shopping list", stream=False)
@@ -1391,14 +1391,16 @@ class UnclearListItemsTests(unittest.TestCase):
                 {"role": "assistant", "text": AskedAgainTests.page_turn(asked)}]
 
     def test_yes_adds_each_word_as_an_item(self) -> None:
-        for reply in ("yes", "yeah", "yes please", "separately", "3 items"):
+        # "yes, please" was added as the items "yes" and "please" (Codex, #300).
+        for reply in ("yes", "yeah", "yes please", "yes, please", "Yes.", "ok, thanks", "separately", "3 items"):
             with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
                 everyday = Everyday(Path(tmp))
                 everyday.say(reply, history=self.ask(everyday), stream=False)
                 self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs", "milk", "bread"])
 
     def test_no_adds_it_as_it_was_said(self) -> None:
-        for reply in ("no", "nope", "as i said", "one item"):
+        # "no, thanks" added nothing (Codex, #300).
+        for reply in ("no", "nope", "no, thanks", "No thank you.", "as i said", "one item"):
             with self.subTest(reply), tempfile.TemporaryDirectory() as tmp:
                 everyday = Everyday(Path(tmp))
                 everyday.say(reply, history=self.ask(everyday), stream=False)
@@ -1409,6 +1411,25 @@ class UnclearListItemsTests(unittest.TestCase):
             everyday = Everyday(Path(tmp))
             everyday.say("eggs, almond milk and bread", history=self.ask(everyday), stream=False)
             self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs", "almond milk", "bread"])
+
+    def test_the_items_said_again_with_and_between_are_not_asked_about_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            everyday.say("eggs and almond milk and bread", history=self.ask(everyday), stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("shopping"), ["eggs", "almond milk", "bread"])
+
+    def test_tasks_said_again_go_on_a_todo_list_whole(self) -> None:
+        # Codex, #300: "call, mom, pay, rent and buy milk" is no way to offer tasks; saying them
+        # again with "and" between is.
+        with tempfile.TemporaryDirectory() as tmp:
+            everyday = Everyday(Path(tmp))
+            said = "add call mom pay rent and buy milk to my todo list"
+            asked, _ = everyday.say(said, stream=False)
+            self.assertIn('or say them again with "and" between', asked.message)
+            history = [{"role": "user", "text": said},
+                       {"role": "assistant", "text": AskedAgainTests.page_turn(asked)}]
+            everyday.say("call mom and pay rent and buy milk", history=history, stream=False)
+            self.assertEqual(everyday.orchestrator.context.memory.list_items("todo"), ["call mom", "pay rent", "buy milk"])
 
     def test_cancelling_adds_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

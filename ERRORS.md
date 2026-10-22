@@ -731,7 +731,9 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "and", and "eggs milk" cannot be told from "almond milk" → with no comma and a multi-word item
   before the last "and", ask "as 3 items?" and act on yes / no / the items said again
   (`UnclearListItemsTests`; the question is matched on the turn's first line, since the page
-  appends tool data). (10-22)
+  appends tool data). Then "yes, please" was added as the items "yes" and "please", and "no,
+  thanks" lost the request → yes/no are read without punctuation, with a "please"/"thanks"
+  allowed (Codex, #300). (10-22)
 - **"add dune to my books to read list" and "create a list called books to read" reached the chat
   model** → a list name could be two words at most, and a list could only be made with items →
   a name is up to four words, none of them "my"/"the"/"our" (or "add go to the store to my todo

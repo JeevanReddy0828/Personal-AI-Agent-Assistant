@@ -400,12 +400,14 @@ _DRAW_AGAIN = re.compile(r"(?:(?:ok(?:ay)?|and|now)\s+)?(?:again|one\s+more(?:\s
 
 _PHRASE_WORD = re.compile(r"\d|\b(?:a|an|the|some|of|for|with|to)\b", re.IGNORECASE)
 # The answers to "Add eggs, milk and bread to your shopping list as 3 items? Say yes, or no ...".
-_UNCLEAR_ITEMS = re.compile(r'Add (?P<split>.+) to your (?P<name>.+?) list as \d+ items\? '
-                            r'Say yes, or no to add "(?P<said>.+)" as you said it\.')
-_SPLIT_THEM = re.compile(r"(?:yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right)(?:\s+please)?|separately|split\s+(?:them|it)"
-                         r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things)", re.IGNORECASE)
-_KEEP_THEM = re.compile(r"no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?",
-                        re.IGNORECASE)
+_UNCLEAR_ITEMS = re.compile(r'Add (?P<split>.+) to your (?P<name>.+?) list as \d+ items\? Say yes, no to add '
+                            r'"(?P<said>.+)" as you said it, or say them again with "and" between\.')
+# Read with the punctuation dropped: "yes, please" was taken as the items "yes" and "please" (Codex).
+_POLITE = r"(?:\s+(?:please|thanks|thank\s+you))?"
+_SPLIT_THEM = re.compile(r"(?:(?:yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right)" + _POLITE + r"|separately|split\s+(?:them|it)"
+                         r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things))", re.IGNORECASE)
+_KEEP_THEM = re.compile(r"(?:no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?)"
+                        + _POLITE, re.IGNORECASE)
 
 
 def _meaningful(value: str) -> bool:
@@ -2343,8 +2345,9 @@ class AgentOrchestrator:
         if "," not in raw_items and any(len(item.split()) > 1 and not _PHRASE_WORD.search(item) for item in items[:-1]):
             split = [word for item in items[:-1] for word in item.split()] + items[-1:]
             return ToolResult.success(
-                f"Add {', '.join(split[:-1])} and {split[-1]} to {label} as {len(split)} items? "
-                f'Say yes, or no to add "{raw_items}" as you said it.', items=self.context.memory.list_items(name))
+                f"Add {', '.join(split[:-1])} and {split[-1]} to {label} as {len(split)} items? Say yes, no to "
+                f'add "{raw_items}" as you said it, or say them again with "and" between.',
+                items=self.context.memory.list_items(name))
         added = self.context.memory.add_to_list(name, items)
         total = len(self.context.memory.list_items(name))
 
@@ -2619,14 +2622,17 @@ class AgentOrchestrator:
         # in both commands keep the list from asking again.
         unclear = _UNCLEAR_ITEMS.fullmatch(asked.split("\n", 1)[0].strip())
         if unclear:
-            name = unclear.group("name")
-            if _SPLIT_THEM.fullmatch(reply):
+            name, plain = unclear.group("name"), " ".join(re.sub(r"[,.!]", " ", reply).split())
+            if _SPLIT_THEM.fullmatch(plain):
                 return f"list {name} add {unclear.group('split')}"
-            if _KEEP_THEM.fullmatch(reply):
+            if _KEEP_THEM.fullmatch(plain):
                 said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
                 return f"list {name} add {', '.join(said)}"
-            if "," in reply and not _NOT_AN_ANSWER.match(reply):
-                return f"list {name} add {reply}"
+            # Said again with commas or "and" between: each piece is an item, joined with commas so
+            # the list does not ask about the same words twice.
+            if re.search(r",|\s+and\s+", reply) and not _NOT_AN_ANSWER.match(reply):
+                again = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", reply) if item.strip(" .")]
+                return f"list {name} add {', '.join(again)}"
             return None
         if _NOT_AN_ANSWER.match(reply):
             return None
