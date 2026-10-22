@@ -115,7 +115,8 @@ _DEV_EXACT = frozenset({
     "look at webcam", "describe webcam", "what do you see", "look at me", "webcam", "capture webcam",
     "webcam capture", "take a photo", "windows", "list windows", "show windows",
     "what windows are open", "window", "split", "snap", "arrange", "screenshot", "take a screenshot",
-    "take screenshot", "screen shot", "record",
+    "take screenshot", "screen shot", "record", "lock screen", "power sleep", "power shutdown", "power restart",
+    "power cancel", "brightness", "processes", "settings",
 })
 _DEV_PREFIX = (
     # the app's internals, and acting on its own
@@ -128,6 +129,7 @@ _DEV_PREFIX = (
     "tailor job", "resume file", "job add", "job stage", "job remove", "job delete", "remember note",
     "notes search", "note search", "ask vault", "ask notes", "read note", "save note",
     "knowledge export", "knowledge forget", "knowledge search", "ask knowledge",
+    "keys",
     "answer from knowledge", "recall", "save research report",
     # the owner's mailbox
     "email", "send email",
@@ -141,6 +143,7 @@ _DEV_PREFIX = (
     "mcp",
     "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
+    "brightness", "wallpaper", "end process", "settings",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",
     "message", "terminal", "shell", "play music", "media", "workspace",
 )

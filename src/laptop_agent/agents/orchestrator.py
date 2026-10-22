@@ -79,6 +79,7 @@ from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
+from laptop_agent.tools import keys as keys_tools
 from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
 from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.textcard import wants_text_rendered
@@ -113,6 +114,7 @@ from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.watch import Watches
 from laptop_agent.tools.translate import TranslateTool, parse_translation
+from laptop_agent.tools import system as system_tools
 from laptop_agent.tools.weather import WeatherTool, clean_place
 from laptop_agent.tools.learn import LearnTool
 from laptop_agent.tools.web import WebTool
@@ -562,6 +564,7 @@ class AgentOrchestrator:
         self._file_processor_cache: FileProcessor | None = None
         self._weather_tool_cache: WeatherTool | None = None
         self._translate_tool_cache: TranslateTool | None = None
+        self._system_tool_cache: system_tools.SystemTool | None = None
         self._image_tool_cache: ImageTool | None = None
         self._clipboard_tool_cache: clipboard_tools.ClipboardTool | None = None
         self._news_tool_cache: NewsTool | None = None
@@ -571,6 +574,7 @@ class AgentOrchestrator:
         self._calculator_cache: CalculatorTool | None = None
         self._learn_cache: LearnTool | None = None
         self._clock_cache: ClockTool | None = None
+        self._keys_cache: keys_tools.KeysTool | None = None
         self._command_verbs_cache: frozenset[str] | None = None
         self._plugins_cache: PluginTool | None = None
         self._plugins_lock = threading.Lock()
@@ -1883,6 +1887,22 @@ class AgentOrchestrator:
 
     async def _dispatch_desktop(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for apps, windows, screenshots, the shell and media keys."""
+        if lowered == "lock screen":
+            return self._system_tool().lock()
+        if lowered in {"power sleep", "power shutdown", "power restart", "power cancel"}:
+            action = lowered.split(" ", 1)[1]
+            return self._system_tool().sleep() if action == "sleep" else self._system_tool().power(action)
+        if lowered == "brightness" or lowered.startswith("brightness "):
+            return self._system_tool().brightness(command[len("brightness") :])
+        if lowered.startswith("wallpaper "):
+            return self._system_tool().set_wallpaper(command[len("wallpaper ") :])
+        if lowered == "processes":
+            return self._system_tool().processes()
+        if lowered.startswith("end process "):
+            return self._system_tool().end_process(command[len("end process ") :])
+        if lowered == "settings" or lowered.startswith("settings "):
+            return self._system_tool().open_settings(command[len("settings") :])
+
         if lowered in {"windows", "list windows", "show windows", "what windows are open"}:
             return self.context.windows.list_windows()
 
@@ -1916,6 +1936,14 @@ class AgentOrchestrator:
                 return self._read_screen()
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
+
+        if lowered.startswith("keys type "):
+            app, _, text = command[len("keys type ") :].partition("::")
+            return self._keys().type_text(text, app.strip())
+
+        if lowered.startswith("keys "):
+            action, _, app = command[len("keys ") :].partition(" in ")
+            return self._keys().shortcut(action, app)
 
         if lowered.startswith("run command "):
             return self._run_terminal_command(command[len("run command ") :].strip())
@@ -2337,6 +2365,11 @@ class AgentOrchestrator:
                                    else "I tried to set a reminder instead, but: ") + result.message
         return result
 
+    def _keys(self) -> keys_tools.KeysTool:
+        if self._keys_cache is None:
+            self._keys_cache = keys_tools.KeysTool(self.context.web.approval_gate, keys_tools.keys_backend())
+        return self._keys_cache
+
     def _system_status(self) -> ToolResult:
         """Battery, CPU, memory and disk, read from this machine rather than guessed."""
         import shutil
@@ -2451,8 +2484,9 @@ class AgentOrchestrator:
     })
     _PROSE_PRONE = frozenset({
         "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
-        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember",
-        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc",
+        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember", "brightness",
+        "wallpaper", "settings", "processes",
+        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc", "keys",
         "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "clipboard", "plugin",
         "translate", "workspace",
     })
@@ -3389,11 +3423,14 @@ class AgentOrchestrator:
                 "  fill form <url>",
                 "  open app <path-or-app>",
                 "  screenshot <output.png>",
+                "  keys <new tab|back|scroll down|zoom in|…> [in <app>] | keys type [<app>] :: <text>  (sent to the app you name, else the one you were in)",
                 "  run command <command>",
                 "  run command in <cwd> :: <command>",
                 "  code run <script.py> | code fix <script.py>  (run it; fix it from its own error, shown as a diff first)",
                 "  play music <file-folder-or-url>",
                 "  media playpause|next|previous|stop|volumeup|volumedown|mute",
+                "  lock screen | power sleep|shutdown|restart|cancel | brightness [0-100|up|down]  (the laptop itself; sleep and power ask)",
+                "  wallpaper <image path>|restore | processes | end process <name> | settings <page>",
                 "  email search <query>",
                 "  email unread",
                 "  email digest  (summarize your unread inbox)",
@@ -4610,6 +4647,12 @@ class AgentOrchestrator:
             return ToolResult.success("No scheduled jobs are due.", ran=[])
         ok = sum(1 for item in ran if item["status"] == "ok")
         return ToolResult(ok=ok == len(ran), message=f"Ran {len(ran)} due job(s): {ok} ok.", data={"ran": ran})
+
+    def _system_tool(self) -> system_tools.SystemTool:
+        if self._system_tool_cache is None:
+            self._system_tool_cache = system_tools.SystemTool(
+                self.context.web.approval_gate, system_tools.system_backend(), self.data_dir)
+        return self._system_tool_cache
 
     def _file_processor(self) -> FileProcessor:
         # Built lazily from existing tools — no AgentContext field needed.

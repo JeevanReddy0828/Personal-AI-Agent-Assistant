@@ -85,6 +85,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 ### Web, research and information
 | File | What it does |
 |---|---|
+| `keys.py` | `keys <new tab|back|scroll down|…>` and `keys type`: a named shortcut or one line of text, sent only after the target remains in the foreground; closing, Enter, Save, Paste and typing ask at HIGH risk. |
 | `web.py` | `open url`, `download`: validates the target, then opens or fetches it (asks first). |
 | `websearch.py` | Web search through Brave / Serper / SerpApi when keyed, DuckDuckGo otherwise. |
 | `mcp.py` | `mcp`, `mcp <server> <tool> <json>`: tools from MCP servers in `<data dir>/mcp.json`, over stdio JSON-RPC with no extra package; starting a server and each call ask. |
@@ -113,6 +114,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | File | What it does |
 |---|---|
 | `desktop.py` | Screenshots and opening apps. |
+| `system.py` | Lock, sleep, shut down (60 s grace, CRITICAL), brightness, wallpaper with restore, processes and ending one, Settings pages; Windows calls behind a backend the harness switches off. |
 | `windows.py` | Arranges windows by name ("Chrome on the left"); ctypes behind an injectable backend. |
 | `codefix.py` | `code run <script.py>`, `code fix <script.py>`: runs a Python script (asked), then shows a proposed fix on a card; refuses a script changed since the proposal and keeps each old version in a unique backup. |
 | `terminal.py` | `run command …`: shell commands with a preview, a timeout and approval. |
