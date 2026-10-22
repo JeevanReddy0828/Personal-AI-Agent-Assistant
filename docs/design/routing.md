@@ -31,6 +31,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   - **Stop ≠ delete.** "stop/turn off/dismiss" only touches what is going off or a running
     timer, never a schedule; "cancel/delete" removes, prefers what is ringing, and removing
     more than one asks first (HIGH).
+  - **A task is not a process.** "stop the backup task" and "stop the timer task" must not
+    become `end process`. Ending a process requires that word or an explicit "force quit".
   - **Two requests in one sentence** split only where every part starts like a request and
     routes on its own (`_split_requests`); "remind me to buy milk and eggs at 6pm" and
     "search for flights and hotels in paris" stay whole, and so does a briefing format: "set my
@@ -94,6 +96,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     for being told when a reminder counts, found nothing to catch outside reminders, and
     would add ~350 ms to every LLM-routed picture, email and document - not shipped, by
     agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
+    (2026-10-14: the wallpaper no longer reaches the LLM router. `tools/system.py` takes "set my
+    wallpaper to …" and asks for an image file when none is named.)
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

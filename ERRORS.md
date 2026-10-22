@@ -598,6 +598,18 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
+  fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
+  it too and sends each press to that window through a private, authenticated long-poll
+  channel (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-18)
+- **The desktop hotkey channel could be exposed without a failing test** → UI checks only
+  exercised the valid token → a loopback server test rejects absent and wrong channels and
+  non-desktop mode, and succeeds only for the desktop channel (`test_hotkey.py`). (10-19)
+- **Voice could only be started by clicking the mic, and only with the window focused** → no key
+  started it, and nothing outside the page could → Ctrl+Space toggles voice in the page (captured
+  first, so the Space interrupt and recording handlers never see it), and the desktop window
+  registers Ctrl+Alt+J with RegisterHotKey (`hotkey.py`), which calls `jarvisHotkey()`; a key another
+  app holds is recorded, not raised (`test_hotkey.py`, `test_browser_push_to_talk.py`). (10-14)
 - **A long tool reply waits to speak, or the browser reads only its first 800 characters** →
   no streamed tokens meant `voiceTurnDone` sent the entire result as one TTS request. The
   server now emits bounded `tts` events for the cleaned final result through the same
@@ -701,6 +713,17 @@ guard, with the date), and a session entry only when the line cannot carry the l
   dropped, and one card lists the facts before any is saved (`tools/learn.py`, `test_learn.py`). (10-14)
 
 ### Shell, git and editing
+- **"lock my computer", "turn the brightness down" and "set my wallpaper to a beach photo" had no
+  tool** → the router reached for the nearest one, and the wallpaper became a generated picture →
+  `tools/system.py`: lock (MEDIUM), sleep and wallpaper (HIGH), shutdown, restart and ending a
+  process (CRITICAL), brightness and Settings pages; a wallpaper needs an image file's full path,
+  Windows' own processes and this one are never ended, and the harness switches the backend off
+  so no test reaches the laptop (`test_system.py`). Developer-only. (10-14)
+- **Agent mode could lock the laptop or end a model-chosen process without a card; "stop the
+  backup task" became `end process backup`** (review of #285) → laptop controls were offered
+  in the agent command menu and "task" meant process in the heuristic → keep system controls
+  out of agent mode and require the word "process" (or explicit "force quit") for process
+  termination (`test_system.py`). (10-19)
 - **A file mangled by escapes** → a heredoc collapsed `\\` → exact-match edits or the Write
   tool; `bytes([0x89])` over `b"\x89"`. (09-17, 09-20, 10-01)
 - **A scripted edit broke another line or file** → anchored on part of a line → anchor on the

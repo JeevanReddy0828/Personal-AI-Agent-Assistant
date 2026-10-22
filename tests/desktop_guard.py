@@ -4,7 +4,8 @@ A URL handed to the OS is opened by the browser, not by this process, so no sock
 sees it, and a media key is pressed on the real keyboard. The harness's fake YouTube lookup
 once answered with a real song, and every probe or sweep that imported the harness outside
 `run_tests.py` - which alone switched these off - opened it in the browser and pressed the
-volume keys (2026-09-27, and again 2026-10-09). Each is now a stub that succeeds and does
+volume keys (2026-09-27, and again 2026-10-09). The laptop's own controls (lock, sleep, shut down,
+brightness, wallpaper, processes) are switched off whole, so nothing run here can reach them. Each is now a stub that succeeds and does
 nothing, switched off by importing the harness itself, whoever imports it.
 The clipboard is one of its own in memory, so no test reads or overwrites the real one.
 """
@@ -22,6 +23,9 @@ def inert(*args: object, **kwargs: object) -> bool:
 
 def make_desktop_inert() -> None:
     webbrowser.open = inert
+    from laptop_agent.tools import system
+
+    system.system_backend = lambda: None
     if hasattr(os, "startfile"):
         os.startfile = inert
     from laptop_agent.tools import keys

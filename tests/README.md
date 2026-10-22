@@ -65,11 +65,12 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Plugins | `test_plugins.py`: loaded only when switched on, broken ones reported, each run at its declared risk |
 | Tools | `test_<tool>.py` for nearly every tool: `test_calculator.py`, `test_units_and_dates.py`, `test_clock.py`, `test_weather.py`, `test_translate.py`, `test_travel.py`, `test_news.py`, `test_websearch.py`, `test_research.py`, `test_web_targets.py`, `test_browser_tool.py`, `test_document.py`, `test_clipboard.py`, `test_workspace.py`, `test_write_up_document.py`, `test_deck_courtesy.py`, `test_imagegen*.py`, `test_windows.py`, `test_music*.py`, `test_terminal_tool.py`, `test_email_tool.py`, `test_email_search_phrasing.py`, `test_obsidian.py`, `test_youtube.py`, `test_transcribe.py`, `test_webcam.py`, `test_file_*.py`, `test_forecast*.py`, `test_diagnostics_tool.py`, `test_breakdown.py` |
 | Health | `test_health.py`, `test_setup_report.py`, `test_metrics.py` |
+| Laptop controls | `test_system.py`: lock, power, brightness, wallpaper, processes, Settings |
 | Stores and memory | `test_knowledge*.py`, `test_embeddings.py`, `test_terms.py`, `test_reminders.py`, `test_reminder_delivery.py`, `test_scheduler*.py`, `test_timeparse.py`, `test_daylight_saving.py`, `test_retention.py`, `test_personal_life.py`, `test_briefing.py` |
 | Autonomy and jobs | `test_reasoning.py`, `test_autopilot.py`, `test_workflows.py`, `test_tasks.py`, `test_advisor.py`, `test_control_room.py`, `test_jobs.py`, `test_copilot.py`, `test_jobright.py`, `test_watch.py` |
 | Analytics | `test_forecast.py`, `test_analytics_diagnostics.py` |
 | Files on disk | `test_fileops.py`: move, copy, rename, delete to the Recycle Bin, undo |
-| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py` |
+| Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py`, `test_hotkey.py`, `test_browser_push_to_talk.py` |
 | `data/` | Shared fixtures; see its README. |
 | MCP | `test_mcp.py`: a real MCP server subprocess - start asked once, calls at the declared risk, paging, stray lines |
 

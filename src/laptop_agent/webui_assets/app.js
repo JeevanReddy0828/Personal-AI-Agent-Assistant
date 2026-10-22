@@ -965,7 +965,7 @@
   // agent-mode toggle
   function setAgentMode(on){agentMode=on;agentBtn.classList.toggle('on',on);
     ta.placeholder=on?'Give J.A.R.V.I.S a goal — it will plan and act over multiple steps…':'Message J.A.R.V.I.S…  (drop a file to auto-process it, or tap the mic)';
-    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat.';}
+    hint.textContent=on?'Agent mode — plans, runs tools, and observes step by step. High-risk steps still ask you first.':'Guarded mode — high-risk actions ask before they run. Enter to send · Shift+Enter newline · Esc to stop · Ctrl+K new chat · Ctrl+Space to talk.';}
   agentBtn.onclick=()=>setAgentMode(!agentMode);
   // keyboard shortcuts
   document.addEventListener('keydown',e=>{
@@ -1938,6 +1938,32 @@
   function toggleVoice(){if(!SR&&!NATIVE){alert('Speech recognition is not available here.');return;}voiceActive?endVoice():startVoice();}
   voiceBtn.onclick=toggleVoice;
   if(orbVoiceBtn)orbVoiceBtn.onclick=toggleVoice;
+  // Push to talk: Ctrl+Space here, and Ctrl+Alt+J from any app through the desktop window's
+  // global hotkey (hotkey.py), which calls jarvisHotkey. Captured first, so the Space handlers
+  // below (interrupt, stop a recording) never see the same press.
+  window.jarvisHotkey=toggleVoice;
+  const desktopHotkeyChannel=new URLSearchParams(location.search).get('desktop_hotkey');
+  if(desktopHotkeyChannel){
+    let last=null,closed=false;
+    window.addEventListener('pagehide',()=>{closed=true;});
+    (async function listenDesktopHotkey(){
+      while(!closed){
+        try{
+          const query=new URLSearchParams({channel:desktopHotkeyChannel});
+          if(last!==null)query.set('after',String(last));
+          const response=await fetch('/api/hotkey?'+query);
+          if(!response.ok)return;
+          const next=Number((await response.json()).sequence);
+          if(closed||!Number.isSafeInteger(next))return;
+          if(last!==null)for(let n=last;n<next;n++)toggleVoice();
+          last=next;
+        }catch(e){if(!closed)await new Promise(resolve=>setTimeout(resolve,1000));}
+      }
+    })();
+  }
+  document.addEventListener('keydown',e=>{
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&e.code==='Space'&&!e.repeat){e.stopImmediatePropagation();toggleVoice();}
+  },true);
   // Both surfaces show the same state. Whichever one is on screen has to be right.
   function paintVoiceButtons(on){
     voiceBtn.classList.toggle('on',on);
