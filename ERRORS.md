@@ -642,6 +642,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   conversational style, speech stops after ~45 words with "The rest is on screen.", the app
   window greets by name and listens, and a wake-opened talk ends on 12 s of quiet (`test_spoken.py`,
   `test_browser_greeting.py`). (10-15)
+- **The greeting showed up under the user's first message** → it is fetched ~600 ms after load and
+  was shown whenever it came back → show it only while the chat is still empty
+  (`test_a_greeting_that_arrives_after_the_user_spoke_is_dropped`; CI's `test_browser_accounts`
+  caught it on #298). (10-21)
 - **Several reminders at once: one loud, harsh chime and a pile of OS notifications** → each
   card chimed at the same instant (5 due = 10 tones summed to 0.9 of full scale) → announce
   the batch once (`announceReminders`); the cap above fixed the cards, not the sound. (10-05)

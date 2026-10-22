@@ -2055,6 +2055,8 @@
     try{if(sessionStorage.getItem('jarvis_greeted'))return;sessionStorage.setItem('jarvis_greeted','1');}catch(e){}
     let d=null;try{d=await (await fetch('/api/greeting')).json();}catch(e){}
     if(!d||!d.ok||!d.text)return;
+    // Too late once the user has started: it would land under their own message.
+    if(!chat.querySelector('.empty'))return;
     setMd(renderMsg('bot','').querySelector('.md'),d.text);
     if(!NATIVE||!wakeOn||voiceActive||busy||activeRecording)return;
     voiceGeneration++;voiceActive=true;voiceCasual=true;lastVoiceActivity=performance.now();spokenRecent=[];bargeReset();

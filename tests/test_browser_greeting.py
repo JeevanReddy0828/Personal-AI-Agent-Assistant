@@ -9,12 +9,14 @@ import io
 import json
 import os
 import threading
+import time
 import unittest
 import wave
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 import laptop_agent.webui as webui
+from laptop_agent.tools.base import ToolResult
 
 STUB_SPEECH = """
 window.webkitSpeechRecognition = window.SpeechRecognition = class { start(){} stop(){} abort(){} };
@@ -102,6 +104,23 @@ class GreetingInTheBrowser(unittest.TestCase):
         page.wait_for_function("() => !document.body.classList.contains('voicing')", timeout=45000)
         self.assertEqual(len(self.spoken), 1, "the greeting was not spoken once")
         self.assertEqual(page.get_attribute("#wakeBtn", "aria-pressed"), "true")
+
+    def test_a_greeting_that_arrives_after_the_user_spoke_is_dropped(self):
+        def slow_greeting(name, now):
+            time.sleep(1.5)
+            return "Late greeting sentinel."
+
+        async def instant(*args, **kwargs):
+            return ToolResult.success("Answered.")
+
+        with patch.object(webui, "greeting", slow_greeting), patch.object(webui._orchestrator, "handle", instant):
+            page = self.open("/")
+            page.fill("#ta", "hello")
+            page.press("#ta", "Enter")
+            page.wait_for_function("() => document.querySelectorAll('.msg.bot').length > 0", timeout=10000)
+            page.wait_for_timeout(2500)
+        self.assertNotIn("Late greeting sentinel.", page.inner_text("#chat"))
+        self.assertIn("Answered.", page.locator(".msg.bot").last.inner_text())
 
     def test_with_the_wake_word_off_the_app_window_only_shows_it(self):
         context_script = "localStorage.setItem('jarvis_wake', 'off');"
