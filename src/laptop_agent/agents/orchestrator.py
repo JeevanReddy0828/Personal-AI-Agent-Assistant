@@ -408,9 +408,11 @@ _POLITE = r"please|thanks|thank\s+you"
 _YES = (r"yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right|separately|split\s+(?:them|it)"
         r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things)")
 _NO = r"no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?"
-_SPLIT_THEM = re.compile(rf"(?:{_YES})(?:\s+(?:{_YES}|{_POLITE}))*", re.IGNORECASE)
-_KEEP_THEM = re.compile(rf"(?:{_NO})(?:\s+(?:{_NO}|{_POLITE}))*", re.IGNORECASE)
-_YES_AND_NO = re.compile(rf"(?:{_YES}|{_NO})(?:\s+(?:{_YES}|{_NO}|{_POLITE}))*", re.IGNORECASE)
+# Joined by a pause (the comma, dropped), "and" or "or": "yes and no" was taken as two items (Codex).
+_JOIN = r"\s+(?:(?:and|or)\s+)?"
+_SPLIT_THEM = re.compile(rf"(?:{_YES})(?:{_JOIN}(?:{_YES}|{_POLITE}))*", re.IGNORECASE)
+_KEEP_THEM = re.compile(rf"(?:{_NO})(?:{_JOIN}(?:{_NO}|{_POLITE}))*", re.IGNORECASE)
+_YES_AND_NO = re.compile(rf"(?:{_YES}|{_NO})(?:{_JOIN}(?:{_YES}|{_NO}|{_POLITE}))*", re.IGNORECASE)
 
 
 def _meaningful(value: str) -> bool:

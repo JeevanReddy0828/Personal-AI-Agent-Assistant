@@ -52,7 +52,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     marks a phrase and is not asked about. "yes" splits and "no" keeps it as said, read with
     punctuation dropped, a "please" or "thanks" allowed, and several of the answer's own phrases
     together ("yes, three items", "no, as I said it"; "yes, please" was once added as two items -
-    Codex); a mix of yes and no adds nothing; the items said again with more separators than before are added as said, the
+    Codex), joined by a pause, "and" or "or"; a mix of yes and no ("yes, no", "yes and no") adds
+    nothing; the items said again with more separators than before are added as said, the
     same words again are asked about again (not taken as a "no"), a new request is not taken as
     items, and a cancel adds nothing. The answer is read ahead of the refusal check ("no") and of
     the eight-word limit on follow-ups (tasks said again run longer). The question is matched on the turn's
