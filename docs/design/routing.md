@@ -44,6 +44,21 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     should the timer run?" → "10 minutes". Keyed to the exact question strings; history
     arrives as `{"role", "text"}` - a test written with "content" passed while the page got
     nothing. Refusals, questions, new requests and filler ("it's", "to") are not answers.
+  - **List items said without commas are asked about** (Jeevan, 2026-10-22): "add eggs milk and
+    bread" may be three items or "eggs milk" one, and nothing tells it from "almond milk and
+    bread", so a multi-word item before the last "and", with no comma anywhere, asks "Add eggs,
+    milk and bread to your shopping list as 3 items? Say yes, no to add ... as you said it, or say
+    them again with "and" between." A digit or a joining word ("2 apples", "a loaf of bread")
+    marks a phrase and is not asked about. "yes" splits and "no" keeps it as said, read with
+    punctuation dropped, a "please" or "thanks" allowed, and several of the answer's own phrases
+    together ("yes, three items", "no, as I said it"; "yes, please" was once added as two items -
+    Codex), joined by a pause, "and" or "or"; a mix of yes and no ("yes, no", "yes and no") adds
+    nothing; the items said again with more separators than before are added as said, the
+    same words again are asked about again (not taken as a "no"), a new request is not taken as
+    items, and a cancel adds nothing. The answer is read ahead of the refusal check ("no") and of
+    the eight-word limit on follow-ups (tasks said again run longer). The question is matched on the turn's
+    first line, because the page appends the tool data after a line break. Todo phrases are asked
+    about too ("call mom pay rent and buy milk"); saying them again with "and" is the answer there.
   - **A computed answer can be asked again with one thing changed** (`_asked_again`): "and in
     feet?" after a conversion, "what about london" after the time, "and halloween?" or "in
     weeks?" after a count of days. Keyed to the answer's own shape, never the user's words,

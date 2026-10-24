@@ -398,6 +398,23 @@ _DRAW_AGAIN = re.compile(r"(?:(?:ok(?:ay)?|and|now)\s+)?(?:again|one\s+more(?:\s
                          r"(?:\s+please)?\s*[?!.]*", re.IGNORECASE)
 
 
+_PHRASE_WORD = re.compile(r"\d|\b(?:a|an|the|some|of|for|with|to)\b", re.IGNORECASE)
+# The answers to "Add eggs, milk and bread to your shopping list as 3 items? Say yes, or no ...".
+_UNCLEAR_ITEMS = re.compile(r'Add (?P<split>.+) to your (?P<name>.+?) list as \d+ items\? Say yes, no to add '
+                            r'"(?P<said>.+)" as you said it, or say them again with "and" between\.')
+# Read with the punctuation dropped: "yes, please" was taken as the items "yes" and "please" (Codex).
+# An answer may be several of its own phrases: "yes, three items", "no, as I said it" (Codex).
+_POLITE = r"please|thanks|thank\s+you"
+_YES = (r"yes|yeah|yep|yup|sure|ok(?:ay)?|correct|right|separately|split\s+(?:them|it)"
+        r"|(?:as\s+)?(?:\d+|two|three|four|five|six|separate)\s+(?:items|things)")
+_NO = r"no(?:pe)?|nah|as\s+i\s+said(?:\s+it)?|(?:as\s+)?one\s+item|keep\s+it(?:\s+as\s+it\s+was)?"
+# Joined by a pause (the comma, dropped), "and" or "or": "yes and no" was taken as two items (Codex).
+_JOIN = r"\s+(?:(?:and|or)\s+)?"
+_SPLIT_THEM = re.compile(rf"(?:{_YES})(?:{_JOIN}(?:{_YES}|{_POLITE}))*", re.IGNORECASE)
+_KEEP_THEM = re.compile(rf"(?:{_NO})(?:{_JOIN}(?:{_NO}|{_POLITE}))*", re.IGNORECASE)
+_YES_AND_NO = re.compile(rf"(?:{_YES}|{_NO})(?:{_JOIN}(?:{_YES}|{_NO}|{_POLITE}))*", re.IGNORECASE)
+
+
 def _meaningful(value: str) -> bool:
     """Whether a reply carries an answer: "it's" and "to" alone do not - they were filed as
     a name and as a reminder."""
@@ -2327,6 +2344,15 @@ class AgentOrchestrator:
                 return ToolResult.failure(f"{raw_items} isn't on {label}.")
             return ToolResult.success(f"Removed {removed_item} from {label}.", removed=removed_item)
         items = [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", raw_items) if item.strip(" .")]
+        # Said without commas, "eggs milk and bread" may be three things or "eggs milk" one, and nothing
+        # tells it from "almond milk and bread": ask back (Jeevan, 2026-10-22). A quantity or a joining
+        # word ("2 apples", "a loaf of bread") marks a phrase, so that is not asked about.
+        if "," not in raw_items and any(len(item.split()) > 1 and not _PHRASE_WORD.search(item) for item in items[:-1]):
+            split = [word for item in items[:-1] for word in item.split()] + items[-1:]
+            return ToolResult.success(
+                f"Add {', '.join(split[:-1])} and {split[-1]} to {label} as {len(split)} items? Say yes, no to "
+                f'add "{raw_items}" as you said it, or say them again with "and" between.',
+                items=self.context.memory.list_items(name))
         added = self.context.memory.add_to_list(name, items)
         total = len(self.context.memory.list_items(name))
 
@@ -2573,6 +2599,31 @@ class AgentOrchestrator:
             )
         return self._command_verbs_cache
 
+    def _unclear_items_answer(self, unclear: re.Match[str], reply: str) -> str | None:
+        """The answer to "Add eggs, milk and bread to your shopping list as 3 items? ...", made into
+        the list command it means; None when the reply is not an answer to it."""
+        name, plain = unclear.group("name"), " ".join(re.sub(r"[,.!]", " ", reply).split())
+        if _SPLIT_THEM.fullmatch(plain):
+            return f"list {name} add {unclear.group('split')}"
+        if _KEEP_THEM.fullmatch(plain):
+            said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
+            return f"list {name} add {', '.join(said)}"
+        # "yes, no" says both: not items, and not an answer either.
+        if (_YES_AND_NO.fullmatch(plain) or not re.search(r",|\s+and\s+", reply) or len(reply.split()) > 40 or _NOT_AN_ANSWER.match(reply)
+                or self.router.plan(reply, "", {}).is_command):
+            return None
+
+        def items(text: str) -> list[str]:
+            return [item.strip(" .") for item in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", text) if item.strip(" .")]
+
+        # Said again with more separators than before: each piece is an item, joined with commas so
+        # the list does not ask about the same words twice. No clearer than before ("eggs milk and
+        # bread" once more), the list asks again instead of taking it as a "no" (Codex).
+        again = items(reply)
+        if len(again) > len(items(unclear.group("said"))):
+            return f"list {name} add {', '.join(again)}"
+        return f"list {name} add {reply}"
+
     def _follow_up(self, command: str, history_turns) -> str | None:
         """A short reply to a question this assistant just asked, made into the request it
         completes: "set a timer" -> "How long should the timer run?" -> "10 minutes" used to
@@ -2586,6 +2637,11 @@ class AgentOrchestrator:
         asked = turns[-1][1]
         before = next((text.rstrip(".!?") for role, text in reversed(turns[:-1]) if role == "user"), "")
         reply = command.strip().rstrip(".!")
+        # Ahead of the eight-word limit: tasks said again run longer ("call my mom and pay the rent
+        # and buy some milk" - Codex). Ahead of the refusal check too: "no" is an answer here.
+        unclear = _UNCLEAR_ITEMS.fullmatch(asked.split("\n", 1)[0].strip())
+        if unclear and reply:
+            return self._unclear_items_answer(unclear, reply)
         if not reply or len(reply.split()) > 8:
             return None
         # "again" after a coin, a die or a number runs the user's own request once more: "You rolled

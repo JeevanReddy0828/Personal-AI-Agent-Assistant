@@ -727,6 +727,18 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "milk"), and says so when there is no such list; "make a <name> list with …" adds only items
   said outright ("with suggestions for a trip" and "a reading list of novels" ask for ideas -
   Codex, #262); delete clears, and "cross/check off X" is a no-list-named remove. (10-10)
+- **"add eggs milk and bread" saved "eggs milk" as one item** → items split only on commas and
+  "and", and "eggs milk" cannot be told from "almond milk" → with no comma and a multi-word item
+  before the last "and", ask "as 3 items?" and act on yes / no / the items said again
+  (`UnclearListItemsTests`; the question is matched on the turn's first line, since the page
+  appends tool data). Then "yes, please" was added as the items "yes" and "please", and "no,
+  thanks" lost the request → yes/no are read without punctuation, with a "please"/"thanks"
+  allowed (Codex, #300). The same words said again were taken as a "no", and an 11-word answer
+  never reached the handler (the follow-up eight-word limit) → a restatement must add separators
+  or is asked about again, and the answer is read ahead of the limit (Codex, #300). "yes, three
+  items" was added as two items and "no, as I said it" was lost → an answer may be several of its
+  own phrases, and a mix of yes and no adds nothing; phrases may be joined by a pause, "and" or
+  "or" ("yes and no" was added as two items) (Codex, #300). (10-22)
 - **"add dune to my books to read list" and "create a list called books to read" reached the chat
   model** → a list name could be two words at most, and a list could only be made with items →
   a name is up to four words, none of them "my"/"the"/"our" (or "add go to the store to my todo
