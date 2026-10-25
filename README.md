@@ -141,6 +141,7 @@ provider with that API works.
 | Smart tier — complex questions | `nvidia/nemotron-3-super-120b-a12b` | `OPENAI_SMART_MODEL` | Optional |
 | Ultra tier — deepest work | `nvidia/nemotron-3-ultra-550b-a55b` | `OPENAI_ULTRA_MODEL` | A reasoning model: thinks first (kept internal), ~20 s |
 | Vision — screen and images | `meta/llama-3.2-11b-vision-instruct` | `OPENAI_VISION_MODEL` | Image attachments go vision-first, OCR as fallback |
+| Video — watch a clip | `nvidia/nemotron-3.5-super-vl-120b-a12b` | `OPENAI_VIDEO_MODEL` | Optional; off until set. Same host and `OPENAI_API_KEY` as chat. Reads a clip of up to 8 MB (about 10 s to 35 s per answer) — bigger clips and other formats are converted with ffmpeg if it is installed |
 | Pictures (text-to-image) | `black-forest-labs/flux.2-klein-4b` | `OPENAI_IMAGE_MODEL` | Default; ~2 s. Its own host (`ai.api.nvidia.com/v1/genai`) and optional fallback model |
 | Embeddings — semantic recall | `nvidia/nemotron-3-embed-1b` | `OPENAI_EMBED_MODEL` | Default. Asymmetric: documents embed as `passage`, questions as `query` |
 | OCR — text in images | `nvidia/nemotron-parse` | `LAPTOP_AGENT_OCR=auto` | Keeps headings, tables and reading order; Tesseract offline |
@@ -199,6 +200,17 @@ OPENAI_MODEL=nvidia/nemotron-3-super-120b-a12b
 ```
 
 Then open **System status → Setup** to see what is on and what to do next.
+
+**Where the key goes:** the one NVIDIA key (`OPENAI_API_KEY`, from build.nvidia.com → *Generate API Key*) lives in the
+`.env` file at the repo root, next to `pyproject.toml`. It is gitignored; never commit it or paste it into chat. Every
+model above — including video — uses that same key, so to add video you only add one line, then restart:
+
+```ini
+OPENAI_VIDEO_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b
+```
+
+Then `describe video C:\clips\dog.mp4 :: what breed is it?`. The clip is uploaded to NVIDIA's hosted API, which
+logs requests, so it asks first and is not for confidential footage or people's faces and voices.
 
 > Running a second, throwaway instance? Give it its own `LAPTOP_AGENT_DATA_DIR` as well as
 > its own `LAPTOP_AGENT_PORT` — a different port alone still writes into your real
@@ -271,6 +283,7 @@ the night the clocks go back.
 | Understand your screen | "what's on my screen" · `read screen [question]` |
 | Image & document OCR | `ocr image <path>` |
 | Webcam vision | `look at webcam [question]` |
+| Watch a video | `describe video <path> [:: question]` — needs `OPENAI_VIDEO_MODEL`; asks before uploading the clip |
 | Audio/video transcription | `transcribe <path>` |
 | Voice notes (up to 2 min) | "record voice upto 20 seconds" · "record a voice note" · "start recording" — see [Voice notes](#voice-notes) |
 | YouTube transcript → summary (+ Q&A) | `summarize youtube <url>` |
@@ -562,7 +575,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | Group | Key(s) | Notes |
 |---|---|---|
 | **LLM brain** | `LAPTOP_AGENT_LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | Any OpenAI-compatible API. Leave the provider `heuristic` for offline. |
-| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS` | Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. |
+| **Model tiers** | `OPENAI_SMART_MODEL`, `OPENAI_ULTRA_MODEL`, `OPENAI_VISION_MODEL`, `OPENAI_VIDEO_MODEL`, `OPENAI_REASONING_BUDGET`, `OPENAI_MAX_OUTPUT_TOKENS` | Picked automatically by task complexity; replies run to 16,384 tokens on NVIDIA and say so if cut off. |
 | **Pictures** | `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL`, `OPENAI_IMAGE_FALLBACK_MODEL` / `_KEY` | A different host from chat — never point `OPENAI_BASE_URL` at it. |
 | **Embeddings** | `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_KEY` | Default to the chat host and key. |
 | **Backup provider** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | Tried after every primary tier. |

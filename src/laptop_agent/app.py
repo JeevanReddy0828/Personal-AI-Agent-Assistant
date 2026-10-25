@@ -117,6 +117,7 @@ def build_orchestrator(
         _build_vision_planner(config),
         _build_ultra_planner(config),
         _build_openrouter_planner(config),
+        video_planner=_build_video_planner(config),
         data_dir=config.data_dir,
         recording_enabled=recording_enabled,
     )
@@ -170,6 +171,14 @@ def _build_vision_planner(config: AppConfig) -> Planner | None:
     if not _has_llm(config) or not config.llm_vision_model:
         return None
     return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url,
+                                                   max_output_tokens=_output_tokens(config)))
+
+
+def _build_video_planner(config: AppConfig) -> Planner | None:
+    # Its own slot: video needs a model that takes a clip, which the image model does not.
+    if not _has_llm(config) or not config.llm_video_model:
+        return None
+    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_video_model, config.llm_base_url,
                                                    max_output_tokens=_output_tokens(config)))
 
 

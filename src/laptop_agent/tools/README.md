@@ -122,6 +122,7 @@ in words, and add a contract row in `selfcheck.py`. Then `tests/test_<tool>.py`.
 | `music.py` | Media keys, volume levels and YouTube music; refuses to treat "my voicemail" as a song. |
 | `webcam.py` | One camera frame for the vision model (`vision` extra). |
 | `transcribe.py` | OCR (NVIDIA parse, Tesseract) and speech-to-text (Riva, Vosk, Whisper). |
+| `video.py` | `describe video <path>`: gets a clip into the 8MB MP4 the hosted video model takes (ffmpeg optional); the measured limits are in its docstring. |
 
 ### Mail, notes and pictures
 | File | What it does |
