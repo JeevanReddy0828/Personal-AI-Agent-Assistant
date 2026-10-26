@@ -141,7 +141,7 @@ _DEV_PREFIX = (
     "file move", "file copy", "file rename", "file delete",
     "ocr", "transcribe", "convert file", "organize folder", "search files", "read screen",
     "mcp",
-    "look at screen", "describe image", "look at image", "look at webcam", "describe webcam",
+    "look at screen", "describe image", "look at image", "describe video", "watch video", "look at webcam", "describe webcam",
     "open url", "download", "inspect page", "inspect forms", "preview form fill", "fill form",
     "brightness", "wallpaper", "end process", "settings",
     "window", "windows", "split", "snap", "arrange", "open app", "screenshot", "run command",

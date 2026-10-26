@@ -22,6 +22,8 @@ from laptop_agent.tools.clock import prompt_stamp
 _RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _HTTP_ATTEMPTS = 3
 _RETRY_DELAY = 0.8
+# Measured: an 8MB clip answered in 34s, so a video call gets longer than a chat turn.
+_VIDEO_TIMEOUT = 180.0
 
 # A transport takes the chat-completions payload and returns the assistant's
 # message content string. Injectable so plan() can be tested without a network.
@@ -543,6 +545,43 @@ class OpenAICompatiblePlannerProvider:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
             record_failure("llm/answer", exc, model=self.model)
+            return None
+        return self._strip_reasoning(content).strip() or None
+
+    def describe_video(self, video_path: str, prompt: str, model: str | None = None) -> str | None:
+        """Send an MP4 clip to a video-capable model and return what it saw.
+
+        The clip goes inline as a base64 `video_url` part; the hosted endpoint samples the
+        frames itself. An 8MB clip took 34s on the measured model, so this call has its own
+        deadline instead of the chat tier's 45s.
+        """
+        import base64
+
+        try:
+            with open(video_path, "rb") as handle:
+                encoded = base64.b64encode(handle.read()).decode("ascii")
+        except OSError:
+            return None
+        payload: dict[str, object] = {
+            "model": model or self.model,
+            "max_tokens": min(2048, self.max_output_tokens) if self.max_output_tokens else 700,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{encoded}"}},
+                    ],
+                }
+            ],
+        }
+        self._apply_provider_params(payload, think=False)
+        try:
+            content = self._send(payload, timeout=_VIDEO_TIMEOUT)
+        except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            record_failure("llm/video", exc, model=self.model)
             return None
         return self._strip_reasoning(content).strip() or None
 

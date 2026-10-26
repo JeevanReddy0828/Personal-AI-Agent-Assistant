@@ -101,7 +101,8 @@ from laptop_agent.tools.obsidian import ObsidianVault
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.mcp import McpTool
 from laptop_agent.tools.terminal import TerminalTool
-from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
+from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, TranscribeTool
+from laptop_agent.tools.video import prepare_clip
 from laptop_agent.tools.codefix import CodeFixTool
 from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools import fileops
@@ -262,7 +263,7 @@ _CURRENCY = (r"(?:usd|eur|gbp|inr|jpy|cny|rmb|cad|aud|chf|mxn|aed|sgd|nzd|hkd|kr
 _UNUSABLE_PATH = "That isn't a file name I can use — it is too long or contains characters no file can have."
 _FILE_VERBS = ("read file ", "scan files ", "summarize file ", "ask file ", "extract text ", "file info ",
                "extract tables ", "analyze spreadsheet ", "process file ", "convert file ", "organize folder ",
-               "ocr image ", "transcribe ", "describe image ", "index file ", "open file ", "file move ",
+               "ocr image ", "transcribe ", "describe image ", "describe video ", "index file ", "open file ", "file move ",
                "file copy ", "file rename ", "file delete ")
 # Phone keyboards type "what’s", and every route is written with a straight apostrophe: all
 # eight contract phrases with one went to the chat model when it was curly. A path keeps its
@@ -533,6 +534,7 @@ class AgentOrchestrator:
         vision_planner: Planner | None = None,
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
+        video_planner: Planner | None = None,
         data_dir: Path | None = None,
         recording_enabled: bool = False,
     ) -> None:
@@ -545,6 +547,8 @@ class AgentOrchestrator:
         self.ultra_planner = ultra_planner
         # Optional vision model used to look at images and the screen.
         self.vision_planner = vision_planner
+        # Optional model that takes a clip, for `describe video`.
+        self.video_planner = video_planner
         # Optional cross-provider fallback (e.g. OpenRouter) tried when every
         # primary tier is congested/unreachable, so chat keeps working.
         self.fallback_planner = fallback_planner
@@ -835,7 +839,7 @@ class AgentOrchestrator:
     _TARGET_COMMANDS = (
         "open url", "download", "read file", "index file", "process file", "summarize file",
         "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
-        "describe image", "summarize youtube", "organize folder", "scan files",
+        "describe image", "describe video", "summarize youtube", "organize folder", "scan files",
         "file move", "file copy", "file rename", "file delete",
     )
     # The part of a target that identifies it: a host without www/TLD, or a filename stem.
@@ -1550,6 +1554,12 @@ class AgentOrchestrator:
 
         if lowered.startswith("look at image "):
             return self._describe_image(command[len("look at image ") :].strip())
+
+        if lowered.startswith("describe video "):
+            return self._describe_video(command[len("describe video ") :].strip())
+
+        if lowered.startswith("watch video "):
+            return self._describe_video(command[len("watch video ") :].strip())
 
         if lowered in {"look at webcam", "describe webcam", "what do you see", "look at me", "webcam"}:
             return self._webcam_look()
@@ -3429,6 +3439,7 @@ class AgentOrchestrator:
                 "  transcribe <audio-or-video-path>",
                 "  read screen [question]   (vision: looks at your screen)",
                 "  describe image <path>    (vision)",
+                "  describe video <path> [:: question]  (video model: watches a clip)",
                 "  look at webcam [question]  (vision: captures and describes a camera frame)",
                 "  index file <path>",
                 "  recall <query>",
@@ -4489,6 +4500,7 @@ class AgentOrchestrator:
         # vision / desktop
         "read screen <question>",
         "describe image <path>",
+        "describe video <path> :: <question>",
         "look at webcam <question>",
         "open app <path-or-app>",
         "screenshot <output.png>",
@@ -5506,6 +5518,36 @@ class AgentOrchestrator:
             "I couldn't read that image: no vision model is configured and OCR is unavailable. " + ocr.message,
             path=target,
         )
+
+    def _describe_video(self, arguments: str) -> ToolResult:
+        """`describe video <path> [:: question]` - a clip, watched by the video model."""
+        target, _, question = arguments.partition("::")
+        target = target.strip().strip("'\"")
+        source = Path(target)
+        if not target or not source.is_file():
+            return ToolResult.failure(f"Video not found: {target}")
+        if source.suffix.lower() not in VIDEO_EXTENSIONS:
+            return ToolResult.failure(f"That isn't a video file I know ({', '.join(sorted(VIDEO_EXTENSIONS))}).")
+        describe = getattr(getattr(self.video_planner, "provider", None), "describe_video", None)
+        if describe is None:
+            return ToolResult.failure("I can't watch video yet: set OPENAI_VIDEO_MODEL to a model that takes a clip "
+                                      "(for example nvidia/nemotron-3.5-super-vl-120b-a12b) and restart.")
+        with tempfile.TemporaryDirectory(prefix="jarvis_video_") as scratch:
+            clip, why = prepare_clip(source, Path(scratch))
+            if clip is None:
+                return ToolResult.failure(why, path=str(source))
+            # The clip leaves this computer for the hosted model, so it is asked about first.
+            self.context.web.approval_gate.require(ApprovalRequest(
+                action=f"Send a video to the hosted model: {source.name}",
+                risk=RiskLevel.MEDIUM,
+                reason="describe video uploads the clip to the video model's provider.",
+                preview=f"{source.name} ({clip.stat().st_size // 1024} KB)",
+            ))
+            described = describe(str(clip), question.strip() or "Describe what happens in this video, in order.")
+        if described is None:
+            return ToolResult.failure("The video model did not answer. It may be busy; try again in a minute.",
+                                      path=str(source))
+        return ToolResult.success(described, path=str(source), vision=True, video=True)
 
     def _describe_with_vision(self, path: str, prompt: str) -> str | None:
         if self.vision_planner is None:
