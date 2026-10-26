@@ -1,0 +1,33 @@
+# Fly.io config for a hosted J.A.R.V.I.S. Change `app` (and the same name in
+# LAPTOP_AGENT_ALLOWED_HOSTS) to your own, then follow "Hosting online" in the README.
+# Secrets are never written here: `fly secrets set OPENAI_API_KEY=...`.
+app = "jarvis-change-me"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LAPTOP_AGENT_ALLOWED_HOSTS = "jarvis-change-me.fly.dev"
+  LAPTOP_AGENT_LLM_PROVIDER = "openai"
+  OPENAI_BASE_URL = "https://integrate.api.nvidia.com/v1"
+  OPENAI_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+  OPENAI_SMART_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+
+# The accounts, chats, memory and reminders. One volume belongs to one machine, so this
+# app runs exactly one.
+[mounts]
+  source = "jarvis_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Reminders and timers are checked by a background ticker, so the machine stays up.
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

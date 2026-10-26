@@ -1,0 +1,21 @@
+# Nothing here may enter the image: the key lives in `fly secrets`, never in a layer.
+.env
+.env.*
+!.env.example
+.agent_data
+.git
+.github
+.claude
+.serena
+.venv
+venv
+build
+dist
+*.egg-info
+__pycache__
+*.pyc
+*.log
+models
+docs
+tests
+packaging
