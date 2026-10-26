@@ -43,7 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
-from laptop_agent.access import SignedOut, acting_as
+from laptop_agent.access import SignedOut, acting_as, developer_only, hosted
 from laptop_agent.accounts import MAX_PASSWORD, Account, AccountError, AccountStore, HashingBusy, Principal
 from laptop_agent.storage import StorageDamaged, file_lock
 from laptop_agent.google_oidc import GoogleError, GoogleFlows, PROOF_COOKIE, FLOW_COOKIE, cookie as google_cookie
@@ -82,14 +82,41 @@ _SESSION_COOKIE = "jarvis_session"
 _GOOGLE = GoogleFlows(_CONFIG.google_client_id or "", _CONFIG.google_client_secret or "")
 LAN_PASSCODE = os.environ.get("LAPTOP_AGENT_LAN_PASSCODE", "").strip()
 LAN_MODE = HOST not in _LOOPBACK
-if LAN_MODE and len(LAN_PASSCODE) < 8 and not ACCOUNTS.exists():
-    raise ValueError(
-        "To reach J.A.R.V.I.S from another device on your network, set "
-        "LAPTOP_AGENT_LAN_PASSCODE (8+ characters), or create an account with "
-        "`python -m laptop_agent.accounts create <name> --role dev`, as well as "
-        "LAPTOP_AGENT_HOST — without either, anyone on the same wifi gets a page that can run "
-        "shell commands on this laptop."
-    )
+_HOSTNAME = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+
+
+def _allowed_hosts() -> frozenset[str]:
+    """The names a hosted copy answers to (`LAPTOP_AGENT_ALLOWED_HOSTS`, comma separated).
+
+    Exact names only: no scheme, no port, no wildcard, so a rebinding page on another name
+    reaches nothing. An entry that is not a plain hostname is dropped, never guessed at."""
+    names = (part.strip().lower() for part in os.environ.get("LAPTOP_AGENT_ALLOWED_HOSTS", "").split(","))
+    return frozenset(name for name in names if _HOSTNAME.fullmatch(name))
+
+
+def _exposure_problem(host: str, passcode: str, has_accounts: bool, is_hosted: bool,
+                      allowed: frozenset[str]) -> str | None:
+    """Why this process must not start as configured, or None. Called once, at import."""
+    if is_hosted:
+        if host in _LOOPBACK:
+            return ("LAPTOP_AGENT_HOSTED is on but LAPTOP_AGENT_HOST is loopback: a hosted copy is reached "
+                    "through the platform's proxy, so bind 0.0.0.0.")
+        if not allowed:
+            return ("LAPTOP_AGENT_HOSTED needs LAPTOP_AGENT_ALLOWED_HOSTS: the hostname this copy is "
+                    "served under (for example yourapp.fly.dev), or every request is refused as untrusted.")
+        return None
+    if host not in _LOOPBACK and len(passcode) < 8 and not has_accounts:
+        return ("To reach J.A.R.V.I.S from another device on your network, set "
+                "LAPTOP_AGENT_LAN_PASSCODE (8+ characters), or create an account with "
+                "`python -m laptop_agent.accounts create <name> --role dev`, as well as "
+                "LAPTOP_AGENT_HOST — without either, anyone on the same wifi gets a page that can run "
+                "shell commands on this laptop.")
+    return None
+
+
+_PROBLEM = _exposure_problem(HOST, LAN_PASSCODE, ACCOUNTS.exists(), hosted(), _allowed_hosts())
+if _PROBLEM:
+    raise ValueError(_PROBLEM)
 # Sessions that have presented the passcode. Per process, so restarting asks again.
 _LAN_SESSIONS: set[str] = set()
 _LAN_FAILURES: dict[str, int] = {}
@@ -170,14 +197,23 @@ def _account_for_session(token: str | None) -> Account | None:
         return None
     return account
 
+def _effective_role(account: Account) -> str:
+    """The role a request acts under. A hosted copy has no developer: every account, the
+    owner's included, is the everyday assistant and never the server it runs on."""
+    return "personal" if hosted() else account.role
+
+
 def _session_cookie(token: str) -> str:
     # Max-Age keeps the desktop window signed in across restarts, HttpOnly keeps the token
     # from the page's own script, and Strict keeps it off every cross-site request.
-    return f"{_SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(ABSOLUTE_SECONDS)}"
+    # Hosted, the page is only ever served over HTTPS, so the cookie is never sent over HTTP.
+    secure = "; Secure" if hosted() else ""
+    return f"{_SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(ABSOLUTE_SECONDS)}{secure}"
 
 
 def _expired_session_cookie() -> str:
-    return f"{_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+    secure = "; Secure" if hosted() else ""
+    return f"{_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{secure}"
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
@@ -703,6 +739,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
+        if hosted():
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         if not self._chose_cache:
             self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", (
@@ -719,10 +757,17 @@ class Handler(BaseHTTPRequestHandler):
         allowed = {f"{h}:{self.server.server_port}" for h in
                    ("127.0.0.1", "localhost", HOST, self.server.server_address[0])}
         origin = self.headers.get("Origin")
-        if host not in allowed and not (LAN_MODE and _is_address_literal(host)):
+        if hosted():
+            # Only the configured names, reached over HTTPS (the platform ends TLS in front of
+            # this process): neither a loopback name nor an IP literal is ever a way in.
+            known = host.rsplit(":", 1)[0].lower() if host.count(":") == 1 else host.lower()
+            trusted, scheme = known in _allowed_hosts(), "https"
+        else:
+            trusted, scheme = host in allowed or (LAN_MODE and _is_address_literal(host)), "http"
+        if not trusted:
             self._json(403, {"ok": False, "message": "Untrusted request origin."})
             return False
-        if origin and origin != f"http://{host}":
+        if origin and origin != f"{scheme}://{host}":
             self._json(403, {"ok": False, "message": "Untrusted request origin."})
             return False
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -734,6 +779,10 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _client_is_local(self) -> bool:
+        # Hosted, nothing is this machine: a proxy on the same host would otherwise look
+        # like the owner at the keyboard, and "this machine" skips sign-in and bootstrap.
+        if hosted():
+            return False
         return (self.client_address[0] if self.client_address else "") in {"127.0.0.1", "::1"}
 
     def _cookie(self, wanted: str) -> str:
@@ -765,13 +814,16 @@ class Handler(BaseHTTPRequestHandler):
         if not self._who_checked:
             self._who_checked = True
             account = self._signed_in_account()
-            self._who = Principal(account.id, account.username, account.role) if account else None
+            self._who = Principal(account.id, account.username, _effective_role(account)) if account else None
         return self._who
 
     def _authorized(self) -> bool:
         """Whether this request may be served anything. With accounts, only a signed-in
         request may, this machine's included; without, this machine always may and a device
-        on the network needs the passcode."""
+        on the network needs the passcode. Hosted, only a signed-in account ever may: with no
+        account yet nothing is served, and a passcode cannot stand in for one."""
+        if hosted():
+            return ACCOUNTS.exists() and self._principal() is not None
         if ACCOUNTS.exists():
             return self._principal() is not None
         if not LAN_MODE or self._client_is_local():
@@ -800,7 +852,17 @@ class Handler(BaseHTTPRequestHandler):
                    "text/html; charset=utf-8")
 
     def _client(self) -> str:
-        return self.client_address[0] if self.client_address else "?"
+        peer = self.client_address[0] if self.client_address else "?"
+        if hosted():
+            # Every request reaches this process from the platform's proxy, so the peer is
+            # one address for everybody and the sign-in limit would lock all users out
+            # together. Fly's proxy sets this header itself, over any a client sent.
+            forwarded = (self.headers.get("Fly-Client-IP") or "").strip()
+            try:
+                return str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        return peer
 
     def _me(self) -> dict[str, object]:
         principal = self._principal()
@@ -844,8 +906,8 @@ class Handler(BaseHTTPRequestHandler):
         # id is never carried across a sign-in.
         SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
         token = SESSIONS.create(account.id, method, epoch=account.epoch)
-        self._audit("signin", username=account.username, role=account.role, method=method)
-        self._json(200, {"ok": True, "user": {"username": account.username, "role": account.role}},
+        self._audit("signin", username=account.username, role=_effective_role(account), method=method)
+        self._json(200, {"ok": True, "user": {"username": account.username, "role": _effective_role(account)}},
                    headers=(("Set-Cookie", _session_cookie(token)),))
 
     def _google_local(self, canonical: bool = False) -> bool:
@@ -996,7 +1058,8 @@ class Handler(BaseHTTPRequestHandler):
         username = str(payload.get("username") or "")[:64]
         password = str(payload.get("password") or "")[:MAX_PASSWORD]
         if not ACCOUNTS.exists():
-            self._json(409, {"ok": False, "message": "Sign-in is not set up yet. Set it up on the computer running the app."})
+            where = "on the server (see Hosting online in the README)" if hosted() else "on the computer running the app"
+            self._json(409, {"ok": False, "message": f"Sign-in is not set up yet. Set it up {where}."})
             return
         keys = self._limit_keys(username)
         wait = _SIGNIN_LIMIT.wait(*keys)
@@ -1085,7 +1148,7 @@ class Handler(BaseHTTPRequestHandler):
         from one, cannot add a developer."""
         principal = self._principal()
         if principal is None or principal.role != "dev":
-            self._json(403, {"ok": False, "message": "That needs a developer account."},
+            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
                        headers=(("X-Jarvis-Denied", "role"),))
             return None
         if not self._client_is_local():
@@ -1332,7 +1395,7 @@ class Handler(BaseHTTPRequestHandler):
             self._google_get(path)
             return
         if not self._authorized():
-            if not ACCOUNTS.exists():
+            if not ACCOUNTS.exists() and not hosted():
                 self._unlock_page()
             elif path in {"/", "/index.html"}:
                 self._signin_page()
@@ -1340,7 +1403,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
             return
         if not self._may_use(path):
-            self._json(403, {"ok": False, "message": "That needs a developer account."},
+            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
                        headers=(("X-Jarvis-Denied", "role"),))
             return
         if path in {"/", "/index.html"}:
@@ -1468,7 +1531,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.split("?", 1)[0] == "/api/pair":
             if self._trusted_request():          # origin checks, but no API token yet
-                self._pair()
+                if hosted():
+                    self._json(403, {"ok": False, "message": "Sign in with an account."})
+                else:
+                    self._pair()
             return
         if self.path.split("?", 1)[0] == "/auth/login":
             if self._trusted_request():          # likewise: signing in comes before the page
@@ -1480,13 +1546,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self._trusted_request(mutation=True):
             return
         if not self._authorized():
-            if ACCOUNTS.exists():
+            if ACCOUNTS.exists() or hosted():
                 self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
             else:
                 self._json(401, {"ok": False, "message": "Enter the passcode to use J.A.R.V.I.S from this device."})
             return
         if not self._may_use(self.path.split("?", 1)[0]):
-            self._json(403, {"ok": False, "message": "That needs a developer account."},
+            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
                        headers=(("X-Jarvis-Denied", "role"),))
             return
         try:
@@ -2259,6 +2325,11 @@ def main() -> None:
     _keep_warm()
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat running at {url}")
+    if hosted():
+        print("Hosted: every account acts as personal; sign-in is the only way in, over " + ", ".join(sorted(_allowed_hosts())))
+        if not ACCOUNTS.exists():
+            print("No account exists, so nothing is served yet. Create the owner on this server: "
+                  "python -m laptop_agent.accounts create <name> --role dev")
     print("Guarded mode: high-risk actions ask for approval; read/search/research run freely. Ctrl+C to stop.")
     try:
         server.serve_forever()

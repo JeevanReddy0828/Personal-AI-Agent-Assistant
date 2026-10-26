@@ -107,6 +107,39 @@ In LAN mode the Host may be **an IP literal only, never a name** (`_is_address_l
 DNS rebinding needs a domain the attacker controls, so refusing names is what makes
 widening this safe. Loopback keeps its old behaviour and is never asked for a passcode.
 
+**A hosted copy (`LAPTOP_AGENT_HOSTED=1`) is a different threat, so it is a different mode, not
+LAN mode with a longer passcode.** LAN mode trusts the network and is plain HTTP; a copy on a
+platform is reached by strangers, through a TLS-terminating proxy. What changes, and why each
+line is a guard with a test in `tests/test_hosted_mode.py` that fails without it:
+
+- **No request is "this machine"** (`_client_is_local` is false). That check is what lets the
+  owner skip sign-in and create the first account, and behind a proxy the peer address is the
+  proxy's. It would be 127.0.0.1 the moment someone puts Caddy on the same host.
+- **Nothing is served without a signed-in account** (`_authorized`), including before the first
+  one exists, and the LAN passcode path (`/api/pair`) is closed: a passcode that got past that
+  gate would be a principal-less request, which the app treats as the machine's owner.
+- **Every account acts as `personal`** (`_effective_role`, and `access.is_personal` for any
+  principal built elsewhere), the owner's included. A hosted copy has no developer: the shell, the
+  files, the screen, the mailbox, the agent, uploads and account management are all closed by the
+  rules that already close them for a personal account, so there is no second list to keep in step.
+  Refusals say "isn't available on a hosted copy" (`access.developer_only`), because telling the
+  owner to get a developer account sends them after something that cannot exist.
+- **One hostname, over HTTPS** (`LAPTOP_AGENT_ALLOWED_HOSTS`, exact names only, no wildcard or port;
+  `_allowed_hosts`). The IP-literal rule that makes LAN mode safe is the opposite of what a proxy
+  sends, so hosted replaces it rather than adding to it: neither loopback names nor IPs are
+  accepted, and the Origin must be `https://<that host>`. Cookie `Secure`, HSTS sent.
+- **The sign-in limit counts the client the proxy saw** (`Fly-Client-IP`, only believed when
+  hosted, only if it parses as one IP). Otherwise every user shares the proxy's address and five
+  wrong passwords from one person lock everyone out.
+- **The first account is made on the server**, with the CLI, as the app's own user. The process
+  starts without one (it refuses everything until there is one) so the machine can be reached to
+  make it. Startup refuses a loopback bind or a missing hostname (`_exposure_problem`).
+
+Not done, on purpose: separate data per account (the stores are shared, as for any two accounts),
+server speech engines, Word/PowerPoint/PDF output (extras the image omits). `Dockerfile`,
+`fly.toml` and `.dockerignore` are checked against each other and the app by
+`tests/test_deploy_files.py`; the image itself has not been built or deployed.
+
 **Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
 Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,
 not set up), `missing` (a package or engine it needs is absent), `busy` (a tier loaded or

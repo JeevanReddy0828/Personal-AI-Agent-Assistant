@@ -23,6 +23,7 @@ and of every step of one, so that work now stops at its next step as Stop would 
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Callable, Iterator
@@ -63,9 +64,26 @@ def ensure_signed_in() -> None:
         raise SignedOut("Your session ended, so this stopped.")
 
 
+def hosted() -> bool:
+    """True when this process is a copy on someone else's server (`LAPTOP_AGENT_HOSTED=1`).
+
+    Read on every call, never cached at import, so a test can switch it. A mistyped value
+    reads as "not hosted", which is the old loopback-only behaviour and the stricter bind
+    rule, never a looser one."""
+    return os.environ.get("LAPTOP_AGENT_HOSTED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def developer_only() -> str:
+    """How a refusal says why. A hosted copy has no developer account to ask for, so telling its
+    owner to get one sends them looking for something that cannot exist."""
+    return "isn't available on a hosted copy" if hosted() else "needs a developer account"
+
+
 def is_personal() -> bool:
+    """Hosted, every signed-in account is personal, the owner's included: the machine it
+    would otherwise reach is a server nobody should be running shell commands on."""
     principal = _current.get()
-    return principal is not None and principal.role != "dev"
+    return principal is not None and (hosted() or principal.role != "dev")
 
 
 def sees_approval(viewer: Principal | None, owner: Principal | None) -> bool:

@@ -69,7 +69,7 @@ from laptop_agent.planner.heuristic import (
 )
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.access import SignedOut, ensure_signed_in, everyday_form, is_personal, refused_command
+from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, everyday_form, is_personal, refused_command
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -2448,7 +2448,7 @@ class AgentOrchestrator:
         """
         refused = refused_command(command)
         if refused:
-            return ToolResult.failure(f"`{refused}` needs a developer account.", refused=refused), False
+            return ToolResult.failure(f"`{refused}` {developer_only()}.", refused=refused), False
         if not is_personal() or self._everyday(command, lowered):
             return None, True
         if planner:

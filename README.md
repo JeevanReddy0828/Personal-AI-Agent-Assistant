@@ -523,6 +523,54 @@ New-NetFirewallRule -DisplayName "J.A.R.V.I.S (LAN)" -Direction Inbound -Action 
 
 LAN mode is plain HTTP: use it only on a network you trust. Voice does not work over it.
 
+### Hosting online (a few trusted people, on Fly.io)
+
+Two ways to reach it away from home. For **yourself**, the simplest is a private network such
+as Tailscale: install it on the laptop and the phone, start the app as in the section above, and
+open `http://<the laptop's 100.x address>:8770`. That needs no code.
+
+To give **a few people you trust** a link, run a hosted copy: `LAPTOP_AGENT_HOSTED=1`. It is the
+app with the machine taken away, and it is deliberately smaller than the laptop version:
+
+- **Sign-in is the only way in**, over HTTPS, under one hostname (`LAPTOP_AGENT_ALLOWED_HOSTS`).
+  Nothing is served until an account exists, no passcode stands in for one, and no request is ever
+  treated as "this machine". The cookie is `Secure`, with HSTS.
+- **Every account is the everyday assistant, the owner's included.** There is no shell, no
+  files, no screen or windows, no volume keys, no mailbox, no agent mode, no uploads and no
+  account management over the web. Chat, reminders and timers, lists and memory, search, research,
+  news, weather, maps, translation, calculations and pictures still work. Documents come out as
+  Markdown: Word, PowerPoint and PDF need extras the lean image does not install.
+- **Everyone shares one memory, one chat store and your NVIDIA key.** The accounts separate who can
+  sign in, not whose data is whose. Only add people you would trust with that.
+
+The files are in the repo (`Dockerfile`, `fly.toml`, `.dockerignore`). You run the deploy, with
+your own Fly account; nothing here deploys for you, and the key never goes in a file:
+
+```powershell
+# once: install flyctl and sign in (https://fly.io/docs/flyctl/install/), then in the repo folder
+fly launch --no-deploy --copy-config --name yourapp    # edit fly.toml: app = "yourapp", and the
+                                                        # same name in LAPTOP_AGENT_ALLOWED_HOSTS
+fly volumes create jarvis_data --size 1 --region iad
+fly secrets set OPENAI_API_KEY="<your NVIDIA key>"
+fly deploy
+fly ssh console        # an interactive shell on the server; then, inside it, once per person:
+env LAPTOP_AGENT_DATA_DIR=/data setpriv --reuid=jarvis --regid=jarvis --init-groups python -m laptop_agent.accounts create owner --role dev
+```
+
+Then open `https://yourapp.fly.dev`. The command asks for the person's password. Accounts are created on the server, never from the page, and
+as the app's own user (`setpriv`), or the files would belong to root and the server could not
+write beside them. Use `--role personal` for everyone after the owner. The owner is stored as
+`dev` only because the account store insists on one; hosted, that account is personal like the
+rest. **The `fly` commands and the image have not been run end to end** (they were written
+against Fly's documentation, not deployed), so expect to fix a flag on the first try.
+
+Check Fly's current pricing before you start; this runs one small machine and a 1 GB volume.
+To stop it: `fly apps destroy yourapp`.
+
+Not covered: a custom domain (add it with `fly certs add`, then put the name in
+`LAPTOP_AGENT_ALLOWED_HOSTS`), server-side speech (no engine is installed; whether the browser's own
+voice works over HTTPS here is untested), and per-person data.
+
 ---
 
 ## Security & approvals
@@ -588,6 +636,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | **Memory** | `OBSIDIAN_VAULT` | The vault root (where `.obsidian` lives). |
 | **Job search** | `JOBRIGHT_EMAIL`, `JOBRIGHT_PASSWORD`, `JOBRIGHT_MAX_YEARS`, `JOBRIGHT_MIN_MATCH`, `BROWSER_USER_DATA_DIR` | Jobright login (session-cached) and lead filtering. |
 | **Server** | `LAPTOP_AGENT_HOST`, `LAPTOP_AGENT_PORT` (8770), `LAPTOP_AGENT_LAN_PASSCODE`, `LAPTOP_AGENT_DATA_DIR` | Loopback by default; a non-loopback bind needs a passcode. |
+| **Hosted copy** | `LAPTOP_AGENT_HOSTED=1`, `LAPTOP_AGENT_ALLOWED_HOSTS` | For a server, not a laptop: accounts only, HTTPS name only, every account personal. See [Hosting online](#hosting-online-a-few-trusted-people-on-flyio). |
 
 ---
 
