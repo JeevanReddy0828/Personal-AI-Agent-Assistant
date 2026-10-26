@@ -1,0 +1,4 @@
+# Built on Linux by the host: a Windows checkout must not turn these into CRLF.
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+fly.toml text eol=lf
