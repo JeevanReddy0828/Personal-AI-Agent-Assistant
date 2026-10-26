@@ -561,8 +561,7 @@ Then open `https://yourapp.fly.dev`. The command asks for the person's password.
 as the app's own user (`setpriv`), or the files would belong to root and the server could not
 write beside them. Use `--role personal` for everyone after the owner. The owner is stored as
 `dev` only because the account store insists on one; hosted, that account is personal like the
-rest. **The `fly` commands and the image have not been run end to end** (they were written
-against Fly's documentation, not deployed), so expect to fix a flag on the first try.
+rest. **Deployed once, on 2026-10-26:** the image built on Fly's own builder and started, the server ran as the `jarvis` user, and the signed-out page, the HTTPS redirect and the closed APIs were checked from outside. Creating accounts and signing in on the live copy were not exercised by the author.
 
 Check Fly's current pricing before you start; this runs one small machine and a 1 GB volume.
 To stop it: `fly apps destroy yourapp`.
