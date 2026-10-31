@@ -128,8 +128,9 @@ line is a guard with a test in `tests/test_hosted_mode.py` that fails without it
   `_allowed_hosts`). The IP-literal rule that makes LAN mode safe is the opposite of what a proxy
   sends, so hosted replaces it rather than adding to it: neither loopback names nor IPs are
   accepted, and the Origin must be `https://<that host>`. Cookie `Secure`, HSTS sent.
-- **The sign-in limit counts the client the proxy saw** (`Fly-Client-IP`, only believed when
-  hosted, only if it parses as one IP). Otherwise every user shares the proxy's address and five
+- **The sign-in limit counts the client the proxy saw** (the header named by
+  `LAPTOP_AGENT_CLIENT_IP_HEADER`: `Fly-Client-IP` on Fly, `X-Real-IP` set by Caddy's `header_up`;
+  only believed when hosted, only if it parses as one IP). Otherwise every user shares the proxy's address and five
   wrong passwords from one person lock everyone out.
 - **The first account is made on the server**, with the CLI, as the app's own user. The process
   starts without one (it refuses everything until there is one) so the machine can be reached to
@@ -138,7 +139,9 @@ line is a guard with a test in `tests/test_hosted_mode.py` that fails without it
 Not done, on purpose: separate data per account (the stores are shared, as for any two accounts),
 server speech engines, Word/PowerPoint/PDF output (extras the image omits). `Dockerfile`,
 `fly.toml` and `.dockerignore` are checked against each other and the app by
-`tests/test_deploy_files.py`; the image itself has not been built or deployed.
+`tests/test_deploy_files.py`, and so are `compose.yaml` and the `Caddyfile` (the free VM setup: only
+Caddy is published, the header Caddy sets is the one the app trusts, replies are not buffered).
+The image was built and run once, on Fly (since deleted); the compose setup has not been run.
 
 **Setup says what is on and what to do next** (`health.setup_report`, `GET /api/setup`, the
 Setup panel in the System status drawer). One row per capability: `ready`, `off` (optional,

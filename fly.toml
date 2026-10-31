@@ -9,6 +9,7 @@ primary_region = "iad"
 
 [env]
   LAPTOP_AGENT_ALLOWED_HOSTS = "jarvis-change-me.fly.dev"
+  LAPTOP_AGENT_CLIENT_IP_HEADER = "Fly-Client-IP"
   LAPTOP_AGENT_LLM_PROVIDER = "openai"
   OPENAI_BASE_URL = "https://integrate.api.nvidia.com/v1"
   OPENAI_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"

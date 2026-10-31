@@ -26,7 +26,8 @@ from laptop_agent.sessions import SessionStore
 CHEAP = (2 ** 10, 8, 1)
 GOOD = "correct horse battery"
 NAME = "jarvis.example.com"
-HOSTED_ENV = {"LAPTOP_AGENT_HOSTED": "1", "LAPTOP_AGENT_ALLOWED_HOSTS": NAME}
+HOSTED_ENV = {"LAPTOP_AGENT_HOSTED": "1", "LAPTOP_AGENT_ALLOWED_HOSTS": NAME,
+              "LAPTOP_AGENT_CLIENT_IP_HEADER": "Fly-Client-IP"}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -207,6 +208,13 @@ class LiveHostedTests(unittest.TestCase):
         with patch.dict(os.environ, {"LAPTOP_AGENT_HOSTED": ""}):
             handler.headers = {"Fly-Client-IP": "198.51.100.7"}
             self.assertEqual(handler._client(), "10.1.1.1", "un-hosted, the header is not believed")
+        # The header is the proxy's choice: Caddy sets X-Real-IP, and a Fly header means nothing there.
+        with patch.dict(os.environ, {"LAPTOP_AGENT_CLIENT_IP_HEADER": "X-Real-IP"}):
+            handler.headers = {"X-Real-IP": "198.51.100.9", "Fly-Client-IP": "198.51.100.7"}
+            self.assertEqual(handler._client(), "198.51.100.9")
+        with patch.dict(os.environ, {"LAPTOP_AGENT_CLIENT_IP_HEADER": ""}):
+            handler.headers = {"Fly-Client-IP": "198.51.100.7"}
+            self.assertEqual(handler._client(), "10.1.1.1", "no header named: the peer, never a guess")
 
 
 class StartupTests(unittest.TestCase):

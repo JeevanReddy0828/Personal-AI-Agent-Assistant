@@ -523,7 +523,7 @@ New-NetFirewallRule -DisplayName "J.A.R.V.I.S (LAN)" -Direction Inbound -Action 
 
 LAN mode is plain HTTP: use it only on a network you trust. Voice does not work over it.
 
-### Hosting online (a few trusted people, on Fly.io)
+### Hosting online (a few trusted people)
 
 Two ways to reach it away from home. For **yourself**, the simplest is a private network such
 as Tailscale: install it on the laptop and the phone, start the app as in the section above, and
@@ -543,8 +543,59 @@ app with the machine taken away, and it is deliberately smaller than the laptop 
 - **Everyone shares one memory, one chat store and your NVIDIA key.** The accounts separate who can
   sign in, not whose data is whose. Only add people you would trust with that.
 
+#### Free, on an Oracle Cloud "Always Free" VM
+
+The only free host that suits this app: it has to stay on (reminders and timers), keep its files
+(accounts and chats) and answer on HTTPS. Free web hosts such as Render, Hugging Face Spaces and
+Cloud Run sleep and lose their disk on every restart, so accounts would vanish. Oracle's free VM
+does not sleep and has a real disk, but **you run the server**, it asks for a credit card to verify
+you (the guides say Always Free resources are not charged; read Oracle's terms), and the larger Arm
+machines are sometimes out of stock. The small 1 GB machine is enough. Free tiers change, so
+check Oracle's page when you sign up.
+
+`compose.yaml` runs the app and Caddy, which gets and renews the HTTPS certificate itself;
+`Caddyfile` is its three lines. The app is never published, only Caddy is. You do these steps:
+
+1. **Create the VM.** In the Oracle console: Compute, Instances, Create. Choose Ubuntu, a shape
+   marked *Always Free-eligible* (`VM.Standard.E2.1.Micro`, or `VM.Standard.A1.Flex`), and add an
+   SSH key. Note its public IP.
+2. **Open the ports.** In its Virtual Cloud Network's security list, add ingress rules for TCP 80
+   and 443 from `0.0.0.0/0`. Oracle's Ubuntu images also ship a host firewall: on the VM run
+   `sudo iptables -I INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT` and save it with
+   `sudo netfilter-persistent save`.
+3. **Get a free name** that points at the IP: a subdomain on duckdns.org (stable), or, with no
+   sign-up, `<the ip with dashes>.sslip.io` (for 1.2.3.4, `1-2-3-4.sslip.io`; certificate limits are
+   shared with everyone who uses sslip.io, so DuckDNS is the safer choice).
+4. **On the VM**, install Docker and fetch the code, then give it the name and your NVIDIA key in a
+   `.env` file beside `compose.yaml` (typed in an editor, so the key never appears in a command or your shell history):
+
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh
+   git clone https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant.git && cd Personal-AI-Agent-Assistant
+   # until hosted mode is on main, add: git checkout claude/hosted-oracle
+   nano .env     # two lines: JARVIS_HOST=yourname.duckdns.org  and  OPENAI_API_KEY=<your NVIDIA key>
+   sudo docker compose up -d --build
+   ```
+
+5. **Create the accounts**, once per person (`--role dev` for the owner, `--role personal` for the
+   rest; it asks for a password):
+
+   ```bash
+   sudo docker compose exec -u jarvis jarvis python -m laptop_agent.accounts create owner --role dev
+   ```
+
+Then open `https://yourname.duckdns.org`. To update: `git pull && sudo docker compose up -d --build`.
+To stop it: `sudo docker compose down`. Add `-v` only to **delete the data**.
+
+**None of this has been run end to end.** `docker compose config` accepts `compose.yaml` and the
+tests keep it consistent with the Caddyfile and the app, but no Oracle account was used, the image
+was not built from it, and the Caddyfile was not run. Expect to fix a step on the first try.
+
+#### Paid, on Fly.io
+
 The files are in the repo (`Dockerfile`, `fly.toml`, `.dockerignore`). You run the deploy, with
-your own Fly account; nothing here deploys for you, and the key never goes in a file:
+your own Fly account; nothing here deploys for you, and the key never goes in a file. Fly
+stops machines on a free trial after 5 minutes, so this needs a card on the account:
 
 ```powershell
 # once: install flyctl and sign in (https://fly.io/docs/flyctl/install/), then in the repo folder
@@ -635,7 +686,7 @@ Everything is optional — **System status → Setup** says which of these a cap
 | **Memory** | `OBSIDIAN_VAULT` | The vault root (where `.obsidian` lives). |
 | **Job search** | `JOBRIGHT_EMAIL`, `JOBRIGHT_PASSWORD`, `JOBRIGHT_MAX_YEARS`, `JOBRIGHT_MIN_MATCH`, `BROWSER_USER_DATA_DIR` | Jobright login (session-cached) and lead filtering. |
 | **Server** | `LAPTOP_AGENT_HOST`, `LAPTOP_AGENT_PORT` (8770), `LAPTOP_AGENT_LAN_PASSCODE`, `LAPTOP_AGENT_DATA_DIR` | Loopback by default; a non-loopback bind needs a passcode. |
-| **Hosted copy** | `LAPTOP_AGENT_HOSTED=1`, `LAPTOP_AGENT_ALLOWED_HOSTS` | For a server, not a laptop: accounts only, HTTPS name only, every account personal. See [Hosting online](#hosting-online-a-few-trusted-people-on-flyio). |
+| **Hosted copy** | `LAPTOP_AGENT_HOSTED=1`, `LAPTOP_AGENT_ALLOWED_HOSTS` | For a server, not a laptop: accounts only, HTTPS name only, every account personal. See [Hosting online](#hosting-online-a-few-trusted-people). |
 
 ---
 

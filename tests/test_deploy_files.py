@@ -71,5 +71,52 @@ class DeployFilesTests(unittest.TestCase):
         self.assertNotRegex(dockerfile, r"(?m)^USER\s+root")
 
 
+def _service(name: str) -> str:
+    text = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+    found = re.search(rf"^  {name}:\n(.*?)(?=^  \w|^\w|\Z)", text, re.MULTILINE | re.DOTALL)
+    assert found, f"no service {name} in compose.yaml"
+    return found.group(1)
+
+
+class ComposeFilesTests(unittest.TestCase):
+    """The VM setup: Caddy in front, the app never published, nothing secret in the file."""
+
+    def test_only_caddy_is_reachable_from_outside(self) -> None:
+        self.assertNotRegex(_service("jarvis"), r"(?m)^    ports:", "the app must not be published")
+        published = re.findall(r'- "(\d+):\d+"', _service("caddy"))
+        self.assertEqual(sorted(published), ["443", "80"])
+        self.assertIn(f'- "{_dockerfile_env()["LAPTOP_AGENT_PORT"]}"', _service("jarvis"))
+
+    def test_the_name_is_one_setting_for_the_app_and_for_caddy(self) -> None:
+        self.assertRegex(_service("jarvis"), r"LAPTOP_AGENT_ALLOWED_HOSTS: \$\{JARVIS_HOST:\?")
+        self.assertIn("JARVIS_HOST: ${JARVIS_HOST}", _service("caddy"))
+        self.assertIn("{$JARVIS_HOST}", (ROOT / "Caddyfile").read_text(encoding="utf-8"))
+
+    def test_the_key_and_name_must_be_supplied_not_defaulted(self) -> None:
+        env = _service("jarvis")
+        self.assertRegex(env, r"OPENAI_API_KEY: \$\{OPENAI_API_KEY:\?")     # required, and never a literal
+        self.assertNotIn("nvapi-", (ROOT / "compose.yaml").read_text(encoding="utf-8"))
+
+    def test_the_proxy_header_the_app_trusts_is_the_one_caddy_sets(self) -> None:
+        caddyfile = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+        named = re.search(r"LAPTOP_AGENT_CLIENT_IP_HEADER: (\S+)", _service("jarvis")).group(1)
+        self.assertRegex(caddyfile, rf"header_up {re.escape(named)} \{{remote_host\}}")
+
+    def test_caddy_proxies_to_the_apps_port_and_does_not_hold_back_streamed_replies(self) -> None:
+        caddyfile = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn(f"reverse_proxy jarvis:{_dockerfile_env()['LAPTOP_AGENT_PORT']}", caddyfile)
+        self.assertIn("flush_interval -1", caddyfile)
+
+    def test_the_app_and_its_proxy_keep_their_state_across_restarts(self) -> None:
+        self.assertIn("jarvis_data:/data", _service("jarvis"))
+        self.assertIn("caddy_data:/data", _service("caddy"))   # certificates: losing them re-requests, and rate limits bite
+        for service in ("jarvis", "caddy"):
+            self.assertIn("restart: unless-stopped", _service(service))
+
+    def test_fly_names_its_own_proxy_header(self) -> None:
+        self.assertEqual(tomllib.loads((ROOT / "fly.toml").read_text(encoding="utf-8"))["env"]
+                         ["LAPTOP_AGENT_CLIENT_IP_HEADER"], "Fly-Client-IP")
+
+
 if __name__ == "__main__":
     unittest.main()
