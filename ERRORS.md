@@ -562,6 +562,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   count calendar days. (09-28)
 - **A job fired twice in the repeated hour** → target rebuilt from each tick's offset → the
   zone's first occurrence; keep `fold`. (09-28)
+- **A repeat or timer an hour off in the week before the clocks change** ("every monday at 7am"
+  stored as 08:00, a 3-hour timer listed at 3:30 for 2:30) → two spots still read an instant
+  through today's fixed offset (`astimezone(now.tzinfo)`) → `on_laptop_clock`; any new
+  "show this instant as a clock" goes through it. Six reminder tests failed only on 31 Oct,
+  the eve of the change. (11-06)
 - **"Reminder date/time must look like YYYY-MM-DD"** → no natural-time parser → `timeparse.py`;
   one-right-answer values are parsed, never inferred. (09-17)
 - **`ValueError: Invalid format string` on Windows** → `%-I` → strip zeros by hand. (09-17)

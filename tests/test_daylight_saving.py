@@ -182,6 +182,20 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.say_at(SATURDAY, "remind me every week at 7am to water the plants")
         self.assertEqual(self.due(), [utc(2026, 11, 1, 12, 0)])
 
+    def test_a_repeat_set_before_the_change_keeps_the_hour_it_was_said(self) -> None:
+        # The schedule's time of day was read through today's fixed offset: "every monday at
+        # 7am" said on Friday was stored as 08:00, an hour after the Monday it meant.
+        self.assertIn("Mondays at 07:00", self.say_at(FRIDAY, "remind me every monday at 7am to stretch"))
+        self.assertIn("daily at 07:00", self.say_at(SATURDAY, "remind me every day at 7am to take my vitamins"))
+        self.assertIn("weekdays at 07:00", self.say_at(SPRING_FRIDAY, "set an alarm for every weekday at 7"))
+
+    def test_a_timer_across_the_change_says_the_clock_it_will_read(self) -> None:
+        # Three hours from 00:30 EDT is 02:30 EST. Read in the offset of the moment it was
+        # asked, the timer list said 03:30.
+        self.say_at(utc(2026, 11, 1, 4, 30), "set a timer for 3 hours")
+        listed = self.say_at(utc(2026, 11, 1, 4, 30), "how long is left on my timer")
+        self.assertIn("(at 2:30:00 AM)", listed)
+
     def test_the_card_says_monday_at_seven(self) -> None:
         import laptop_agent.webui as webui
 
