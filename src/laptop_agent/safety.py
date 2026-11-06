@@ -6,7 +6,7 @@ from laptop_agent.cancellation import check_cancelled
 from enum import Enum
 from typing import Callable
 
-from laptop_agent.access import is_personal
+from laptop_agent.access import developer_only, is_personal
 from laptop_agent.audit import AuditLogger
 
 
@@ -44,7 +44,7 @@ class ApprovalGate:
         # approval card it could simply click through.
         if request.risk in (RiskLevel.HIGH, RiskLevel.CRITICAL) and not request.everyday and is_personal():
             self._record(request, approved=False, skipped=True)
-            raise ApprovalDenied(f"That needs a developer account: {request.action}")
+            raise ApprovalDenied(f"That {developer_only()}: {request.action}")
         if request.risk == RiskLevel.LOW:
             self._record(request, approved=True, skipped=True)
             return
