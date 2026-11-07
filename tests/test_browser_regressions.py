@@ -2037,6 +2037,44 @@ class RecordingBrowserTests(unittest.TestCase):
         self.page.locator(".recording-card audio").wait_for(state="visible")
         self.assertIn("Remember to buy milk", self.page.locator("#chat").inner_text())
 
+    def test_card_controls_are_readable_on_the_dark_page(self):
+        self.start()
+        self.saved()
+        self.page.mouse.move(0, 0)
+        contrast = self.page.evaluate("""()=>{
+            const rgb=s=>s.match(/[\\d.]+/g).map(Number);
+            const lum=([r,g,b])=>{const f=v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)};return .2126*f(r)+.7152*f(g)+.0722*f(b)};
+            const ratio=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+            const card=document.querySelector('.recording-card');
+            const pair=(el,bgEl)=>ratio(rgb(getComputedStyle(el).color),rgb(getComputedStyle(bgEl).backgroundColor));
+            const button=card.querySelector('button');
+            return {link:pair(card.querySelector('a'),card),button:pair(button,button)};
+        }""")
+        self.assertGreaterEqual(contrast["link"], 4.5, "Save WAV is not readable on the card")
+        self.assertGreaterEqual(contrast["button"], 4.5, "Transcribe recording is not readable on its own button")
+
+    def test_transcription_failure_says_why_in_a_sentence(self):
+        self.start()
+        self.saved()
+        note = self.page.locator(".recording-note")
+        button = self.page.get_by_role("button", name="Transcribe recording")
+        for outcome, expected in (
+            (lambda route: route.abort(), "The server could not be reached."),
+            (lambda route: route.fulfill(status=200, content_type="application/json",
+                body='{"ok": false, "text": "", "message": "No readable text in this recording"}'),
+             "No readable text in this recording."),
+            (lambda route: route.fulfill(status=500, content_type="text/html", body="<h1>oops</h1>"),
+             "The server replied with an error (500)."),
+        ):
+            self.page.route("**/api/recordings/transcribe", outcome)
+            button.click()
+            self.wait_js("()=>document.querySelector('.recording-note').textContent.startsWith('Transcription failed')")
+            self.assertEqual(note.inner_text(), f"Transcription failed: {expected} The recording is still saved.")
+            self.page.unroute("**/api/recordings/transcribe")
+            self.wait_js("()=>!document.querySelector('.recording-card button').disabled")
+            self.page.evaluate("()=>{document.querySelector('.recording-note').textContent='ready'}")
+        self.assertEqual(self.speech_calls, [])
+
     def test_manual_stop_saves_partial_clip_only_once(self):
         import wave
         self.start("record my voice for 20 seconds")

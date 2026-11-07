@@ -2423,13 +2423,15 @@
       if(transcribingRecordings.has(recording.name))return;
       transcribingRecordings.add(recording.name);button.disabled=true;note.textContent='Transcribing…';
       try{
-        const response=await fetch('/api/recordings/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:recording.name})});
-        const result=await response.json();
-        if(!response.ok||!result.ok)throw new Error(result.message||'No speech was recognized.');
+        let response;
+        try{response=await fetch('/api/recordings/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:recording.name})});}
+        catch(e){throw new Error('The server could not be reached.');}
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok||!result.ok)throw new Error(result.message||(response.ok?'No speech was recognized.':'The server replied with an error ('+response.status+').'));
         message.text=(recording.caption||'Voice recording saved.')+'\n\nTranscript:\n'+result.text;
         recording.transcript=result.text;
         refreshRecordedMessage(node,session,message);note.textContent='Transcript added to this conversation.';
-      }catch(e){note.textContent='Transcription failed: '+e.message+' The recording is still saved.';}
+      }catch(e){const why=String(e.message).trim();note.textContent='Transcription failed: '+(/[.!?]$/.test(why)?why:why+'.')+' The recording is still saved.';}
       finally{transcribingRecordings.delete(recording.name);button.disabled=false;if(session&&curSession()===session&&!node.isConnected)loadSession(session.id);}
     };
     node.querySelector('.content').appendChild(card);

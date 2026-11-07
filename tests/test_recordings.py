@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -124,3 +125,21 @@ class RecordingTests(unittest.TestCase):
         second = save_recording(self.root, wav(seconds=120))
         self.assertEqual(first['seconds'], 120)
         self.assertNotEqual(first['name'], second['name'])
+
+
+class RecordingCardAssetTests(unittest.TestCase):
+    assets = Path(webui.__file__).parent/'webui_assets'
+
+    def test_card_controls_are_styled_not_left_to_the_browser(self):
+        css = (self.assets/'app.css').read_text(encoding='utf-8')
+        rules = {selector.strip(): body for selector, body in re.findall(r'([^{}]+)\{([^{}]*)\}', css)}
+        shared = rules['.recording-card button, .recording-card a']
+        self.assertIn('background:transparent', shared)
+        self.assertIn('color:var(--text-2)', shared)
+        self.assertIn('color:var(--accent)', rules['.recording-card a'])
+        self.assertIn('color:var(--accent-ink)', rules['.recording-card button'])
+
+    def test_transcription_failure_is_a_sentence_with_the_reason(self):
+        js = (self.assets/'app.js').read_text(encoding='utf-8')
+        self.assertIn("The server could not be reached.", js)
+        self.assertIn("'Transcription failed: '+(/[.!?]$/.test(why)?why:why+'.')+' The recording is still saved.'", js)

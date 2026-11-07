@@ -668,7 +668,12 @@
 /* Deliberate voice recording is visible even while another chat is selected. */
 .recording-card { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px; margin-top:12px; border:1px solid var(--hair-3); border-radius:12px; background:var(--surface); }
 .recording-card audio { max-width:100%; width:300px; }
-.recording-card button, .recording-card a { padding:8px 12px; cursor:pointer; }
+.recording-card button, .recording-card a { padding:8px 14px; cursor:pointer; border-radius:var(--r-sm); border:1px solid var(--hair-3); background:transparent; color:var(--text-2); font:600 12.5px/1 var(--sans); text-decoration:none; transition:all var(--fast) var(--ease); }
+.recording-card a { border-color:var(--accent-line); color:var(--accent); }
+.recording-card button { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.recording-card a:hover { background:var(--accent-soft); color:var(--accent-2); }
+.recording-card button:hover:not(:disabled) { background:var(--accent-2); border-color:var(--accent-2); }
+.recording-card button:disabled { opacity:.55; cursor:default; }
 .recording-note { flex-basis:100%; margin:0; font-size:13px; }
 .recorder-live { position:fixed; z-index:1000; right:16px; bottom:100px; max-width:calc(100vw - 32px); box-shadow:0 8px 32px #0006; }
 .recorder-live p { margin:0; }
