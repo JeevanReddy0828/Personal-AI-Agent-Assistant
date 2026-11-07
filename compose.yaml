@@ -1,0 +1,40 @@
+# A hosted J.A.R.V.I.S on any small Linux VM (written for Oracle Cloud's Always Free one): the
+# app plus Caddy, which fetches and renews the HTTPS certificate by itself. See "Hosting online"
+# in the README. Put JARVIS_HOST and OPENAI_API_KEY in a `.env` next to this file; never in it.
+services:
+  jarvis:
+    build: .
+    restart: unless-stopped
+    environment:
+      LAPTOP_AGENT_ALLOWED_HOSTS: ${JARVIS_HOST:?set JARVIS_HOST in .env to the name this is served under}
+      LAPTOP_AGENT_CLIENT_IP_HEADER: X-Real-IP
+      LAPTOP_AGENT_LLM_PROVIDER: openai
+      OPENAI_BASE_URL: https://integrate.api.nvidia.com/v1
+      OPENAI_MODEL: ${OPENAI_MODEL:-nvidia/nemotron-3.5-super-vl-120b-a12b}
+      OPENAI_SMART_MODEL: ${OPENAI_SMART_MODEL:-nvidia/nemotron-3.5-super-vl-120b-a12b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
+    volumes:
+      - jarvis_data:/data
+    # Reachable by Caddy on the compose network only; never published to the internet.
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - jarvis
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      JARVIS_HOST: ${JARVIS_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  jarvis_data:
+  caddy_data:
+  caddy_config:

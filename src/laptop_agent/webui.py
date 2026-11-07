@@ -853,11 +853,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _client(self) -> str:
         peer = self.client_address[0] if self.client_address else "?"
-        if hosted():
-            # Every request reaches this process from the platform's proxy, so the peer is
-            # one address for everybody and the sign-in limit would lock all users out
-            # together. Fly's proxy sets this header itself, over any a client sent.
-            forwarded = (self.headers.get("Fly-Client-IP") or "").strip()
+        header = os.environ.get("LAPTOP_AGENT_CLIENT_IP_HEADER", "").strip()
+        if hosted() and header:
+            # Every request reaches this process from the proxy, so the peer is one address
+            # for everybody and the sign-in limit would lock all users out together. The
+            # header must be one the proxy sets itself, over any a client sent (Fly-Client-IP
+            # on Fly; X-Real-IP, set by header_up, in the Caddyfile). Unset, the peer is used,
+            # which fails toward locking people out together, never toward missing an attacker.
+            forwarded = (self.headers.get(header) or "").strip()
             try:
                 return str(ipaddress.ip_address(forwarded))
             except ValueError:
@@ -2327,6 +2330,9 @@ def main() -> None:
     print(f"J.A.R.V.I.S chat running at {url}")
     if hosted():
         print("Hosted: every account acts as personal; sign-in is the only way in, over " + ", ".join(sorted(_allowed_hosts())))
+        if not os.environ.get("LAPTOP_AGENT_CLIENT_IP_HEADER", "").strip():
+            print("LAPTOP_AGENT_CLIENT_IP_HEADER is not set, so the sign-in limit counts the proxy as one client: "
+                  "name the header your proxy sets to the real client address.")
         if not ACCOUNTS.exists():
             print("No account exists, so nothing is served yet. Create the owner on this server: "
                   "python -m laptop_agent.accounts create <name> --role dev")

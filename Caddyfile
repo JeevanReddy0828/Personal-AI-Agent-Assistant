@@ -1,0 +1,10 @@
+# HTTPS for the hosted copy. Caddy gets the certificate for the name in JARVIS_HOST, sends
+# plain HTTP to HTTPS, and passes the real visitor's address on in X-Real-IP (set here, over any
+# the visitor sent), which is what the app's sign-in limit counts.
+{$JARVIS_HOST} {
+	reverse_proxy jarvis:8080 {
+		header_up X-Real-IP {remote_host}
+		# Replies stream a word at a time; do not hold them back.
+		flush_interval -1
+	}
+}
