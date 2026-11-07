@@ -3725,7 +3725,7 @@ class AgentOrchestrator:
             name = re.sub(r"\s*\(.*\)$", "", str(item["message"]))
             left = (due - now).total_seconds()
             status = "going off now" if left <= 0 else f"**{_say_seconds(round(left))}** left"
-            lines.append(f"{name}: {status} (at {due.astimezone(now.tzinfo).strftime('%I:%M:%S %p').lstrip('0')})")
+            lines.append(f"{name}: {status} (at {on_laptop_clock(due, now.tzinfo).strftime('%I:%M:%S %p').lstrip('0')})")
         return ToolResult.success("\n".join(lines) if len(lines) > 1 else lines[0],
                                   timers=[item for _due, item in running])
 
@@ -3799,7 +3799,7 @@ class AgentOrchestrator:
             schedule = f"every {interval.group(1)} {interval.group(2)}" if interval else "every hour"
         elif days or re.search(r"\b(?:day|daily|morning|evening|night|everyday)\b", rule):
             if when is not None:
-                clock = when.at.astimezone(now.tzinfo)
+                clock = on_laptop_clock(when.at, now.tzinfo)
             else:
                 hour = 18 if "evening" in rule else 21 if "night" in rule else 9
                 clock = now.replace(hour=hour, minute=0)
