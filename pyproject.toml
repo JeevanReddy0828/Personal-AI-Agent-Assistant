@@ -64,3 +64,66 @@ target-version = "py311"
 # Correctness only: syntax errors, undefined names, invalid comparisons, unused imports.
 # Style rules are not enforced yet; widening this needs a clean-up of the existing code first.
 select = ["E9", "F63", "F7", "F82", "F401"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/laptop_agent"]
+
+# Optional extras that mypy can see being imported; CI installs none of them.
+[[tool.mypy.overrides]]
+module = ["PIL.*", "docx.*", "numpy.*", "playwright.*", "pptx.*"]
+ignore_missing_imports = true
+
+# Modules with errors on 2026-11-10 (mypy 2.4.1, 239 errors on Linux). Every other module,
+# and every new one, is checked. Take a module off this list once it is fixed.
+[[tool.mypy.overrides]]
+module = [
+    "laptop_agent.accounts",
+    "laptop_agent.advisor",
+    "laptop_agent.agents.orchestrator",
+    "laptop_agent.analytics.diagnostics",
+    "laptop_agent.analytics.forecast",
+    "laptop_agent.app",
+    "laptop_agent.autopilot",
+    "laptop_agent.context",
+    "laptop_agent.dashboard",
+    "laptop_agent.failures",
+    "laptop_agent.jobs",
+    "laptop_agent.knowledge",
+    "laptop_agent.metrics",
+    "laptop_agent.planner.heuristic",
+    "laptop_agent.reasoning",
+    "laptop_agent.reminders",
+    "laptop_agent.scheduler",
+    "laptop_agent.storage",
+    "laptop_agent.tasks",
+    "laptop_agent.timeparse",
+    "laptop_agent.token_vault",
+    "laptop_agent.tools.breakdown",
+    "laptop_agent.tools.browser",
+    "laptop_agent.tools.calculator",
+    "laptop_agent.tools.clipboard",
+    "laptop_agent.tools.clock",
+    "laptop_agent.tools.codefix",
+    "laptop_agent.tools.dates",
+    "laptop_agent.tools.diagnostics",
+    "laptop_agent.tools.document",
+    "laptop_agent.tools.email",
+    "laptop_agent.tools.fileops",
+    "laptop_agent.tools.files",
+    "laptop_agent.tools.forecast",
+    "laptop_agent.tools.keys",
+    "laptop_agent.tools.mcp",
+    "laptop_agent.tools.obsidian",
+    "laptop_agent.tools.plugins",
+    "laptop_agent.tools.research",
+    "laptop_agent.tools.system",
+    "laptop_agent.tools.travel",
+    "laptop_agent.tools.weather",
+    "laptop_agent.tools.windows",
+    "laptop_agent.tracing",
+    "laptop_agent.webui",
+    "laptop_agent.window_fx",
+    "laptop_agent.workflows",
+]
+ignore_errors = true
