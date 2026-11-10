@@ -53,6 +53,7 @@ the results and a short write-up whose first paragraph is the decision.
 | `tier_choice_set.json` | The frozen fixture: 155 hand-written chat requests labelled fast / smart / ultra, with the labelling rule. Labels are provisional until Jeevan reviews them. |
 | `tier_choice_experiment.py` | The experiment: imports `AgentOrchestrator._complexity` read-only; with `laya` installed it also scores each request with both checkpoints. Not part of the test suite and needs no dependency to run the heuristic half. |
 | `tier_choice_results_cpu.json` | The recorded CPU run: accuracy, confusion matrices, latency, memory and per-request scores. |
+| `tier_choice_results_cuda.json` | The same run on the RTX 3050 Ti Laptop GPU (2026-11-10): the same scores to within 0.033, 54 ms median per decision. |
 
 ## Read next
 

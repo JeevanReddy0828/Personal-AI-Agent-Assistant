@@ -12,9 +12,10 @@ looks promising, but it is not evidence yet.**
 - **The re-fit is promising.** Thresholds fitted by 5-fold cross-validation, chosen *after* seeing
   the first run and so exploratory, reached 69.0% with the English checkpoint plus cues. That fit
   sent 1 fast request to ultra, against the heuristic's 3.
-- **It is too slow on this laptop's CPU.** The English checkpoint takes 486 ms at the median and
-  635 ms at P95 per decision, over the 250 ms bar. The GPU has not been measured: it had no NVIDIA
-  driver at the time.
+- **Speed is settled on the GPU, not on the CPU.** On this laptop's CPU the English checkpoint
+  takes 486 ms at the median and 635 ms at P95 per decision, over the 250 ms bar. On the RTX 3050
+  Ti (measured 2026-11-10) it takes 53.6 ms and 66.6 ms, well inside the bar, with the same
+  scores to within 0.033.
 - **The labels are not independent.** Claude wrote both the prompts and the labels. The next step
   is a fresh set labelled by Jeevan, tested with the fitted thresholds frozen in advance (below).
 
@@ -24,8 +25,9 @@ looks promising, but it is not evidence yet.**
   ultra; 17 not English). It was frozen before either method ran, and its labels are provisional.
 - **Heuristic.** `AgentOrchestrator._complexity` on `main` at `e251f50`.
 - **Laya.**
-  - Upstream `laya` 0.4.30, with torch 2.11.0 (a CUDA 12.8 build, run on the CPU in fp32 with 8
-    threads, because no NVIDIA driver was installed).
+  - Upstream `laya` 0.4.30, with torch 2.11.0 (a CUDA 12.8 build). It ran first on the CPU in
+    fp32 with 8 threads, while no NVIDIA driver was installed, then on the RTX 3050 Ti Laptop
+    GPU (4 GB, driver 621.14), where upstream uses mixed precision.
   - Checkpoints `convaiinnovations/laya` (English) and its `multilingual/` folder.
   - The question is `router_questions()["difficulty"]`, with the state `{"request": text}`.
   - "Routed" uses `laya.is_english` to pick the checkpoint for each request.
@@ -54,14 +56,23 @@ in columns:
 - `_complexity`: fast 55 / 7 / 3, smart **44** / 13 / 1, ultra 7 / 12 / 13.
 - Laya English + cues, cross-validated: fast 50 / 14 / 1, smart 17 / 40 / 1, ultra 2 / 13 / 17.
 
-Latency and memory, on this laptop's CPU (8 threads, fp32):
+Latency and memory on this laptop:
 
-| Checkpoint | Load | P50 per decision | P95 per decision |
-|---|---:|---:|---:|
-| English (421M) | 7.8 s (15.9 s on the first, cold load) | 486 ms | 635 ms |
-| Multilingual (322M) | 2.3 s | 142 ms | 189 ms |
+| Checkpoint | Device | Load | P50 per decision | P95 per decision | Peak GPU memory |
+|---|---|---:|---:|---:|---:|
+| English (421M) | CPU, fp32, 8 threads | 7.8 s (15.9 s on the first, cold load) | 486 ms | 635 ms | n/a |
+| Multilingual (322M) | CPU, fp32, 8 threads | 2.3 s | 142 ms | 189 ms | n/a |
+| English (421M) | RTX 3050 Ti, mixed precision | 43.2 s (includes starting CUDA) | **53.6 ms** | **66.6 ms** | 2.3 GB of 4 GB |
+| Multilingual (322M) | RTX 3050 Ti, mixed precision | 3.4 s | 44.6 ms | 57.1 ms | 1.5 GB |
 
-The process that loaded both checkpoints in turn peaked at a 3.5 GB working set.
+In each run, the process that loaded both checkpoints in turn peaked at a 3.5 GB working set.
+
+The GPU's per-request scores differ from the CPU's by at most 0.033, and by 0.005 on average. The
+English rows of the results table come out identical on the GPU: 52.3% and 69.0%. The other rows
+move by up to 1.9 points, because a few scores cross a threshold. On the GPU, routed + cues
+(fixed in advance) gives 53.5% and routed cross-validated gives 67.7%; multilingual
+cross-validated gives 55.5%, with 9 fast requests sent to ultra. The full figures are in
+`tier_choice_results_cuda.json`.
 
 ## What it shows
 
@@ -83,9 +94,9 @@ The process that loaded both checkpoints in turn peaked at a 3.5 GB working set.
 
 ## What would change the decision
 
-- **Speed on the GPU.** The English checkpoint needs a P95 under 250 ms on the 3050 Ti. To measure
-  it, re-run with `--device cuda` once `nvidia-smi` lists the GPU, writing
-  `tier_choice_results_cuda.json`.
+- **Speed on the GPU: met.** The English checkpoint's P95 is 66.6 ms on the 3050 Ti, against a
+  250 ms bar. The catch is that the GPU must be on: in Armoury Crate's Eco mode the CPU figures
+  apply, and the 250 ms deadline hands most turns to the heuristic.
 - **A confirmation run on a fresh set.** Write new requests and have **Jeevan** label them, then
   test the English checkpoint with these thresholds, **frozen now**: `(1.55, 2.05)`, the best fit on
   this whole set, plus `EXPLICIT_CUES`. Laya must reach at least +10 points over the heuristic and
@@ -106,4 +117,4 @@ python -I -B docs/evals/tier_choice_experiment.py                               
 
 The scores are deterministic on the CPU, so a re-run reproduces every accuracy figure above. The
 timings vary from run to run: the first run gave a P50 of 523 ms for the English checkpoint and
-150 ms for the multilingual one.
+150 ms for the multilingual one. GPU scores differ from the CPU's in the third decimal place.
