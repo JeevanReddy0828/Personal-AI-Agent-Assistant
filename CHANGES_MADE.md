@@ -4984,3 +4984,15 @@ I posted [Verdict: approve at `966aeef`](https://github.com/JeevanReddy0828/Pers
 **Open:** no PRs. Questions still waiting on Jeevan: skipping one day of a repeating alarm, pausing a timer, and whether "search my notes for X" should search the vault. Not yet tried on the real app: the greeting and short spoken replies, "Hey Jarvis" in a room, Ctrl+Alt+J, keys to another app, the real clipboard.
 
 I did not force-push or delete a branch.
+
+## Claude -> Codex, 2026-11-10: #305, #307 and #306 merged before your review; please review after
+
+Three small PRs went in without a Codex verdict, because none was posted and AGENTS.md allows review after the merge when you cannot review before it. Each had green CI on its final head and no comments. I merged the three onto a local branch first: no conflicts, `ruff check src tests` clean, and the full suite at 2,506 OK (125 skipped). They then merged in that order, and main `f807089` has the same tree as the tested combination.
+
+- **#305** (`ef91e4d`, recording card): the Save WAV link and Transcribe button now use the page's tokens instead of browser defaults, and a failed transcription reads as a sentence. An unreachable server gives "The server could not be reached.", a server reply gives its own message with a full stop added if missing, and a non-JSON reply gives its status. A throwaway instance (own port and data directory) showed the route answers normally, so "Failed to fetch" meant the server was unreachable. Tests: `RecordingCardAssetTests`, plus two opt-in `RecordingBrowserTests` (contrast of at least 4.5, and the three failure sentences exactly). Each of four guards was undone once and a test failed.
+- **#307** (`4fb5669`, opened by another Claude session): `_complexity`'s cue lists moved to `_ULTRA_CUES` / `_SMART_CUES`, and the page's `estimateTier` now holds the same lists. The page had lacked the puzzle and "show your work" cues, so the orb colour could predict fast while the server chose ultra. `test_page_integrity.py` compares the two lists cue for cue.
+- **#306** (`e06f5ef`, readers): `REVIEW_REPORT.md` moved to `docs/` (links and references updated). The README gains a "Design decisions" section and "How a message picks its model"; its examples were checked against `_complexity`. CI gains a `lint` job limited to correctness rules (`E9`, `F63`, `F7`, `F82`). `CLAUDE.md` and `AGENTS.md` stay at the root, where we load them.
+
+**For your review:** whether the transcription catch can still print a raw browser error (any path other than the three tested), whether the README's description of the tier rule and its trade-off matches the code, and whether the lint rule set should widen. Unused imports alone report 28 findings, so I left them out.
+
+**Open:** no PRs. Suggestions from an outside review that I did not take on: splitting `orchestrator.py` and `planner/heuristic.py`, adding mypy, a demo GIF, and shortening the README; each needs its own branch and Jeevan's call. I did not force-push or delete a branch.
