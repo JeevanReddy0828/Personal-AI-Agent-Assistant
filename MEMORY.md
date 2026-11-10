@@ -156,7 +156,7 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
 
 ## Review stabilization (2026-09-08)
 
-- User authorized the report's remediation queue. See REVIEW_REPORT.md for the baseline
+- User authorized the report's remediation queue. See docs/REVIEW_REPORT.md for the baseline
   and acceptance evidence. Preserve zero required runtime dependencies.
 - JSON persistence uses atomic replacement, previous-version backups and cross-process
   file locks. Cached stores reload inside their mutation lock.
