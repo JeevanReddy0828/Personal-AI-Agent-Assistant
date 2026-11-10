@@ -21,9 +21,28 @@ works offline with a heuristic router, smarter with an LLM key · MIT licensed.
 
 ---
 
+## Design decisions
+
+- **Zero required dependencies.** `dependencies = []` on purpose: the assistant runs on a bare Python install, so
+  a machine without GPU libraries or API keys still starts. Heavy features (browser, OCR, voice, vision) are
+  optional extras; without one, the tool fails with the install command instead of crashing. This is why the
+  project does not use FastAPI, LangChain or LangGraph: the web server, router and agent loop are written on
+  the standard library.
+- **Instant routing first, the model second.** Everyday requests are matched whole-sentence by a heuristic
+  router in about 2 ms; only what it cannot place goes to an LLM router. A false match must fall back to the
+  router, never act.
+- **Risky actions ask first.** Every tool declares a risk level, and anything that changes files, runs a
+  command, downloads or leaves the laptop raises an approval card. No answer means no.
+
+**How it is built.** The owner, Jeevan, sets the direction and merges. Claude Code and Codex work as pair
+developers on separate branches, under the rules in [AGENTS.md](AGENTS.md), with design notes in
+[docs/design/](docs/design/) and a failure log in [ERRORS.md](ERRORS.md).
+
+---
+
 ## Contents
 
-[Screenshots](#screenshots) · [Highlights](#highlights) · [Architecture](#architecture) ·
+[Screenshots](#screenshots) · [Highlights](#highlights) · [Design decisions](#design-decisions) · [Architecture](#architecture) ·
 [How a request flows](#how-a-request-flows) · [Models](#models) · [Quick start](#quick-start) ·
 [Capabilities & commands](#capabilities--commands) · [Voice](#voice) ·
 [Accounts & sign-in](#accounts--sign-in) · [Security & approvals](#security--approvals) ·
@@ -835,7 +854,7 @@ A single windowless executable that opens a native window (WebView2, built into 
   voice note and voice session, and packaged-installer runs; Jobright, email, model
   providers and camera hardware each need their own configured check.
 
-See [REVIEW_REPORT.md](REVIEW_REPORT.md) for the feature inventory, review findings,
+See [REVIEW_REPORT.md](docs/REVIEW_REPORT.md) for the feature inventory, review findings,
 remediation evidence and remaining limits.
 
 ---

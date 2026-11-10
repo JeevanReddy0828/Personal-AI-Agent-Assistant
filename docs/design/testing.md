@@ -6,7 +6,7 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
 
 ---
 
-Tests: `python -B tests/run_tests.py` (isolated configuration/data). See REVIEW_REPORT.md for current validation results and optional browser checks.
+Tests: `python -B tests/run_tests.py` (isolated configuration/data). See docs/REVIEW_REPORT.md for current validation results and optional browser checks.
 
 **The runner makes `os.startfile`, `webbrowser.open` and `keybd_event` inert** — they
 succeed and do nothing (the music tool also pressed the real volume keys). A URL handed to the OS is fetched by the browser, not by the test process, so the

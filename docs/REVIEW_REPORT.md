@@ -203,11 +203,11 @@ No deployment, outbound messages or release publication was performed.
 
 Desktop, 1440px, with reduced motion:
 
-![Verified desktop layout](docs/review/desktop.png)
+![Verified desktop layout](review/desktop.png)
 
 Mobile, 390px:
 
-![Verified mobile layout](docs/review/mobile.png)
+![Verified mobile layout](review/mobile.png)
 
 ## REC-01 review addendum — 2026-09-28
 
