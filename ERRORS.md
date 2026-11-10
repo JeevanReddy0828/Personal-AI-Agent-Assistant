@@ -648,6 +648,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   context (`position` + `z-index`, `backdrop-filter`) → compare at the root;
   `body:has(...)` to swap. (10-01)
 - **Notifications cover the screen** → an unbounded stack → cap + "+N more"; Dismiss all. (10-01)
+- **"solve this riddle" went to the reasoning model while the orb waited in the fast colour** → the
+  page's `estimateTier` is a hand copy of `_complexity`, and the server's newer puzzle and logic
+  cues and "plan " never reached it → both sides keep `ULTRA_CUES`/`SMART_CUES` lists, compared
+  cue for cue along with the word limits (`TierGuessTests` in `test_page_integrity.py`). (11-09)
 - **Talking to it felt like a chatbot reading out a document** → a voice turn got the chat prompt
   ("in Markdown") and every sentence of a long reply was spoken → `spoken.py`: a spoken turn gets a
   conversational style, speech stops after ~45 words with "The rest is on screen.", the app
