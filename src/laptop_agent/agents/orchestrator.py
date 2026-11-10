@@ -613,29 +613,32 @@ class AgentOrchestrator:
         # (see context.py); with no model configured it simply never appears.
         register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
 
+    # The page's estimateTier keeps the same two lists to colour the wait;
+    # test_page_integrity fails when they differ.
+    _ULTRA_CUES = (
+        "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
+        "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
+        "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
+        # Logic / puzzle / multi-step reasoning cues -> the reasoning tier, which
+        # thinks before answering (the non-reasoning tiers ramble on these).
+        "puzzle", "riddle", "brain teaser", "logic puzzle", "logic problem",
+        "measure exactly", "show your reasoning", "show your work", "show the steps",
+        "find the flaw", "fallacy", "how many ways", "solve for",
+    )
+    _SMART_CUES = (
+        "explain", "why", "analy", "compare", "design", "reason", "debug", "refactor", "optimi",
+        "trade-off", "tradeoff", "write code", "implement", "algorithm", "strategy", "pros and cons",
+        "evaluate", "critique", "plan ",
+    )
+
     @staticmethod
     def _complexity(text: str) -> int:
         """0 = simple (fast model), 1 = complex (smart), 2 = very complex (ultra)."""
         lowered = text.lower()
         words = len(text.split())
-        deep = (
-            "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
-            "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
-            "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
-            # Logic / puzzle / multi-step reasoning cues -> the reasoning tier, which
-            # thinks before answering (the non-reasoning tiers ramble on these).
-            "puzzle", "riddle", "brain teaser", "logic puzzle", "logic problem",
-            "measure exactly", "show your reasoning", "show your work", "show the steps",
-            "find the flaw", "fallacy", "how many ways", "solve for",
-        )
-        if words > 70 or any(trigger in lowered for trigger in deep):
+        if words > 70 or any(trigger in lowered for trigger in AgentOrchestrator._ULTRA_CUES):
             return 2
-        mid = (
-            "explain", "why", "analy", "compare", "design", "reason", "debug", "refactor", "optimi",
-            "trade-off", "tradeoff", "write code", "implement", "algorithm", "strategy", "pros and cons",
-            "evaluate", "critique", "plan ",
-        )
-        if words > 35 or any(trigger in lowered for trigger in mid):
+        if words > 35 or any(trigger in lowered for trigger in AgentOrchestrator._SMART_CUES):
             return 1
         return 0
 

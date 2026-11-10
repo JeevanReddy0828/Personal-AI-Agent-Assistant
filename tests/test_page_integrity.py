@@ -178,6 +178,56 @@ class RequiredHooksTests(unittest.TestCase):
             self.assertIn(f'data-view="{view}"', PAGE, view)
 
 
+class TierGuessTests(unittest.TestCase):
+    """`estimateTier` guesses which chat tier `AgentOrchestrator._complexity` will pick, only
+    to colour the orb while a reply is pending. It had drifted: the server sent "solve this
+    riddle" to the reasoning tier while the page coloured the wait as the fast one."""
+
+    @staticmethod
+    def estimate_tier_body() -> str:
+        match = re.search(r"function estimateTier\(text\)\{(.*?)\n\s*\}", script_blocks()[0], re.S)
+        if match is None:
+            raise AssertionError("estimateTier is gone from the page script")
+        return match.group(1)
+
+    @staticmethod
+    def page_cues(name: str) -> list[str]:
+        match = re.search(rf"const {name}=\[(.*?)\];", script_blocks()[0], re.S)
+        if match is None:
+            raise AssertionError(f"the page script no longer declares {name}")
+        return re.findall(r"'([^']*)'", match.group(1))
+
+    def test_the_page_has_the_servers_cues(self) -> None:
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+
+        for name, server in (("ULTRA_CUES", AgentOrchestrator._ULTRA_CUES),
+                             ("SMART_CUES", AgentOrchestrator._SMART_CUES)):
+            page = self.page_cues(name)
+            drift = {"missing from the page": sorted(set(server) - set(page)),
+                     "only on the page": sorted(set(page) - set(server))}
+            self.assertEqual(drift, {"missing from the page": [], "only on the page": []}, name)
+
+    def test_the_guess_uses_the_cues_and_the_servers_word_limits(self) -> None:
+        from laptop_agent.agents.orchestrator import AgentOrchestrator
+
+        body = self.estimate_tier_body()
+        self.assertIn("ULTRA_CUES.some(", body)
+        self.assertIn("SMART_CUES.some(", body)
+        limits = [int(n) for n in re.findall(r"\bw>(\d+)", body)]
+        self.assertEqual(len(limits), 2, f"expected an ultra and a smart word limit, found {limits}")
+        ultra_words, smart_words = limits
+
+        def words(count: int) -> str:
+            return " ".join(["ok"] * count)
+
+        ultra = f"the page's ultra word limit ({ultra_words}) is not the server's"
+        smart = f"the page's smart word limit ({smart_words}) is not the server's"
+        self.assertEqual(AgentOrchestrator._complexity(words(ultra_words + 1)), 2, ultra)
+        self.assertEqual(AgentOrchestrator._complexity(words(ultra_words)), 1, ultra)
+        self.assertEqual(AgentOrchestrator._complexity(words(smart_words + 1)), 1, smart)
+        self.assertEqual(AgentOrchestrator._complexity(words(smart_words)), 0, smart)
+
+
 class NoCorruptionTests(unittest.TestCase):
     """Stray control characters are the signature of a mangled edit."""
 
