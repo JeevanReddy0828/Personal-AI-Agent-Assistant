@@ -228,12 +228,13 @@ class MetricsCacheTests(unittest.TestCase):
     def test_one_shot_status_and_briefing_refresh_cold_and_stale_snapshots(self):
         import tempfile
         from pathlib import Path
+        from agent_patches import patch_agents
         from test_orchestrator import OrchestratorTests
         with tempfile.TemporaryDirectory() as scratch:
             orchestrator = OrchestratorTests("test_reminder_flow").build(Path(scratch))
             self.collect.return_value = {"cpu_percent": 42, "ram_percent": 25,
                 "gpus": [{"name": "GPU 2", "util_percent": None, "util_kind": "3D"}]}
-            with patch("laptop_agent.agents.orchestrator.battery_status", return_value=None):
+            with patch_agents(metrics.battery_status, lambda: None):
                 status = orchestrator._system_status()
             self.assertIn("CPU: 42%", status.message)
             self.assertIn("GPU 2 (3D): n/a", status.message)

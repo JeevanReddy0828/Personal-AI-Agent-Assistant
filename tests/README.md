@@ -78,6 +78,10 @@ About 110 files, one or more per area. The naming tells you where to look:
 `test_everyday_requests.py` also defines `Everyday`, a harness that wires the whole app with
 every outside effect faked; reuse it to probe how a sentence is handled end to end.
 
+`agent_patches.py` defines `patch_agents(original, new)`, which replaces an object (the clock,
+`battery_status`) in every `agents/` module that holds it. Use it instead of patching
+`laptop_agent.agents.orchestrator.<name>`, which misses code that has moved to another module.
+
 ## Read next
 
 - `docs/design/testing.md` → "The runner makes `os.startfile` … inert" and "A failing run

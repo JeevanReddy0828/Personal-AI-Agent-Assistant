@@ -17,6 +17,7 @@ from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.tools.dates import (answerable, calendar_fact, date_question, next_holiday, resolve, span_text,
                                       until_moment)
 from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
+from agent_patches import patch_agents
 from test_everyday_requests import Everyday
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone(timedelta(hours=-5)))
@@ -276,7 +277,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
         # "what's the date tomorrow" was computed, "what's the date next friday" went to a model.
         # On the stopped clock: on the real one, every Thursday "on friday" is "— tomorrow", and
         # CI went red one day in seven (2026-10-08, on a docs-only PR).
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with patch_agents(datetime, StoppedClock):
             for text in ("what's the date next friday", "what is the date on friday", "what's the day of thanksgiving"):
                 result, _ran = self.say(text)
                 self.assertNotIn("answered]", result.message, text)
@@ -293,7 +294,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
 
     def test_counted_in_the_unit_asked_for(self) -> None:
         # "how many weeks until christmas" was answered "90 days".
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with patch_agents(datetime, StoppedClock):
             message = self.say("how many weeks until christmas")[0].message
             self.assertRegex(message, r"^\*\*\d+ weeks?(?: and \d days?)?\*\* until Christmas")
             self.assertNotIn("weeks", self.say("how many days until christmas")[0].message)
@@ -302,7 +303,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
         # "between march 1 and today" counted to NEXT March (145 days for an answer of 220), and
         # "since christmas" to this December. Looking ahead ("between today and march 1") keeps
         # the next one. On the stopped clock, Saturday 26 September 2026.
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with patch_agents(datetime, StoppedClock):
             for text, days in (("how many days between march 1 and today", 209), ("how many days since march 1", 209),
                                ("how long has it been since christmas", 275),
                                ("how many days between today and march 1", 156),
@@ -324,7 +325,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
 
     def test_a_date_already_past_is_said_in_the_past(self) -> None:
         # With a stated year a date can be behind us: "until" said "-84 days" and "is on" a past day.
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with patch_agents(datetime, StoppedClock):
             self.assertEqual(self.say("how many days until july 4th this year")[0].message,
                              "July 4th was **84 days ago** (Saturday 4 July 2026).")
             self.assertEqual(self.say("what day is july 4th this year")[0].message,
@@ -336,7 +337,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
         # "what's today" went to a web search for the sentence; "what day is tomorrow" said
         # "Tomorrow is on Sunday ... — tomorrow".
         today = StoppedClock.now().date()
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with patch_agents(datetime, StoppedClock):
             for text, day in (("what's today", today), ("what's the date tomorrow", today + timedelta(days=1)),
                               ("what's tomorrow's date", today + timedelta(days=1)),
                               ("what day was yesterday", today - timedelta(days=1))):
@@ -413,7 +414,7 @@ class CalendarFactTests(unittest.TestCase):
                 self.assertFalse(answerable(text, NOW))
 
     def test_through_the_assistant(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", StoppedClock):
+        with tempfile.TemporaryDirectory() as tmp, patch_agents(datetime, StoppedClock):
             everyday = Everyday(Path(tmp))
             for text, expected in (("is 2028 a leap year", "**Yes**"), ("what quarter are we in", "**Q3**"),
                                    ("how many days in february", "February 2026 has **28 days**")):
@@ -503,7 +504,7 @@ class TimeUntilTests(unittest.TestCase):
                 return naive if naive.astimezone() == first else naive.replace(fold=1)
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("laptop_agent.agents.orchestrator.datetime", FirstQuarterToTwo), \
+                patch_agents(datetime, FirstQuarterToTwo), \
                 patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
             everyday = Everyday(Path(tmp))
             for text in ("how long until 1:30am", "how long until 1:30am today", "how long until sunday at 1:30am"):
@@ -511,7 +512,7 @@ class TimeUntilTests(unittest.TestCase):
                     self.assertIn("**45 minutes**", everyday.say(text, stream=False)[0].message)
 
     def test_through_the_assistant(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch("laptop_agent.agents.orchestrator.datetime", EveningClock):
+        with tempfile.TemporaryDirectory() as tmp, patch_agents(datetime, EveningClock):
             everyday = Everyday(Path(tmp))
             for text, expected in (("how long until midnight", "**4 hours 25 minutes** until midnight"),
                                    ("how many minutes until midnight", "**265 minutes**"),
