@@ -35,8 +35,15 @@ The CPU half ran on the same day and the GPU half the next. Full write-up: [`eva
 - **The GPU is fast enough** (run 2026-11-10, once the driver was installed). On the RTX 3050 Ti
   the English checkpoint takes 53.6 ms at the median and 66.6 ms at P95, with 2.3 GB of GPU memory
   at peak. Its scores match the CPU's to within 0.033.
-- **Still open:** a confirmation run on a fresh set labelled by Jeevan, with thresholds
-  `(1.55, 2.05)` frozen in advance.
+- **Better questions help, but a cheap control nearly matches them** (2026-11-10,
+  [`evals/tier_choice_variants.md`](evals/tier_choice_variants.md)):
+  - A `choice` question describing our three tiers reaches 74.8% cross-validated, and all
+    signals combined reach 79.4%.
+  - Re-weighting the heuristic's own signals, with no Laya, reaches 76.8%.
+  - Prompt length nearly gives the label away on this set: length alone scores 72.3%.
+- **Still open:** a confirmation run on a fresh set labelled by Jeevan, written so that length does
+  not predict the tier. Four candidates are fixed in advance in the variants write-up, including
+  the no-Laya one.
 
 ## What Laya is
 

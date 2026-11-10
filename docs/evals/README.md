@@ -54,6 +54,9 @@ the results and a short write-up whose first paragraph is the decision.
 | `tier_choice_experiment.py` | The experiment: imports `AgentOrchestrator._complexity` read-only; with `laya` installed it also scores each request with both checkpoints. Not part of the test suite and needs no dependency to run the heuristic half. |
 | `tier_choice_results_cpu.json` | The recorded CPU run: accuracy, confusion matrices, latency, memory and per-request scores. |
 | `tier_choice_results_cuda.json` | The same run on the RTX 3050 Ti Laptop GPU (2026-11-10): the same scores to within 0.033, 54 ms median per decision. |
+| `tier_choice_variants.md` | Write-up (2026-11-10): tier-worded questions and combined signals. The best reaches 79.4% cross-validated, but the heuristic's own signals re-fitted reach 76.8% and prompt length biases the set, so a fresh set decides. |
+| `tier_choice_variants.py` | The variants experiment: six Laya questions in one pass, cross-validated thresholds and logistic regressions, a no-Laya control and a frozen selection rule. |
+| `tier_choice_variants_results.json` | Its recorded GPU run: every variant's accuracy and errors, timings and per-request answers. |
 
 ## Read next
 

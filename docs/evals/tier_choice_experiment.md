@@ -19,6 +19,9 @@ looks promising, but it is not evidence yet.**
 - **The labels are not independent.** Claude wrote both the prompts and the labels. The next step
   is a fresh set labelled by Jeevan, tested with the fitted thresholds frozen in advance (below).
 
+**Follow-up (2026-11-10):** [`tier_choice_variants.md`](tier_choice_variants.md) tests tier-worded
+questions and combined signals, and finds that prompt length biases this set.
+
 ## Setup
 
 - **Set.** [`tier_choice_set.json`](tier_choice_set.json): 155 requests (65 fast, 58 smart, 32
