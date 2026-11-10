@@ -169,6 +169,31 @@ provider with that API works.
 | Text-to-speech | NVIDIA Riva **Magpie** (`magpie-tts-multilingual`) · offline `pyttsx3` | `LAPTOP_AGENT_TTS=auto` | The native window speaks through `/api/tts`: Magpie ~0.7 s a sentence, the offline voice when it fails; a browser tab uses its own voice |
 | Backup chat | `openai/gpt-oss-120b:free` via OpenRouter | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Default; only tried after every primary tier |
 
+### How a message picks its model
+
+Only chat is tiered. A command (the time, the weather, a reminder, a file) is sent to a tool by
+the instant router or the LLM router and never reaches a chat model, and a time-sensitive question
+is answered from a web search first.
+
+For chat, `_complexity` in `agents/orchestrator.py` sorts the message with a local rule, not a
+model call, judged on the message alone:
+
+| Tier | When | Example |
+|---|---|---|
+| Ultra (reasoning) | Over 70 words, or a cue for depth or step-by-step reasoning: "step by step", "in depth", "prove", "derive", "design a system", "from scratch", "think hard", a puzzle or riddle, "show your work", "solve for" | "prove that the square root of 2 is irrational" |
+| Smart | Over 35 words, or a cue for analysis: "explain", "why", "compare", "debug", "refactor", "write code", "algorithm", "pros and cons" | "explain how DNS works" |
+| Fast | Everything else | "what is the capital of mongolia" |
+
+A tier that is not configured, busy or broken falls to the next one down (the ladder below), and
+the reply says when it came from a lower tier than the one asked for.
+
+**Why a rule and not a model.** Asking a model to classify each message would add a model call,
+0.5–1.5 s on the fast tier, to every turn before the answer starts. The rule costs nothing. The
+trade-off is that it reads words, not difficulty: "is 1009 prime" stays on the fast tier, and
+"why is the sky blue" goes to smart. Saying "think hard" or "use the big model" sends any
+message to the reasoning tier. The page colours the orb while it waits with a copy of the rule in
+`app.js` (`estimateTier`).
+
 ### The model ladder
 
 ```mermaid
