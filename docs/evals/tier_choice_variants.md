@@ -92,6 +92,12 @@ deterministic, so it is fixed before any fresh label exists:
 The winner is chosen by the same rule: the highest accuracy with no more fast→ultra than
 `_complexity`. It is adopted only if it beats `_complexity` by 10 points or more.
 
+The fresh set is [`tier_choice_fresh_set.json`](tier_choice_fresh_set.json): 120 requests, shuffled
+and unlabelled. By the drafter's intended tiers, word count correlates with the tier at 0.14,
+against 0.74 here, and the old length cut-offs would score 38%. The scorer is
+[`tier_choice_confirm.py`](tier_choice_confirm.py). It refuses to run until every `tier` and
+`labelled_by` are filled in, and it reports the length–label correlation on the real labels.
+
 ## Reproduce
 
 ```powershell
