@@ -58,6 +58,7 @@ the results and a short write-up whose first paragraph is the decision.
 | `tier_choice_variants.py` | The variants experiment: six Laya questions in one pass, cross-validated thresholds and logistic regressions, a no-Laya control and a frozen selection rule. |
 | `tier_choice_variants_results.json` | Its recorded GPU run: every variant's accuracy and errors, timings and per-request answers. |
 | `tier_choice_fresh_set.json` | The confirmation fixture: 120 fresh, shuffled requests written so that length does not give away the tier. **Unlabelled until Jeevan fills in each `tier`**, and no candidate is scored on it before then. |
+| `tier_choice_apply_labels.py` | Copies labels (`{"q001": "fast", …}`, from the labelling page or typed by hand) into the fresh set, refusing unknown ids or tiers. |
 | `tier_choice_confirm.py` | The confirmation scorer. It fits the four frozen candidates on the original set only, scores them on the fresh labels, and applies the frozen selection and adoption rule. |
 
 ## Read next
