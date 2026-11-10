@@ -688,6 +688,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   chat and stale wake replies that span a chat (`test_browser_wake.py`). (10-19)
 - **A hidden surface hid wrong messages** → check each message before surfacing it. (09-27)
 - **Browser-pane screenshots time out** → use headless Playwright at real viewports. (10-01)
+- **The voice-recording card showed "Save WAV" in default link blue and a light-grey "Transcribe
+  recording" button on the dark page, and a failed transcription read "Failed to fetch The
+  recording is still saved."** → `.recording-card a/button` set only padding, so the browser's own
+  colours applied; the catch printed `e.message` raw, with no separator and no reason (an
+  unreachable server and a server reply both ran into the next sentence) → the card styles use the
+  page's tokens, an unreachable server is "The server could not be reached.", a reply shows its own
+  message, a non-JSON reply shows its status (`RecordingCardAssetTests`, `RecordingBrowserTests`). (11-07)
 
 ### Data and state
 - **"total revenue by region in sales.csv" said Revenue "is not a column of numbers"** because
