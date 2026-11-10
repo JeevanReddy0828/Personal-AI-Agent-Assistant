@@ -1,6 +1,7 @@
 # Proposal: a Laya decision model in the tier choice
 
-**Status: proposal only.** Nothing has been wired up, installed or downloaded. Written 2026-11-09 against
+**Status: proposal, plus the CPU half of its phase 0 measurement.** Nothing in the app has been wired
+up or installed; the measurement ran in a throwaway environment outside the repository. Written 2026-11-09 against
 `main` at `e251f50`. It answers one question: can the Laya typed-decision model
 ([`JeevanReddy0828/laya-mlx`](https://github.com/JeevanReddy0828/laya-mlx), a fork of
 `mizorewww/laya-mlx`) help the brain choose between the fast, smart and ultra tiers? The model and
@@ -18,6 +19,21 @@ the runtime that runs it get different answers, so they are kept apart below.
 **Recommendation:** run a short measurement (phase 0) before writing any code, and adopt Laya only if
 it clears the bars in [What would make it worth it](#what-would-make-it-worth-it). Phase 0 needs
 the NVIDIA driver working, which you can check by seeing the GPU listed in `nvidia-smi`.
+
+### Phase 0 so far: the CPU half (2026-11-09)
+
+The CPU half ran on the same day. Full write-up: [`evals/tier_choice_experiment.md`](evals/tier_choice_experiment.md).
+
+- **The test fixed in advance failed.** Laya plus the explicit cues scored 52.3–54.2% on 155
+  requests, against 52.3% for `_complexity`. Its scores rank the tiers sensibly, but they crowd
+  between 1.25 and 1.95, so the guessed 1.0 / 2.2 cut-offs sent nearly everything to smart.
+- **A re-fit made afterwards reached 69.0%.** Cross-validated thresholds with the English
+  checkpoint sent 1 fast request to ultra, against the heuristic's 3. That would pass the
+  accuracy bars, but it was fitted after the fact, on prompts and labels Claude wrote.
+- **The CPU is too slow.** The English checkpoint takes 486 ms at the median and 635 ms at P95, over
+  250 ms. The multilingual one takes 142 / 189 ms, but it is the weaker checkpoint.
+- **Still open:** the GPU timing, which needs the NVIDIA driver, and a confirmation run on a fresh
+  set labelled by Jeevan with thresholds `(1.55, 2.05)` frozen in advance.
 
 ## What Laya is
 
@@ -116,7 +132,7 @@ Ubuntu is installed.
 | Option | Runs here? | What it adds to this app | Expected speed | Verdict |
 |---|---|---|---|---|
 | A. Upstream `laya-serve` on the 3050 Ti (CUDA torch), loopback HTTP | Yes, once the NVIDIA driver works | Nothing. It runs in its own venv and process, and the app reaches it over `urllib`, as it reaches the embeddings service | T4 reference: 32.8 ms per question (multilingual), 39.5 ms (English). The 3050 Ti Laptop is a similar class of Ampere part. **Not measured.** | **Recommended**, if phase 0 passes |
-| B. The same sidecar on CPU | Yes | Same as A | Upstream measured 48 ms per question (multilingual) and 113 ms (English) on a 28-thread workstation CPU. An 8-core laptop is plausibly 2–4 times slower. | The automatic fallback when the GPU is off: upstream picks CUDA, then CPU |
+| B. The same sidecar on CPU | Yes | Same as A | **Measured here:** 486 ms P50 / 635 ms P95 (English), 142 / 189 ms (multilingual), fp32, 8 threads | Too slow for the English checkpoint. The automatic fallback when the GPU is off: upstream picks CUDA, then CPU. |
 | C. laya-mlx in WSL2 with `mlx[cuda12]` | Unknown. laya-mlx only installs `mlx` on macOS and pins `mlx<0.33`, so `mlx` is installed by hand. It has never been run on CUDA. | A WSL process the app must reach | Unknown | Try once in phase 0. It is the only way this fork runs on this GPU. |
 | D. laya-mlx on Windows MLX (CPU) | Unknown: `win_amd64` wheels exist, nobody has run them | `mlx`, `numpy`, `tokenizers`, `huggingface-hub` | Unknown. This is MLX's CPU backend, not its fast path. | Not worth it with a GPU present |
 | E. Upstream `laya` inside the app's own process | Yes | `torch` (about 3 GB with CUDA), `transformers`, `vegaml`, `cryptography`, ... into the app's environment and `JARVIS.exe` | Same as A | **No.** It breaks the zero-dependency rule and bloats the packaged app. |
@@ -141,8 +157,9 @@ delays the first token:
 
 - **GPU.** An estimated 30–60 ms is small next to a 0.5–1.7 s fast-tier turn. If so, the question
   is accuracy alone.
-- **CPU.** An estimated 100–450 ms is up to a quarter more wait on a fast-tier turn. It is worth it
-  only if enough turns move to the right tier.
+- **CPU.** Measured: 486 ms at the median for the English checkpoint, a third more wait on a 1.5 s
+  fast-tier turn, and 142 ms for the multilingual one. It is worth it only if enough turns move to
+  the right tier.
 - **Overlap.** When the routing call runs (up to 2.5 s), the decision can run beside it and add
   nothing. Only turns that skip routing pay its cost in full.
 - **Deadline.** A hard deadline (proposed: 250 ms) hands the turn to the heuristic, so a slow or
@@ -201,7 +218,8 @@ The change is small and reversible: one new module and one call site.
 
 | Phase | What | Changes this repo? |
 |---|---|---|
-| 0 | Install the NVIDIA driver and check that `nvidia-smi` lists the GPU. In a throwaway venv outside the repo, install CUDA torch (about 3 GB) and `laya`. Download the multilingual (678 MB) and English (848 MB) checkpoints. Try laya-mlx once in WSL2. Run the labelled set on the GPU and the CPU, and write up the results. | Only `docs/evals/`: the set, the script and the results |
+| 0 | Install the NVIDIA driver and check that `nvidia-smi` lists the GPU. In a throwaway venv outside the repo, install CUDA torch (about 3 GB) and `laya`. Download the multilingual (678 MB) and English (848 MB) checkpoints. Try laya-mlx once in WSL2. Run the labelled set on the GPU and the CPU, and write up the results. **Done:** the venv, the downloads and the CPU run. **Waiting on the driver:** the GPU run. **Not tried:** WSL2. | Only `docs/evals/`: the set, the script and the results |
+| 0b | A confirmation set, labelled by Jeevan, tested with the thresholds frozen in `evals/tier_choice_experiment.md` | `docs/evals/` |
 | 1 | The `laya-serve` sidecar, `decisions.py` and the one call site, behind `LAYA_URL` | Yes: one PR, with the full suite run |
 | 2 | The routing-skip `noul`, evaluated separately | A separate PR |
 

@@ -1,9 +1,9 @@
-# `docs/evals/` — offline evaluations of knowledge ranking
+# `docs/evals/` — offline evaluations of knowledge ranking and the tier choice
 
 ## Purpose
 
 Reproducible experiments that decide whether a change to how `knowledge.py` picks a
-passage is worth shipping. Each one freezes its questions and pass rules **before** it is
+passage, or how the chat tier is chosen, is worth shipping. Each one freezes its questions and pass rules **before** it is
 run, measures the production scorer against a variant, and records the result, so the
 decision can be checked later instead of re-argued. They never edit production code.
 
@@ -49,6 +49,10 @@ the results and a short write-up whose first paragraph is the decision.
 | `knowledge_windows.py` | Fixed-window evaluation of passage choice; never changes the ranking module. |
 | `knowledge_after_note_move.md` | Write-up: rerun after moving one analytics note between README, CLAUDE and MEMORY; ranking unchanged. |
 | `knowledge_after_note_move.json` | That rerun's recorded corpus hashes and answers. |
+| `tier_choice_experiment.md` | Write-up (2026-11-09): the Laya decision model against `_complexity` for choosing the chat tier, on provisional labels ([proposal](../laya-decision-model.md)). |
+| `tier_choice_set.json` | The frozen fixture: 155 hand-written chat requests labelled fast / smart / ultra, with the labelling rule. Labels are provisional until Jeevan reviews them. |
+| `tier_choice_experiment.py` | The experiment: imports `AgentOrchestrator._complexity` read-only; with `laya` installed it also scores each request with both checkpoints. Not part of the test suite and needs no dependency to run the heuristic half. |
+| `tier_choice_results_cpu.json` | The recorded CPU run: accuracy, confusion matrices, latency, memory and per-request scores. |
 
 ## Read next
 
