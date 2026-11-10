@@ -80,7 +80,7 @@ from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools import keys as keys_tools
-from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, prompt_stamp, zone_question
+from laptop_agent.tools.clock import ClockTool, _requested_zone, asks_the_time, zone_question
 from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.textcard import wants_text_rendered
 from laptop_agent.tools.units import UnitTool, convert_again, looks_like_conversion

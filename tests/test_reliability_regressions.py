@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from laptop_agent.cancellation import operation, cancel, check_cancelled, OperationCancelled
+from laptop_agent.cancellation import operation, cancel, OperationCancelled
 from laptop_agent.copilot import JobCopilot, render_resume_html
 from laptop_agent.jobs import JobTracker
 from laptop_agent.memory import MemoryStore

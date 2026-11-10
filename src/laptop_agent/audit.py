@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from laptop_agent.failures import record_failure
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
+from laptop_agent.storage import synchronized
 
 import json
 from collections import deque

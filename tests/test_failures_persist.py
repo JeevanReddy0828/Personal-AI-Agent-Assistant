@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from laptop_agent.failures import Failure, FailureLog
+from laptop_agent.failures import FailureLog
 
 
 class FailurePersistenceTests(unittest.TestCase):

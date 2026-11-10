@@ -8,7 +8,6 @@ one, and there was no way to cancel or snooze anything by saying so.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import tempfile
