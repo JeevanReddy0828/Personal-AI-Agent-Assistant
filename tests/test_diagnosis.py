@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -20,13 +22,18 @@ from laptop_agent.model_status import BROKEN, DEGRADED, ModelStatus
 from laptop_agent.safety import ApprovalDenied
 from laptop_agent.selfcheck import Check
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.tracing import TraceStore, TurnTrace
 
 
 class Provider:
-    def __init__(self, failure: tuple[str, str] | None = None, wait=None, raises: Exception | None = None) -> None:
-        self.failure, self.wait, self.raises = failure, wait, raises
+    def __init__(self, failure: tuple[str, str] | None = None, wait=None, raises: Exception | None = None,
+                 fails: int | None = None) -> None:
+        self.failure, self.wait, self.raises, self.fails, self.calls = failure, wait, raises, fails, 0
 
     def ping(self, on_failure=None) -> bool:
+        self.calls += 1
+        if self.fails is not None and self.calls > self.fails:
+            return True
         if self.wait is not None:
             self.wait()
         if self.raises is not None:
@@ -50,9 +57,10 @@ class Search:
 
 class Traces:
     def __init__(self, **stats) -> None:
-        self.stats = stats
+        self.stats, self.since = stats, None
 
-    def summary(self) -> dict[str, object]:
+    def summary(self, since=None) -> dict[str, object]:
+        self.since = since
         return dict(self.stats)
 
 
@@ -82,7 +90,7 @@ class Quiet(unittest.TestCase):
     """Nothing caught, nothing unsaved and the routing contract whole, unless a test says so."""
 
     def setUp(self) -> None:
-        for name, value in (("storage_warnings", lambda: []), ("FAILURES", Failures([])),
+        for name, value in (("storage_warnings", lambda: []), ("FAILURES", Failures([])), ("RETRY_DELAY", 0.0),
                             ("run_selfcheck", lambda router=None: ([Check("routes: x", True, "")], "All 1 checks pass."))):
             patcher = patch.object(diagnosis, name, value)
             patcher.start()
@@ -125,6 +133,27 @@ class ProbeTests(Quiet):
         self.assertEqual((warning.area, warning.fix), ("Balanced model", None))
         self.assertIn("HTTP 503", warning.detail)
         self.assertEqual(orchestrator.model_status.status("smart"), DEGRADED)
+
+    def test_a_refusal_is_tried_once_more_before_it_is_recorded(self) -> None:
+        """Found in review: one refused request marked a working tier busy, so chat skipped it
+        for a minute because the user asked what was wrong. Keep-warm retries for the same reason."""
+        flaky = Provider((DEGRADED, "the model (m) returned HTTP 429"), fails=1)
+        orchestrator = agent(fast=flaky)
+        self.assertEqual(self.probe(orchestrator, "fast").state, "ok")
+        self.assertEqual((flaky.calls, orchestrator.model_status.status("fast")), (2, "ok"))
+
+    def test_a_retired_model_is_not_asked_twice(self) -> None:
+        retired = Provider((BROKEN, "that model id has been retired by the provider (m) - HTTP 410"))
+        self.assertEqual(self.probe(agent(vision=retired), "vision").state, "broken")
+        self.assertEqual(retired.calls, 1)
+
+    def test_the_balanced_tier_names_the_setting_it_runs_on(self) -> None:
+        """Without OPENAI_SMART_MODEL it runs OPENAI_MODEL (app._build_smart_planner)."""
+        retired = (BROKEN, "that model id has been retired by the provider (m) - HTTP 410")
+        with patch.dict(os.environ, {"OPENAI_SMART_MODEL": ""}):
+            self.assertEqual(self.probe(agent(smart=Provider(retired)), "smart").fix, "Check OPENAI_MODEL.")
+        with patch.dict(os.environ, {"OPENAI_SMART_MODEL": "its-own"}):
+            self.assertEqual(self.probe(agent(smart=Provider(retired)), "smart").fix, "Check OPENAI_SMART_MODEL.")
 
     def test_an_unreachable_backup_names_its_own_address(self) -> None:
         orchestrator = agent(backup=Provider((DEGRADED, "could not reach the model (m): [Errno 11001] getaddrinfo")))
@@ -176,9 +205,12 @@ class ProbeTests(Quiet):
         self.assertIn("SEARCH_API_KEY", warning.fix or "")
 
     def test_a_refused_search_is_skipped_not_reported(self) -> None:
-        report = diagnose(agent(search=Search(raises=ApprovalDenied("no"))), [])
+        with patch.object(diagnosis, "record_failure") as recorded:
+            report = diagnose(agent(search=Search(raises=ApprovalDenied("no"))), [])
         self.assertEqual([probe.state for probe in report.probes], ["skipped"])
         self.assertEqual(report.findings, [])
+        # Swallowed, so recorded: otherwise the search just vanishes from the report.
+        self.assertEqual(recorded.call_args.args[0], "diagnosis/search")
 
 
 class OfflineTests(Quiet):
@@ -229,12 +261,14 @@ class OfflineTests(Quiet):
     def test_only_the_last_hours_failures_count(self) -> None:
         entries = [{"where": "planner/route", "kind": "TimeoutError", "age_seconds": 30.0}] * 3 + [
             {"where": "tts/riva", "kind": "OSError", "age_seconds": 120.0},
-            {"where": "old/thing", "kind": "ValueError", "age_seconds": 7200.0}]
+            {"where": "old/thing", "kind": "ValueError", "age_seconds": 7200.0},
+            {"where": "retention/swept", "kind": "Reported", "age_seconds": 60.0}]
         with patch.object(diagnosis, "FAILURES", Failures(entries)):
             [warning] = diagnose(agent(), []).warnings
         self.assertIn("4 in the last hour", warning.detail)
         self.assertIn("planner/route (TimeoutError) ×3", warning.detail)
         self.assertNotIn("old/thing", warning.detail)
+        self.assertNotIn("retention", warning.detail, "housekeeping's own note is not a failure")
 
     def test_slow_replies_and_failed_turns_are_warnings(self) -> None:
         traces = Traces(turns=20, chat_turns=12, median_ttft_ms=9200, llm_routed_pct=40.0, failed=2)
@@ -242,6 +276,26 @@ class OfflineTests(Quiet):
         self.assertEqual([f.area for f in report.warnings], ["Slow replies", "Model routing", "Failed turns"])
         self.assertIn("9.2 s", report.warnings[0].detail)
         self.assertNotIn("response times", report.working)
+
+    def test_response_times_are_read_from_the_last_hour(self) -> None:
+        traces = Traces(turns=10, chat_turns=6, median_ttft_ms=1200, llm_routed_pct=5.0, failed=0)
+        diagnose(agent(traces=traces), [])
+        self.assertAlmostEqual((datetime.now(UTC) - traces.since).total_seconds(), 3600, delta=60)
+
+    def test_turns_from_before_a_restart_are_not_reported_as_current(self) -> None:
+        """Found in review: the traces outlive a restart, so one failed turn days ago was
+        reported by every diagnosis until a hundred newer turns pushed it out."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        traces = TraceStore(Path(tmp.name) / "traces.json")
+        old = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+        for _ in range(5):
+            traces.add(TurnTrace(kind="command", ok=False, at=old))
+        for _ in range(5):
+            traces.add(TurnTrace(kind="command"))
+        report = diagnose(agent(traces=traces), [])
+        self.assertEqual(report.findings, [])
+        self.assertIn("response times", report.working)
 
     def test_a_handful_of_turns_says_nothing_about_speed(self) -> None:
         report = diagnose(agent(traces=Traces(turns=3, chat_turns=3, median_ttft_ms=30000, failed=1)), [])
@@ -285,12 +339,15 @@ class CommandTests(Quiet):
         self.assertTrue(result.message.startswith("**Self-diagnosis:"), result.message)
         self.assertIn("Reading text in images", result.data["working"])
 
-    def test_a_problem_makes_the_command_itself_fail(self) -> None:
+    def test_a_problem_found_is_not_a_failed_turn(self) -> None:
+        """Found in review: a report listing a problem was traced as a failed turn, which the
+        next diagnosis then reported as a problem of its own."""
         orchestrator = self.build()
         orchestrator.setup_source = lambda: [row("ocr", "Reading text in images", "broken", "Gone.")]
         result = asyncio.run(orchestrator.handle("diagnose"))
-        self.assertFalse(result.ok, "the command reported success while listing a problem")
+        self.assertTrue(result.ok, result.message)
         self.assertEqual(result.data["status"], "fail")
+        self.assertIs(orchestrator.traces.recent(1)[0]["ok"], True)
 
     def test_whats_wrong_with_you_reaches_the_diagnosis(self) -> None:
         result = asyncio.run(self.build().handle("what's wrong with you?"))
@@ -378,6 +435,15 @@ class EndpointTests(unittest.TestCase):
         status, _, headers = self.post("personal")
         self.assertEqual((status, headers.get("X-Jarvis-Denied")), (403, "role"))
         self.ran.assert_not_called()
+
+    def test_the_chat_models_answer_updates_what_setup_shows(self):
+        """Found in review: the page reloads Setup after a diagnosis, which still read the keep-warm
+        ping's "not answering" for up to 200 s beside a report saying the chat model answered."""
+        self.ran.return_value = ToolResult.success("**Self-diagnosis: fine.**", status="ok", verdict="Fine.",
+                                                   findings=[], probes=[{"key": "fast", "state": "ok"}])
+        with patch.dict(self.webui._LLM_STATUS, {"reachable": False}):
+            self.post("dev")
+            self.assertIs(self.webui._LLM_STATUS["reachable"], True)
 
     def test_the_server_gives_the_orchestrator_its_setup_rows(self):
         self.assertIs(self.webui._orchestrator.setup_source, self.webui._setup_items)

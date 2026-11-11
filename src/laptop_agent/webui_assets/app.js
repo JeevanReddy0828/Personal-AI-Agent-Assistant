@@ -1165,7 +1165,7 @@
   const diagBtn=document.getElementById('diagBtn'),diagMsg=document.getElementById('diagMsg'),diagList=document.getElementById('diagList');
   diagBtn.addEventListener('click',async()=>{
     diagBtn.disabled=true;diagMsg.classList.remove('err');diagList.textContent='';
-    diagMsg.textContent='Checking everything and calling each model once (up to 30 s)…';
+    diagMsg.textContent='Checking everything and calling each model once…';
     let d=null;
     try{const r=await fetch('/api/diagnose',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});d=await r.json();if(!r.ok||!d.ok)throw new Error('refused');}
     catch(e){diagMsg.classList.add('err');diagMsg.textContent='Could not run the diagnosis.';diagBtn.disabled=false;return;}

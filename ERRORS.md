@@ -411,6 +411,10 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`test_messaging.py`). Developer-only. (10-14)
 
 ### Models and providers
+- **A rejected search API key showed nowhere: every search answered, through DuckDuckGo** →
+  `build_search_backend`'s fallback swallowed the API's `WebSearchError` without recording it,
+  so `failures` and the self-diagnosis saw a healthy search → recorded as `websearch/primary`
+  before the fallback runs (`test_websearch.py`). Found by the review of #310. (11-11)
 - **A retired Riva model id stalls Stop or outlives the speech deadline** → function-list
   discovery made a separate 15-second blocking HTTP call between two bounded gRPC waits →
   poll discovery against the same deadline and cancellation signal, leaving a slow lookup

@@ -1623,6 +1623,11 @@ class Handler(BaseHTTPRequestHandler):
             # Developer-only by the route allow-list, like /api/setup. A POST, because it makes
             # a live call to every configured model tier and a web search.
             result = _orchestrator.diagnose()
+            # The chat model's answer is fresher than the keep-warm ping's, which the Setup panel
+            # the page reloads next would otherwise contradict for up to 200 s.
+            fast = next((probe for probe in result.data.get("probes") or [] if probe.get("key") == "fast"), None)
+            if fast is not None and fast.get("state") != "slow":
+                _LLM_STATUS["reachable"] = fast.get("state") == "ok"
             self._json(200, {"ok": True, "message": result.message, **_json_safe(result.data)})
         elif self.path == "/api/reminders":
             self._handle_reminders()

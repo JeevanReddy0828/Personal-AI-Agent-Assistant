@@ -3314,8 +3314,9 @@ class AgentOrchestrator:
         (diagnosis.py). The Setup panel's Run diagnosis button calls this too."""
         rows = self.setup_source() if self.setup_source is not None else local_setup_rows(self)
         report = run_diagnosis(self, rows)
-        build = ToolResult.success if report.status != "fail" else ToolResult.failure
-        return build(report.markdown(), **report.as_data())
+        # It ran, whatever it found: a failure here is traced as a failed turn, which the next
+        # diagnosis would then report as one of the problems.
+        return ToolResult.success(report.markdown(), **report.as_data())
 
     @staticmethod
     def _failure_report() -> ToolResult:

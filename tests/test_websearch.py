@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 import json
+from unittest.mock import patch
 
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.tools.websearch import (
@@ -144,7 +145,10 @@ class SearchApiBackendTests(unittest.TestCase):
             raise WebSearchError("api 429")
 
         erroring = build_search_backend("brave", "key", primary=boom, fallback=fallback)
-        self.assertEqual(erroring("q", 5)[0]["title"], "F")
+        with patch("laptop_agent.tools.websearch.record_failure") as recorded:
+            self.assertEqual(erroring("q", 5)[0]["title"], "F")
+        # Recorded, or a rejected key hides behind the fallback and the diagnosis sees no fault.
+        self.assertEqual(recorded.call_args.args[0], "websearch/primary")
 
     def test_build_without_key_returns_fallback(self) -> None:
         fallback = lambda q, n: [{"title": "DDG", "url": "https://d", "snippet": ""}]

@@ -15,16 +15,17 @@ here is rebuilt from the HTTP status alone.
 from __future__ import annotations
 
 import contextvars
+import os
 import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
 
 from laptop_agent.failures import FAILURES, record_failure
-from laptop_agent.health import setup_report
+from laptop_agent.health import misconfigured_advice, setup_report
 from laptop_agent.model_status import BROKEN, TIERS
-from laptop_agent.planner.openai_compatible import _PERMANENT_ADVICE
 from laptop_agent.safety import ApprovalDenied
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.storage import storage_warnings
@@ -33,8 +34,13 @@ from laptop_agent.storage import storage_warnings
 # timeout is 420 s, and one hung call must not hold the whole report for that long.
 PROBE_DEADLINE = 30.0
 PROBE_QUERY = "weather"
-# The failure log keeps 200 records across restarts; a diagnosis is about now.
+# A transient refusal is tried once more, as the keep-warm ping does: recorded at once, one
+# refused request would have the tier skipped for a minute because the user asked what was wrong.
+RETRY_DELAY = 1.5
+# The failure log and the traces both outlive a restart; a diagnosis is about now.
 FAILURE_WINDOW = 3600.0
+# Housekeeping notes what it swept in the failure log, so `failures` shows it; it is not one.
+_NOT_FAILURES = {"retention/swept"}
 # Measured medians are 0.8-1.8 s to the first token and 8% of turns routed by a model
 # (docs/design/conventions.md, item 5); past these, something has changed.
 SLOW_FIRST_TOKEN_MS = 4000
@@ -130,13 +136,12 @@ class Diagnosis:
 
 def _tier_failure(key: str, name: str, seconds: float, reason: str, detail: str,
                   model_var: str, key_var: str, base_var: str) -> Probe:
+    advice = misconfigured_advice(detail, model_var, key_var) if reason == BROKEN else None
+    if advice is not None:
+        what, fix = advice
+        return Probe(key, name, "broken", seconds, f"{what[:1].upper()}{what[1:]}.", f"Check {fix}.")
     found = _HTTP.search(detail)
     code = int(found[1]) if found else None
-    if reason == BROKEN and code in _PERMANENT_ADVICE:
-        fix = {401: key_var, 403: f"{key_var} and {model_var}"}.get(code, model_var)
-        advice = _PERMANENT_ADVICE[code]
-        return Probe(key, name, "broken", seconds, f"{advice[0].upper()}{advice[1:]} (HTTP {code}).",
-                     f"Check {fix}.")
     # Busy means wait, so it carries no set-up step, as in the Setup panel.
     if code is not None:
         return Probe(key, name, "busy", seconds, f"Busy or rate-limited (HTTP {code}); replies fall back.")
@@ -148,12 +153,19 @@ def _tier_failure(key: str, name: str, seconds: float, reason: str, detail: str,
 def _ping_tier(status: Any, key: str, name: str, ping: Callable[..., bool],
                model_var: str, key_var: str, base_var: str) -> Probe:
     why: list[tuple[str, str]] = []
+
+    def attempt() -> bool:
+        try:
+            return bool(ping(on_failure=lambda reason, detail: why.append((reason, detail))))
+        except Exception as exc:  # a provider that raises instead of reporting
+            record_failure(f"diagnosis/{key}", exc)
+            return False
+
     started = time.perf_counter()
-    try:
-        ok = bool(ping(on_failure=lambda reason, detail: why.append((reason, detail))))
-    except Exception as exc:  # a provider that raises instead of reporting
-        record_failure(f"diagnosis/{key}", exc)
-        ok = False
+    ok = attempt()
+    if not ok and not (why and why[-1][0] == BROKEN):  # a retired model will not answer on a retry
+        time.sleep(RETRY_DELAY)
+        ok = attempt()
     seconds = round(time.perf_counter() - started, 1)
     reason, detail = why[-1] if why and not ok else ("", "")
     # Recorded like the keep-warm ping, with the reason: a success clears a tier marked
@@ -169,7 +181,8 @@ def _search(websearch: Any) -> Probe:
     started = time.perf_counter()
     try:
         result = websearch.search(PROBE_QUERY, limit=3)
-    except ApprovalDenied:
+    except ApprovalDenied as exc:
+        record_failure("diagnosis/search", exc)
         return Probe("search", "Web search", "skipped", None, "Not approved, so not tried.")
     except Exception as exc:  # a backend that raises instead of returning a failure
         record_failure("diagnosis/search", exc)
@@ -179,7 +192,7 @@ def _search(websearch: Any) -> Probe:
         return Probe("search", "Web search", "ok", seconds, "Answered.")
     return Probe("search", "Web search", "busy", seconds,
                  "Returned no results: the search endpoint may be rate-limited or unreachable.",
-                 "If it keeps failing, set SEARCH_PROVIDER and SEARCH_API_KEY for a search API.")
+                 "If it keeps failing, check the network, then SEARCH_PROVIDER and SEARCH_API_KEY.")
 
 
 def run_probes(orchestrator: Any, *, deadline: float = PROBE_DEADLINE) -> list[Probe]:
@@ -196,6 +209,8 @@ def run_probes(orchestrator: Any, *, deadline: float = PROBE_DEADLINE) -> list[P
         ping = getattr(getattr(getattr(orchestrator, attr, None), "provider", None), "ping", None)
         if not callable(ping):
             continue  # not configured, or the built-in rules, which have nothing to call
+        if key == "smart" and not os.environ.get(model_var, "").strip():
+            model_var = "OPENAI_MODEL"  # the balanced tier runs the chat model when it has none of its own
 
         def probe(key: str = key, name: str = name, ping: Callable[..., bool] = ping,
                   model_var: str = model_var, key_var: str = key_var, base_var: str = base_var) -> None:
@@ -252,7 +267,7 @@ def _failures() -> list[Finding]:
     counts: dict[str, int] = {}
     for entry in FAILURES.recent(200):
         age = entry.get("age_seconds")
-        if isinstance(age, (int, float)) and age <= FAILURE_WINDOW:
+        if isinstance(age, (int, float)) and age <= FAILURE_WINDOW and entry.get("where") not in _NOT_FAILURES:
             what = f"{entry.get('where')} ({entry.get('kind')})"
             counts[what] = counts.get(what, 0) + 1
     if not counts:
@@ -265,7 +280,8 @@ def _failures() -> list[Finding]:
 
 
 def _latency(traces: Any) -> tuple[list[Finding], bool]:
-    stats = traces.summary() if traces is not None else {}
+    since = datetime.now(UTC) - timedelta(seconds=FAILURE_WINDOW)
+    stats = traces.summary(since=since) if traces is not None else {}
     turns = int(stats.get("turns") or 0)
     if turns < MIN_TURNS:
         return [], False
@@ -274,16 +290,17 @@ def _latency(traces: Any) -> tuple[list[Finding], bool]:
     if int(stats.get("chat_turns") or 0) >= MIN_TURNS and isinstance(first_token, int) \
             and first_token > SLOW_FIRST_TOKEN_MS:
         findings.append(Finding("warning", "Slow replies",
-                                f"Replies take {first_token / 1000:.1f} s to start (median of recent chat turns).",
+                                f"Replies take {first_token / 1000:.1f} s to start (median over the last hour).",
                                 "Say `latency` for where the time goes."))
     routed = float(stats.get("llm_routed_pct") or 0.0)
     if routed > MODEL_ROUTED_PERCENT:
         findings.append(Finding("warning", "Model routing",
-                                f"{routed:g}% of recent turns waited for a model just to work out what was asked.",
+                                f"{routed:g}% of the last hour's turns waited for a model just to work out what "
+                                "was asked.",
                                 "Say `latency` for the breakdown."))
     failed = int(stats.get("failed") or 0)
     if failed:
-        findings.append(Finding("warning", "Failed turns", f"{failed} of the last {turns} turns failed.",
+        findings.append(Finding("warning", "Failed turns", f"{failed} of the last hour's {turns} turns failed.",
                                 "Say `failures` for why."))
     return findings, not findings
 
