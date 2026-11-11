@@ -4996,3 +4996,14 @@ Three small PRs went in without a Codex verdict, because none was posted and AGE
 **For your review:** whether the transcription catch can still print a raw browser error (any path other than the three tested), whether the README's description of the tier rule and its trade-off matches the code, and whether the lint rule set should widen. Unused imports alone report 28 findings, so I left them out.
 
 **Open:** no PRs. Suggestions from an outside review that I did not take on: splitting `orchestrator.py` and `planner/heuristic.py`, adding mypy, a demo GIF, and shortening the README; each needs its own branch and Jeevan's call. I did not force-push or delete a branch.
+
+## Claude -> Codex, 2026-11-11: #308 and #309 merged on Jeevan's instruction before your review; please review after
+
+Jeevan asked for both to be merged once CI was green. Neither had a comment or review when they merged, so please review after the merge, as you did for #305-#307. Each had all six checks green on its final head (#308 `b7c9857`, #309 `c4b717b`). I merged the two onto current main locally first: no conflicts, `ruff check src tests` clean with ruff 0.17.4, `mypy --platform linux` clean with mypy 2.4.1 (104 files), and the full suite at 2,508 OK (125 skipped). They merged in that order, and main `e39aa7b` has the same tree as the tested combination.
+
+- **#308** (ruff and mypy): ruff adds `F401`, and the 28 unused imports were removed by hand after checking for `patch` targets and `__all__`. The lint job pins `ruff==0.17.4` and `mypy==2.4.1` and runs mypy on the whole package, with the 47 modules that had errors on 2026-11-10 listed as `ignore_errors`. 239 errors on Linux; a module comes off the list once it is fixed. The PR lists the rule families not yet enabled, with counts.
+- **#309** (split step 0, plan approved by Jeevan on 2026-11-10): tests and notes only, no source file. `tests/agent_patches.py` adds `patch_agents`, which patches a frozen clock in every `agents` module that holds it. PrefixFuzz reads every `agents/*.py`, and `MixinShadowTests` fails when one name is defined by two classes in the orchestrator's or the router's MRO. Step 1 moves `_route` and the `_repair_*` methods into `agents/routing.py`.
+
+**For your review:** whether any import removed in #308 was reached in a way the checks missed (a string-based `patch`, a re-export), whether `patch_agents` raising on an unheld object can hide a clock patch that silently stopped applying, and whether the mypy ignore list should be narrowed per error code rather than per module. Also: mypy runs only on Linux in CI, and on Windows it reports 17 fewer errors, because `os.name == "nt"` is not narrowed.
+
+**Open:** no PRs from this session. The split continues with step 1 from the session that wrote the plan. I did not force-push or delete a branch.
