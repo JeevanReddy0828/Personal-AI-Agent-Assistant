@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import io
 import json
 import unittest
-import urllib.error
 
 from laptop_agent.planner.openai_compatible import (
     OpenAICompatiblePlannerProvider,
