@@ -205,6 +205,13 @@ class OfflineTests(Quiet):
         report = diagnose(agent(fast=Provider(), ultra=Provider((DEGRADED, "the model returned HTTP 429"))), rows)
         self.assertEqual([f.area for f in report.findings], ["Deep model"])
 
+    def test_web_search_is_named_once_but_its_set_up_advice_is_kept(self) -> None:
+        """Found live: the probe and the Setup row both put "Web search" under Working."""
+        report = diagnose(agent(search=Search()), [row("search", "Web search", "ready", "DuckDuckGo, no key needed.")])
+        self.assertEqual(len([name for name in report.working if name.startswith("Web search")]), 1, report.working)
+        advice = [row("search", "Web search", "ready", "DuckDuckGo: a key but no provider.", "Set SEARCH_PROVIDER.")]
+        self.assertEqual([f.fix for f in diagnose(agent(search=Search()), advice).warnings], ["Set SEARCH_PROVIDER."])
+
     def test_a_storage_warning_is_a_problem(self) -> None:
         with patch.object(diagnosis, "storage_warnings", lambda: ["Could not save reminders: disk full."]):
             report = diagnose(agent(), [])

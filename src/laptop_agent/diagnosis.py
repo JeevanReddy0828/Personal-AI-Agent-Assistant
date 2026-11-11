@@ -51,7 +51,8 @@ _TIERS = (
      "OPENROUTER_BASE_URL"),
 )
 # Setup rows a live probe answers more precisely, by the probes that cover them.
-_COVERED = {"chat": {"fast"}, "deeper": {"smart", "ultra"}, "vision": {"vision"}, "backup": {"openrouter"}}
+_COVERED = {"chat": {"fast"}, "deeper": {"smart", "ultra"}, "vision": {"vision"}, "backup": {"openrouter"},
+            "search": {"search"}}
 _HTTP = re.compile(r"HTTP (\d{3})\b")
 
 
@@ -229,7 +230,9 @@ def _setup(rows: list[dict[str, object]], probed: set[str]) -> tuple[list[Findin
     for row in rows:
         key, name, state = str(row.get("key")), str(row.get("name")), str(row.get("state"))
         detail, fix = str(row.get("detail") or ""), (str(row["next"]) if row.get("next") else None)
-        if _COVERED.get(key, set()) & probed:
+        # A ready row with a next step is set-up advice (a search key without a provider),
+        # which no probe answers.
+        if _COVERED.get(key, set()) & probed and not (state == "ready" and fix):
             continue
         if state == "broken":
             findings.append(Finding("problem", name, detail, fix))
@@ -333,6 +336,8 @@ def diagnose(orchestrator: Any, setup_rows: list[dict[str, object]]) -> Diagnosi
     started = time.perf_counter()
     configured = {key for key, _name, attr, *_ in _TIERS
                   if callable(getattr(getattr(getattr(orchestrator, attr, None), "provider", None), "ping", None))}
+    if getattr(getattr(orchestrator, "context", None), "websearch", None) is not None:
+        configured.add("search")
     offline, working, optional = offline_checks(orchestrator, setup_rows, configured)
     live = run_probes(orchestrator)
     answered: list[str] = []
