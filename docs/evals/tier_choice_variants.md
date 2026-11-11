@@ -1,6 +1,8 @@
 # Tier choice: better questions and combined signals (2026-11-10)
 
-**Decision: no variant is adopted yet.**
+**Decision: no variant is adopted yet.** (Settled 2026-11-11 in
+[`tier_choice_confirm.md`](tier_choice_confirm.md): on fresh requests the plain preset won, and
+the variants below that looked better here did not hold up.)
 
 - **Better wording helps.** The best combination reaches 79.4% (cross-validated).
 - **But a cheap control nearly matches it.** Re-weighting the keyword heuristic's own signals,

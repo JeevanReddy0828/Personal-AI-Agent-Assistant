@@ -57,7 +57,9 @@ the results and a short write-up whose first paragraph is the decision.
 | `tier_choice_variants.md` | Write-up (2026-11-10): tier-worded questions and combined signals. The best reaches 79.4% cross-validated, but the heuristic's own signals re-fitted reach 76.8% and prompt length biases the set, so a fresh set decides. |
 | `tier_choice_variants.py` | The variants experiment: six Laya questions in one pass, cross-validated thresholds and logistic regressions, a no-Laya control and a frozen selection rule. |
 | `tier_choice_variants_results.json` | Its recorded GPU run: every variant's accuracy and errors, timings and per-request answers. |
-| `tier_choice_fresh_set.json` | The confirmation fixture: 120 fresh, shuffled requests written so that length does not give away the tier. **Unlabelled until Jeevan fills in each `tier`**, and no candidate is scored on it before then. |
+| `tier_choice_fresh_set.json` | The confirmation fixture: 120 fresh, shuffled requests written so that length does not give away the tier. Labelled 2026-11-11: q001–q024 by Jeevan, q025–q120 by Claude at his request. |
+| `tier_choice_confirm.md` | Write-up (2026-11-11): the confirmation run passes Laya's preset question at the frozen thresholds, 62.5% against 50.8% for `_complexity` on 120 fresh requests (McNemar p = 0.049). The variants that looked best on the first set did not hold up. |
+| `tier_choice_confirm_results.json` | The recorded confirmation run: every candidate's accuracy and errors, and each request's prediction. |
 | `tier_choice_apply_labels.py` | Copies labels (`{"q001": "fast", …}`, from the labelling page or typed by hand) into the fresh set, refusing unknown ids or tiers. |
 | `tier_choice_confirm.py` | The confirmation scorer. It fits the four frozen candidates on the original set only, scores them on the fresh labels, and applies the frozen selection and adoption rule. |
 

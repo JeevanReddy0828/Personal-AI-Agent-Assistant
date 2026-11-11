@@ -1,0 +1,1275 @@
+{
+ "items": 120,
+ "labelled_by": "Jeevan (q001-q024) and Claude at Jeevan's request (q025-q120), 2026-11-11",
+ "device": "cuda",
+ "laya": "0.4.30",
+ "timing": {
+  "english": {
+   "ms_p50_all_six_questions": 83.5,
+   "ms_p95_all_six_questions": 97.4
+  },
+  "multilingual": {
+   "ms_p50_all_six_questions": 48.2,
+   "ms_p95_all_six_questions": 54.5
+  }
+ },
+ "length_vs_label_spearman": 0.179,
+ "length_only_reference": {
+  "accuracy": 0.358,
+  "recall": {
+   "fast": 0.444,
+   "smart": 0.26,
+   "ultra": 0.4
+  },
+  "confusion_rows_truth_cols_predicted": {
+   "fast": [
+    20,
+    13,
+    12
+   ],
+   "smart": [
+    17,
+    13,
+    20
+   ],
+   "ultra": [
+    9,
+    6,
+    10
+   ]
+  },
+  "fast_sent_to_ultra": 12,
+  "ultra_sent_to_fast": 9,
+  "non_english_accuracy": 0.357
+ },
+ "complexity_today": {
+  "accuracy": 0.508,
+  "recall": {
+   "fast": 0.867,
+   "smart": 0.24,
+   "ultra": 0.4
+  },
+  "confusion_rows_truth_cols_predicted": {
+   "fast": [
+    39,
+    6,
+    0
+   ],
+   "smart": [
+    36,
+    12,
+    2
+   ],
+   "ultra": [
+    4,
+    11,
+    10
+   ]
+  },
+  "fast_sent_to_ultra": 0,
+  "ultra_sent_to_fast": 4,
+  "non_english_accuracy": 0.429
+ },
+ "candidates": {
+  "1_heuristic_signals_logistic": {
+   "accuracy": 0.375,
+   "recall": {
+    "fast": 0.4,
+    "smart": 0.28,
+    "ultra": 0.52
+   },
+   "confusion_rows_truth_cols_predicted": {
+    "fast": [
+     18,
+     15,
+     12
+    ],
+    "smart": [
+     17,
+     14,
+     19
+    ],
+    "ultra": [
+     7,
+     5,
+     13
+    ]
+   },
+   "fast_sent_to_ultra": 12,
+   "ultra_sent_to_fast": 7,
+   "non_english_accuracy": 0.5,
+   "fitted_values": 15
+  },
+  "2_tiers_choice_expected": {
+   "accuracy": 0.608,
+   "recall": {
+    "fast": 0.756,
+    "smart": 0.42,
+    "ultra": 0.72
+   },
+   "confusion_rows_truth_cols_predicted": {
+    "fast": [
+     34,
+     7,
+     4
+    ],
+    "smart": [
+     22,
+     21,
+     7
+    ],
+    "ultra": [
+     2,
+     5,
+     18
+    ]
+   },
+   "fast_sent_to_ultra": 4,
+   "ultra_sent_to_fast": 2,
+   "non_english_accuracy": 0.5,
+   "fitted_values": 2
+  },
+  "3_all_laya_plus_heuristic_logistic": {
+   "accuracy": 0.6,
+   "recall": {
+    "fast": 0.8,
+    "smart": 0.46,
+    "ultra": 0.52
+   },
+   "confusion_rows_truth_cols_predicted": {
+    "fast": [
+     36,
+     8,
+     1
+    ],
+    "smart": [
+     13,
+     23,
+     14
+    ],
+    "ultra": [
+     3,
+     9,
+     13
+    ]
+   },
+   "fast_sent_to_ultra": 1,
+   "ultra_sent_to_fast": 3,
+   "non_english_accuracy": 0.5,
+   "fitted_values": 39
+  },
+  "4_preset_baseline": {
+   "accuracy": 0.625,
+   "recall": {
+    "fast": 0.8,
+    "smart": 0.56,
+    "ultra": 0.44
+   },
+   "confusion_rows_truth_cols_predicted": {
+    "fast": [
+     36,
+     9,
+     0
+    ],
+    "smart": [
+     17,
+     28,
+     5
+    ],
+    "ultra": [
+     5,
+     9,
+     11
+    ]
+   },
+   "fast_sent_to_ultra": 0,
+   "ultra_sent_to_fast": 5,
+   "non_english_accuracy": 0.357,
+   "fitted_values": 2
+  }
+ },
+ "winner": "4_preset_baseline",
+ "adopt": true,
+ "per_item": [
+  {
+   "id": "q001",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q002",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q003",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q004",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q005",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q006",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q007",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q008",
+   "tier": "smart",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q009",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q010",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q011",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q012",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q013",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q014",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q015",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q016",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q017",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q018",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q019",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q020",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q021",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q022",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q023",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q024",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q025",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q026",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q027",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q028",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q029",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q030",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q031",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q032",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q033",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q034",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q035",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q036",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q037",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q038",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q039",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q040",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q041",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q042",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q043",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q044",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q045",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q046",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q047",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q048",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q049",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q050",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q051",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q052",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q053",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q054",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q055",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q056",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q057",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q058",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q059",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q060",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q061",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q062",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q063",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q064",
+   "tier": "ultra",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q065",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q066",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q067",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q068",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q069",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q070",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q071",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q072",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q073",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q074",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q075",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q076",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q077",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q078",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q079",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q080",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q081",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q082",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q083",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q084",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q085",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q086",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q087",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q088",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q089",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q090",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q091",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q092",
+   "tier": "ultra",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q093",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q094",
+   "tier": "fast",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q095",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q096",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q097",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q098",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q099",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q100",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q101",
+   "tier": "ultra",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q102",
+   "tier": "ultra",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "ultra"
+  },
+  {
+   "id": "q103",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q104",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q105",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q106",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q107",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q108",
+   "tier": "smart",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q109",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q110",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q111",
+   "tier": "smart",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q112",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q113",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q114",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q115",
+   "tier": "fast",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "fast"
+  },
+  {
+   "id": "q116",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "fast",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q117",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q118",
+   "tier": "smart",
+   "today": "smart",
+   "1_heuristic_signals_logistic": "ultra",
+   "2_tiers_choice_expected": "fast",
+   "3_all_laya_plus_heuristic_logistic": "ultra",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q119",
+   "tier": "ultra",
+   "today": "ultra",
+   "1_heuristic_signals_logistic": "fast",
+   "2_tiers_choice_expected": "ultra",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  },
+  {
+   "id": "q120",
+   "tier": "ultra",
+   "today": "fast",
+   "1_heuristic_signals_logistic": "smart",
+   "2_tiers_choice_expected": "smart",
+   "3_all_laya_plus_heuristic_logistic": "smart",
+   "4_preset_baseline": "smart"
+  }
+ ]
+}

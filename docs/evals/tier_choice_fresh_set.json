@@ -5,727 +5,727 @@
   "smart": "A structured answer over several steps: an explanation of a mechanism, a comparison with trade-offs, a plan, a function or a bug fix of ordinary size, constrained writing, a diagnosis with several possible causes.",
   "ultra": "Long, careful reasoning where one wrong step ruins the answer: proofs and derivations, logic puzzles, system design, multi-part debugging, or an explicit request for the biggest model or the deepest answer."
  },
- "labelled_by": null,
+ "labelled_by": "Jeevan (q001-q024) and Claude at Jeevan's request (q025-q120), 2026-11-11",
  "items": [
   {
    "id": "q001",
    "lang": "en",
    "text": "hey, you there?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q002",
    "lang": "en",
    "text": "tell me a fun fact",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q003",
    "lang": "en",
    "text": "explain in one sentence what a VPN does",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q004",
    "lang": "en",
    "text": "I just finished a really long week at work with back to back meetings and deadlines, and honestly I just want to relax tonight. can you suggest a feel-good comedy movie?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q005",
    "lang": "en",
    "text": "how do credit scores work",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q006",
    "lang": "en",
    "text": "write a cover letter opening for a junior software engineer role at a startup",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q007",
    "lang": "en",
    "text": "we're a team of four building a small web app with a react frontend and a python backend, and we keep breaking each other's code. what branching and code review workflow would you suggest?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q008",
    "lang": "en",
    "text": "prove there are infinitely many primes",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q009",
    "lang": "en",
    "text": "design the schema and indexes for a ride-sharing app storing ten million trips a day",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q010",
    "lang": "en",
    "text": "explain why there is no general formula in radicals for polynomials of degree five or higher, at a level a strong undergraduate could follow, and why degree four still works.",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q011",
    "lang": "en",
    "text": "plural of mouse?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q012",
    "lang": "en",
    "text": "in python, how do I check if a key exists in a dictionary",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q013",
    "lang": "en",
    "text": "we were arguing at dinner tonight and now I need to settle it once and for all: is a hot dog technically a sandwich or not? just give me a quick fun answer",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q014",
    "lang": "en",
    "text": "how does wifi actually work",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q015",
    "lang": "en",
    "text": "my laptop gets really slow after a few hours, what could be causing that",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q016",
    "lang": "en",
    "text": "I'm a manager and one of my best engineers has started missing deadlines and seems disengaged in meetings. how should I approach a one-on-one with them without making it awkward?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q017",
    "lang": "en",
    "text": "my python script reads a large csv with pandas and runs out of memory on my 8 gb laptop. what are my options to process it without buying more ram?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q018",
    "lang": "ja",
    "text": "ハノイの塔の最小手数が2^n−1になることを証明してください。",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q019",
    "lang": "en",
    "text": "100 people stand in a circle and every second person is eliminated until one remains. who survives, and can you derive a general formula and prove it works for any number of people?",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q020",
    "lang": "en",
    "text": "what's a palindrome",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q021",
    "lang": "en",
    "text": "what is the main ingredient in guacamole and what else goes in it",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q022",
    "lang": "en",
    "text": "my mom is visiting next week and she loves gardening and cooking, can you suggest one simple gift idea under twenty dollars that she would probably like?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q023",
    "lang": "es",
    "text": "Mi hermana me preguntó ayer durante la cena y no supe responder, ¿cuántos planetas hay en el sistema solar? Quiero darle la respuesta correcta mañana.",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q024",
    "lang": "hi",
    "text": "महंगाई क्यों बढ़ती है?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q025",
    "lang": "en",
    "text": "my sourdough starter smells like nail polish, what does that mean and what do I do",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q026",
    "lang": "en",
    "text": "I've been offered two jobs: one pays more but has a long commute, the other pays a bit less but is remote with better learning opportunities. how should I think about choosing?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q027",
    "lang": "en",
    "text": "prove 1+2+...+n = n(n+1)/2",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q028",
    "lang": "en",
    "text": "our checkout service sometimes charges customers twice when the payment provider times out and the user clicks pay again. walk me through the failure modes and design an idempotent payment flow.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q029",
    "lang": "en",
    "text": "capital of canada?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q030",
    "lang": "en",
    "text": "what's the difference between fewer and less in a sentence",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q031",
    "lang": "fr",
    "text": "Quel est le synonyme le plus courant du mot « content » ?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q032",
    "lang": "en",
    "text": "explain to me like I'm five, in a couple of sentences, why we have different seasons during the year, my niece asked me and I completely froze",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q033",
    "lang": "en",
    "text": "how does google rank websites",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q034",
    "lang": "en",
    "text": "how does public key cryptography let two strangers talk securely",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q035",
    "lang": "en",
    "text": "I keep getting a CORS policy error when my frontend on localhost 3000 calls my api on localhost 8000. what's actually going on and how do I fix it properly on the server?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q036",
    "lang": "en",
    "text": "design whatsapp's message delivery system",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q037",
    "lang": "en",
    "text": "design a caching strategy for an api where reads dominate but data changes unpredictably",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q038",
    "lang": "en",
    "text": "what's 'serendipity' mean",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q039",
    "lang": "hi",
    "text": "पानी का रासायनिक सूत्र क्या है?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q040",
    "lang": "en",
    "text": "what are three easy houseplants for someone who forgets to water them",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q041",
    "lang": "en",
    "text": "my coworker keeps using the acronym EOD in every email he sends me and I've been too embarrassed to ask him directly, so what does it actually stand for?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q042",
    "lang": "en",
    "text": "how does a jet engine work",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q043",
    "lang": "en",
    "text": "what's the difference between stocks, bonds and index funds for a beginner",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q044",
    "lang": "en",
    "text": "I want to write a short story for a competition with a limit of a thousand words, about a lighthouse keeper who receives letters from the future. can you outline the plot in a few beats?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q045",
    "lang": "en",
    "text": "prove that the square root of 3 is irrational",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q046",
    "lang": "en",
    "text": "what's the probability that two of 30 people share a birthday? derive it",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q047",
    "lang": "en",
    "text": "I need to answer queries about how many of a million intervals contain a given point, quickly. compare the data structures I could use and analyse their time and memory complexity.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q048",
    "lang": "en",
    "text": "who wrote hamlet",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q049",
    "lang": "en",
    "text": "I have a plan to visit goa, what's the best month to go",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q050",
    "lang": "en",
    "text": "can you turn this into a bulleted list for me: eggs, spinach, two onions, a bag of rice, olive oil, garlic, and some greek yogurt for the week",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q051",
    "lang": "en",
    "text": "what causes a recession",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q052",
    "lang": "en",
    "text": "compare learning guitar and piano for an adult beginner with little free time",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q053",
    "lang": "en",
    "text": "here's my function, it's supposed to remove duplicates but keep the order, and it's slow on big lists: def dedupe(xs): out = []; for x in xs: if x not in out: out.append(x); return out. how do I make it faster?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q054",
    "lang": "es",
    "text": "Estoy aprendiendo a programar en Python y quiero hacer un pequeño proyecto para practicar. ¿Qué proyecto me recomiendas y qué pasos debería seguir para terminarlo?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q055",
    "lang": "en",
    "text": "write a lock-free queue in c++ and explain why it is correct under concurrency",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q056",
    "lang": "en",
    "text": "my model gets 98 percent accuracy in training but 60 percent on new data, and the classes are imbalanced. diagnose the likely causes and give me a step by step plan to fix it.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q057",
    "lang": "en",
    "text": "explain what a noun is",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q058",
    "lang": "en",
    "text": "give me a nice caption for a photo of a sunset at the beach",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q059",
    "lang": "en",
    "text": "here's my sentence for a birthday card, can you make it sound a little warmer: 'happy birthday, hope you have a good day and a nice year ahead, see you soon'",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q060",
    "lang": "en",
    "text": "how do vaccines work?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q061",
    "lang": "en",
    "text": "what's the best way to structure a python project with tests and packaging",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q062",
    "lang": "te",
    "text": "క్రెడిట్ స్కోర్ ఎలా పని చేస్తుంది, దాన్ని ఎలా మెరుగుపరచుకోవాలి?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q063",
    "lang": "en",
    "text": "write a polite but firm email to a client who is sixty days late on an invoice, reminding them of the amount and asking for payment by the end of next week",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q064",
    "lang": "hi",
    "text": "सिद्ध कीजिए कि √2 अपरिमेय है।",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q065",
    "lang": "en",
    "text": "I'm building a multiplayer game server for about two thousand concurrent players with real-time movement. lay out the architecture, the networking model, lag compensation and how to scale it.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q066",
    "lang": "en",
    "text": "what's the largest planet",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q067",
    "lang": "en",
    "text": "can you recommend a good podcast for my commute to work",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q068",
    "lang": "en",
    "text": "so I was talking with my friend yesterday about movies and we couldn't remember, who directed the movie inception? it's been bugging me all day honestly",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q069",
    "lang": "en",
    "text": "I need to reply to a group chat where everyone is planning a potluck, I want to say I'll bring dessert, can you write that as a cheerful one-liner?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q070",
    "lang": "en",
    "text": "what makes a good resume",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q071",
    "lang": "en",
    "text": "what are the trade-offs of working remotely versus in an office",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q072",
    "lang": "en",
    "text": "my dad wants to start exercising after a knee replacement last year, and he walks fine now. what kind of gentle weekly routine could he discuss with his doctor?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q073",
    "lang": "en",
    "text": "why is the halting problem undecidable?",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q074",
    "lang": "en",
    "text": "a snail climbs 3 m up a 10 m well each day and slips 2 m each night. how many days, and why?",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q075",
    "lang": "en",
    "text": "who discovered penicillin",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q076",
    "lang": "te",
    "text": "శుభోదయం!",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q077",
    "lang": "en",
    "text": "how do I convert a string to an integer in javascript",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q078",
    "lang": "en",
    "text": "I'm writing a short text to my landlord and want to double-check the grammar: 'Hi, the kitchen tap is leaking again, could you please send someone to have a look this week? Thanks'",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q079",
    "lang": "en",
    "text": "how should I start investing",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q080",
    "lang": "en",
    "text": "help me plan a healthy weekly meal prep for one person on a budget",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q081",
    "lang": "en",
    "text": "my landlord wants to raise my rent by fifteen percent at renewal, and I've been a good tenant for three years. how should I negotiate, and what points should I bring up in the email?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q082",
    "lang": "en",
    "text": "design a distributed rate limiter",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q083",
    "lang": "en",
    "text": "implement dijkstra's algorithm and prove why it fails with negative edge weights",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q084",
    "lang": "fr",
    "text": "Conçois l'architecture d'un système de réservation de billets de concert qui supporte des millions d'utilisateurs à l'ouverture des ventes, sans jamais vendre deux fois la même place.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q085",
    "lang": "en",
    "text": "what does CPU stand for",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q086",
    "lang": "en",
    "text": "why is the ocean salty, short answer please",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q087",
    "lang": "en",
    "text": "I've been reading about the ocean lately and something I always wondered as a kid: what's the deepest point in the ocean called and roughly how deep is it?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q088",
    "lang": "en",
    "text": "tcp vs udp?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q089",
    "lang": "en",
    "text": "how do I prepare for a system design interview in two weeks",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q090",
    "lang": "en",
    "text": "I have about five thousand dollars saved, some credit card debt at twenty percent interest, and no emergency fund yet. what should I prioritise first and why, roughly?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q091",
    "lang": "en",
    "text": "is P equal to NP?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q092",
    "lang": "en",
    "text": "find all integer solutions to x^2 - y^2 = 45 and show there are no others",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q093",
    "lang": "en",
    "text": "design an offline-first notes app that syncs between a phone and a laptop, handles edits made on both while offline, and resolves conflicts without losing anyone's changes.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q094",
    "lang": "en",
    "text": "why do onions make you cry",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q095",
    "lang": "en",
    "text": "what's a polite way to decline a meeting invite in one line",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q096",
    "lang": "en",
    "text": "I'm trying to remember the word for when you feel nostalgic about a time you never actually lived through, I think there's a specific word for it, what is it?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q097",
    "lang": "en",
    "text": "rent or buy a house?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q098",
    "lang": "en",
    "text": "write a function that merges two sorted lists into one sorted list",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q099",
    "lang": "de",
    "text": "Wie funktioniert eine Wärmepumpe und lohnt sie sich in einem alten Haus?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q100",
    "lang": "en",
    "text": "I'm hosting a dinner for eight people, two are vegetarian and one is gluten free. can you suggest a three-course menu that works for everyone without cooking three separate meals?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q101",
    "lang": "te",
    "text": "అనంతమైన ప్రధాన సంఖ్యలు ఉన్నాయని నిరూపించండి.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q102",
    "lang": "en",
    "text": "we have a monolithic django app on a single postgres database that hits its limits at peak. propose a plan to scale reads and writes over the next year, with the order of steps and the risks of each.",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q103",
    "lang": "en",
    "text": "synonym for tired",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q104",
    "lang": "en",
    "text": "how long does cooked rice last in the fridge",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q105",
    "lang": "en",
    "text": "please fix the spelling in this and nothing else: 'i recieved the pakage yesterday but the adress on the lable was wrong so it went to my nieghbour first'",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q106",
    "lang": "te",
    "text": "నేను రేపు స్నేహితుల ఇంటికి భోజనానికి వెళ్తున్నాను, వాళ్ళకి తీసుకెళ్ళడానికి ఒక చిన్న బహుమతి ఏమి బాగుంటుందో ఒక ఆలోచన చెప్పండి.",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q107",
    "lang": "en",
    "text": "is coffee bad for you",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q108",
    "lang": "en",
    "text": "how can I improve my sleep if I wake up at 3am every night",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q109",
    "lang": "en",
    "text": "compare postgres and sqlite for a desktop app that stores a few thousand records per user, needs to work offline, and might sync to a server later on",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q110",
    "lang": "en",
    "text": "how many ways can dominoes tile a 2x10 board?",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q111",
    "lang": "en",
    "text": "two trains leave stations 300 km apart heading toward each other at 80 and 120 km/h. when and where do they meet, and what changes if one leaves 30 minutes late?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q112",
    "lang": "en",
    "text": "good night jarvis",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q113",
    "lang": "ja",
    "text": "なぜ空は青いのですか？",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q114",
    "lang": "en",
    "text": "write a two-line thank-you note for a friend who helped me move",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q115",
    "lang": "en",
    "text": "quick one before my exam tomorrow morning, I always mix these two up and I don't want to get it wrong: which one is the powerhouse of the cell, mitochondria or ribosomes?",
-   "tier": null
+   "tier": "fast"
   },
   {
    "id": "q116",
    "lang": "en",
    "text": "why do we dream",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q117",
    "lang": "en",
    "text": "why does my git push get rejected as non-fast-forward, and how do I fix it",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q118",
    "lang": "en",
    "text": "I'm switching careers from teaching to data analysis and I already know excel well. what skills should I learn next, in what order, and roughly how long might each take?",
-   "tier": null
+   "tier": "smart"
   },
   {
    "id": "q119",
    "lang": "en",
    "text": "derive the quadratic formula",
-   "tier": null
+   "tier": "ultra"
   },
   {
    "id": "q120",
    "lang": "en",
    "text": "25 horses, a track for 5 at a time: find the fastest 3 in the fewest races",
-   "tier": null
+   "tier": "ultra"
   }
  ]
 }

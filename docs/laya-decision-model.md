@@ -41,9 +41,12 @@ The CPU half ran on the same day and the GPU half the next. Full write-up: [`eva
     signals combined reach 79.4%.
   - Re-weighting the heuristic's own signals, with no Laya, reaches 76.8%.
   - Prompt length nearly gives the label away on this set: length alone scores 72.3%.
-- **Still open:** a confirmation run on a fresh set labelled by Jeevan, written so that length does
-  not predict the tier. Four candidates are fixed in advance in the variants write-up, including
-  the no-Laya one.
+- **The confirmation run passed** (2026-11-11, [`evals/tier_choice_confirm.md`](evals/tier_choice_confirm.md)).
+  On 120 fresh requests where length does not predict the tier, Laya's preset difficulty question
+  at the frozen thresholds `(1.55, 2.05)`, with the explicit cues, chose the right tier for 62.5%,
+  against 50.8% for `_complexity` (McNemar p = 0.049). It sent no fast request to ultra. The
+  no-Laya variant fell to 37.5%. Jeevan labelled 24 requests and Claude 96, so phase 1 can start
+  with that limit stated.
 
 ## What Laya is
 
