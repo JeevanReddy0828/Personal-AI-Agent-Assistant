@@ -21,6 +21,7 @@ from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 NL = chr(10)
 
@@ -77,6 +78,7 @@ from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
 from laptop_agent.failures import FAILURES, record_failure
+from laptop_agent.diagnosis import diagnose as run_diagnosis, local_setup_rows
 from laptop_agent.selfcheck import run_selfcheck
 from laptop_agent.tools.calculator import CalculatorTool, looks_like_arithmetic
 from laptop_agent.tools import keys as keys_tools
@@ -578,6 +580,9 @@ class AgentOrchestrator:
         # keep nothing: the traces here recorded four `image` turns failing after ~61s
         # each, and every reason had died with the process that caught it.
         FAILURES.attach(self.data_dir / "failures.json")
+        # The Setup rows `diagnose` reads. The web server sets this, since only it knows
+        # sign-in, phone access and its cached engines; without it they are looked up here.
+        self.setup_source: Callable[[], list[dict[str, object]]] | None = None
         self.autopilot_planner = AutopilotPlanner()
         # Fast deterministic router tried before any LLM, so common requests
         # route instantly and reliably with zero network latency.
@@ -1689,8 +1694,11 @@ class AgentOrchestrator:
             return self._failure_report()
 
         if lowered in {"selfcheck", "self check", "self-check", "does everything work",
-                       "check yourself", "diagnose"}:
+                       "check yourself"}:
             return self._selfcheck()
+
+        if lowered in {"diagnose", "diagnosis", "self diagnosis", "self-diagnosis", "run diagnostics"}:
+            return self.diagnose()
 
         if lowered.startswith(("calculate ", "calc ", "compute ")):
             rest = command.split(" ", 1)[1]
@@ -3299,6 +3307,15 @@ class AgentOrchestrator:
         }
         build = ToolResult.success if not failed else ToolResult.failure
         return build("\n".join(lines).rstrip(), **payload)
+
+    def diagnose(self) -> ToolResult:
+        """`diagnose` — what is wrong right now: Setup, storage, routing, caught failures and
+        response times, then one live call to each configured model tier and a web search
+        (diagnosis.py). The Setup panel's Run diagnosis button calls this too."""
+        rows = self.setup_source() if self.setup_source is not None else local_setup_rows(self)
+        report = run_diagnosis(self, rows)
+        build = ToolResult.success if report.status != "fail" else ToolResult.failure
+        return build(report.markdown(), **report.as_data())
 
     @staticmethod
     def _failure_report() -> ToolResult:

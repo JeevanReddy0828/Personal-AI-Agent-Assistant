@@ -106,7 +106,8 @@ _DEV_EXACT = frozenset({
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "briefing format", "briefing settings", "briefing reset", "briefing default",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
-    "self-check", "does everything work", "check yourself", "diagnose", "latency", "traces",
+    "self-check", "does everything work", "check yourself", "diagnose", "diagnosis", "self diagnosis",
+    "self-diagnosis", "run diagnostics", "latency", "traces",
     "why slow", "speed", "watches", "watch health", "watch check health",
     # acting on its own
     "autopilot status", "autonomous status", "schedule", "schedule list", "schedules",

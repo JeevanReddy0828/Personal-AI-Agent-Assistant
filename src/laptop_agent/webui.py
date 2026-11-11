@@ -614,6 +614,17 @@ def _warm_wake() -> None:
     threading.Thread(target=_WAKE.check, args=(silence.getvalue(),), daemon=True).start()
 
 
+def _setup_items() -> list[dict[str, object]]:
+    """The Setup rows, for the Setup panel and for `diagnose`, which reads them through
+    `setup_source`: only the server knows sign-in, phone access and its cached engines."""
+    return setup_report(_orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
+                        tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(),
+                        lan_mode=LAN_MODE)
+
+
+_orchestrator.setup_source = _setup_items
+
+
 def _keep_warm(interval: float = 200.0) -> None:
     """Ping the fast model periodically so it does not go cold between messages,
     and refresh the cached reachability used by the health check."""
@@ -1454,9 +1465,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"sequence": _wait_hotkey(after)})
         elif path == "/api/setup":
             # Developer-only by the route allow-list: it describes this installation.
-            self._json(200, {"ok": True, "items": setup_report(
-                _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
-                tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
+            self._json(200, {"ok": True, "items": _setup_items()})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":
@@ -1610,6 +1619,11 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/diagnose":
+            # Developer-only by the route allow-list, like /api/setup. A POST, because it makes
+            # a live call to every configured model tier and a web search.
+            result = _orchestrator.diagnose()
+            self._json(200, {"ok": True, "message": result.message, **_json_safe(result.data)})
         elif self.path == "/api/reminders":
             self._handle_reminders()
         elif self.path == "/api/jobs":
