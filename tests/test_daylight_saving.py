@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import laptop_agent.timeparse as timeparse
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import describe, parse_when
+from agent_patches import patch_agents
 from test_everyday_requests import Everyday
 
 try:
@@ -163,7 +164,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.addCleanup(zone.stop)
 
     def say_at(self, moment: datetime, text: str) -> str:
-        with patch("laptop_agent.agents.orchestrator.datetime", stopped(moment)):
+        with patch_agents(datetime, stopped(moment)):
             result, _ran = self.everyday.say(text)
         return result.message
 

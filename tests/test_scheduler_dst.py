@@ -18,6 +18,7 @@ from unittest.mock import patch
 import laptop_agent.timeparse as timeparse
 from laptop_agent.scheduler import Schedule, parse_schedule
 from test_daylight_saving import NEW_YORK, stopped, utc
+from agent_patches import patch_agents
 from test_everyday_requests import Everyday
 
 
@@ -76,7 +77,7 @@ class AcrossTheChangeTests(unittest.TestCase):
             store = everyday.orchestrator.context.scheduler
             job = store.add("command", "what time is it", "daily at 1:30am", utc(2026, 10, 31, 12, 0))
             store.mark_ran(job.id, utc(2026, 11, 1, 5, 30), "ok")          # the 01:30 EDT run
-            with patch("laptop_agent.agents.orchestrator.datetime", stopped(utc(2026, 11, 1, 6, 30))):
+            with patch_agents(datetime, stopped(utc(2026, 11, 1, 6, 30))):
                 result = asyncio.run(everyday.orchestrator.run_due_schedules())
             self.assertEqual(result.data["ran"], [])
 

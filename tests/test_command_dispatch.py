@@ -6,6 +6,7 @@ import re
 import unittest
 
 from laptop_agent.agents.orchestrator import AgentOrchestrator
+from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 
 # Every literal prefix `_handle` tests, in the order it tests them.
 _STARTSWITH = re.compile(r'startswith\(\s*\(([^)]*)\)\s*\)|startswith\(\s*"([^"]+)"')
@@ -106,6 +107,49 @@ class DispatchShapeTests(unittest.TestCase):
         }
         wired = {group.__name__ for group in AgentOrchestrator._DISPATCH}
         self.assertEqual(defined - wired, set(), "a dispatch group is not in the table")
+
+
+def shadowed(cls: type) -> set[str]:
+    """Names defined by more than one class in `cls.__mro__`. The first one wins without a
+    word, so a method left behind in the class after a move, or defined by two mixins, would
+    quietly replace the one that was meant to run."""
+    seen: set[str] = set()
+    twice: set[str] = set()
+    for klass in cls.__mro__[:-1]:
+        for name in vars(klass):
+            if name.startswith("__") and name != "__init__":
+                continue
+            (twice if name in seen else seen).add(name)
+    return twice
+
+
+class MixinShadowTests(unittest.TestCase):
+    """The orchestrator and the instant router are being split into mixins, moved verbatim."""
+
+    def test_no_name_is_defined_twice_across_the_split(self) -> None:
+        for cls in (AgentOrchestrator, HeuristicPlannerProvider):
+            with self.subTest(cls.__name__):
+                self.assertEqual(shadowed(cls), set(), "defined in more than one class; keep one")
+
+    def test_the_check_sees_a_shadowed_name(self) -> None:
+        # Both classes are one class today, so the test above cannot fail yet; this one can.
+        class Mixin:
+            def run(self) -> str:
+                return "moved"
+
+        class Other:
+            def __init__(self) -> None:
+                self.ready = True
+
+        class LeftBehind(Mixin, Other):
+            def __init__(self) -> None:
+                self.ready = False
+
+            def run(self) -> str:
+                return "left behind"
+
+        self.assertEqual(shadowed(LeftBehind), {"run", "__init__"})
+        self.assertEqual(shadowed(type("Moved", (Mixin, Other), {})), set())
 
 
 if __name__ == "__main__":

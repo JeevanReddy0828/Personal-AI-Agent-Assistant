@@ -30,6 +30,7 @@ from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from agent_patches import patch_agents
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.app import build_context
 from laptop_agent.failures import FAILURES
@@ -391,8 +392,9 @@ class PrefixFuzzTests(unittest.TestCase):
             "to", "' OR 1=1 --", "1e309", "25:99", "#1")
 
     def test_no_command_word_raises_whatever_follows_it(self) -> None:
-        source = Path(__file__).resolve().parents[1] / "src/laptop_agent/agents/orchestrator.py"
-        text = source.read_text(encoding="utf-8")
+        # Every module of the orchestrator, not one file: its dispatch groups are moving out of it.
+        package = Path(__file__).resolve().parents[1] / "src/laptop_agent/agents"
+        text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py")))
         prefixes: set[str] = set()
         for block in re.findall(r"lowered\.startswith\(\s*\(?([^)]*)\)?\s*\)", text):
             prefixes.update(re.findall(r'"([^"]+)"', block))
@@ -906,7 +908,7 @@ class ReminderDayTests(unittest.TestCase):
                 noon = datetime.combine(cls.day, clock_time(12))
                 return noon if tz is None else noon.astimezone(tz)
 
-        with patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+        with patch_agents(datetime, StoppedClock), \
                 patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc):
             for offset in range(7):
                 with self.subTest(weekday=offset), tempfile.TemporaryDirectory() as tmp:
@@ -946,7 +948,7 @@ class ReminderDayTests(unittest.TestCase):
                 return noon if tz is None else noon.astimezone(tz)
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+                patch_agents(datetime, StoppedClock), \
                 patch("laptop_agent.timeparse.LOCAL_ZONE", ZoneInfo("America/New_York")):
             everyday = Everyday(Path(tmp))
             store = everyday.orchestrator.context.reminders
@@ -964,7 +966,7 @@ class ReminderDayTests(unittest.TestCase):
                 return noon if tz is None else noon.astimezone(tz)
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("laptop_agent.agents.orchestrator.datetime", StoppedClock), \
+                patch_agents(datetime, StoppedClock), \
                 patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc):
             everyday = Everyday(Path(tmp))
             repeat, _ = everyday.say("remind me every monday at 9am to send the report", stream=False)

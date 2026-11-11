@@ -39,6 +39,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **A test passes against the bug** → the guard could not fail (`delete crypto.randomUUID`
   hits nothing on the prototype; a second cache layer masked the first) → revert the fix and
   watch the test fail before believing it. (09-12, 09-17)
+- **A frozen-clock test passes on most days and fails on some after a method moved out of
+  `orchestrator.py`** → `patch("laptop_agent.agents.orchestrator.datetime", …)` freezes that one
+  module only, so the moved code reads the real clock (caught while planning the split, before
+  any move) → `patch_agents(datetime, …)` (`tests/agent_patches.py`) patches every `agents/`
+  module holding the object, and raises when none does. (11-10)
 - **A revert "proves" the code is dead** → the revert was wrong: a later CSS declaration won,
   or a scripted edit hit the wrong line → anchor edits on the line that names the thing. (09-19, 09-20)
 - **"Visible" in the test, not on screen** → `hidden` is false inside a `display:none`
