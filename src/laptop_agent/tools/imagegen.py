@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import secrets
 import time
 import urllib.error
 import urllib.request
@@ -143,7 +144,16 @@ class ImageTool:
         except (ValueError, TypeError) as exc:
             raise ImageGenerationError(f"{model} returned a picture I could not decode") from exc
 
-    def generate(self, prompt: str, shape: str = "square", seed: int | None = None, steps: int = 4) -> ToolResult:
+    def generate(
+        self,
+        prompt: str,
+        shape: str = "square",
+        seed: int | None = None,
+        steps: int = 4,
+        detail: str | None = None,
+    ) -> ToolResult:
+        """``prompt`` is the user's own words, used for the caption and the file name;
+        ``detail``, when given, is the fuller prompt the model actually draws from."""
         described = (prompt or "").strip().strip("\"'")
         if not described:
             return ToolResult.failure("What should I draw? Try 'image a brass compass on a desk'.")
@@ -161,9 +171,11 @@ class ImageTool:
                     reason="Image generation sends the prompt to an external service and saves a file locally.",
                 )
             )
-        body: dict[str, object] = {"prompt": described, "width": width, "height": height, "steps": steps}
-        if seed is not None:
-            body["seed"] = seed
+        drawn = (detail or "").strip() or described
+        # Chosen here rather than left to the endpoint (0 means random there), so the reply
+        # can carry it and a follow-up can draw from the same seed, which keeps the scene.
+        seed = seed or secrets.randbelow(2**31 - 1) + 1
+        body: dict[str, object] = {"prompt": drawn, "width": width, "height": height, "steps": steps, "seed": seed}
 
         candidates = [self.model] + ([self.fallback_model] if self.fallback_model else [])
         problems: list[str] = []
@@ -220,7 +232,9 @@ class ImageTool:
             image=str(path),
             name=name,
             url=url,
-            prompt=described,
+            prompt=drawn,
+            request=described,
+            seed=seed,
             model=used,
             fell_back=used != self.model,
             width=width,
