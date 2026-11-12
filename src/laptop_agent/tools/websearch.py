@@ -7,6 +7,7 @@ import urllib.request
 from collections.abc import Callable
 from html.parser import HTMLParser
 
+from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
@@ -242,7 +243,9 @@ def build_search_backend(
     def resilient(query: str, limit: int) -> list[dict[str, str]]:
         try:
             results = primary(query, limit)
-        except WebSearchError:
+        except WebSearchError as exc:
+            # Recorded, or a rejected key hides behind the fallback: every search still answers.
+            record_failure("websearch/primary", exc)
             results = []
         if results:
             return results

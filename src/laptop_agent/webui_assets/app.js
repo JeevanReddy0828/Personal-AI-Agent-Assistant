@@ -1162,6 +1162,28 @@
     setupPanel.querySelector('summary').textContent='Setup'+(todo?' · '+todo+' to look at':' · all set');
   }
   setupPanel.addEventListener('toggle',()=>{if(setupPanel.open)loadSetup();});
+  /* diagnosis: every check above plus one live call to each model tier, on request (developers only) */
+  const diagBtn=document.getElementById('diagBtn'),diagMsg=document.getElementById('diagMsg'),diagList=document.getElementById('diagList');
+  diagBtn.addEventListener('click',async()=>{
+    diagBtn.disabled=true;diagMsg.classList.remove('err');diagList.textContent='';
+    diagMsg.textContent='Checking everything and calling each model once…';
+    let d=null;
+    try{const r=await fetch('/api/diagnose',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});d=await r.json();if(!r.ok||!d.ok)throw new Error('refused');}
+    catch(e){diagMsg.classList.add('err');diagMsg.textContent='Could not run the diagnosis.';diagBtn.disabled=false;return;}
+    diagMsg.textContent=d.verdict+' Checked in '+d.seconds+' s.';
+    d.findings.forEach(f=>{
+      // Built as nodes, like the Setup rows: the text is the server's, never treated as markup.
+      const row=document.createElement('div');row.className='crow setrow';row.dataset.severity=f.severity;
+      const dot=document.createElement('span');dot.className='d '+(f.severity==='problem'?'bad':'warn');
+      const name=document.createElement('span');name.className='k';name.textContent=f.area;
+      const state=document.createElement('span');state.className='v';state.textContent=f.severity==='problem'?'needs fixing':'worth a look';
+      const more=document.createElement('span');more.className='setmore';more.textContent=f.detail||'';
+      if(f.fix){const next=document.createElement('span');next.className='setnext';next.textContent=f.fix;more.append(next);}
+      row.append(dot,name,state,more);diagList.append(row);
+    });
+    if(d.working.length){const ok=document.createElement('div');ok.className='schedmsg';ok.textContent='Working: '+d.working.join(', ')+'.';diagList.append(ok);}
+    diagBtn.disabled=false;loadSetup();   // the probes updated each tier's state
+  });
   const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
   pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 

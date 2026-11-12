@@ -89,7 +89,7 @@ developers on separate branches, under the rules in [AGENTS.md](AGENTS.md), with
 - 🤖 **Autonomy** — `solve` (researched advisor), `agent run` (plan → act → observe loop), `autopilot` (safe allowlist only), and a scheduler.
 - 👁️ **Vision & media** — screen and webcam vision, layout-aware OCR (hosted `nemotron-parse`, Tesseract offline), audio/video transcription, YouTube summaries.
 - 🌍 **Free tools, no keys** — real weather, headlines with article text, driving distance and multi-stop trips, maps, places near you.
-- 🩺 **Observable** — a Setup panel, per-turn latency traces, a log of every swallowed failure, and a routing self-check that can actually fail.
+- 🩺 **Observable** — a Setup panel, per-turn latency traces, a log of every swallowed failure, a routing self-check that can actually fail, and a self-diagnosis (`diagnose`, or Run diagnosis in Setup) that puts it all together and calls each model once.
 - 🖥️ **Polished UX** — native desktop window (`JARVIS.exe`), streaming and typewriter replies, a calm dark workspace built around the animated orb, a phone layout, and a System-status drawer with map, trip, vault, schedule and agent-run panels.
 
 ---
@@ -807,6 +807,7 @@ src/laptop_agent/
   storage.py  retention.py   Atomic, locked JSON stores · cleanup of generated files
   token_vault.py  config.py  DPAPI-encrypted OAuth tokens · `.env` and settings
   selfcheck.py               The routing contract: phrasings that must reach their tools
+  diagnosis.py               `diagnose`: Setup, storage, routing, failures and latency, then one call per model
   cli.py  gui.py  dashboard.py  webui.py  Front ends: CLI, Tkinter, web and native
   webui_page.py  webui_assets/  Page loader · app.html, app.css, app.js, signin.html, google_auth.js
   window_fx.py  cancellation.py  app.py  Native window effects · Stop · the one place everything is wired
