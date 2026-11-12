@@ -232,6 +232,13 @@ _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-
 _DESKTOP_MODE = False
 
 
+def _same_secret(supplied: str, expected: str) -> bool:
+    """Constant-time, as bytes: compare_digest raises TypeError on a non-ASCII str, so a guess
+    with an accent in it killed the thread unanswered and uncounted, and a passcode with one
+    could never be entered at all."""
+    return secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+
+
 def _signal_hotkey() -> None:
     global _HOTKEY_SEQUENCE
     with _HOTKEY_CONDITION:
@@ -773,7 +780,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             self._json(403, {"ok": False, "message": "Cross-site requests are blocked."})
             return False
-        if mutation and not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), _API_TOKEN):
+        if mutation and not _same_secret(self.headers.get("X-Jarvis-Token", ""), _API_TOKEN):
             self._json(403, {"ok": False, "message": "Reload J.A.R.V.I.S before retrying."})
             return False
         return True
@@ -1253,10 +1260,11 @@ class Handler(BaseHTTPRequestHandler):
             taken = max(0, min(length, 4096))
             self._body_read += taken
             payload = json.loads(self.rfile.read(taken) or b"{}")
-            supplied = str(payload.get("passcode") or "")
+            # A body of `[]` is valid JSON with no .get: it killed this thread with no answer.
+            supplied = str(payload.get("passcode") or "") if isinstance(payload, dict) else ""
         except (ValueError, TypeError, UnicodeError):
             supplied = ""
-        if not LAN_PASSCODE or not secrets.compare_digest(supplied, LAN_PASSCODE):
+        if not LAN_PASSCODE or not _same_secret(supplied, LAN_PASSCODE):
             with _LAN_LOCK:  # read-modify-write from several handler threads
                 _LAN_FAILURES[client] = _LAN_FAILURES.get(client, 0) + 1
             time.sleep(1)  # a passcode is short: make guessing it cost real time
@@ -1441,7 +1449,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/hotkey":
             query = parse_qs(urlsplit(self.path).query)
             channel = query.get("channel", [""])[0]
-            if not _DESKTOP_MODE or not secrets.compare_digest(channel, _HOTKEY_CHANNEL):
+            if not _DESKTOP_MODE or not _same_secret(channel, _HOTKEY_CHANNEL):
                 self._json(404, {"ok": False, "message": "No desktop hotkey channel."})
                 return
             try:
