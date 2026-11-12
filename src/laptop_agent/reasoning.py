@@ -5,6 +5,7 @@ from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import FOLLOW_UP_RULE
 from laptop_agent.planner.core import CutOff
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
+from laptop_agent.supervisor import RunStopped
 
 import json
 import re
@@ -379,6 +380,9 @@ class AutonomousAgent:
 
             try:
                 result = await self._execute(decision.command)
+            except RunStopped as exc:
+                # The supervisor ended the run: not a failed step for the model to work around.
+                return AgentRunResult(goal=goal, final_answer=str(exc), status="stopped", steps=steps)
             except Exception as exc:
                 result = ToolResult.failure(str(exc))
 
