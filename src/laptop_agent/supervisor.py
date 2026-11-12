@@ -11,6 +11,9 @@ judges injected text can be talked round by it:
   remembered is asked about first, even when it would otherwise run silently;
 - direct only: the shell, running or rewriting code and deleting files are the user's own
   commands, never a step of a run;
+- model trust: a step chosen by a tier that is not trusted (the backup model, unless set
+  otherwise) may read and compute, never act; the same holds for a command the router's model
+  picks for the user's own sentence;
 - off the track: the same step a third time, or two refusals, ends the run;
 - every verdict is written to the audit log with the rule that made it.
 
@@ -19,6 +22,7 @@ system's to contain, not this module's.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -97,6 +101,36 @@ def allowed_in_a_run(form: str) -> bool:
     return group_of(form.split("<", 1)[0].split("[", 1)[0])[0] != "direct"
 
 
+TIERS = ("fast", "smart", "ultra", "fallback")
+UNTRUSTED = "LAPTOP_AGENT_UNTRUSTED_MODELS"
+# What a model that is not trusted may still have run: reading and computing, nothing else.
+_UNTRUSTED_MAY = frozenset({"safe", "reads"})
+
+
+def untrusted_tiers() -> frozenset[str]:
+    """The model tiers whose choices are not trusted to act (`LAPTOP_AGENT_UNTRUSTED_MODELS`, comma
+    separated, from fast, smart, ultra, fallback). Unset, it is the cross-provider backup: a run
+    took its steps from whichever tier answered first, so a free backup model had the authority
+    of the best one. Set but empty trusts every tier. Read on every call, so a test can switch it."""
+    raw = os.environ.get(UNTRUSTED)
+    if raw is None:
+        return frozenset({"fallback"})
+    return frozenset(name for name in (part.strip().lower() for part in raw.split(",")) if name in TIERS)
+
+
+def trusted(tier: str) -> bool:
+    """A tier nobody named is not trusted: the rule fails closed."""
+    return tier in TIERS and tier not in untrusted_tiers()
+
+
+def routed(command: str, tier: str) -> Decision:
+    """The verdict on one command a model picked for the user's own sentence (the router)."""
+    group, _form = group_of(command)
+    if trusted(tier) or group in _UNTRUSTED_MAY:
+        return Decision(Verdict.ALLOW, group)
+    return Decision(Verdict.REFUSE, "trust", f"the {tier or 'unnamed'} model is not trusted to choose that")
+
+
 class Supervisor:
     """One run's supervisor. `check` before each step; `refused` when a step was not approved."""
 
@@ -108,7 +142,7 @@ class Supervisor:
     def refused(self) -> None:
         self._refusals += 1
 
-    def check(self, command: str) -> Decision:
+    def check(self, command: str, tier: str = "smart") -> Decision:
         lowered = " ".join((command or "").lower().split())
         if self._refusals >= MAX_REFUSALS:
             return Decision(Verdict.STOP, "refusals", f"{self._refusals} of its steps were refused, so it is not "
@@ -121,6 +155,10 @@ class Supervisor:
             self._refusals += 1
             return Decision(Verdict.REFUSE, "direct", f"\"{form}\" is never a step of an agent run. Ask for it "
                                                       "yourself, outside agent mode.")
+        if not trusted(tier) and group not in _UNTRUSTED_MAY:
+            self._refusals += 1
+            return Decision(Verdict.REFUSE, "trust", f"this step came from the {tier or 'unnamed'} model, which "
+                                                     "may read and compute but not act. Nothing was done.")
         tainted_before = self.tainted_by
         if group == "reads" or any(_matches(lowered, form) for form in ALSO_READS):
             self.tainted_by = self.tainted_by or form or lowered[:40]

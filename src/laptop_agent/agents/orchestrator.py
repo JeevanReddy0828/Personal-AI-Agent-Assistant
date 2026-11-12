@@ -73,7 +73,7 @@ from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, eve
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
-from laptop_agent.supervisor import RunStopped, Supervisor, Verdict, allowed_in_a_run
+from laptop_agent.supervisor import RunStopped, Supervisor, Verdict, allowed_in_a_run, routed
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
@@ -817,6 +817,14 @@ class AgentOrchestrator:
                 follows_a_file_change(history)):
             planned = PlanDecision(action="chat", confidence=planned.confidence,
                                    explanation="An undo of a file change that was not the last thing done.")
+        if planned.is_command and planned.command:
+            # A command a model picked for the user's sentence is checked and recorded like an
+            # agent's step; from a tier that is not trusted to act, it is answered, not run.
+            verdict = routed(planned.command, "fast")
+            self._record_verdict("router", planned.command, "fast", verdict)
+            if verdict.verdict is Verdict.REFUSE:
+                planned = PlanDecision(action="chat", confidence=planned.confidence,
+                                       explanation="Picked by a model that is not trusted to act; answered instead.")
         return decided("llm", planned)
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
@@ -4542,19 +4550,24 @@ class AgentOrchestrator:
     def _agent_reference(self) -> str:
         return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command))
 
-    def _supervised(self, history: list[dict[str, str]] | None):
+    def _record_verdict(self, source: str, command: str, tier: str, decision) -> None:
+        try:
+            self.context.audit.record("supervisor", source=source, command=command[:300], tier=tier,
+                                      verdict=decision.verdict.value, rule=decision.rule, reason=decision.reason)
+        except Exception as exc:  # a full disk must not let a step run unrecorded and unnoticed
+            record_failure("supervisor/audit", exc)
+
+    def _supervised(self, history: list[dict[str, str]] | None, brain=None):
         """One run's `execute`: each step is put to a fresh Supervisor before it is dispatched,
-        and the verdict is written to the audit log (supervisor.py)."""
+        and the verdict is written to the audit log (supervisor.py). `brain` is the run's own
+        `decide`, which says which model tier wrote the step."""
         supervisor = Supervisor()
         gate = self.context.web.approval_gate
 
         async def execute(command: str) -> ToolResult:
-            decision = supervisor.check(command)
-            try:
-                self.context.audit.record("supervisor", command=command[:300], verdict=decision.verdict.value,
-                                          rule=decision.rule, reason=decision.reason)
-            except Exception as exc:  # a full disk must not let a step run unrecorded and unnoticed
-                record_failure("supervisor/audit", exc)
+            tier = getattr(brain, "tier", "")
+            decision = supervisor.check(command, tier)
+            self._record_verdict("agent", command, tier, decision)
             if decision.verdict is Verdict.STOP:
                 raise RunStopped(f"Stopped by the supervisor: {decision.reason}.")
             if decision.verdict is Verdict.REFUSE:
@@ -4582,18 +4595,24 @@ class AgentOrchestrator:
         """
         if planners is None:
             planners = (self.smart_planner, self.planner, self.fallback_planner)
+        # The backup is written last, so one planner serving two tiers is named as the least trusted.
+        names = {id(planner): name for name, planner in (
+            ("fast", self.planner), ("smart", self.smart_planner), ("ultra", self.ultra_planner),
+            ("fallback", self.fallback_planner)) if planner is not None}
         answerers = []
         for planner in planners:
             answer = getattr(planner.provider, "answer", None) if planner else None
             if answer is not None:
-                answerers.append(answer)
+                answerers.append((names.get(id(planner), ""), answer))
         if not answerers:
             return lambda _prompt: ""
         profile = self.context.memory.get_profile()
 
         def decide(prompt: str) -> str:
             check_cancelled()
-            for answer in answerers:
+            for tier, answer in answerers:
+                # Which tier wrote the reply about to be used: the supervisor trusts a step by it.
+                decide.tier = tier  # type: ignore[attr-defined]
                 try:
                     reply = answer(prompt, profile, None, None, max_tokens=answer_max_tokens)
                 except TypeError:
@@ -4632,9 +4651,10 @@ class AgentOrchestrator:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
 
         agent_id = self.control_room.start(f"agent: {goal}")
+        brain = self._build_agent_brain()
         agent = AutonomousAgent(
-            decide=self._build_agent_brain(),
-            execute=self._supervised(history),
+            decide=brain,
+            execute=self._supervised(history, brain),
             command_reference=self._agent_reference(),
             max_steps=6,
         )
