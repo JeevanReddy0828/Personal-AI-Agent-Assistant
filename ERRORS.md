@@ -583,6 +583,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **The mail password crossed the network on TLS that verified nothing** (audit, 11-12) →
+  `imaplib.IMAP4_SSL` and `smtplib.SMTP.starttls`, given no context, use
+  `ssl._create_stdlib_context` (CERT_NONE, no hostname check; measured on 3.14), unlike urllib →
+  both get `ssl.create_default_context()` and a 30 s timeout (`email._verified_tls`,
+  `test_the_mail_password_only_goes_over_verified_tls`). A stdlib client's TLS default is not
+  urllib's: check it before trusting it with a credential.
 - **`open url file://server/share/x.exe` reached the Windows shell with no card** (audit, 11-11) →
   a link was anything with a host-like netloc, `open url` is MEDIUM (no card in the web app) and
   `os.startfile` starts whatever handles the scheme (`file:`, `ms-msdt:`, `search-ms:`) → only
