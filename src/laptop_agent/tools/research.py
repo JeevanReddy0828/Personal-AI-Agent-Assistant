@@ -189,6 +189,9 @@ class _TextExtractor(HTMLParser):
 
 
 def fetch_page_text(url: str, max_chars: int = 8000, max_bytes: int = 2_000_000) -> str:
+    # A search result names the page, and urllib would read file:///C:/... into the model's context.
+    if not url.lower().startswith(("http://", "https://")):
+        return ""
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:

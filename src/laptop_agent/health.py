@@ -117,15 +117,21 @@ def _row(key: str, name: str, state: str, detail: str, next_step: str | None = N
     return {"key": key, "name": name, "state": state, "detail": detail, "next": next_step}
 
 
-def _broken_advice(reason: str, variable: str) -> str | None:
-    """What to change for a misconfigured tier, rebuilt from the HTTP status alone: the stored
-    reason names the model id (`classify_failure`), and this report never shows one."""
+def misconfigured_advice(reason: str, variable: str, key: str = "OPENAI_API_KEY") -> tuple[str, str] | None:
+    """What went wrong with a misconfigured tier and the settings to check, rebuilt from the
+    HTTP status alone: the stored reason names the model id (`classify_failure`), and neither
+    this report nor the diagnosis shows one."""
     found = re.search(r"HTTP (\d{3})\b", reason)
     status = int(found[1]) if found else None
     if status not in _PERMANENT_ADVICE:
         return None
-    fix = {401: "OPENAI_API_KEY", 403: f"OPENAI_API_KEY and {variable}"}.get(status, variable)
-    return f"{_PERMANENT_ADVICE[status]} (HTTP {status}): check {fix}."
+    fix = {401: key, 403: f"{key} and {variable}"}.get(status, variable)
+    return f"{_PERMANENT_ADVICE[status]} (HTTP {status})", fix
+
+
+def _broken_advice(reason: str, variable: str) -> str | None:
+    advice = misconfigured_advice(reason, variable)
+    return f"{advice[0]}: check {advice[1]}." if advice else None
 
 
 def _playwright_browsers(package: Path) -> Path:

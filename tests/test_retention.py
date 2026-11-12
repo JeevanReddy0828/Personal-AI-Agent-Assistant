@@ -101,6 +101,19 @@ class UploadSweepTests(unittest.TestCase):
         sweep_uploads(self.uploads, max_age_hours=0)
         self.assertTrue(loose.exists())
 
+    def test_a_voice_clip_left_by_a_crash_is_removed(self) -> None:
+        import os
+
+        clip = self.uploads / "voice_abc123.wav"
+        clip.write_bytes(b"x")
+        stamp = time.time() - 48 * 3600
+        os.utime(clip, (stamp, stamp))
+        recent = self.uploads / "voice_now.wav"
+        recent.write_bytes(b"x")
+        self.assertEqual(sweep_uploads(self.uploads, max_age_hours=24), 1)
+        self.assertFalse(clip.exists())
+        self.assertTrue(recent.exists(), "a clip still being transcribed must survive")
+
 
 class AuditRotationTests(unittest.TestCase):
     """The audit log was append-only with no rotation, so it grew for the life of the

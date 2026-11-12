@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
@@ -81,14 +83,32 @@ class TerminalTool:
 
     @staticmethod
     def _run_subprocess(command: str, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            command,
-            cwd=str(cwd),
-            shell=True,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
+        # Not subprocess.run: its timeout kills the shell alone, and whatever the shell started keeps
+        # the output pipes open, so the "timed out" answer waited for that program to finish anyway.
+        process = subprocess.Popen(command, cwd=str(cwd), shell=True, text=True, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, start_new_session=os.name != "nt")
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            TerminalTool._end_tree(process)
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from None
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _end_tree(process: subprocess.Popen[str]) -> None:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, timeout=10,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (OSError, subprocess.SubprocessError) as exc:
+            record_failure("terminal/end-tree", exc)
+            process.kill()
 
     @staticmethod
     def _clip(value: object, max_chars: int) -> str:

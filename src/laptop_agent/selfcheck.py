@@ -201,6 +201,11 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what's in my briefing?", "briefing format", "same"),
     ("jarvis, brief me", "briefing", "'brief me' alone asks for the briefing"),
     ("move report.pdf to my desktop", "file move", "a file, moved and undoable, not the shell"),
+    ("what's wrong with you?", "diagnose", "answered by a chat model that cannot see its own state"),
+    ("can you diagnose yourself", "diagnose", "only the bare word `diagnose` ran a check"),
+    ("run a self diagnosis", "diagnose", "same"),
+    ("why aren't you working", "diagnose", "same"),
+    ("check your systems", "diagnose", "same"),
 )
 # Not in the table: exact command words like `failures`, `latency` and `capabilities`.
 # Those are matched by the orchestrator's own direct-prefix dispatch, which runs BEFORE
@@ -318,6 +323,13 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("alarm clock broke again", "a remark about a clock, not a request"),
     ("the alarm on friday was loud", "a remark"),
     ("i need an alarm system for my house", "a security system, not an alarm to set (Codex, #261)"),
+    ("what's wrong with my code", "the user's code, not the assistant"),
+    ("what's wrong with you people", "an exclamation about people, not the assistant"),
+    ("how do doctors diagnose diabetes", "a question about diagnosis"),
+    ("diagnose my car's rattling noise", "a car, not the assistant"),
+    ("run diagnostics on my car", "same"),
+    ("self diagnosis of adhd is risky", "a remark about medicine"),
+    ("why aren't you working on my essay", "a request about an essay"),
 )
 
 

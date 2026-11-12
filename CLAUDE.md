@@ -197,7 +197,8 @@ Tested, and exercised on the real app. Only these are claimed as working.
   panels, the packaged `JARVIS.exe`.
 
 Built but **not yet verified on the real app**, so not claimed above until tested: the webcam,
-Google sign-in, the Jobright lead pull and Pipeline tailoring, and voice recordings. Their notes
+Google sign-in, the Jobright lead pull and Pipeline tailoring, voice recordings, and the
+self-diagnosis (`diagnose`, Setup's Run diagnosis). Their notes
 stay in `docs/design/` for when they are.
 
 ## Rules that always apply

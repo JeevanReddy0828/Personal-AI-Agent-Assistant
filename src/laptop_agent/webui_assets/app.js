@@ -337,11 +337,12 @@
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
     // Same-origin paths only. A model that invents a data:image/...;base64 blob is
     // fabricating a picture, and one arrived as a 40KB blob of noise.
-    s=s.replace(/!\[([^\]]*)\]\((\/[^)\s"]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
+    s=s.replace(/!\[([^\]]*)\]\((\/(?![\/\\])[^)\s"]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     // Our own routes are links too — a generated document is handed back as one, and
     // without this it rendered as literal "[Title](/api/document?name=…)" text.
-    s=s.replace(/\[([^\]]+)\]\((\/[^)\s"]*)\)/g,'<a href="$2">$1</a>');
+    // Not "//host/…", which is another site written to look like one of ours.
+    s=s.replace(/\[([^\]]+)\]\((\/(?![\/\\])[^)\s"]*)\)/g,'<a href="$2">$1</a>');
     return s;}
   /* Actions on rendered output: save a generated picture, copy or export a table.
      Added as DOM nodes rather than markup so nothing user- or model-authored is ever
@@ -1161,6 +1162,28 @@
     setupPanel.querySelector('summary').textContent='Setup'+(todo?' · '+todo+' to look at':' · all set');
   }
   setupPanel.addEventListener('toggle',()=>{if(setupPanel.open)loadSetup();});
+  /* diagnosis: every check above plus one live call to each model tier, on request (developers only) */
+  const diagBtn=document.getElementById('diagBtn'),diagMsg=document.getElementById('diagMsg'),diagList=document.getElementById('diagList');
+  diagBtn.addEventListener('click',async()=>{
+    diagBtn.disabled=true;diagMsg.classList.remove('err');diagList.textContent='';
+    diagMsg.textContent='Checking everything and calling each model once…';
+    let d=null;
+    try{const r=await fetch('/api/diagnose',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});d=await r.json();if(!r.ok||!d.ok)throw new Error('refused');}
+    catch(e){diagMsg.classList.add('err');diagMsg.textContent='Could not run the diagnosis.';diagBtn.disabled=false;return;}
+    diagMsg.textContent=d.verdict+' Checked in '+d.seconds+' s.';
+    d.findings.forEach(f=>{
+      // Built as nodes, like the Setup rows: the text is the server's, never treated as markup.
+      const row=document.createElement('div');row.className='crow setrow';row.dataset.severity=f.severity;
+      const dot=document.createElement('span');dot.className='d '+(f.severity==='problem'?'bad':'warn');
+      const name=document.createElement('span');name.className='k';name.textContent=f.area;
+      const state=document.createElement('span');state.className='v';state.textContent=f.severity==='problem'?'needs fixing':'worth a look';
+      const more=document.createElement('span');more.className='setmore';more.textContent=f.detail||'';
+      if(f.fix){const next=document.createElement('span');next.className='setnext';next.textContent=f.fix;more.append(next);}
+      row.append(dot,name,state,more);diagList.append(row);
+    });
+    if(d.working.length){const ok=document.createElement('div');ok.className='schedmsg';ok.textContent='Working: '+d.working.join(', ')+'.';diagList.append(ok);}
+    diagBtn.disabled=false;loadSetup();   // the probes updated each tier's state
+  });
   const drawerOpen=()=>document.getElementById('sysDrawer').classList.contains('open');
   pollWhenVisible(()=>{if(drawerOpen())loadMetrics();},5000);loadMetrics();
 

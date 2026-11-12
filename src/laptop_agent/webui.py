@@ -232,6 +232,13 @@ _LLM_STATUS: dict[str, object] = {"reachable": None}  # cached, updated by warm-
 _DESKTOP_MODE = False
 
 
+def _same_secret(supplied: str, expected: str) -> bool:
+    """Constant-time, as bytes: compare_digest raises TypeError on a non-ASCII str, so a guess
+    with an accent in it killed the thread unanswered and uncounted, and a passcode with one
+    could never be entered at all."""
+    return secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+
+
 def _signal_hotkey() -> None:
     global _HOTKEY_SEQUENCE
     with _HOTKEY_CONDITION:
@@ -614,6 +621,17 @@ def _warm_wake() -> None:
     threading.Thread(target=_WAKE.check, args=(silence.getvalue(),), daemon=True).start()
 
 
+def _setup_items() -> list[dict[str, object]]:
+    """The Setup rows, for the Setup panel and for `diagnose`, which reads them through
+    `setup_source`: only the server knows sign-in, phone access and its cached engines."""
+    return setup_report(_orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
+                        tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(),
+                        lan_mode=LAN_MODE)
+
+
+_orchestrator.setup_source = _setup_items
+
+
 def _keep_warm(interval: float = 200.0) -> None:
     """Ping the fast model periodically so it does not go cold between messages,
     and refresh the cached reachability used by the health check."""
@@ -773,7 +791,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             self._json(403, {"ok": False, "message": "Cross-site requests are blocked."})
             return False
-        if mutation and not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), _API_TOKEN):
+        if mutation and not _same_secret(self.headers.get("X-Jarvis-Token", ""), _API_TOKEN):
             self._json(403, {"ok": False, "message": "Reload J.A.R.V.I.S before retrying."})
             return False
         return True
@@ -1253,10 +1271,11 @@ class Handler(BaseHTTPRequestHandler):
             taken = max(0, min(length, 4096))
             self._body_read += taken
             payload = json.loads(self.rfile.read(taken) or b"{}")
-            supplied = str(payload.get("passcode") or "")
+            # A body of `[]` is valid JSON with no .get: it killed this thread with no answer.
+            supplied = str(payload.get("passcode") or "") if isinstance(payload, dict) else ""
         except (ValueError, TypeError, UnicodeError):
             supplied = ""
-        if not LAN_PASSCODE or not secrets.compare_digest(supplied, LAN_PASSCODE):
+        if not LAN_PASSCODE or not _same_secret(supplied, LAN_PASSCODE):
             with _LAN_LOCK:  # read-modify-write from several handler threads
                 _LAN_FAILURES[client] = _LAN_FAILURES.get(client, 0) + 1
             time.sleep(1)  # a passcode is short: make guessing it cost real time
@@ -1441,7 +1460,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/hotkey":
             query = parse_qs(urlsplit(self.path).query)
             channel = query.get("channel", [""])[0]
-            if not _DESKTOP_MODE or not secrets.compare_digest(channel, _HOTKEY_CHANNEL):
+            if not _DESKTOP_MODE or not _same_secret(channel, _HOTKEY_CHANNEL):
                 self._json(404, {"ok": False, "message": "No desktop hotkey channel."})
                 return
             try:
@@ -1454,9 +1473,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"sequence": _wait_hotkey(after)})
         elif path == "/api/setup":
             # Developer-only by the route allow-list: it describes this installation.
-            self._json(200, {"ok": True, "items": setup_report(
-                _orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
-                tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(), lan_mode=LAN_MODE)})
+            self._json(200, {"ok": True, "items": _setup_items()})
         elif path == "/api/metrics":
             self._json(200, system_metrics())
         elif path == "/api/agents":
@@ -1610,6 +1627,16 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_agent()
         elif self.path == "/api/schedule":
             self._handle_schedule()
+        elif self.path == "/api/diagnose":
+            # Developer-only by the route allow-list, like /api/setup. A POST, because it makes
+            # a live call to every configured model tier and a web search.
+            result = _orchestrator.diagnose()
+            # The chat model's answer is fresher than the keep-warm ping's, which the Setup panel
+            # the page reloads next would otherwise contradict for up to 200 s.
+            fast = next((probe for probe in result.data.get("probes") or [] if probe.get("key") == "fast"), None)
+            if fast is not None and fast.get("state") != "slow":
+                _LLM_STATUS["reachable"] = fast.get("state") == "ok"
+            self._json(200, {"ok": True, "message": result.message, **_json_safe(result.data)})
         elif self.path == "/api/reminders":
             self._handle_reminders()
         elif self.path == "/api/jobs":

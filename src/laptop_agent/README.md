@@ -85,12 +85,14 @@ data.
 | `failures.py` | Every swallowed error is recorded here (`failures`, `/api/failures`). |
 | `nvcf.py` | Finds the current function id of a hosted NVIDIA speech model (Parakeet, Magpie, translation) when the pinned one answers NOT_FOUND: one lookup by exact name, one retry. |
 | `selfcheck.py` | `selfcheck`: does routing actually reach the right tools? |
+| `diagnosis.py` | `diagnose` ("what's wrong with you", Setup's Run diagnosis): Setup, storage, routing, caught failures and response times, plus one live call to each model tier and a web search. |
 
 ### Safety, accounts and sign-in
 | File | What it does |
 |---|---|
 | `safety.py` | `RiskLevel` and `ApprovalGate`: risky actions must be approved. |
 | `approvals.py` | Lets the web page answer an approval request (the card you click). |
+| `supervisor.py` | Checks every step of an agent run before it runs: asks, refuses or stops the run. |
 | `access.py` | What a `personal` account may not do, checked per request. |
 | `accounts.py`, `sessions.py` | Accounts (scrypt passwords, roles) and server-side sessions. |
 | `google_oidc.py` | "Sign in with Google" identity check; keeps no mailbox tokens. |

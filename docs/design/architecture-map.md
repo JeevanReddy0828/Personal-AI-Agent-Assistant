@@ -428,6 +428,11 @@ Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tie
             request itself is wrong, and the ultra bug was a 400 on every attempt, so a
             blind retry would have tripled its cost while hiding it just as well.
             **Do not add an `except` that only returns a fallback: record the reason.**),
+        diagnosis.py (`diagnose`, "what's wrong with you", Setup's Run diagnosis: the Setup rows,
+            storage, the routing contract, the last hour's failures and traces, then one
+            live call to each model tier (a refusal tried once more) and a web search, ranked
+            problem before warning.
+            See "Run diagnosis" in web-server.md),
         approvals.py (ApprovalBroker: bridges the blocking approval gate to an HTTP
             answer so a risky action can be approved **in the web app**. The browser could
             not answer the gate, so `_guarded_approval` auto-denied everything above

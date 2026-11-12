@@ -138,6 +138,18 @@ class LanGateTests(unittest.TestCase):
         status, _body, _ = self.request("/api/pair", method="POST", body={"passcode": "nope"})
         self.assertEqual(status, 403)
 
+    def test_a_body_that_is_not_an_object_is_a_wrong_passcode(self) -> None:
+        """`[]` is valid JSON with no .get: the handler thread died and the phone got no answer."""
+        status, _body, _ = self.request("/api/pair", method="POST", body=["x"])
+        self.assertEqual(status, 403)
+        self.assertEqual(sum(self.webui._LAN_FAILURES.values()), 1, "it counts as a guess")
+
+    def test_a_guess_with_an_accent_is_answered_and_counted(self) -> None:
+        """compare_digest raises on a non-ASCII str: the guess was never answered or counted."""
+        status, _body, _ = self.request("/api/pair", method="POST", body={"passcode": "pässwörd"})
+        self.assertEqual(status, 403)
+        self.assertEqual(sum(self.webui._LAN_FAILURES.values()), 1)
+
     def test_the_right_passcode_opens_the_app(self) -> None:
         status, _body, headers = self.request("/api/pair", method="POST", body={"passcode": PASSCODE})
         self.assertEqual(status, 200)
