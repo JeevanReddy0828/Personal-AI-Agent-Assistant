@@ -337,11 +337,12 @@
     s=s.replace(/(^|[^\w])\*([^*]+)\*/g,'$1<em>$2</em>');
     // Same-origin paths only. A model that invents a data:image/...;base64 blob is
     // fabricating a picture, and one arrived as a 40KB blob of noise.
-    s=s.replace(/!\[([^\]]*)\]\((\/[^)\s"]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
+    s=s.replace(/!\[([^\]]*)\]\((\/(?![\/\\])[^)\s"]+)\)/g,'<img src="$2" alt="$1" loading="lazy" />');
     s=s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     // Our own routes are links too — a generated document is handed back as one, and
     // without this it rendered as literal "[Title](/api/document?name=…)" text.
-    s=s.replace(/\[([^\]]+)\]\((\/[^)\s"]*)\)/g,'<a href="$2">$1</a>');
+    // Not "//host/…", which is another site written to look like one of ours.
+    s=s.replace(/\[([^\]]+)\]\((\/(?![\/\\])[^)\s"]*)\)/g,'<a href="$2">$1</a>');
     return s;}
   /* Actions on rendered output: save a generated picture, copy or export a table.
      Added as DOM nodes rather than markup so nothing user- or model-authored is ever

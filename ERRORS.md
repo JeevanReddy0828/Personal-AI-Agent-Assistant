@@ -583,6 +583,19 @@ guard, with the date), and a session entry only when the line cannot carry the l
   "hand in" (Codex, #252). (10-08)
 
 ### Web server, sessions, security
+- **`open url file://server/share/x.exe` reached the Windows shell with no card** (audit, 11-11) →
+  a link was anything with a host-like netloc, `open url` is MEDIUM (no card in the web app) and
+  `os.startfile` starts whatever handles the scheme (`file:`, `ms-msdt:`, `search-ms:`) → only
+  `http`/`https` is an address (`web.WEB_SCHEMES`), in `open url`, `download`, the browser tool
+  and `fetch_page_text`; a download's redirect stays on the web, is capped, never overwrites, and
+  its filename is a bare name (`test_web_targets.py`).
+- **A passcode guess with an accent, or a `[]` body, got no answer and was not counted** (audit,
+  11-11) → `secrets.compare_digest` raises TypeError on a non-ASCII `str`, and `[].get` raises
+  AttributeError, both outside `_pair`'s `except` → secrets are compared as bytes
+  (`webui._same_secret`, and the Google ticket and state), and a non-object body is a wrong guess.
+- **"Command timed out after 1s" arrived after 30 s** (audit, 11-11) → `subprocess.run`'s timeout
+  kills the shell alone; its child keeps the pipes open → the whole tree is ended
+  (`TerminalTool._end_tree`, `test_a_timeout_ends_what_the_shell_started`).
 - **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
   clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
   the gate, and the routes matched pronouns and verbs about the clipboard itself → not in

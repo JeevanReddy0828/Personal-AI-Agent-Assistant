@@ -48,6 +48,19 @@ class TerminalToolTests(unittest.TestCase):
         self.assertIn("timed out", result.message)
         self.assertEqual(result.data["stdout"], "partial")
 
+    def test_a_timeout_ends_what_the_shell_started(self) -> None:
+        """The shell was killed and its child kept the pipes open: a 1-second limit on a
+        30-second program answered after 30 seconds."""
+        import sys
+        import time
+
+        tool = TerminalTool(ApprovalGate(lambda request: True))
+        began = time.monotonic()
+        result = tool.run(f'"{sys.executable}" -c "import time; time.sleep(30)"', timeout=1)
+        self.assertFalse(result.ok)
+        self.assertIn("timed out", result.message)
+        self.assertLess(time.monotonic() - began, 15)
+
     def test_missing_cwd_fails_before_approval(self) -> None:
         approvals = []
         tool = TerminalTool(ApprovalGate(lambda request: approvals.append(request) or True))

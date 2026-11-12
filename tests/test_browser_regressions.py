@@ -265,6 +265,14 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
 
+    def test_another_site_is_never_rendered_as_one_of_our_own_links(self):
+        # "//host/…" starts with a slash, so it rendered as a same-origin link with no rel.
+        self.page.evaluate("""() => {
+            renderMsg('bot', '[your report](//evil.example/login) and ![x](//evil.example/p.png)');
+        }""")
+        self.assertEqual(self.page.locator('.msg .md a').count(), 0)
+        self.assertEqual(self.page.locator('.msg .md img').count(), 0)
+
     def test_display_maths_becomes_a_real_fraction(self):
         # A division arrived as literal "\[ \frac{754}{86982} \approx 0.008668 \]".
         block = "Gives:" + NEWLINE * 2 + BACKSLASH + "[" + NEWLINE + BACKSLASH + "frac{754}{86982} "             + BACKSLASH + "approx 0.008668" + NEWLINE + BACKSLASH + "]"
