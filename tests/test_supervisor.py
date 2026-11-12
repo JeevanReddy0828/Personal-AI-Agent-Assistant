@@ -90,6 +90,54 @@ class RulesTests(unittest.TestCase):
         self.assertIs(run.check("weather Rome").verdict, Verdict.STOP)
 
 
+class ModelTrustTests(unittest.TestCase):
+    """A run took its steps from whichever tier answered first, so a free backup model had the
+    authority of the best one."""
+
+    def setUp(self) -> None:
+        from unittest.mock import patch
+
+        self.env = patch.dict("os.environ")
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        import os
+
+        os.environ.pop(supervisor.UNTRUSTED, None)
+
+    def test_the_backup_is_the_one_not_trusted_unless_set(self) -> None:
+        import os
+
+        self.assertEqual(supervisor.untrusted_tiers(), {"fallback"})
+        os.environ[supervisor.UNTRUSTED] = "Fast, ultra, nonsense"
+        self.assertEqual(supervisor.untrusted_tiers(), {"fast", "ultra"})
+        os.environ[supervisor.UNTRUSTED] = ""
+        self.assertEqual(supervisor.untrusted_tiers(), frozenset())
+
+    def test_a_tier_nobody_named_is_not_trusted(self) -> None:
+        self.assertFalse(supervisor.trusted(""))
+        self.assertFalse(supervisor.trusted("mystery"))
+        self.assertTrue(supervisor.trusted("smart"))
+
+    def test_an_untrusted_model_reads_and_computes_but_never_acts(self) -> None:
+        run = Supervisor()
+        for command in ("web search cats", "weather Paris", "read file a.txt"):
+            self.assertIs(run.check(command, "fallback").verdict, Verdict.ALLOW, command)
+        for command in ("open url https://example.com", "download https://example.com/a", "media volume 0"):
+            refused = Supervisor().check(command, "fallback")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "trust"), command)
+
+    def test_the_same_step_from_a_trusted_model_runs(self) -> None:
+        self.assertIs(Supervisor().check("download https://example.com/a", "smart").verdict, Verdict.ALLOW)
+
+    def test_a_routed_command_follows_the_same_trust(self) -> None:
+        import os
+
+        self.assertIs(supervisor.routed("open url https://example.com", "fast").verdict, Verdict.ALLOW)
+        os.environ[supervisor.UNTRUSTED] = "fast"
+        self.assertIs(supervisor.routed("open url https://example.com", "fast").verdict, Verdict.REFUSE)
+        self.assertIs(supervisor.routed("weather Paris", "fast").verdict, Verdict.ALLOW)
+
+
 class Script:
     """A reasoning model that replies with the next line of a script."""
 
@@ -170,6 +218,44 @@ class SupervisedRunTests(unittest.TestCase):
                                         step("weather Paris"))
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertIn("refused", result.message)
+
+    def test_a_step_from_the_backup_model_may_not_act(self) -> None:
+        brain = Script(step("open url https://example.com/cats"), step("knowledge stats"))
+        self.orchestrator.fallback_planner = Planner(brain)
+        result = asyncio.run(self.orchestrator.run_agent("look into cats"))
+        self.assertEqual(self.opened, [])
+        self.assertEqual([s["status"] for s in result.data["steps"]], ["failed", "ok"])
+        self.assertIn("fallback model", result.data["steps"][0]["message"])
+        self.assertEqual([(e["tier"], e["verdict"], e["rule"]) for e in self.audit()],
+                         [("fallback", "refuse", "trust"), ("fallback", "allow", "safe")])
+
+    def test_a_command_the_router_model_picks_is_recorded_and_held_to_its_trust(self) -> None:
+        from unittest.mock import patch
+
+        from laptop_agent.planner import PlanDecision
+
+        class Router:
+            provider = object()
+
+            def __init__(self) -> None:
+                self.colour = "teal"
+
+            def plan(self, text, available_commands, memory_profile, history=None):
+                return PlanDecision(action="command", confidence=0.9, explanation="model",
+                                    command=f"remember colour = {self.colour}")
+
+        def colour() -> object:
+            return self.orchestrator.context.memory.get_profile().get("colour")
+
+        router = self.orchestrator.planner = Router()
+        asyncio.run(self.orchestrator.handle("teal is the shade I always end up choosing, keep hold of that"))
+        self.assertEqual(colour(), "teal")
+        self.assertEqual([(e["source"], e["tier"], e["verdict"]) for e in self.audit()], [("router", "fast", "allow")])
+        router.colour = "mauve"
+        with patch.dict("os.environ", {supervisor.UNTRUSTED: "fast"}):
+            asyncio.run(self.orchestrator.handle("mauve is the shade I always end up choosing, keep hold of that"))
+        self.assertEqual(colour(), "teal")     # picked by a model not trusted to act: not remembered
+        self.assertEqual([e["verdict"] for e in self.audit()], ["allow", "refuse"])
 
     def test_every_verdict_is_in_the_audit_log(self) -> None:
         self.run_agent(step("web search cats"), step("open url https://example.com/cats"), step("run command whoami"))
