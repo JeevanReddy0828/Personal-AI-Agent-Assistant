@@ -73,6 +73,7 @@ from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, eve
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
+from laptop_agent.supervisor import RunStopped, Supervisor, Verdict, allowed_in_a_run
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
@@ -4539,7 +4540,35 @@ class AgentOrchestrator:
     )
 
     def _agent_reference(self) -> str:
-        return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS)
+        return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command))
+
+    def _supervised(self, history: list[dict[str, str]] | None):
+        """One run's `execute`: each step is put to a fresh Supervisor before it is dispatched,
+        and the verdict is written to the audit log (supervisor.py)."""
+        supervisor = Supervisor()
+        gate = self.context.web.approval_gate
+
+        async def execute(command: str) -> ToolResult:
+            decision = supervisor.check(command)
+            try:
+                self.context.audit.record("supervisor", command=command[:300], verdict=decision.verdict.value,
+                                          rule=decision.rule, reason=decision.reason)
+            except Exception as exc:  # a full disk must not let a step run unrecorded and unnoticed
+                record_failure("supervisor/audit", exc)
+            if decision.verdict is Verdict.STOP:
+                raise RunStopped(f"Stopped by the supervisor: {decision.reason}.")
+            if decision.verdict is Verdict.REFUSE:
+                return ToolResult.failure(f"Refused by the supervisor: {decision.reason}")
+            try:
+                if decision.verdict is Verdict.ASK:
+                    gate.require(ApprovalRequest(action=f"Agent step: {command[:200]}", risk=RiskLevel.HIGH,
+                                                 reason=decision.reason, preview=command))
+                return await self.handle(command, _allow_planner=False, history=history)
+            except ApprovalDenied:
+                supervisor.refused()
+                raise
+
+        return execute
 
     def _build_agent_brain(self, planners=None, answer_max_tokens: int | None = None):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
@@ -4605,7 +4634,7 @@ class AgentOrchestrator:
         agent_id = self.control_room.start(f"agent: {goal}")
         agent = AutonomousAgent(
             decide=self._build_agent_brain(),
-            execute=lambda command: self.handle(command, _allow_planner=False, history=history),
+            execute=self._supervised(history),
             command_reference=self._agent_reference(),
             max_steps=6,
         )

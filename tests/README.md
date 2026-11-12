@@ -58,7 +58,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Routing and conversation | `test_planner.py`, `test_llm_planner.py`, `test_everyday_requests.py` (the routing contract and the never-crash sweeps), `test_selfcheck.py`, `test_conversation_flow.py`, `test_command_dispatch.py`, `test_orchestrator.py`, `test_context.py`, `test_monologue.py`, `test_learn.py` |
 | Model tiers and reliability | `test_model_fallback.py`, `test_model_status.py`, `test_openrouter_fallback.py`, `test_failures*.py`, `test_tracing.py`, `test_reliability_regressions.py` |
 | Links you finish | `test_messaging.py`: WhatsApp/Telegram messages opened ready to send, the Google Flights link |
-| Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
+| Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_supervisor.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
 | Keys to other apps | `test_keys.py`: shortcuts and typing reach the app named or the one in use, never J.A.R.V.I.S |
 | Web server and page | `test_webui*.py` (one per panel or route group), `test_page_assets.py`, `test_webui_caching.py`, `test_window_fx.py` |
 | Scripts | `test_codefix.py`: run a Python script, fix it from its own error, diff shown and backup kept |
