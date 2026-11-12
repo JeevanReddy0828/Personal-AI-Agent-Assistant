@@ -445,7 +445,7 @@
   .setrow{flex-wrap:wrap}
   .setrow .setmore{flex-basis:100%;padding-left:17px;font:12px var(--sans);color:var(--muted);line-height:1.45}
   .setrow .setnext{display:block;color:var(--text-2)}
-  .crow .d{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none} .crow .d.off{background:var(--faint)} .crow .d.warn{background:var(--warn)}
+  .crow .d{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none} .crow .d.off{background:var(--faint)} .crow .d.warn{background:var(--warn)} .crow .d.bad{background:var(--danger)}
   .crow .k{color:var(--muted)} .crow .v{margin-left:auto;font:12px var(--mono);color:var(--text-2);text-align:right;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .metric{margin:9px 8px}
   .metric .top{display:flex;justify-content:space-between;font:12.5px var(--sans);color:var(--muted);margin-bottom:6px}

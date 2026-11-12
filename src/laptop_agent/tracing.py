@@ -101,6 +101,15 @@ def end_trace(token) -> None:
     _CURRENT.reset(token)
 
 
+def _at_or_after(value: object, since: datetime) -> bool:
+    """Whether a stored trace's time is at or after `since`; a time that cannot be read is
+    treated as old, for the same reasons `_timing` drops a line it cannot read."""
+    try:
+        return datetime.fromisoformat(str(value)).astimezone(UTC) >= since
+    except (ValueError, TypeError, OverflowError, OSError):
+        return False
+
+
 def _timing(line: str | bytes) -> dict[str, object] | None:
     """One line of the timing log, or None for a line that cannot be one (a torn last write,
     a hand edit, bytes that are not UTF-8): the log is read inside a user's turn, and the
@@ -206,9 +215,12 @@ class TraceStore:
         return list(self._traces[-limit:])[::-1]
 
     @synchronized
-    def summary(self, limit: int = 100) -> dict[str, object]:
-        """Medians, not means: one 300s ultra turn should not describe the other ninety-nine."""
+    def summary(self, limit: int = 100, since: datetime | None = None) -> dict[str, object]:
+        """Medians, not means: one 300s ultra turn should not describe the other ninety-nine.
+        With `since`, only the turns from then on: the traces outlive a restart."""
         window = self._traces[-limit:]
+        if since is not None:
+            window = [trace for trace in window if _at_or_after(trace.get("at"), since)]
         if not window:
             return {"turns": 0}
         chat = [t for t in window if t.get("kind") == "chat"]

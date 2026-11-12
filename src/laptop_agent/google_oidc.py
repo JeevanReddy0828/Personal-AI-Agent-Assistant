@@ -193,7 +193,7 @@ class GoogleFlows:
     def launch(self, ticket: str):
         with self._lock:
             self._prune()
-            flow = next((f for f in self._flows.values() if f.launch and secrets.compare_digest(f.launch, ticket)), None)
+            flow = next((f for f in self._flows.values() if f.launch and secrets.compare_digest(f.launch.encode(), ticket.encode())), None)
             if flow is None:
                 raise GoogleError("This Google sign-in link expired or was already opened. Start again.")
             flow.launch = ""
@@ -210,7 +210,7 @@ class GoogleFlows:
     def callback(self, state: str, binding: str, code: str, denied: bool = False):
         with self._lock:
             self._prune()
-            flow = next((f for f in self._flows.values() if f.state and secrets.compare_digest(f.state, state)), None)
+            flow = next((f for f in self._flows.values() if f.state and secrets.compare_digest(f.state.encode(), state.encode())), None)
             if flow is None or not binding or not secrets.compare_digest(flow.binding, digest(binding)):
                 raise GoogleError("This Google sign-in could not be matched to this browser. Start again.")
             flow.state = ""  # claim before exchanging: a racing callback cannot reuse the code

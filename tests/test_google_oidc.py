@@ -75,6 +75,15 @@ class GoogleFlowsTests(unittest.TestCase):
             self.callback()
         self.assertEqual(len(self.calls), 1)
 
+    def test_a_ticket_or_state_with_an_accent_is_refused_not_a_crash(self):
+        # compare_digest raises TypeError on a non-ASCII str; both values arrive in a URL.
+        self.flows.start("http://127.0.0.1:8770/auth/google/callback", "session", None, "signin")
+        with self.assertRaises(GoogleError):
+            self.flows.launch("tïcket")
+        self.launched()
+        with self.assertRaises(GoogleError):
+            self.flows.callback("stäte", self.binding, "code")
+
     def test_callback_race_claims_state_before_exchange(self):
         self.launched()
         entered, release = threading.Event(), threading.Event()

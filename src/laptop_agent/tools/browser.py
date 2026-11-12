@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.web import is_web_url
+
+# The page is loaded in a real browser, where file:///C:/... reads a local file into the reply.
+_NOT_WEB = "I only load http and https pages in the browser."
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,9 @@ class BrowserAutomationTool:
         self.approval_gate = approval_gate
 
     async def inspect_page(self, url: str) -> ToolResult:
+        url = self._normalize_url(url.strip())
+        if not is_web_url(url):
+            return ToolResult.failure(_NOT_WEB)
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
@@ -48,6 +54,8 @@ class BrowserAutomationTool:
 
     async def inspect_forms(self, url: str) -> ToolResult:
         normalized = self._normalize_url(url)
+        if not is_web_url(normalized):
+            return ToolResult.failure(_NOT_WEB)
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
@@ -98,6 +106,8 @@ class BrowserAutomationTool:
         if not profile:
             return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
         normalized = self._normalize_url(url)
+        if not is_web_url(normalized):
+            return ToolResult.failure(_NOT_WEB)
         self.approval_gate.require(
             ApprovalRequest(
                 action=f"Create form fill preview: {normalized}",
@@ -137,6 +147,8 @@ class BrowserAutomationTool:
         if not profile:
             return ToolResult.failure("No profile details stored. Use: remember name = Your Name")
         normalized = self._normalize_url(url)
+        if not is_web_url(normalized):
+            return ToolResult.failure(_NOT_WEB)
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
@@ -261,6 +273,8 @@ class BrowserAutomationTool:
         )
 
     async def _inspect_forms_without_extra_approval(self, url: str) -> ToolResult:
+        if not is_web_url(self._normalize_url(url)):
+            return ToolResult.failure(_NOT_WEB)
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
@@ -448,10 +462,8 @@ class BrowserAutomationTool:
 
     @staticmethod
     def _normalize_url(url: str) -> str:
-        parsed = urlparse(url)
-        if parsed.scheme:
-            return url
-        return "https://" + url
+        # "localhost:8000" parses as the scheme "localhost"; only "://" marks a scheme here.
+        return url if "://" in url else "https://" + url
 
     @staticmethod
     def _normalize_key(value: object) -> str:

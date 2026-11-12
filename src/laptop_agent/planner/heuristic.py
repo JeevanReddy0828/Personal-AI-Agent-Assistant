@@ -994,6 +994,18 @@ _WEB_APPS = {
 _OPEN_APP = re.compile(_POLITE + r"(?:open|launch|start|run|bring\s+up|fire\s+up)\s+(?:up\s+)?(?:the\s+|my\s+)?"
                        r"(?P<app>[a-z][\w .+-]{0,30}?)(?:\s+app(?:lication)?)?(?:\s+for\s+me|\s+please)?\s*[.!]*$",
                        re.IGNORECASE)
+# A diagnosis of the assistant itself, as the whole sentence: the bare word `diagnose` was the only
+# way in, so "what's wrong with you" was answered by a chat model that cannot see its own state, while
+# "what's wrong with my code" and "diagnose my car" are questions about something else.
+_DIAGNOSE_ASK = re.compile(
+    _POLITE + r"(?:(?:run|do|perform)\s+(?:a\s+)?(?:full\s+|quick\s+)?(?:self[-\s]?)?diagnos(?:is|tics?)"
+    r"(?:\s+on\s+yourself)?|(?:self[-\s]?)?diagnose\s+(?:yourself|your\s*self)|self[-\s]?diagnose"
+    r"|what(?:'s|s|\s+is)\s+(?:wrong|broken)\s+with\s+you|is\s+(?:something|anything)\s+wrong\s+with\s+you"
+    r"|why\s+(?:aren'?t\s+you|are\s+you\s+not)\s+working(?:\s+(?:properly|right))?"
+    r"|are\s+you\s+working\s+(?:properly|correctly|right)|check\s+your\s+(?:own\s+)?(?:health|systems?))"
+    r"\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
 _SCREENSHOT = re.compile(_POLITE + r"(?:take|grab|capture|get|snap)\s+(?:a\s+|me\s+a\s+)?screen\s*shot"
                          r"(?:\s+of\s+(?:my|the)\s+screen)?(?:\s+please)?\s*[.!]*$", re.IGNORECASE)
 _JOBS_ASK = re.compile(
@@ -1363,6 +1375,9 @@ class HeuristicPlannerProvider:
             "what can you help me with", "how can you help", "what are your features",
         }:
             return self._command("capabilities", "User asked what the assistant can do.", 0.95)
+
+        if _DIAGNOSE_ASK.match(raw):
+            return self._command("diagnose", "User asked what is wrong with the assistant.", 0.9)
 
         if "audit" in lowered and any(word in lowered for word in ("show", "open", "recent", "history", "log")):
             return self._command("audit", "User asked to see recent audit history.", 0.9)

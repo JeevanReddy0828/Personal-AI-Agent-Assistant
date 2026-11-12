@@ -159,3 +159,29 @@ package alone said ready with no browser, and an upgrade leaves the old revision
 broken tier's advice is
 rebuilt from the HTTP status, never passed through, because the stored reason names the
 model id. Developer-only by the route allow-list and `.devonly`.
+
+**Run diagnosis is Setup plus everything else, asked live** (`diagnosis.py`, `POST /api/diagnose`,
+the button at the top of the Setup panel, and `diagnose` or "what's wrong with you" in chat).
+`diagnose` used to run only the routing contract, so it said every check passed while a tier
+could be broken. It now ranks findings as problems (broken) or warnings (busy, slow, missing)
+from the Setup rows, storage warnings, the routing contract, and the last hour's caught failures
+and traces (both outlive a restart, so an older window reported days-old turns as current), then
+makes one 1-token call to each configured tier and one web search.
+Decisions that hold it together: the tiers are called **at once** on daemon threads with a 30s
+deadline, since ultra's own timeout is 420s and one hung call must not hold the report; the search
+runs on the request's thread, because the approval gate reads its principal and cancellation from
+context, and the CLI asks before a search, so it has no deadline of its own and the page promises
+none; a refused call is **tried once more** (not a retired model's), and each tier's outcome is then
+**recorded with its reason** into `model_status`, as the keep-warm ping does, so a success clears a
+tier marked broken and one refused request does not have chat skip a working tier for a minute;
+the chat model's answer also replaces the keep-warm ping's cached reachability, which the Setup
+panel reloaded after the report would otherwise contradict; a report listing problems is still a
+successful turn, or the next diagnosis would report it as a failed one; and a Setup row a probe
+answers more precisely (chat, deeper, vision, backup, search) is left out rather than said twice.
+Wording is rebuilt from the HTTP status, never the stored reason, which names the model id
+(`health.misconfigured_advice`, shared with the Setup rows). A failed search API is recorded before
+the free fallback answers (`websearch/primary`), so a rejected key shows as a caught failure rather
+than not at all. A POST, because it spends a call per tier;
+developer-only by the route allow-list, and its chat forms are in `access._DEV_EXACT`. `selfcheck`
+is still the routing contract alone. Tests: `tests/test_diagnosis.py`, and the button in
+`tests/test_browser_accounts.py`.

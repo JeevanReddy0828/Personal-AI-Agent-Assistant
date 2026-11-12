@@ -100,13 +100,18 @@ def sweep_uploads(upload_dir: Path, max_age_hours: float = 24.0, now: float | No
         record_failure("retention/uploads", exc, path=str(directory))
         return 0
     for child in children:
-        # Only the scratch folders this app makes, never a stray file someone put here.
-        if not child.is_dir() or not child.name.startswith("upload_"):
+        # Only the scratch this app makes, never a stray file someone put here: an upload's own
+        # folder, and a voice clip, which is deleted after transcription unless the app died first.
+        folder = child.is_dir() and child.name.startswith("upload_")
+        if not folder and not (child.is_file() and child.name.startswith("voice_")):
             continue
         if _mtime(child) >= cutoff:
             continue
         try:
-            shutil.rmtree(child, ignore_errors=False)
+            if folder:
+                shutil.rmtree(child, ignore_errors=False)
+            else:
+                child.unlink()
             removed += 1
         except OSError as exc:
             record_failure("retention/rmtree", exc, path=child.name)

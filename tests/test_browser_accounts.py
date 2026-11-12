@@ -6,6 +6,7 @@ ERRORS.md records a meter that passed its test for three months while rendering 
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
@@ -145,6 +146,49 @@ class AccountsInTheBrowser(unittest.TestCase):
                                          "els => els.length")
         self.assertEqual(todo, rows, "a row that needs doing shows no next step")
         self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
+    def run_diagnosis(self, status: int, report: dict):
+        page = self.open_as("dev")
+        methods: list[str] = []
+
+        def answer(route):
+            # Canned: the real endpoint calls every model tier. The page's half is under test.
+            methods.append(route.request.method)
+            route.fulfill(status=status, content_type="application/json", body=json.dumps(report))
+
+        page.route("**/api/diagnose", answer)
+        page.click("#healthPill")
+        page.click("#setupPanel summary")
+        page.click("#diagBtn")
+        return page, methods
+
+    def test_a_developer_can_run_the_diagnosis_from_setup(self):
+        report = {"ok": True, "status": "fail", "verdict": "1 problem and 1 warning.", "seconds": 2.4, "probes": [],
+                  "findings": [{"severity": "problem", "area": "Deep model", "detail": "<b>Retired</b> (HTTP 410).",
+                                "fix": "Check OPENAI_ULTRA_MODEL."},
+                               {"severity": "warning", "area": "Web search", "detail": "No results.", "fix": None}],
+                  "working": ["Chat model (1.2 s)", "storage"], "optional": []}
+        page, methods = self.run_diagnosis(200, report)
+        page.wait_for_function("() => document.querySelectorAll('#diagList .setrow').length === 2", timeout=6000)
+        self.assertEqual(methods, ["POST"])
+        self.assertEqual(page.inner_text("#diagMsg"), "1 problem and 1 warning. Checked in 2.4 s.")
+        self.assertEqual(page.eval_on_selector_all("#diagList .setrow", "els => els.map(e => e.dataset.severity)"),
+                         ["problem", "warning"])
+        listed = page.inner_text("#diagList")
+        self.assertIn("Check OPENAI_ULTRA_MODEL.", listed)
+        self.assertIn("Working: Chat model (1.2 s), storage.", listed)
+        # The server's words are shown as text, never as markup.
+        self.assertIn("<b>Retired</b>", listed)
+        self.assertEqual(page.locator("#diagList b").count(), 0)
+        self.assertTrue(self.on_screen(page, "#diagList .setrow"))
+        self.assertTrue(page.is_enabled("#diagBtn"))
+        self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
+    def test_a_diagnosis_that_cannot_run_says_so_and_can_be_tried_again(self):
+        page, _ = self.run_diagnosis(500, {"ok": False, "message": "Could not access local data."})
+        page.wait_for_function("() => document.getElementById('diagMsg').classList.contains('err')", timeout=6000)
+        self.assertEqual(page.inner_text("#diagMsg"), "Could not run the diagnosis.")
+        self.assertTrue(page.is_enabled("#diagBtn"))
 
     def test_a_personal_account_is_not_shown_the_setup(self):
         page = self.open_as("personal")

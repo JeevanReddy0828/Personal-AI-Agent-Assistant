@@ -19,6 +19,23 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-11-11: **Every step of an agent run passes through `supervisor.Supervisor` before it is
+  dispatched** (Jeevan asked for surveillance over agent actions). Plain rules, never a model: a run
+  that has read outside text (web, files, mail, notes, MCP) is asked before a step that runs with
+  no card today and reaches a chosen address, the desktop or what is remembered (`GUARDED`); the
+  shell, `code run`/`code fix` and `file delete` are never a step (`DIRECT`, also left out of the
+  prompt); the same step a third time or two refusals end the run; every verdict is in the audit
+  log. Tool risk levels are unchanged: the supervisor asks through the gate at HIGH itself. A
+  command added to `_AGENT_COMMANDS` must be placed in a group (`tests/test_supervisor.py`). Not
+  built: the scope rule (a step the goal never named), and an advisory model judge, which may
+  only ever raise a verdict. Typed commands and the instant router are not supervised.
+- 2026-11-12: **Models have trust tiers** (a friend's review: "who is the governance?"). A step or
+  a routed command chosen by a tier in `LAPTOP_AGENT_UNTRUSTED_MODELS` (fast, smart, ultra,
+  fallback; unset means the backup alone, empty means none) may read and compute, never act:
+  the supervisor refuses anything outside its `safe` and `reads` groups, and a command the
+  router's model picks is recorded in the audit log and, from an untrusted tier, answered
+  instead of run. A tier nobody named is not trusted. The agent's `decide` names the tier
+  that wrote each reply (`decide.tier`); the router's model is always the fast tier.
 - 2026-10-16: **The daily briefing's format is one remembered fact, `briefing format`, re-read on every
   run** - what the user said is the record, so it shows in "what do you remember about me",
   "forget my briefing" restores the default, and a section added later reads an old format the
