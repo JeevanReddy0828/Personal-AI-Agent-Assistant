@@ -518,8 +518,15 @@ class OpenAICompatiblePlannerProvider:
             # the note would render as code.
             yield ("\n```" if answer.count("```") % 2 else "") + _CUT_OFF_NOTE
 
-    def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
-        """Send an image to a vision model and return a plain-language description."""
+    def describe_image(
+        self,
+        image_path: str,
+        prompt: str,
+        model: str | None = None,
+        on_failure: Callable[[str, str], None] | None = None,
+    ) -> str | None:
+        """Send an image to a vision model and return a plain-language description.
+        ``on_failure`` hears why there is none, as ``answer`` reports it."""
         import base64
 
         try:
@@ -545,6 +552,8 @@ class OpenAICompatiblePlannerProvider:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
             record_failure("llm/answer", exc, model=self.model)
+            if on_failure is not None:
+                on_failure(*classify_failure(exc, str(payload["model"])))
             return None
         return self._strip_reasoning(content).strip() or None
 

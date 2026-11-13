@@ -51,7 +51,7 @@ from laptop_agent.briefing import (
     CAN_INCLUDE, DEFAULT_FORMAT, MAIL_FETCH, MAX_SECTIONS, PROFILE_KEY, Section, describe_format, greeting, mail_lines, news_lines,
     parse_format, weather_text,
 )
-from laptop_agent.model_status import ModelStatus
+from laptop_agent.model_status import BROKEN, ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
 from laptop_agent.planner.core import CutOff, PlanDecision
 from laptop_agent.planner.heuristic import (
@@ -5527,23 +5527,11 @@ class AgentOrchestrator:
             "very screen. Concisely describe what the user is working on. If you see your own app window (a dark chat "
             "with an amber accent), call it out as yourself ('that dark window is me'). Focus on what matters, not every pixel."
         )
-        described = self._describe_with_vision(path, prompt)
+        why: list[tuple[str, str]] = []
+        described = self._describe_with_vision(path, prompt, why)
         if described is not None:
             return ToolResult.success(described, screenshot=path, vision=True)
-        # No vision model available — fall back to OCR text.
-        ocr = self.context.transcribe.ocr_image(path)
-        if not ocr.ok:
-            return ToolResult.failure(
-                "I captured the screen but can't read it: no vision model is configured and OCR is unavailable. "
-                + ocr.message,
-                screenshot=path,
-            )
-        return ToolResult.success(
-            f"Read {ocr.data.get('char_count', 0)} character(s) of text from the screen.",
-            screenshot=path,
-            text=ocr.data.get("text", ""),
-            char_count=ocr.data.get("char_count", 0),
-        )
+        return self._read_text_instead(path, "the screen", self._vision_gap(why), screenshot=path)
 
     def _webcam_look(self, question: str = "") -> ToolResult:
         """Capture a webcam frame and describe it with the vision model (OCR fallback)."""
@@ -5555,39 +5543,54 @@ class AgentOrchestrator:
             "You are J.A.R.V.I.S looking through the user's webcam. Concisely describe who and "
             "what you see — the person, their setting, and anything notable. Be natural, not clinical."
         )
-        described = self._describe_with_vision(path, prompt)
+        why: list[tuple[str, str]] = []
+        described = self._describe_with_vision(path, prompt, why)
         if described is not None:
             return ToolResult.success(described, webcam=path, vision=True)
-        ocr = self.context.transcribe.ocr_image(path)
-        if ocr.ok and ocr.data.get("char_count"):
-            return ToolResult.success(
-                f"I captured a webcam frame and read {ocr.data.get('char_count', 0)} character(s) of text from it.",
-                webcam=path, text=ocr.data.get("text", ""),
-            )
-        return ToolResult.failure(
-            "I captured a webcam frame but can't interpret it: no vision model is configured. "
-            "Set OPENAI_VISION_MODEL to describe what the camera sees.",
-            webcam=path,
-        )
+        return self._read_text_instead(path, "the webcam frame", self._vision_gap(why), webcam=path)
 
     def _describe_image(self, path: str, question: str = "") -> ToolResult:
         target = path.strip().strip("'\"")
         if not target or not Path(target).is_file():
             return ToolResult.failure(f"Image not found: {target}")
         prompt = question.strip() or "Describe this image in detail. What is shown?"
-        described = self._describe_with_vision(target, prompt)
+        why: list[tuple[str, str]] = []
+        described = self._describe_with_vision(target, prompt, why)
         if described is not None:
             return ToolResult.success(described, path=target, vision=True)
-        ocr = self.context.transcribe.ocr_image(target)
-        if ocr.ok:
+        return self._read_text_instead(target, "the image", self._vision_gap(why), path=target)
+
+    def _read_text_instead(self, source: str, what: str, gap: str, **data: object) -> ToolResult:
+        """The text in a picture the vision model could not look at, shown rather than counted,
+        with the reason it could not look.
+
+        A phone photo answered "Read 239 character(s) of text from the image." and showed none
+        of it, and the next one said "no vision model is configured" while one was configured
+        and had been retired (HTTP 410). The text goes in `ocr_text`, not `text`: a routed
+        reply rebuilds its message from `text`, which would drop the reason again."""
+        ocr = self.context.transcribe.ocr_image(source)
+        text = str(ocr.data.get("text") or "").strip() if ocr.ok else ""
+        if text:
             return ToolResult.success(
-                f"Read {ocr.data.get('char_count', 0)} character(s) of text from the image.",
-                path=target, text=ocr.data.get("text", ""), char_count=ocr.data.get("char_count", 0),
+                f"I couldn't look at {what} itself ({gap}), so I read the text from {what} instead.\n\n{ocr.message}",
+                ocr_text=text, vision=False, **data,
             )
+        if ocr.ok:
+            return ToolResult.failure(f"I couldn't look at {what} ({gap}), and it has no readable text.", **data)
         return ToolResult.failure(
-            "I couldn't read that image: no vision model is configured and OCR is unavailable. " + ocr.message,
-            path=target,
+            f"I couldn't look at {what} ({gap}), and reading its text failed too: {ocr.message}", **data
         )
+
+    def _vision_gap(self, why: list[tuple[str, str]]) -> str:
+        """Why the vision model gave no description, in words the user can act on."""
+        if self.vision_planner is None:
+            return "no vision model is configured; set OPENAI_VISION_MODEL"
+        if not why:
+            return "the vision model gave no answer"
+        kind, detail = why[-1]
+        if kind == BROKEN:
+            return f"the vision model cannot be used: {detail}; set OPENAI_VISION_MODEL to a current model"
+        return f"the vision model is unavailable right now: {detail}"
 
     def _describe_video(self, arguments: str) -> ToolResult:
         """`describe video <path> [:: question]` - a clip, watched by the video model."""
@@ -5619,12 +5622,14 @@ class AgentOrchestrator:
                                       path=str(source))
         return ToolResult.success(described, path=str(source), vision=True, video=True)
 
-    def _describe_with_vision(self, path: str, prompt: str) -> str | None:
+    def _describe_with_vision(self, path: str, prompt: str, why: list[tuple[str, str]] | None = None) -> str | None:
         if self.vision_planner is None:
             return None
         describe = getattr(self.vision_planner.provider, "describe_image", None)
         if describe is None:
             return None
+        if why is not None and accepts_keyword(describe, "on_failure"):
+            return describe(path, prompt, on_failure=lambda kind, detail: why.append((kind, detail)))
         return describe(path, prompt)
 
     @staticmethod

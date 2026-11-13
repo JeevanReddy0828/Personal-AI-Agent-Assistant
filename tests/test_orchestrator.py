@@ -462,7 +462,7 @@ class OrchestratorTests(unittest.TestCase):
             orchestrator = self.build(Path(raw))
             result = asyncio.run(orchestrator.handle("read screen"))
             self.assertTrue(result.ok)
-            self.assertIn("ocr-text::", result.data["text"])
+            self.assertIn("ocr-text::", result.data["ocr_text"])
             self.assertTrue(result.data["screenshot"])
 
     def test_multi_records_task_dashboard(self) -> None:
@@ -999,7 +999,7 @@ class OrchestratorTests(unittest.TestCase):
             # falls back to OCR, which (in tests) returns text — so the run succeeds with the frame.
             self.assertTrue(result.ok)
             self.assertIn("webcam", result.data)
-            self.assertIn("ocr-text", result.data.get("text", ""))
+            self.assertIn("ocr-text", result.data.get("ocr_text", ""))
 
     def test_natural_language_reminder_uses_planner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

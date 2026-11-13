@@ -411,6 +411,13 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`test_messaging.py`). Developer-only. (10-14)
 
 ### Models and providers
+- **A photo answered "Read 239 character(s) of text" and showed none; the next said "no vision
+  model is configured"** while one was configured → NVIDIA retired `llama-3.2-11b-vision-instruct`
+  on 11-05 (HTTP 410), `describe_image` swallowed the reason, and the OCR fallback in
+  `_describe_image`, `_read_screen` and `_webcam_look` counted the text instead of showing it →
+  `describe_image` reports why through `on_failure`, `_read_text_instead` shows the text with
+  that reason (in `ocr_text`, since a routed reply rebuilds `text`); `.env` now points the
+  vision slot at the video model (`test_photo_reading.py`). (11-11)
 - **A rejected search API key showed nowhere: every search answered, through DuckDuckGo** →
   `build_search_backend`'s fallback swallowed the API's `WebSearchError` without recording it,
   so `failures` and the self-diagnosis saw a healthy search → recorded as `websearch/primary`

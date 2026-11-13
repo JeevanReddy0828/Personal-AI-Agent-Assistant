@@ -12,7 +12,10 @@ Configured via env / `.env` (auto-loaded by `config.py`). Pick by task complexit
 - `OPENAI_MODEL` — fast/simple (e.g. `meta/llama-3.1-8b-instruct`)
 - `OPENAI_SMART_MODEL` — complex (`nvidia/llama-3.3-nemotron-super-49b-v1`)
 - `OPENAI_ULTRA_MODEL` — very complex (`nvidia/nemotron-3-ultra-550b-a55b`)
-- `OPENAI_VISION_MODEL` — screen/images (`meta/llama-3.2-11b-vision-instruct`)
+- `OPENAI_VISION_MODEL` — screen/images (`nvidia/nemotron-3.5-super-vl-120b-a12b`, the video
+  model; `meta/llama-3.2-11b-vision-instruct` was retired on 2026-11-05 and answers HTTP 410.
+  Measured: 38 s for one 1024px picture, inside the call's 66 s socket timeout, which
+  `_deadline` derives from its 2,048-token cap)
 - `OPENAI_IMAGE_MODEL` — text-to-image (`black-forest-labs/flux.2-klein-4b`), plus
   `OPENAI_IMAGE_KEY`, `OPENAI_IMAGE_BASE_URL` (default
   `https://ai.api.nvidia.com/v1/genai`) and an optional second model tried when the
