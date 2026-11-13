@@ -218,6 +218,16 @@ class SupervisedRunTests(unittest.TestCase):
                                         step("weather Paris"))
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertIn("refused", result.message)
+        self.assertIn("you did not approve it", result.message)   # the cause, not only the count
+
+    def test_a_stop_says_which_rule_refused_the_steps(self) -> None:
+        """Seen live: "2 of its steps were refused" said nothing of the model not being trusted."""
+        brain = Script(step("download https://example.com/a.bin"), step("download https://example.com/b.bin"),
+                       step("knowledge stats"))
+        self.orchestrator.fallback_planner = Planner(brain)
+        result = asyncio.run(self.orchestrator.run_agent("look into cats"))
+        self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
+        self.assertIn("fallback model chose it", result.message)
 
     def test_a_step_from_the_backup_model_may_not_act(self) -> None:
         brain = Script(step("open url https://example.com/cats"), step("knowledge stats"))
