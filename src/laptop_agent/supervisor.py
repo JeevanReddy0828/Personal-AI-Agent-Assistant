@@ -138,27 +138,28 @@ class Supervisor:
         self.tainted_by = ""
         self._seen: dict[str, int] = {}
         self._refusals = 0
+        self._last_refusal = ""
 
-    def refused(self) -> None:
+    def refused(self, why: str = "you did not approve it") -> None:
         self._refusals += 1
+        self._last_refusal = why
 
     def check(self, command: str, tier: str = "smart") -> Decision:
         lowered = " ".join((command or "").lower().split())
         if self._refusals >= MAX_REFUSALS:
-            return Decision(Verdict.STOP, "refusals", f"{self._refusals} of its steps were refused, so it is not "
-                                                      "going where you want")
+            # With the cause: live, "2 of its steps were refused" left the user guessing which rule.
+            return Decision(Verdict.STOP, "refusals", f"{self._refusals} of its steps were refused, the last because "
+                                                      f"{self._last_refusal}")
         self._seen[lowered] = self._seen.get(lowered, 0) + 1
         if self._seen[lowered] > MAX_REPEATS:
             return Decision(Verdict.STOP, "repeat", f"it tried the same step a third time: {command[:120]}")
         group, form = group_of(lowered)
         if group == "direct":
-            self._refusals += 1
-            return Decision(Verdict.REFUSE, "direct", f"\"{form}\" is never a step of an agent run. Ask for it "
-                                                      "yourself, outside agent mode.")
+            self.refused(f"\"{form}\" is never a step of an agent run (ask for it yourself, outside agent mode)")
+            return Decision(Verdict.REFUSE, "direct", self._last_refusal)
         if not trusted(tier) and group not in _UNTRUSTED_MAY:
-            self._refusals += 1
-            return Decision(Verdict.REFUSE, "trust", f"this step came from the {tier or 'unnamed'} model, which "
-                                                     "may read and compute but not act. Nothing was done.")
+            self.refused(f"the {tier or 'unnamed'} model chose it, and that model may read and compute but not act")
+            return Decision(Verdict.REFUSE, "trust", self._last_refusal)
         tainted_before = self.tainted_by
         if group == "reads" or any(_matches(lowered, form) for form in ALSO_READS):
             self.tainted_by = self.tainted_by or form or lowered[:40]
