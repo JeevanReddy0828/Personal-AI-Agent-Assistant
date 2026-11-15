@@ -105,6 +105,7 @@ data.
 | `memory.py` | Facts about you, notes and lists ("add milk to my shopping list"). |
 | `knowledge.py` | Your indexed documents: TF-IDF search plus vectors, and question answering. |
 | `embeddings.py` | Semantic vectors for `knowledge.py`; falls back to keywords when offline. |
+| `backup.py` | One verified archive of memory, reminders, lists and generated files, never credentials; `backup` in the app, and `laptop-agent-backup create|verify|restore` for a restore into an empty folder. |
 | `terms.py` | The one word and sentence splitter all retrieval code shares. |
 | `storage.py` | Atomic, locked JSON files; every store above writes through it. |
 | `retention.py` | Trims generated images, documents and uploads so they do not grow forever. |

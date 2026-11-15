@@ -106,6 +106,8 @@ _DEV_EXACT = frozenset({
     "audit", "show audit", "briefing", "daily briefing", "status briefing", "morning briefing",
     "briefing format", "briefing settings", "briefing reset", "briefing default",
     "timecard", "failures", "errors", "what broke", "recent errors", "selfcheck", "self check",
+    # a copy of the owner's whole data folder, written where the owner says
+    "backup",
     "self-check", "does everything work", "check yourself", "diagnose", "diagnosis", "self diagnosis",
     "self-diagnosis", "run diagnostics", "latency", "traces",
     "why slow", "speed", "watches", "watch health", "watch check health",

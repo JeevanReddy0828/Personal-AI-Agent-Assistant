@@ -499,3 +499,37 @@ Everyday layer (see "Everyday requests" in routing.md): tools/units.py (conversi
         numbers via `secrets`), timers/alarms/repeats in the orchestrator over reminders.py +
         scheduler.py (`days` for weekdays / named days), lists and facts in memory.py
 ```
+
+## Backups (`backup.py`)
+
+One `.zip` of what the app remembers, written by `create`, checked by `verify`, unpacked by
+`restore` (`python -m laptop_agent.backup`, or the `laptop-agent-backup` script). It is also
+`backup` in the app, routed by `_dispatch_utilities`: developer-only in `access.py` and asked at
+HIGH first, because it writes a file that copies the data folder. The app only writes; a
+restore stays on the command line, where the empty-folder rule is easy to see.
+
+- **An allow-list, never a deny-list.** `SNAPSHOT_FILES` and `SNAPSHOT_FOLDERS` name what
+  goes in: memory, reminders, the scheduler, task and workflow history, jobs, the knowledge
+  index, autopilot and agent-run history, the file journal and watches, plus the generated
+  `documents/`, `images/`, `recordings/` and `resumes/`. A deny-list of names to skip would
+  carry the next secret somebody adds to the folder.
+- **Credentials never enter an archive**, and `verify` refuses one that contains them
+  anyway: `accounts.json`, `sessions.json`, `email_tokens.json`, `jobright_session.json`.
+  People store backups off the machine; a backup holding password hashes must not be one.
+- **The manifest is the trust.** Every file is hashed as it is written, from the same bytes
+  that go into the archive, and `verify` re-reads each one - a same-size byte flip is
+  caught, which a size check alone would wave through. It also refuses a member missing from
+  the archive, an unlisted member, a `..` or absolute path, a foreign format version and an
+  archive that is not a zip.
+- **Restore is additive only.** Into a folder that is absent or empty, built in a sibling
+  `*.partial-*` folder and renamed into place, so a refusal leaves nothing half-written.
+  There is deliberately no overwrite flag: the one time it is used is the one time the path
+  is wrong.
+- **Left out on purpose:** logs and traces (`audit.jsonl`, `failures.json`, `traces.json`),
+  `*.lock`/`*.bak`/`*.corrupt-*`, `downloads/` (not the app's own data), `plugins/` and
+  `code_backups/` (code, and restoring it silently is a decision nobody asked for), and
+  `mcp.json`, which can hold configuration. Chat transcripts are not here at all: the page
+  keeps them in its own browser storage.
+
+Measured: a snapshot of this app's own data folder is 6 files and under a second; the 2 GB /
+10,000-file ceiling exists so a corrupt or hostile archive cannot fill the disk of a laptop.

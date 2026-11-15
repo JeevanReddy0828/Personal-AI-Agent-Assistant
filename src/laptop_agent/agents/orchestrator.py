@@ -71,6 +71,7 @@ from laptop_agent.planner.heuristic import (
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, everyday_form, is_personal, refused_command
+from laptop_agent.backup import SnapshotError, create_snapshot
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -1709,6 +1710,9 @@ class AgentOrchestrator:
         if lowered in {"diagnose", "diagnosis", "self diagnosis", "self-diagnosis", "run diagnostics"}:
             return self.diagnose()
 
+        if lowered == "backup":
+            return self._backup()
+
         if lowered.startswith(("calculate ", "calc ", "compute ")):
             rest = command.split(" ", 1)[1]
             return self._calculator.compute(rest)
@@ -3289,6 +3293,30 @@ class AgentOrchestrator:
             **{k: v for k, v in clock.data.items() if k != "iso"},
             iso=clock.data["iso"],
         )
+
+    def _backup(self) -> ToolResult:
+        """`backup` - one archive of the durable data, after a card.
+
+        HIGH like every other write here, even though it only reads: it writes a file that
+        copies the whole data folder, and the card is how the user learns where it goes.
+        Developer-only in access.py for the same reason mail and notes are - a personal
+        account shares this store with the owner and is not shown the owner's data.
+        """
+        self.context.web.approval_gate.require(ApprovalRequest(
+            action=f"Write a backup of J.A.R.V.I.S's data to {self.data_dir / 'backups'}",
+            risk=RiskLevel.HIGH,
+            reason="One archive of your memory, reminders, lists, jobs and generated files. "
+                   "Passwords, sessions and mail tokens are never included.",
+        ))
+        try:
+            snapshot = create_snapshot(self.data_dir)
+        except SnapshotError as exc:
+            return ToolResult.failure(str(exc))
+        left_out = (f" Left out, because they are credentials: {', '.join(snapshot.excluded)}."
+                    if snapshot.excluded else "")
+        return ToolResult.success(f"Backed up {len(snapshot.files)} file(s) to {snapshot.path}.{left_out}",
+                                  path=str(snapshot.path), files=list(snapshot.files),
+                                  excluded=list(snapshot.excluded))
 
     def _selfcheck(self) -> ToolResult:
         """`selfcheck` — do the things I say still reach the tools that handle them?

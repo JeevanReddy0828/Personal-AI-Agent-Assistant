@@ -19,6 +19,17 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-11-14: **A backup is an allow-list of what to keep, never the data folder minus a
+  deny-list** (Claude; new module `backup.py`). Credentials - accounts, sessions, mail tokens,
+  the Jobright session - never enter an archive, and `verify_snapshot` refuses a hand-written
+  one that contains them, because backups get stored off the machine and must never be a
+  password store. Every file is hashed from the bytes actually written, so a same-size change
+  is caught. Restore writes only into an absent or empty folder, staged and renamed into place,
+  with no overwrite flag: the one time it is used is the one time the path is wrong. Chats are
+  not in an archive (the page keeps them in browser storage) and neither are logs, locks or
+  downloads. Reached two ways: `backup` in the app (routed by `_dispatch_utilities`,
+  developer-only in `access.py`, asked at HIGH before anything is written) and the
+  `laptop-agent-backup` script for create/verify/restore.
 - 2026-11-11: **Every step of an agent run passes through `supervisor.Supervisor` before it is
   dispatched** (Jeevan asked for surveillance over agent actions). Plain rules, never a model: a run
   that has read outside text (web, files, mail, notes, MCP) is asked before a step that runs with

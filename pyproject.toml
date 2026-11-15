@@ -46,6 +46,7 @@ laptop-agent = "laptop_agent.cli:main"
 laptop-agent-gui = "laptop_agent.dashboard:main"
 laptop-agent-dashboard = "laptop_agent.dashboard:main"
 laptop-agent-deck = "laptop_agent.webui:run_desktop"
+laptop-agent-backup = "laptop_agent.backup:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
