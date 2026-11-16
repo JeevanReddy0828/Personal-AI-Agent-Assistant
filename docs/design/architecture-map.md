@@ -521,6 +521,12 @@ restore stays on the command line, where the empty-folder rule is easy to see.
   caught, which a size check alone would wave through. It also refuses a member missing from
   the archive, an unlisted member, a `..` or absolute path, a foreign format version and an
   archive that is not a zip.
+- **The folder is trimmed, not unbounded.** A successful write keeps the newest
+  `KEEP_ARCHIVES` (5) archives and deletes the older ones, ordered by the stamp in the
+  name rather than by modification time, since a copied archive would look newer than it
+  is. Only files named like one of its own archives are ever removed; an archive another
+  process holds open is recorded through `failures.record_failure` instead of failing a
+  backup that has already succeeded.
 - **Restore is additive only.** Into a folder that is absent or empty, built in a sibling
   `*.partial-*` folder and renamed into place, so a refusal leaves nothing half-written.
   There is deliberately no overwrite flag: the one time it is used is the one time the path

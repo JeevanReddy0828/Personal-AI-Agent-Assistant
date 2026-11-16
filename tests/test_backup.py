@@ -14,6 +14,7 @@ from laptop_agent import backup
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.backup import MANIFEST, SnapshotError, create_snapshot, restore_snapshot, verify_snapshot
+from laptop_agent.safety import ApprovalRequest, RiskLevel
 from test_everyday_requests import Everyday
 
 STAMP = datetime(2026, 11, 14, 10, 30, tzinfo=timezone(timedelta(hours=-5)))
@@ -122,6 +123,78 @@ class WhatGoesIn(SnapshotTestCase):
         result = create_snapshot(self.data, now=STAMP)
         with zipfile.ZipFile(result.path) as archive:
             self.assertNotIn("images/link.txt", archive.namelist())
+
+
+class Retention(SnapshotTestCase):
+    """The backups folder keeps the newest few archives instead of growing forever."""
+
+    def _snapshots(self) -> list[str]:
+        folder = self.data / "backups"
+        return sorted(path.name for path in folder.iterdir())
+
+    def test_only_the_newest_archives_are_kept(self) -> None:
+        written = [create_snapshot(self.data, now=STAMP + timedelta(minutes=i))
+                   for i in range(backup.KEEP_ARCHIVES + 2)]
+        kept = self._snapshots()
+        self.assertEqual(len(kept), backup.KEEP_ARCHIVES)
+        self.assertEqual(kept[-1], written[-1].path.name)
+        for gone in written[:2]:
+            self.assertFalse(gone.path.exists())
+        # What survives is still a backup the module accepts, not just a file left behind.
+        self.assertTrue(verify_snapshot(written[-1].path).files)
+
+    def test_how_many_to_keep_can_be_chosen(self) -> None:
+        for i in range(4):
+            create_snapshot(self.data, now=STAMP + timedelta(minutes=i), keep=2)
+        self.assertEqual(len(self._snapshots()), 2)
+
+    def test_a_file_that_is_not_a_backup_is_never_deleted(self) -> None:
+        folder = self.data / "backups"
+        folder.mkdir()
+        mine = folder / "notes.txt"
+        mine.write_text("a copy I keep here myself", encoding="utf-8")
+        whole = folder / "jarvis-backup-copy-of-dads.zip"
+        whole.write_bytes(b"not mine")
+        for i in range(backup.KEEP_ARCHIVES + 2):
+            create_snapshot(self.data, now=STAMP + timedelta(minutes=i))
+        self.assertTrue(mine.is_file())
+        self.assertTrue(whole.is_file())
+
+    def test_a_folder_that_cannot_be_listed_is_recorded_and_the_backup_stands(self) -> None:
+        # Windows hands out a permission error when a scan holds the folder, so listing it
+        # is an operation that can fail on its own - after the archive is already good.
+        real_iterdir = Path.iterdir
+
+        def unreadable(path: Path):
+            if path.name == "backups":
+                raise PermissionError(13, "Access is denied")
+            return real_iterdir(path)
+
+        with patch.object(Path, "iterdir", unreadable), \
+                patch.object(backup, "record_failure") as recorded:
+            result = create_snapshot(self.data, now=STAMP)
+        self.assertTrue(verify_snapshot(result.path).files)
+        self.assertEqual(recorded.call_args.args[0], "backup/retention")
+        self.assertIn("could not list", recorded.call_args.args[1])
+
+    def test_an_archive_that_cannot_be_deleted_is_recorded_and_the_backup_stands(self) -> None:
+        oldest = create_snapshot(self.data, now=STAMP)
+        for i in range(1, backup.KEEP_ARCHIVES):
+            create_snapshot(self.data, now=STAMP + timedelta(minutes=i))
+        real_unlink = Path.unlink
+
+        def held_open(path: Path, *args, **kwargs):
+            if path.name == oldest.path.name:
+                raise PermissionError(32, "The process cannot access the file: in use")
+            return real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", held_open), \
+                patch.object(backup, "record_failure") as recorded:
+            newest = create_snapshot(self.data, now=STAMP + timedelta(minutes=backup.KEEP_ARCHIVES))
+        self.assertTrue(verify_snapshot(newest.path).files)
+        self.assertTrue(oldest.path.is_file(), "a file another process holds is still there")
+        self.assertEqual(recorded.call_args.args[0], "backup/retention")
+        self.assertIn(oldest.path.name, recorded.call_args.args[1])
 
 
 class Verification(SnapshotTestCase):
@@ -258,6 +331,25 @@ class ThroughTheApp(unittest.TestCase):
         self.assertEqual([risk for risk, _ in self.app.approvals], ["high"])
         self.assertEqual(list((self.data / "backups").glob("*.zip")), [])
 
+    def test_the_card_says_only_the_newest_archives_are_kept(self) -> None:
+        (self.data / "memory.json").write_text("{}", encoding="utf-8")
+        gate = self.app.orchestrator.context.web.approval_gate
+        seen: list[ApprovalRequest] = []
+        gate._ask = lambda request: (seen.append(request), True)[1]
+        self.app.say("backup")
+        self.assertEqual(seen[0].risk, RiskLevel.HIGH)
+        card = f"{seen[0].action} {seen[0].reason}".lower()
+        self.assertIn(f"newest {backup.KEEP_ARCHIVES} archives are kept", card)
+        self.assertIn("deletes anything older", card)
+
+    def test_the_reply_says_only_the_newest_archives_are_kept(self) -> None:
+        (self.data / "memory.json").write_text("{}", encoding="utf-8")
+        gate = self.app.orchestrator.context.web.approval_gate
+        gate._ask = lambda request: True
+        result, _ran = self.app.say("backup")
+        self.assertTrue(result.ok, result.message)
+        self.assertIn(f"newest {backup.KEEP_ARCHIVES} archives are kept there", result.message)
+
     def test_an_approved_backup_writes_an_archive_the_module_can_verify(self) -> None:
         (self.data / "memory.json").write_text('{"profile": {"name": "Jeevan"}}', encoding="utf-8")
         gate = self.app.orchestrator.context.web.approval_gate
@@ -281,6 +373,7 @@ class CommandLine(SnapshotTestCase):
         self.assertEqual(code, 0)
         self.assertIn("Backed up", out.getvalue())
         self.assertIn("credentials", out.getvalue())
+        self.assertIn(f"newest {backup.KEEP_ARCHIVES} archives are kept", out.getvalue())
         self.assertEqual(len(list((self.data / "backups").glob("*.zip"))), 1)
 
     def test_the_cli_reports_a_refusal_without_a_traceback(self) -> None:

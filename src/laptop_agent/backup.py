@@ -26,6 +26,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -71,6 +72,12 @@ NEVER_SNAPSHOT = ("accounts.json", "sessions.json", "email_tokens.json", "jobrig
 MAX_FILES = 10_000
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 
+# How many archives the backups folder keeps before it starts deleting the oldest. A
+# backed-up store is a few megabytes, but nothing was ever removed, so the folder grew
+# with every backup until the disk noticed.
+KEEP_ARCHIVES = 5
+ARCHIVE_NAME = re.compile(r"jarvis-backup-([0-9]{8}-[0-9]{6})(?:-([0-9]+))?\.zip")
+
 
 class SnapshotError(RuntimeError):
     """A snapshot that cannot be written, trusted or restored. Safe to show."""
@@ -104,9 +111,39 @@ def _members(data_dir: Path) -> list[tuple[Path, str]]:
     return members
 
 
+def _surplus_archives(destination: Path, keep: int, current: Path) -> list[Path]:
+    """Archives in ``destination`` past the newest ``keep``, oldest first, never ``current``.
+
+    Ordered by the stamp in the name rather than by modification time, because a copied
+    or touched archive would otherwise look newer than it is. The ``-2`` a same-second
+    collision adds sorts *before* ``.zip`` in plain name order, so the suffix is read as
+    a number here; anything not named like one of our own archives is left alone.
+    """
+    try:
+        listing = list(destination.iterdir())
+    except OSError as exc:
+        # The archive is already written; a folder that cannot be read (deleted, or
+        # denied by a policy) must not turn a good backup into a traceback. Nothing is
+        # trimmed and the reason is recorded instead.
+        record_failure("backup/retention", f"could not list {destination}: {exc}")
+        return []
+    found: list[tuple[tuple[str, int], Path]] = []
+    for path in listing:
+        match = ARCHIVE_NAME.fullmatch(path.name)
+        if match and path.is_file() and path != current:
+            found.append(((match.group(1), int(match.group(2) or 1)), path))
+    found.sort(key=lambda item: item[0])
+    surplus = len(found) - (keep - 1)      # the archive just written is one of the newest
+    return [path for _, path in found[:surplus]] if surplus > 0 else []
+
+
 def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
-                    now: datetime | None = None) -> Snapshot:
-    """Write one archive of the durable data. The destination defaults to ``<data>/backups``."""
+                    now: datetime | None = None, keep: int = KEEP_ARCHIVES) -> Snapshot:
+    """Write one archive of the durable data. The destination defaults to ``<data>/backups``.
+
+    Once the archive is on disk, the folder is trimmed to the newest ``keep`` archives.
+    """
+    keep = max(1, int(keep))
     data_dir = Path(data_dir)
     members = _members(data_dir)
     if not members:
@@ -157,6 +194,15 @@ def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
         raise SnapshotError(f"Could not write the backup: {exc}") from exc
     finally:
         staged_path.unlink(missing_ok=True)
+
+    for old in _surplus_archives(destination, keep, target):
+        try:
+            old.unlink()
+        except OSError as exc:
+            # Windows can hold an archive open in Explorer or an upload. The new backup
+            # is already good, so this is recorded, not raised: refusing the backup
+            # because an old one would not delete is the wrong way round.
+            record_failure("backup/retention", f"could not remove {old}: {exc}")
 
     return Snapshot(path=target, created_at=manifest["created_at"],
                     files=tuple(str(entry["path"]) for entry in written),
@@ -292,7 +338,8 @@ def main(argv: list[str] | None = None, out=sys.stdout) -> int:
         if args.command == "create":
             result = create_snapshot(load_config().data_dir, Path(args.dest) if args.dest else None)
             print(f"Backed up {len(result.files)} file(s), {result.path.stat().st_size // 1024} KB, "
-                  f"to {result.path}.", file=out)
+                  f"to {result.path}. Only the newest {KEEP_ARCHIVES} archives are kept in that "
+                  "folder.", file=out)
             if result.excluded:
                 print("Left out, because they are credentials: " + ", ".join(result.excluded), file=out)
         elif args.command == "verify":

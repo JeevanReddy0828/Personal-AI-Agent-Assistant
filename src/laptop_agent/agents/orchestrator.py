@@ -71,7 +71,7 @@ from laptop_agent.planner.heuristic import (
 from laptop_agent.reasoning import AgentRunTracker, AutonomousAgent
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, everyday_form, is_personal, refused_command
-from laptop_agent.backup import SnapshotError, create_snapshot
+from laptop_agent.backup import KEEP_ARCHIVES, SnapshotError, create_snapshot
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
@@ -3306,7 +3306,9 @@ class AgentOrchestrator:
             action=f"Write a backup of J.A.R.V.I.S's data to {self.data_dir / 'backups'}",
             risk=RiskLevel.HIGH,
             reason="One archive of your memory, reminders, lists, jobs and generated files. "
-                   "Passwords, sessions and mail tokens are never included.",
+                   "Passwords, sessions and mail tokens are never included. "
+                   f"Only the newest {KEEP_ARCHIVES} archives are kept in that folder: writing "
+                   "this one deletes anything older.",
         ))
         try:
             snapshot = create_snapshot(self.data_dir)
@@ -3314,9 +3316,11 @@ class AgentOrchestrator:
             return ToolResult.failure(str(exc))
         left_out = (f" Left out, because they are credentials: {', '.join(snapshot.excluded)}."
                     if snapshot.excluded else "")
-        return ToolResult.success(f"Backed up {len(snapshot.files)} file(s) to {snapshot.path}.{left_out}",
-                                  path=str(snapshot.path), files=list(snapshot.files),
-                                  excluded=list(snapshot.excluded))
+        return ToolResult.success(
+            f"Backed up {len(snapshot.files)} file(s) to {snapshot.path}.{left_out} "
+            f"Only the newest {KEEP_ARCHIVES} archives are kept there.",
+            path=str(snapshot.path), files=list(snapshot.files),
+            excluded=list(snapshot.excluded))
 
     def _selfcheck(self) -> ToolResult:
         """`selfcheck` — do the things I say still reach the tools that handle them?
