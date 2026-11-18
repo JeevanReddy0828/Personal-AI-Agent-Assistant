@@ -4805,8 +4805,16 @@ class AgentOrchestrator:
 
     # The web client sends each reply's tool data back as one JSON line after this marker.
     _PICTURE_DATA = re.compile(r"\[tool result data, context only[^\]\n]*\]\s*(\{.*\})\s*$")
+    # Another take on the same picture. Narrow on purpose: "make the glass a different colour"
+    # and "add a new straw" are edits, and an edit keeps the seed.
     _ANOTHER_PICTURE = re.compile(
-        r"\b(?:another|again|different|new|variations?|retry|redo|re-?draw|re-?generate)\b", re.IGNORECASE
+        r"\b(?:another|(?:a\s+)?(?:new|different)\s+(?:one|version|take|picture|image|photo)"
+        r"|variations?|(?:try|do\s+it|draw\s+it|make\s+it)\s+again|retry|redo|re-?draw|re-?generate)\b",
+        re.IGNORECASE,
+    )
+    _PROMPT_PREAMBLE = re.compile(
+        r"^(?:sure|okay|ok|absolutely|of course|certainly|here'?s|here is|got it)\b[^:]{0,60}[:.!]?\s*$",
+        re.IGNORECASE,
     )
     _IMAGE_PROMPT_SECONDS = 8.0
 
@@ -4883,7 +4891,7 @@ class AgentOrchestrator:
         ask += "Reply with the prompt only, on one line.\n\nRequest: " + request
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="image-prompt")
         try:
-            future = pool.submit(contextvars.copy_context().run, answer, ask, {}, max_tokens=200)
+            future = pool.submit(contextvars.copy_context().run, answer, ask, {}, max_tokens=1200)
             reply = future.result(timeout=self._IMAGE_PROMPT_SECONDS) or ""
         except OperationCancelled:
             raise
@@ -4892,7 +4900,10 @@ class AgentOrchestrator:
             return request
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+        # answer() thinks first, hence the 1200 tokens; and a line introducing the prompt
+        # ("Sure! Here's a detailed prompt:") is not the prompt.
         lines = [line.strip() for line in str(reply).splitlines() if line.strip()]
+        lines = [line for line in lines if not line.endswith(":") and not self._PROMPT_PREAMBLE.match(line)]
         line = re.sub(r"^(?:prompt|edit|new)\s*:\s*", "", lines[0], flags=re.IGNORECASE).strip("\"' ") if lines else ""
         if not line or self._META_REPLY.match(line):
             return request

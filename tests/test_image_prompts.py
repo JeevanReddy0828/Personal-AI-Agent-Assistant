@@ -107,6 +107,37 @@ class ImagePromptTests(unittest.TestCase):
         self.draw(self.orchestrator(Writer()), "another mojito", [picture_turn()])
         self.assertNotEqual(self.sent[0]["seed"], 4242)
 
+    def test_an_edit_using_new_or_different_keeps_the_seed(self) -> None:
+        for request in ("make the glass a different colour", "add a new straw"):
+            self.sent.clear()
+            self.draw(self.orchestrator(Writer()), request, [picture_turn()])
+            self.assertEqual(self.sent[0]["seed"], 4242, request)
+
+    def test_asking_to_try_again_is_a_new_picture(self) -> None:
+        self.draw(self.orchestrator(Writer()), "mojito, try again", [picture_turn()])
+        self.assertNotEqual(self.sent[0]["seed"], 4242)
+
+    def test_a_preamble_line_is_not_the_prompt(self) -> None:
+        self.draw(self.orchestrator(Writer(f"Sure! Here's a detailed prompt\n{REWRITE}")), "Chatgpt in mojito")
+        self.assertEqual(self.sent[0]["prompt"], REWRITE)
+
+    def test_a_thinking_model_has_room_to_answer(self) -> None:
+        seen: list[int] = []
+
+        class Counting(Writer):
+            def answer(self, text, profile, model=None, history=None, max_tokens=900):
+                seen.append(max_tokens)
+                return super().answer(text, profile, model, history, max_tokens)
+
+        self.draw(self.orchestrator(Counting()), "Chatgpt in mojito")
+        self.assertGreaterEqual(seen[0], 1000)
+
+    def test_a_seed_out_of_range_in_history_is_replaced(self) -> None:
+        for bad in (-5, 2**40):
+            self.sent.clear()
+            self.draw(self.orchestrator(Writer()), "Chatgpt in mojito", [picture_turn(dict(PREVIOUS, seed=bad))])
+            self.assertTrue(0 < self.sent[0]["seed"] < 2**31, bad)
+
     def test_only_the_latest_reply_counts_as_the_last_picture(self) -> None:
         writer = Writer()
         history = [picture_turn(), {"role": "user", "text": "thanks"},

@@ -174,7 +174,8 @@ class ImageTool:
         drawn = (detail or "").strip() or described
         # Chosen here rather than left to the endpoint (0 means random there), so the reply
         # can carry it and a follow-up can draw from the same seed, which keeps the scene.
-        seed = seed or secrets.randbelow(2**31 - 1) + 1
+        # A seed read back from chat history is outside data: one out of range is replaced.
+        seed = seed if isinstance(seed, int) and 0 < seed < 2**31 else secrets.randbelow(2**31 - 1) + 1
         body: dict[str, object] = {"prompt": drawn, "width": width, "height": height, "steps": steps, "seed": seed}
 
         candidates = [self.model] + ([self.fallback_model] if self.fallback_model else [])
