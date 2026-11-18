@@ -5,6 +5,7 @@ import json
 import mimetypes
 import re
 import smtplib
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +23,14 @@ from laptop_agent.token_vault import TokenVault, TokenVaultError
 from laptop_agent.tools.base import ToolResult
 
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+MAIL_TIMEOUT = 30
+
+
+def _verified_tls() -> ssl.SSLContext:
+    """A context that checks the server's certificate and name. imaplib and smtplib, given none,
+    use `ssl._create_stdlib_context`, which checks neither: the mail password went to whoever
+    answered on the network, a hostile wifi included."""
+    return ssl.create_default_context()
 
 
 @dataclass(frozen=True)
@@ -98,8 +107,8 @@ class EmailTool:
         message = self._message_with_attachments(draft, attachments.data["attachments"])
         message["From"] = self.config.smtp_from
 
-        with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port) as server:
-            server.starttls()
+        with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port, timeout=MAIL_TIMEOUT) as server:
+            server.starttls(context=_verified_tls())
             server.login(self.config.smtp_username, self.config.smtp_password)
             server.send_message(message)
         return ToolResult.success(
@@ -140,7 +149,8 @@ class EmailTool:
         )
 
         try:
-            with imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port) as client:
+            with imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port, ssl_context=_verified_tls(),
+                                   timeout=MAIL_TIMEOUT) as client:
                 client.login(self.config.imap_username, self.config.imap_password)
                 client.select(self.config.imap_mailbox, readonly=True)
                 status, payload = client.search(None, *criteria)

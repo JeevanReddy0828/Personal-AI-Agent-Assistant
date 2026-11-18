@@ -234,7 +234,7 @@ class EmailToolTests(unittest.TestCase):
         tool = EmailTool(ApprovalGate(lambda request: True), cfg)
 
         class _FakeIMAP:
-            def __init__(self, host, port):
+            def __init__(self, host, port, **options):
                 pass
 
             def __enter__(self):
@@ -252,6 +252,62 @@ class EmailToolTests(unittest.TestCase):
         self.assertNotIn("b'", result.message)  # no raw bytes repr leaks through
         self.assertIn("app password", result.message.lower())
         self.assertEqual(result.data.get("setup"), "gmail-app-password")
+
+    def test_the_mail_password_only_goes_over_verified_tls(self) -> None:
+        """imaplib and smtplib default to a context that checks neither the certificate nor the
+        name, so the app password went to whoever answered on the network."""
+        import dataclasses
+        import imaplib
+        import smtplib
+        import ssl
+        from unittest import mock
+
+        seen: dict[str, object] = {}
+
+        class _FakeIMAP:
+            def __init__(self, host, port, **options):
+                seen["imap"] = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def login(self, user, pw):
+                raise imaplib.IMAP4.error(b"stop here")
+
+        class _FakeSMTP:
+            def __init__(self, host, port, **options):
+                seen["smtp"] = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def starttls(self, **options):
+                seen["starttls"] = options
+
+            def login(self, user, pw):
+                seen["logged_in_after_tls"] = "starttls" in seen
+
+            def send_message(self, message):
+                pass
+
+        cfg = dataclasses.replace(
+            self.build_config(), imap_host="imap.example.com", imap_username="u", imap_password="p",
+            smtp_host="smtp.example.com", smtp_username="u", smtp_password="p", smtp_from="u@example.com")
+        tool = EmailTool(ApprovalGate(lambda request: True), cfg)
+        with mock.patch.object(imaplib, "IMAP4_SSL", _FakeIMAP), mock.patch.object(smtplib, "SMTP", _FakeSMTP):
+            tool.search_inbox("ALL")
+            self.assertTrue(tool.send_smtp(EmailDraft(to="a@example.com", subject="s", body="b")).ok)
+        for context in (seen["imap"]["ssl_context"], seen["starttls"]["context"]):
+            self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+            self.assertTrue(context.check_hostname)
+        self.assertTrue(seen["logged_in_after_tls"])
+        self.assertTrue(seen["imap"]["timeout"] and seen["smtp"]["timeout"])
 
 
 if __name__ == "__main__":
