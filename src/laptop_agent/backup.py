@@ -143,7 +143,7 @@ def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
 
     Once the archive is on disk, the folder is trimmed to the newest ``keep`` archives.
     """
-    keep = max(1, int(keep))
+    keep = max(1, keep)
     data_dir = Path(data_dir)
     members = _members(data_dir)
     if not members:
@@ -163,6 +163,7 @@ def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
     os.close(handle)
     staged_path = Path(staged)
     written: list[dict[str, object]] = []
+    names: list[str] = []
     try:
         with zipfile.ZipFile(staged_path, "w", zipfile.ZIP_DEFLATED) as archive:
             # Hashed as it is written, from the same bytes: a store replaced between a
@@ -176,6 +177,7 @@ def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
                         size += len(chunk)
                         entry.write(chunk)
                 written.append({"path": name, "bytes": size, "sha256": digest.hexdigest()})
+                names.append(name)
             manifest = {
                 "format": FORMAT,
                 "version": VERSION,
@@ -205,8 +207,7 @@ def create_snapshot(data_dir: Path, dest_dir: Path | None = None,
             record_failure("backup/retention", f"could not remove {old}: {exc}")
 
     return Snapshot(path=target, created_at=manifest["created_at"],
-                    files=tuple(str(entry["path"]) for entry in written),
-                    excluded=tuple(manifest["excluded"]))
+                    files=tuple(names), excluded=tuple(manifest["excluded"]))
 
 
 def _unsafe_name(name: str) -> bool:

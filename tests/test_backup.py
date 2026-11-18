@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -54,8 +55,6 @@ class SnapshotTestCase(unittest.TestCase):
         return path
 
     def _manifest(self, entries: dict[str, bytes], excluded: list[str] | None = None) -> dict:
-        import hashlib
-
         return {
             "format": backup.FORMAT,
             "version": backup.VERSION,
@@ -92,8 +91,6 @@ class WhatGoesIn(SnapshotTestCase):
         self.assertIn("email_tokens.json", result.excluded)
 
     def test_the_manifest_hash_matches_the_bytes_in_the_archive(self) -> None:
-        import hashlib
-
         result = create_snapshot(self.data, now=STAMP)
         with zipfile.ZipFile(result.path) as archive:
             manifest = json.loads(archive.read(MANIFEST))
@@ -375,6 +372,17 @@ class CommandLine(SnapshotTestCase):
         self.assertIn("credentials", out.getvalue())
         self.assertIn(f"newest {backup.KEEP_ARCHIVES} archives are kept", out.getvalue())
         self.assertEqual(len(list((self.data / "backups").glob("*.zip"))), 1)
+
+    def test_the_cli_can_write_the_archive_somewhere_else(self) -> None:
+        import io
+
+        dest = self.root / "usb"
+        out = io.StringIO()
+        with patch.dict(os.environ, {"LAPTOP_AGENT_DATA_DIR": str(self.data)}, clear=False):
+            code = backup.main(["create", "--dest", str(dest)], out=out)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(list(dest.glob("*.zip"))), 1)
+        self.assertFalse((self.data / "backups").exists(), "--dest writes only where it was told")
 
     def test_the_cli_reports_a_refusal_without_a_traceback(self) -> None:
         import io
