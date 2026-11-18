@@ -532,7 +532,11 @@ class OpenAICompatiblePlannerProvider:
         try:
             with open(image_path, "rb") as handle:
                 encoded = base64.b64encode(handle.read()).decode("ascii")
-        except OSError:
+        except OSError as exc:
+            record_failure("llm/describe-image", exc, path=image_path)
+            if on_failure is not None:
+                # The model was never called; say so rather than let it be blamed.
+                on_failure(DEGRADED, f"the picture could not be read from disk ({exc.strerror or exc})")
             return None
         payload: dict[str, object] = {
             "model": model or self.model,

@@ -131,6 +131,15 @@ class DescribeImageFailureTests(unittest.TestCase):
         self.assertEqual(heard[0][0], BROKEN)
         self.assertIn("retired", heard[0][1])
 
+    def test_an_unreadable_file_is_not_blamed_on_the_model(self) -> None:
+        calls: list[dict] = []
+        heard: list[tuple[str, str]] = []
+        provider = OpenAICompatiblePlannerProvider("k", "m", transport=lambda payload: calls.append(payload) or "x")
+        reply = provider.describe_image("Z:/no/such/photo.jpg", "what is this", on_failure=lambda *why: heard.append(why))
+        self.assertIsNone(reply)
+        self.assertEqual(calls, [])
+        self.assertIn("could not be read", heard[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()
