@@ -67,6 +67,12 @@ class AgentStep:
     command: str
     status: str  # ok | failed | blocked
     message: str
+    agent: str = ""   # which agent of a team run took it ("" for the planner or a single run)
+    depth: int = 0
+
+
+# Another agent's answer is what a team's planner combines from, so it is kept longer than a tool's.
+DELEGATE_OBSERVATION = 1500
 
 
 @dataclass
@@ -223,7 +229,7 @@ def _describe_datum(key: str, value: object) -> str:
     return f"{key}={text}"
 
 
-def _observe(result: ToolResult) -> str:
+def _observe(result: ToolResult, limit: int = 320) -> str:
     """Compress a tool result into a short observation line for the scratchpad.
 
     Truncation is stated rather than implied: an agent that cannot tell a complete
@@ -232,9 +238,9 @@ def _observe(result: ToolResult) -> str:
     status = "ok" if result.ok else "failed"
     message = (result.message or "").strip().replace("\n", " ")
     cut = ""
-    if len(message) > 320:
-        cut = f" [message clipped: showing 317 of {len(message)} characters]"
-        message = message[:317] + "…"
+    if len(message) > limit:
+        cut = f" [message clipped: showing {limit - 3} of {len(message)} characters]"
+        message = message[: limit - 3] + "…"
     data = result.data if isinstance(result.data, dict) else {}
     facts = ", ".join(_describe_datum(key, value) for key, value in sorted(data.items()))
     suffix = f" [data: {facts}]" if facts else ""
@@ -391,7 +397,8 @@ class AutonomousAgent:
                 thought=decision.thought,
                 command=decision.command,
                 status="ok" if result.ok else "failed",
-                message=_observe(result),
+                message=_observe(result, DELEGATE_OBSERVATION if decision.command.lower().startswith("delegate ")
+                                 else 320),
             )
             steps.append(step)
             _emit(step)
@@ -461,7 +468,7 @@ class AgentRunTracker:
         self._load()
 
     @synchronized
-    def record_run(self, result: AgentRunResult) -> dict[str, object]:
+    def record_run(self, result: AgentRunResult, agents: list[dict[str, object]] | None = None) -> dict[str, object]:
         ok = sum(1 for step in result.steps if step.status == "ok")
         failed = sum(1 for step in result.steps if step.status == "failed")
         run = {
@@ -475,6 +482,8 @@ class AgentRunTracker:
             "failed_count": failed,
             "steps": [step.__dict__ for step in result.steps],
         }
+        if agents is not None:
+            run["agents"] = agents
         self._next_run += 1
         self._runs.append(run)
         if len(self._runs) > self.max_runs:

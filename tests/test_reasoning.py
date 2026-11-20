@@ -194,6 +194,17 @@ class AutonomousAgentTests(unittest.TestCase):
         # The scratchpad from earlier steps must reach the model on later turns.
         self.assertIn("scan files .", brain.prompts[-1])
 
+    def test_a_delegate_result_is_observed_at_length(self) -> None:
+        """Another agent's answer is what the planner combines from: 320 characters cut it to a stub."""
+        brain = _ScriptedBrain(["ACTION: delegate fast count the files", "ACTION: read file a.txt", "FINAL: done"])
+        long = "word " * 200
+
+        agent = AutonomousAgent(brain, _executor(lambda command: ToolResult.success(long)))
+        result = asyncio.run(agent.run("count and read"))
+        self.assertIn(long.strip(), result.steps[0].message)
+        self.assertNotIn("clipped", result.steps[0].message)
+        self.assertIn("message clipped: showing 317 of 999",result.steps[1].message)
+
     def test_observes_failures_and_keeps_going(self) -> None:
         brain = _ScriptedBrain(
             [
