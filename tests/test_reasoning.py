@@ -41,6 +41,19 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(d.command, "scan files .")
         self.assertEqual(d.thought, "look first")
 
+    def test_an_action_saying_no_command_is_needed_is_not_a_step(self) -> None:
+        """Live, a helper's reply: the parenthesis ran as a command, and its answer was lost."""
+        d = parse_agent_decision("THOUGHT: I know this\nACTION: (no command needed - I'll generate it directly)\n"
+                                 "THOUGHT: writing it\nFINAL: Day 1: SELECT")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "Day 1: SELECT")
+
+    def test_an_action_holding_a_final_is_the_final(self) -> None:
+        """Live, a helper wrote its answer as "ACTION: FINAL: ..." and it ran as a command."""
+        d = parse_agent_decision("THOUGHT: done\nACTION: FINAL: Day 1: Exercise 1 - SELECT\nDay 2: WHERE")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "Day 1: Exercise 1 - SELECT\nDay 2: WHERE")
+
     def test_a_final_written_before_any_action_ends_the_run(self) -> None:
         d = parse_agent_decision("THOUGHT: done\nFINAL: all set\nACTION: scan files .")
         self.assertTrue(d.is_final)

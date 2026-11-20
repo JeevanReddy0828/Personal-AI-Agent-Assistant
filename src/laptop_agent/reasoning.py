@@ -26,6 +26,8 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 # answer may still say "Observation: ..." in its prose.
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
 _FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
+# "ACTION: FINAL: <answer>": live, a helper's answer this way ran as a command and was lost.
+_ACTION_FINAL_RE = re.compile(r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER)[ \t]*:)", re.IGNORECASE | re.MULTILINE)
 _CUT_OFF_REMINDER = (
     "\n\nYour last reply was cut off at the length limit, so none of it was used. Reply again, "
     "shorter: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -147,7 +149,7 @@ def parse_agent_decision(text: str) -> AgentDecision:
     live a run ended on "[The full content of README.md would be provided here after the
     action runs...]", another on an answer the model had just said it could not give yet.
     """
-    raw = _drop_invented_observation((text or "").strip())
+    raw = _drop_invented_observation(_ACTION_FINAL_RE.sub(r"\1", (text or "").strip()))
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
 
@@ -194,7 +196,9 @@ def parse_agent_decision(text: str) -> AgentDecision:
 def _runnable(action: re.Match[str]) -> str:
     """The command an ACTION line names, or '' for 'none', 'stop' and the like."""
     command = _strip_command(action.group(1))
-    return "" if command.lower() in {"none", "n/a", "stop", "done"} else command
+    # "(no command needed - I'll answer directly)": live, a helper wrote this before its answer, and
+    # it was dispatched as a command. No command starts with a parenthesis.
+    return "" if command.lower() in {"none", "n/a", "stop", "done"} or command.startswith("(") else command
 
 
 def _describe_datum(key: str, value: object) -> str:
@@ -277,7 +281,7 @@ class AutonomousAgent:
             "Reply in EXACTLY this format:",
             "THOUGHT: <one short sentence of reasoning>",
             "ACTION: <a single command, copied verbatim from AVAILABLE COMMANDS with concrete arguments>",
-            "When the goal is met (or cannot proceed), instead reply:",
+            "When the goal is met, needs no command, or cannot proceed, instead reply:",
             "THOUGHT: <why you are stopping>",
             "FINAL: <the complete answer for the user — everything they should see goes after FINAL:, "
             "including any diagram, code or table; it may span many lines>",
@@ -304,7 +308,7 @@ class AutonomousAgent:
                 lines.append(f"{step.index + 1}. ACTION: {step.command}")
                 lines.append(f"   OBSERVATION: [{step.status}] {step.message}")
         else:
-            lines += ["", "PROGRESS SO FAR: (nothing yet — choose the first command)"]
+            lines += ["", "PROGRESS SO FAR: (nothing yet — choose the first command, or reply FINAL now if none is needed)"]
         lines += ["", "Your turn:"]
         return "\n".join(lines)
 

@@ -88,6 +88,11 @@ SAFE = (
 ALSO_READS = ("inspect page", "mcp")
 _GROUPS = (("direct", DIRECT), ("guarded", GUARDED), ("carded", CARDED), ("reads", READS), ("safe", SAFE),
            ("delegate", DELEGATE))
+# What a delegated agent may run besides READS and `delegate`: its answer goes back to the planner as
+# text, so it has nothing to make or change. Live, helpers wrote documents and saved notes instead,
+# and one spent all its steps on `scan files` of a folder it made up.
+HELPER_COMPUTES = ("file info", "weather", "translate", "distance", "trip", "convert", "total",
+                   "average", "count", "calendar")
 MAX_REPEATS = 2
 MAX_REFUSALS = 2
 # The trip breaker, over the whole run tree. Read at each check, so a test can patch them. The rate
@@ -117,6 +122,18 @@ def group_of(command: str) -> tuple[str, str]:
 def allowed_in_a_run(form: str) -> bool:
     """Whether an agent command form may be offered to a run at all."""
     return group_of(form.split("<", 1)[0].split("[", 1)[0])[0] != "direct"
+
+
+def helper_may(command: str) -> bool:
+    """Whether a delegated agent may run a command: a read, a computation, or `delegate`."""
+    group, form = group_of(command)
+    return group in {"reads", "delegate"} or form in HELPER_COMPUTES
+
+
+def offered_to_helper(form: str) -> bool:
+    """Whether a reference form (`total|average|count <column> ...`) is offered to a delegated agent."""
+    head, _, rest = form.split("<", 1)[0].split("[", 1)[0].strip().partition(" ")
+    return any(helper_may(f"{alternative} {rest}") for alternative in head.split("|"))
 
 
 TIERS = ("fast", "smart", "ultra", "fallback")
@@ -233,6 +250,11 @@ class Supervisor:
         if not trusted(tier) and group not in _UNTRUSTED_MAY:
             self.refused(f"the {tier or 'unnamed'} model chose it, and that model may read and compute but not act")
             return Decision(Verdict.REFUSE, "trust", tree.last_refusal)
+        if self.depth > 0 and not helper_may(lowered):
+            # Not counted toward the tree's stop: live, a helper wrote "ACTION: (no command needed)" twice
+            # and that ended the whole run. Its own step cap bounds it, and nothing ran.
+            return Decision(Verdict.REFUSE, "helper", "a helper only looks things up and works things out: "
+                                                      "answer in FINAL and the planner will act on it")
         if group == "delegate":
             return self._delegate(lowered)
         tainted_before = tree.tainted_by

@@ -88,6 +88,15 @@ delegate <fast|smart> <sub-task>
   whose `execute` is a supervised execute bound to the **same `RunTree`** (below), with `depth =
   parent depth + 1`. It gets the sub-task as its GOAL plus one line naming the parent's goal, not
   the conversation context. Its `max_steps` is 4; the planner's is 8.
+- **A child only looks things up and works things out** (added after the live test, 11-20: helpers
+  wrote three documents and tried to save a note instead of answering). It is offered, and its
+  supervisor allows, only READS, `supervisor.HELPER_COMPUTES` (convert, weather, totals and the
+  like) and `delegate`; anything else is refused with rule `helper`. That refusal is not counted
+  toward the tree's stop: a helper that meant to answer wrote "ACTION: (no command needed)" twice,
+  and the two refusals ended the run; its own 4 steps bound it. Its goal line tells it to answer in
+  FINAL and use a command only for what it cannot know, and every agent's prompt now says FINAL may
+  come first when no command is needed. Acting is the
+  planner's, so a child never reaches the taint rule's ASK: it is refused first.
 - **A child at the depth cap** is not offered `delegate`; one at a lower depth is offered it for the
   tiers below its own.
 - **Its answer** comes back as the parent's OBSERVATION: `[ok] <child FINAL>` or `[failed] …`.
@@ -172,8 +181,8 @@ In `tests/test_supervisor.py` (rules) and a new `tests/test_multi_agent.py` (orc
 
 - each breaker rule trips: rate (injected clock), depth, agents, steps; the audit names the rule;
   a sibling or parent checking after a trip gets STOP;
-- a child cannot escape taint: the planner reads the web, delegates; the child's `open url` is asked
-  (HIGH) and, denied, counts toward the tree's refusals; a child that reads taints the planner;
+- a child cannot escape taint: the planner reads the web, delegates; the child's `open url` is
+  refused (`helper`); a child that reads taints the planner;
 - a refusal in a child plus one in the parent stops the tree;
 - `delegate` up or sideways in tier is refused; from an untrusted tier is refused;
 - `agent run`, `schedule agent`, `autopilot` as steps are refused (`direct`) - fails on `main` today;

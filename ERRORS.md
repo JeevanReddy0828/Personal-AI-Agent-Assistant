@@ -610,7 +610,15 @@ guard, with the date), and a session entry only when the line cannot carry the l
   `agent run`, `schedule agent` and `autopilot` were in no supervisor group, so a step could run
   them, and `agent run` built a fresh `Supervisor()` with no taint, refusals or repeats → they are
   `DIRECT`, and the one way an agent starts another is `delegate`, which shares the run's
-  `RunTree` (`test_a_run_cannot_start_another_run`, `test_a_child_cannot_escape_the_taint_of_its_planner`).
+  `RunTree` (`test_a_run_cannot_start_another_run`, `test_a_child_cannot_act_on_what_its_planner_read`).
+- **A team run's helpers wrote three documents and tried to save a note instead of answering**
+  (live test of #319, 11-20) → a child was offered every command, and its prompt asked it to choose
+  one; `document` is SAFE, so nothing stopped it → a helper is offered and allowed only reads,
+  `HELPER_COMPUTES` and `delegate` (rule `helper`, not counted toward the stop: a helper's
+  "ACTION: (no command needed)" twice ended the run), and every agent is told FINAL may come first
+  (`test_a_helper_only_looks_up_and_computes`, `test_a_helper_is_offered_lookups_only_and_told_to_answer`).
+  `ACTION: (no command needed)` and `ACTION: FINAL: <answer>` both ran as commands → neither is a
+  step now (`parse_agent_decision`, `test_reasoning.py`).
 - **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
   clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
   the gate, and the routes matched pronouns and verbs about the clipboard itself → not in

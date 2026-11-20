@@ -4578,8 +4578,9 @@ class AgentOrchestrator:
     _TEAM_STEPS = 8
     _CHILD_STEPS = 4
 
-    def _agent_reference(self, delegate_to: tuple[str, ...] = ()) -> str:
-        lines = [f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command)]
+    def _agent_reference(self, delegate_to: tuple[str, ...] = (), helper: bool = False) -> str:
+        lines = [f"- {command}" for command in self._AGENT_COMMANDS
+                 if allowed_in_a_run(command) and (not helper or supervision.offered_to_helper(command))]
         if delegate_to:
             lines.append(f"- delegate <{'|'.join(delegate_to)}> <sub-task>   (hand a part that does not need you to a "
                          "cheaper model, written out in full; its answer comes back as the OBSERVATION)")
@@ -4674,10 +4675,14 @@ class AgentOrchestrator:
                 execute=self._supervised(None, brain, Supervisor(tree, agent=agent, parent=parent, depth=child_depth,
                                                                  tier=tier),
                                          self._delegator(tree, goal, agent, child_depth, on_step)),
-                command_reference=self._agent_reference(self._delegate_to(tier, child_depth)),
+                command_reference=self._agent_reference(self._delegate_to(tier, child_depth), helper=True),
                 max_steps=self._CHILD_STEPS,
             )
-            result = await child.run(f"{task}\n(This is one part of a larger goal: {goal})", on_step=child_step)
+            result = await child.run(
+                f"{task}\n(This is one part of a larger goal: {goal}. Answer in FINAL from what you know; use a "
+                "command only to look up something you cannot know, such as a file, today's news or a figure to "
+                "compute. Do not save or create anything: the planner combines your answer with the others.)",
+                on_step=child_step)
             stopped = tree.stopped
             self._record_message(**where, direction="result", text=result.final_answer[:300],
                                  status="stopped" if stopped is not None else result.status)
