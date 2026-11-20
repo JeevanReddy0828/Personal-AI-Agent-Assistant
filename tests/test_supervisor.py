@@ -172,6 +172,16 @@ class BreakerTests(unittest.TestCase):
                 self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
             self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
 
+    def test_the_rate_trips_before_the_total_at_the_shipped_caps(self) -> None:
+        # At 20 a minute and 20 in all a burst was stopped at the same step the total would stop it,
+        # so the rate rule protected nothing; nothing is patched here.
+        tree = supervisor.RunTree(clock=Clock(1.0))
+        run = Supervisor(tree)
+        for n in range(supervisor.MAX_STEPS_PER_MINUTE):
+            self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+        self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
+        self.assertLess(tree.steps, supervisor.MAX_TREE_STEPS)
+
     def test_steps_spread_over_minutes_do_not_trip_the_rate(self) -> None:
         from unittest.mock import patch
 

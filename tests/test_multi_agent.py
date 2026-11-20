@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_orchestrator as base
@@ -140,6 +141,12 @@ class TeamRunTests(unittest.TestCase):
         self.assertNotIn("delegate", smart.prompts[0])
         self.assertIn("may hand work only to a lower tier", result.data["steps"][0]["message"])
         self.assertNotIn("agents", result.data["agent"])
+
+    def test_an_allowed_delegate_with_no_delegator_fails_the_step(self) -> None:
+        execute = self.orchestrator._supervised(None, SimpleNamespace(tier="ultra"), supervisor.Supervisor(tier="ultra"))
+        result = asyncio.run(execute("delegate fast count the cats"))
+        self.assertFalse(result.ok)
+        self.assertEqual(result.message, "This run cannot hand work to another agent.")
 
     def test_agent_team_is_a_command(self) -> None:
         self.tiers(ultra=("FINAL: hello from the team",))

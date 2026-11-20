@@ -90,8 +90,9 @@ _GROUPS = (("direct", DIRECT), ("guarded", GUARDED), ("carded", CARDED), ("reads
            ("delegate", DELEGATE))
 MAX_REPEATS = 2
 MAX_REFUSALS = 2
-# The trip breaker, over the whole run tree. Read at each check, so a test can patch them.
-MAX_STEPS_PER_MINUTE = 20
+# The trip breaker, over the whole run tree. Read at each check, so a test can patch them. The rate
+# must stay below the total: at 20 and 20 a burst was stopped only where the total would stop it.
+MAX_STEPS_PER_MINUTE = 15
 MAX_TREE_STEPS = 20
 MAX_DEPTH = 2           # the planner is depth 0
 MAX_AGENTS = 4          # agents one tree may start, the planner not counted

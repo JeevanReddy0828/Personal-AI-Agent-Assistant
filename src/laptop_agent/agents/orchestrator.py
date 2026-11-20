@@ -521,6 +521,11 @@ def _reminder_line(item: dict, now: datetime) -> str:
     return f"- #{item.get('id')} {when} — {item.get('message')}"
 
 
+def _answers(planner: Planner | None) -> bool:
+    """Whether a tier's planner has a model that can answer an agent's prompt."""
+    return planner is not None and getattr(planner.provider, "answer", None) is not None
+
+
 def _readable_size(size: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -4589,8 +4594,7 @@ class AgentOrchestrator:
             return ()
         planners = self._tier_planners()
         return tuple(name for name in ("fast", "smart")
-                     if supervision.TIER_RANK[name] < supervision.TIER_RANK[tier] and planners[name] is not None
-                     and getattr(planners[name].provider, "answer", None) is not None)
+                     if supervision.TIER_RANK[name] < supervision.TIER_RANK[tier] and _answers(planners[name]))
 
     def _record_verdict(self, source: str, command: str, tier: str, decision, **where: object) -> None:
         try:
@@ -4625,6 +4629,8 @@ class AgentOrchestrator:
             if decision.verdict is Verdict.REFUSE:
                 return ToolResult.failure(f"Refused by the supervisor: {decision.reason}")
             if decision.rule == "delegate":
+                if delegate is None:
+                    return ToolResult.failure("This run cannot hand work to another agent.")
                 return await delegate(command)
             try:
                 if decision.verdict is Verdict.ASK:
@@ -4648,7 +4654,7 @@ class AgentOrchestrator:
             if not task:
                 return ToolResult.failure("Use: delegate <tier> <sub-task>, with the sub-task written out.")
             planner = self._tier_planners()[tier]
-            if planner is None or getattr(planner.provider, "answer", None) is None:
+            if not _answers(planner):
                 return ToolResult.failure(f"There is no {tier} model configured to hand that to.")
             child_depth = depth + 1
             agent = tree.add_agent(parent, child_depth, tier, task)
@@ -4760,8 +4766,7 @@ class AgentOrchestrator:
         if team:
             # The planner leads on the strongest tier configured, with the tiers below and the backup behind it.
             planners = self._tier_planners()
-            tier = next((name for name in ("ultra", "smart", "fast") if planners[name] is not None
-                         and getattr(planners[name].provider, "answer", None) is not None), "fast")
+            tier = next((name for name in ("ultra", "smart", "fast") if _answers(planners[name])), "fast")
             ladder = [planners[name] for name in ("ultra", "smart", "fast")
                       if supervision.TIER_RANK[name] <= supervision.TIER_RANK[tier]]
             brain = self._build_agent_brain((*ladder, self.fallback_planner))

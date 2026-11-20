@@ -26,7 +26,7 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   (not the tier that happened to answer), whose answer is the step's observation. Every agent of
   the run shares one `supervisor.RunTree`: taint, refusals and the stop, so delegation launders
   nothing, and any stop anywhere ends the whole tree. The trip breaker is plain rules over the
-  tree: 20 steps a minute, 20 steps in all, depth 2, 4 agents started; a trip names its rule
+  tree: 15 steps a minute (below the total, so a burst stops sooner), 20 steps in all, depth 2, 4 agents started; a trip names its rule
   (`breaker:rate|steps|depth|agents`). Hand-offs are `agent_message` audit events; verdicts carry
   `run`, `parent`, `depth`. A child sees its sub-task and the planner's goal, not the conversation.
   Children run one at a time; parallel children and a page view of the tree are not built.

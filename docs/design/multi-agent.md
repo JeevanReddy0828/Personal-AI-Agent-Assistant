@@ -130,8 +130,8 @@ Checked at the top of `Supervisor.check`, before the existing rules, for every s
 
 | Rule | Default | Trips when |
 |---|---|---|
-| `breaker:rate` | 20 steps a minute | the tree's steps in the last 60 s would exceed it |
-| `breaker:depth` | 2 | a `delegate` would start an agent deeper than 2 (planner is depth 0) |
+| `breaker:rate` | 15 steps a minute (below the total, or a burst stops only where the total would) | the tree's steps in the last 60 s would exceed it |
+| `breaker:depth` | 2 | a `delegate` would start an agent deeper than 2 (planner is depth 0); a backstop, since three tiers delegating strictly down cannot go deeper |
 | `breaker:agents` | 4 | a `delegate` would start a fifth agent in the tree (planner not counted) |
 | `breaker:steps` | 20 | the tree's total steps would exceed it |
 

@@ -92,7 +92,7 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   answers "(step limit reached) …". Every agent's `Supervisor` shares one `supervisor.RunTree`:
   the taint (a child starts tainted, and what it reads taints the planner, since its answer is
   outside text to it), the refusals, and the stop. The trip breaker is checked first in every
-  `check`: more than `MAX_STEPS_PER_MINUTE` (20) steps in a minute or `MAX_TREE_STEPS` (20) in all,
+  `check`: more than `MAX_STEPS_PER_MINUTE` (15) steps in a minute or `MAX_TREE_STEPS` (20) in all,
   a delegation deeper than `MAX_DEPTH` (2) or past `MAX_AGENTS` (4) started; a trip, like any STOP
   (repeats, refusals) in any agent, is stored on the tree, every later check returns it, and the
   parent's `delegate` step re-raises it, so the whole run ends with the rule in its answer.
