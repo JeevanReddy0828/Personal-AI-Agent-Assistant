@@ -348,6 +348,8 @@ class AutonomousAgent:
             prompt = self._build_prompt(goal, steps, context)
             try:
                 reply = self._decide(prompt) or ""
+            except RunStopped as exc:   # the run's model calls are spent
+                return self._stopped(goal, steps, context, exc)
             except Exception as exc:  # the brain is injected; never crash the loop on it
                 return AgentRunResult(
                     goal=goal,
@@ -403,16 +405,7 @@ class AutonomousAgent:
                 else:
                     result = await self._execute(decision.command)
             except RunStopped as exc:
-                # The supervisor ended the run: not a failed step for the model to work around. What the
-                # steps found is still asked for, with no step left to take: live, a stop for repeating a
-                # read answered only "Stopped by the supervisor" about a file the run had read.
-                answer = str(exc)
-                if steps and self.close_on_stop:
-                    found = self._closing_answer(goal, steps, context, (
-                        f"\n\nThe run was stopped: {answer} Do not choose another command. Reply with FINAL: "
-                        "<what the steps above found toward the GOAL, and what is missing> only."))
-                    answer = f"{answer}\n\n{found}" if found else answer
-                return AgentRunResult(goal=goal, final_answer=answer, status="stopped", steps=steps)
+                return self._stopped(goal, steps, context, exc)
             except Exception as exc:
                 result = ToolResult.failure(str(exc))
 
@@ -460,6 +453,24 @@ class AutonomousAgent:
             return retried
         return retried if retried.structured or not decision.final_answer else decision
 
+    def _stopped(self, goal: str, steps: list[AgentStep], context: str, exc: RunStopped) -> AgentRunResult:
+        """The supervisor ended the run: not a failed step for the model to work around. What the steps
+        found is still given, with no step left to take: live, a stop for repeating a read answered only
+        "Stopped by the supervisor" about a file the run had read."""
+        answer = str(exc)
+        if steps and self.close_on_stop:
+            found = self._closing_answer(goal, steps, context, (
+                f"\n\nThe run was stopped: {answer} Do not choose another command. Reply with FINAL: "
+                "<what the steps above found toward the GOAL, and what is missing> only.")) or self._found(steps)
+            answer = f"{answer}\n\n{found}"
+        return AgentRunResult(goal=goal, final_answer=answer, status="stopped", steps=steps)
+
+    @staticmethod
+    def _found(steps: list[AgentStep]) -> str:
+        # What each step found, not only that it ran: live, the summary call hit a dropped connection
+        # and the answer named eight weather lookups without one temperature.
+        return "What the steps found:\n" + "\n".join(f"- {step.command}: {step.message[:240]}" for step in steps)
+
     def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
         summary = self._closing_answer(goal, steps, context, (
             "\n\nYou have reached the step limit. Reply with FINAL: <summary of progress "
@@ -469,10 +480,7 @@ class AutonomousAgent:
             return summary
         if not steps:
             return f"Reached the {self.max_steps}-step limit on: {goal}. No steps ran."
-        # What each step found, not only that it ran: live, the summary call hit a dropped connection
-        # and the answer named eight weather lookups without one temperature.
-        found = "\n".join(f"- {step.command}: {step.message[:240]}" for step in steps)
-        return f"Reached the {self.max_steps}-step limit on: {goal}. What the steps found:\n{found}"
+        return f"Reached the {self.max_steps}-step limit on: {goal}. {self._found(steps)}"
 
     def _closing_answer(self, goal: str, steps: list[AgentStep], context: str, instruction: str) -> str:
         """One last FINAL from what the steps found, or "" when the model gives none."""
@@ -484,6 +492,8 @@ class AutonomousAgent:
             decision = None if isinstance(reply, CutOff) else parse_agent_decision(reply)
             if decision is not None and decision.final_answer:
                 return decision.final_answer
+        except RunStopped:
+            return ""   # the run's model calls are spent: the caller's fallback lists what the steps found
         except Exception as exc:
             # The caller's fallback stands; without this the reason the agent stopped reasoning was lost.
             record_failure("agent/final", exc, goal=goal[:80])
