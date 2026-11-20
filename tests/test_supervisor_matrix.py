@@ -12,7 +12,13 @@ from laptop_agent import supervisor
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.supervisor import Supervisor, Verdict
 
-ORCHESTRATOR = Path(__file__).resolve().parents[1] / "src" / "laptop_agent" / "agents" / "orchestrator.py"
+# The orchestrator is split by area across the modules of `agents/`: every one is read.
+AGENTS = Path(__file__).resolve().parents[1] / "src" / "laptop_agent" / "agents"
+
+
+def orchestrator_source() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(AGENTS.glob("*.py")))
+
 
 # Every command form the agent is told about, by the supervisor group it must be in. A new command, or
 # one moved to another group, fails here until this table says so: a write filed under SAFE would run
@@ -153,7 +159,7 @@ class DirectBranchTests(unittest.TestCase):
     def test_every_prefix_that_reaches_a_direct_tool_is_direct(self) -> None:
         """Live review: `terminal` and `shell` ran the shell, and the supervisor did not know them."""
         prefixes: list[str] = []
-        for node in ast.walk(ast.parse(ORCHESTRATOR.read_text(encoding="utf-8"))):
+        for node in ast.walk(ast.parse(orchestrator_source())):
             if not isinstance(node, ast.If) or not self._reaches_direct(node.body):
                 continue
             test = node.test
@@ -192,7 +198,7 @@ class DisguiseTests(unittest.TestCase):
 
     def test_a_disguised_direct_command_does_not_reach_its_tool(self) -> None:
         """Unknown to the supervisor, so allowed for a clean planner: the orchestrator must not run it."""
-        source = ORCHESTRATOR.read_text(encoding="utf-8")
+        source = orchestrator_source()
         for plain in ("run command whoami", "file delete a.txt", "code run a.py", "agent run tidy", "shell whoami"):
             head, _, rest = plain.partition(" ")
             for disguise in ("please " + plain, '"' + plain, plain.replace(" ", "​", 1),

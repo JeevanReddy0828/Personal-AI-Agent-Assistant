@@ -370,13 +370,13 @@ class BackReferenceSubjectTests(unittest.TestCase):
     has to read the user's own words, not the router's output."""
 
     def test_a_request_that_names_its_subject_is_not_a_back_reference(self) -> None:
-        from laptop_agent.agents.orchestrator import _has_own_subject
+        from laptop_agent.agents.common import _has_own_subject
 
         self.assertTrue(_has_own_subject("can you generate an image with the current time on it?"))
         self.assertTrue(_has_own_subject("draw a red fox in snow"))
 
     def test_a_request_that_only_points_is(self) -> None:
-        from laptop_agent.agents.orchestrator import _has_own_subject
+        from laptop_agent.agents.common import _has_own_subject
 
         for text in ("create an image for this", "draw me a picture of this",
                      "make another one", "image it", "same again please"):
