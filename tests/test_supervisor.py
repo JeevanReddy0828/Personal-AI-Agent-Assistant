@@ -17,7 +17,7 @@ from laptop_agent.supervisor import Supervisor, Verdict, group_of
 
 # Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
 # only to a team run, and the rest start a run, which a step never may.
-NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot", "terminal", "shell"}
+NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot", "terminal", "shell", "agents off", "agents on"}
 
 
 def head(entry: str) -> str:
@@ -169,7 +169,7 @@ class BreakerTests(unittest.TestCase):
         run = Supervisor(tree)
         with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
             for n in range(supervisor.MAX_STEPS_PER_MINUTE):
-                self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+                self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
             self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
 
     def test_the_rate_trips_before_the_total_at_the_shipped_caps(self) -> None:
@@ -178,7 +178,7 @@ class BreakerTests(unittest.TestCase):
         tree = supervisor.RunTree(clock=Clock(1.0))
         run = Supervisor(tree)
         for n in range(supervisor.MAX_STEPS_PER_MINUTE):
-            self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+            self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
         self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
         self.assertLess(tree.steps, supervisor.MAX_TREE_STEPS)
 
@@ -188,13 +188,13 @@ class BreakerTests(unittest.TestCase):
         run = Supervisor(supervisor.RunTree(clock=Clock(4.0)))
         with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
             for n in range(40):
-                self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+                self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
 
     def test_too_many_steps_in_the_tree_trips(self) -> None:
         tree = supervisor.RunTree(clock=Clock(10.0))
         planner, child = Supervisor(tree, tier="ultra"), Supervisor(tree, agent="a1", parent="a0", depth=1, tier="fast")
         for n in range(supervisor.MAX_TREE_STEPS):
-            self.assertIs((planner if n % 2 else child).check(f"weather city{n}").verdict, Verdict.ALLOW)
+            self.assertIs((planner if n % 2 else child).check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
         self.assertTripped(planner.check("weather Paris"), "breaker:steps", tree)
 
     def test_delegating_past_the_depth_cap_trips(self) -> None:

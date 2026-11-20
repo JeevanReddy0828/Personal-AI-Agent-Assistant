@@ -526,6 +526,32 @@ def _answers(planner: Planner | None) -> bool:
     return planner is not None and getattr(planner.provider, "answer", None) is not None
 
 
+def _too_often(schedule) -> bool:
+    return schedule.kind == "interval" and schedule.seconds < supervision.MIN_AGENT_INTERVAL
+
+
+def _agent_schedule_refused(schedule, jobs) -> str:
+    """Why a new scheduled agent may not be added: more often than hourly, or one too many."""
+    if _too_often(schedule):
+        return "A scheduled agent may run at most once an hour: try 'every 1 hour' or 'daily at 08:00'."
+    if sum(job.kind == "agent" and job.enabled for job in jobs) >= supervision.MAX_AGENT_SCHEDULES:
+        return (f"There are already {supervision.MAX_AGENT_SCHEDULES} scheduled agents; remove one first "
+                "(schedule remove <id>).")
+    return ""
+
+
+def _counted(brain: Callable[[str], str], tree: RunTree) -> Callable[[str], str]:
+    """An agent's `decide`, counted against its run's model calls (`MAX_MODEL_CALLS`)."""
+
+    def decide(prompt: str) -> str:
+        stopped = tree.count_call()
+        if stopped is not None:
+            raise RunStopped(f"Stopped by the supervisor: {stopped.reason}.")
+        return brain(prompt)
+
+    return decide
+
+
 def _readable_size(size: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -581,6 +607,9 @@ class AgentOrchestrator:
         # Per-turn latency traces (timings only, never prompts or replies), so a slow
         # turn can be explained instead of guessed at.
         self.traces = TraceStore(self.data_dir / "traces.json")
+        # Runs and steps today across every agent run, and the switch that turns agents off; one run at a time.
+        self.agent_ledger = supervision.AgentLedger(self.data_dir / "agent_ledger.json")
+        self._agent_running = threading.Lock()
         # The failure log is a process-wide singleton (every tool, provider and request
         # handler writes to it), so it cannot take its path in a constructor like the two
         # above — it is pointed at this orchestrator's own directory instead. It used to
@@ -1342,6 +1371,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("schedule "):
             return self._schedule_add("command", command[len("schedule ") :].strip())
+
+        if lowered in {"agents off", "agents on"}:
+            return self._agents_switch(lowered == "agents off")
 
         if lowered in {"agent runs", "agent history", "autonomous runs"}:
             return self._agent_runs()
@@ -3443,6 +3475,7 @@ class AgentOrchestrator:
                 "  agent runs | agent last",
                 "  schedule <when> :: <command>     (e.g. 'daily at 08:00 :: briefing')",
                 "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
+                "  agents off | agents on  (turn every agent run off, or back on)",
                 "  schedule list | schedule remove <id> | schedule run due",
                 "  remind me <what> <when>  (\"to call mom at 6pm\", \"in 20 minutes\", \"every day at 8am\")",
                 "  reminders | reminders due | reminders next [alarm|timer] | reminder done <id>",
@@ -4673,7 +4706,7 @@ class AgentOrchestrator:
 
             brain = self._build_agent_brain((planner, self.fallback_planner))
             child = AutonomousAgent(
-                decide=brain,
+                decide=_counted(brain, tree),
                 execute=self._supervised(None, brain, Supervisor(tree, agent=agent, parent=parent, depth=child_depth,
                                                                  tier=tier),
                                          self._delegator(tree, goal, agent, child_depth, on_step)),
@@ -4766,13 +4799,25 @@ class AgentOrchestrator:
         return await self._run_agent(goal, on_step=on_step, history=history, team=team)
 
     async def _run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None,
-                         team: bool = False) -> ToolResult:
+                         team: bool = False, unattended: bool = False) -> ToolResult:
         goal = goal.strip()
         if not goal:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
+        # One agent run at a time across the app: two tabs, or a tab and a scheduled job, each started one.
+        if not self._agent_running.acquire(blocking=False):
+            return ToolResult.failure("Not started: another agent run is going. Wait for it to finish, or stop it.")
+        try:
+            refused = self.agent_ledger.start_run()
+            if refused:
+                return ToolResult.failure(f"Not started: {refused}.")
+            return await self._run_agent_now(goal, on_step, history, team, unattended)
+        finally:
+            self._agent_running.release()
 
+    async def _run_agent_now(self, goal: str, on_step, history: list[dict[str, str]] | None, team: bool,
+                             unattended: bool) -> ToolResult:
         agent_id = self.control_room.start(f"agent team: {goal}" if team else f"agent: {goal}")
-        tree: RunTree | None = None
+        tree = RunTree(ledger=self.agent_ledger, unattended=unattended)
         if team:
             # The planner leads on the strongest tier configured, with the tiers below and the backup behind it.
             planners = self._tier_planners()
@@ -4780,14 +4825,14 @@ class AgentOrchestrator:
             ladder = [planners[name] for name in ("ultra", "smart", "fast")
                       if supervision.TIER_RANK[name] <= supervision.TIER_RANK[tier]]
             brain = self._build_agent_brain((*ladder, self.fallback_planner))
-            tree = RunTree()
             execute = self._supervised(history, brain, Supervisor(tree, tier=tier),
                                        self._delegator(tree, goal, "a0", 0, on_step))
             reference, max_steps = self._agent_reference(self._delegate_to(tier, 0)), self._TEAM_STEPS
         else:
             brain = self._build_agent_brain()
-            execute, reference, max_steps = self._supervised(history, brain), self._agent_reference(), 6
-        agent = AutonomousAgent(decide=brain, execute=execute, command_reference=reference, max_steps=max_steps)
+            execute, reference, max_steps = self._supervised(history, brain, Supervisor(tree)), self._agent_reference(), 6
+        agent = AutonomousAgent(decide=_counted(brain, tree), execute=execute, command_reference=reference,
+                                max_steps=max_steps)
         context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
             result = await agent.run(goal, on_step=on_step, context=context)
@@ -4800,7 +4845,7 @@ class AgentOrchestrator:
             return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)
         self.control_room.finish(agent_id, result.final_answer, ok=result.status != "failed")
 
-        run = self.context.agent_runs.record_run(result, agents=tree.agents if tree is not None else None)
+        run = self.context.agent_runs.record_run(result, agents=tree.agents if team else None)
         payload = dict(
             goal=goal,
             answer=result.final_answer,
@@ -4810,6 +4855,19 @@ class AgentOrchestrator:
         if result.status == "failed":
             return ToolResult.failure(result.final_answer, **payload)
         return ToolResult.success(result.final_answer, **payload)
+
+    def _agents_switch(self, off: bool) -> ToolResult:
+        """The kill switch: off refuses every agent run, team and scheduled agent until turned back on.
+        A run already going stops at its next step."""
+        self.agent_ledger.set_off(off)
+        state = self.agent_ledger.state()
+        if off:
+            return ToolResult.success("Agents are off: no agent run, team or scheduled agent will start, and a run "
+                                      "going now stops at its next step. Say `agents on` to turn them back on.",
+                                      agents_off=True)
+        return ToolResult.success(f"Agents are on. Today: {state.get('runs', 0)} of {supervision.MAX_RUNS_PER_DAY} "
+                                  f"runs and {state.get('steps', 0)} of {supervision.MAX_STEPS_PER_DAY} steps used.",
+                                  agents_off=False)
 
     def _agent_runs(self) -> ToolResult:
         runs = self.context.agent_runs.all_runs()
@@ -4834,6 +4892,10 @@ class AgentOrchestrator:
             )
         when, spec = (part.strip() for part in expression.split("::", 1))
         try:
+            if kind == "agent":
+                refused = _agent_schedule_refused(parse_schedule(when), self.context.scheduler.list_jobs())
+                if refused:
+                    return ToolResult.failure(refused)
             job = self.context.scheduler.add(kind, spec, when, datetime.now().astimezone())
         except ScheduleError as exc:
             return ToolResult.failure(str(exc))
@@ -4879,8 +4941,12 @@ class AgentOrchestrator:
         ran = []
         for index, job in enumerate(due):
             try:
-                if job.kind == "agent":
-                    result = await self._run_agent(job.spec)
+                if job.kind == "agent" and _too_often(job.schedule):
+                    # Made before the hourly floor: it is not run, and says why.
+                    result = ToolResult.failure("Not run: a scheduled agent may run at most once an hour.")
+                elif job.kind == "agent":
+                    # Nobody is watching: no approval card would be answered, so it reads and computes only.
+                    result = await self._run_agent(job.spec, unattended=True)
                 else:
                     result = await self.handle(job.spec, _allow_planner=False)
                 status = "ok" if result.ok else "failed"

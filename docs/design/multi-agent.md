@@ -175,6 +175,28 @@ where a helper searched instead and the team said a fact was saved. A child out 
 step-limit summary comes back as `[ok] (step limit reached) <summary>`. The existing Stop
 button keeps working through `check_cancelled`, since children run in the same request.
 
+### No running wild (added 2026-11-20)
+
+Jeevan asked that agents never run wild: never hammer a site, never loop off each other, never leave
+something hard for a person to undo. Beyond the breaker, plain rules in `supervisor.py`, each with its
+own test in `tests/test_agent_limits.py`:
+
+| Rule | Limit | Where |
+|---|---|---|
+| Web budget per run | 30 requests; `research`, `research report` and `solve` cost 6 (a search and its pages), other network steps 1 (`WEB_COST`) | `RunTree.charge`, `breaker:web` |
+| One site per run | 5 steps to one host (from a URL), or to the search engine, or to one service | `breaker:site` |
+| Time per run | 10 minutes, checked at each step | `breaker:time` |
+| Model calls per run | 30, every agent's, retries and closing answers included | `RunTree.count_call` via `orchestrator._counted`, `breaker:calls` |
+| Messages per run | 1 (`message`, `email api send`); the next is refused and counted | rule `sends` |
+| Approval cards per run | 3 (a carded step, or a step asked about after outside text) | `breaker:cards` |
+| A run nobody watches | a scheduled run only reads and computes | rule `unattended` |
+| A day, across every run | 30 runs, 150 steps; kept in `agent_ledger.json`, reset at local midnight; unreadable, it fails closed | `AgentLedger`, `breaker:daily` |
+| One run at a time | a second run, from another tab or a schedule, is refused at once | `orchestrator._agent_running` |
+| Scheduled agents | at most hourly and at most 5; an older, more frequent one is not run | `_agent_schedule_refused`, `run_due_schedules` |
+| Kill switch | `agents off` refuses every run, team and scheduled agent, survives a restart and a new day; a run going stops at its next step; `agents on` lifts it. Neither is a step of a run (`DIRECT`) | `AgentLedger.set_off` |
+
+A stop from any of these, like every stop, still gives what the steps found.
+
 ### What is recorded
 
 - Every verdict's audit line (`supervisor` event) gains `run`, `parent`, `depth`.

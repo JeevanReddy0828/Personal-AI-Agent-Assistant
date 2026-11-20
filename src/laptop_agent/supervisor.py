@@ -18,6 +18,10 @@ judges injected text can be talked round by it:
 - one tree: an agent a run delegates to (`delegate`, in `agent team`) shares the run's `RunTree`:
   its taint, its refusals and its stop. A run can start another in no other way, and a trip
   breaker caps the tree's steps a minute, its steps in all, its depth and the agents it starts;
+- no running wild: a run also stops past its web budget, past a few requests to one site, past
+  its time, past its model calls or past its approval cards; it sends at most one message; a run
+  nobody is watching (a scheduled one) may only read and compute; and `AgentLedger` caps runs and
+  steps a day across every run and holds the switch that turns agents off;
 - every verdict is written to the audit log with the rule that made it.
 
 It supervises what a run asks for. What an approved program then does is the operating
@@ -25,12 +29,20 @@ system's to contain, not this module's.
 """
 from __future__ import annotations
 
+import json
 import os
+import threading
 import time
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
+from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
+
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import atomic_write_text
 
 
 class Verdict(str, Enum):
@@ -76,7 +88,7 @@ CARDED = (
 # `terminal` and `shell` run the shell like `run command` does, and were unknown here until a test walked
 # every branch into the shell (tests/test_supervisor_matrix.py).
 DIRECT = ("run command", "terminal", "shell", "code run", "code fix", "file delete", "agent run", "agent team",
-          "schedule agent", "autopilot")
+          "schedule agent", "autopilot", "agents off", "agents on")
 # DELEGATE: hands a sub-task to an agent on a lower tier, in the same tree (offered to `agent team` only).
 DELEGATE = ("delegate",)
 # SAFE: computed here or read from the user's own stores; neither tainting nor guarded.
@@ -107,6 +119,28 @@ MAX_TREE_STEPS = 20
 MAX_DEPTH = 2           # the planner is depth 0
 MAX_AGENTS = 4          # agents one tree may start, the planner not counted
 TIER_RANK = {"fast": 0, "smart": 1, "ultra": 2}
+# No running wild. A step that reaches a service off the laptop costs its requests from the run's web
+# budget: `research` searches and then fetches up to five pages, so a 20-step run of it was over 100
+# requests in minutes. One site (a URL's host, or the service a command calls) takes a few at most.
+MAX_WEB_REQUESTS = 30
+MAX_PER_SITE = 5
+WEB_COST = {
+    "research": 6, "research report": 6, "solve": 6, "web search": 1, "news": 1, "summarize youtube": 1,
+    "open url": 1, "download": 1, "inspect page": 1, "weather": 1, "translate": 1, "distance": 1, "trip": 1,
+    "around": 1, "map": 1, "hotels near": 1, "image": 1, "email digest": 1, "email api search": 1,
+    "email api draft": 1, "email api send": 1, "message": 1, "mcp": 1,
+}
+# Commands that reach the same search engine, whatever words follow them.
+SEARCHES = ("research", "research report", "solve", "web search", "news")
+SENDS = ("message", "email api send")
+MAX_SENDS = 1           # messages or emails one run may send
+MAX_CARDS = 3           # approval cards one run may raise, so a run cannot wear the user down
+MAX_RUN_SECONDS = 600
+MAX_MODEL_CALLS = 30    # every call a run makes to a model, retries and closing answers included
+MAX_RUNS_PER_DAY = 30   # across every run, scheduled ones included (AgentLedger)
+MAX_STEPS_PER_DAY = 150
+MIN_AGENT_INTERVAL = 3600   # a scheduled agent runs at most once an hour
+MAX_AGENT_SCHEDULES = 5
 
 
 def _matches(lowered: str, form: str) -> bool:
@@ -176,6 +210,78 @@ def trusted(tier: str) -> bool:
     return tier in TIERS and tier not in untrusted_tiers()
 
 
+def site_of(command: str, form: str) -> str:
+    """The site a network step reaches: a URL's host, the search engine, or the service its command calls."""
+    for word in command.split():
+        if word.lower().startswith(("http://", "https://")):
+            return urlsplit(word).hostname or form
+    return "web search" if form in SEARCHES else form
+
+
+def _count(data: dict[str, object], key: str) -> int:
+    value = data.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+class AgentLedger:
+    """What every run shares across a day, kept in a file so a restart does not reset it: the runs and
+    steps taken today (`MAX_RUNS_PER_DAY`, `MAX_STEPS_PER_DAY`), and the switch that turns agents off.
+    A scheduled agent started a fresh run every time it was due, with a fresh budget and no ceiling."""
+
+    def __init__(self, path: Path, today: Callable[[], date] = date.today) -> None:
+        self.path = path
+        self._today = today
+        self._lock = threading.Lock()
+
+    def _read(self) -> dict[str, object]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = {}
+        except (OSError, ValueError) as exc:
+            # Unreadable counts fail closed: no runs today rather than an unlimited day.
+            record_failure("agents/ledger", exc)
+            data = {"date": self._today().isoformat(), "runs": MAX_RUNS_PER_DAY, "steps": MAX_STEPS_PER_DAY}
+        if data.get("date") != self._today().isoformat():
+            data = {"off": bool(data.get("off")), "date": self._today().isoformat(), "runs": 0, "steps": 0}
+        return data
+
+    def _write(self, data: dict[str, object]) -> None:
+        atomic_write_text(self.path, json.dumps(data, indent=2))
+
+    def state(self) -> dict[str, object]:
+        with self._lock:
+            return self._read()
+
+    def set_off(self, off: bool) -> None:
+        with self._lock:
+            data = self._read()
+            data["off"] = off
+            self._write(data)
+
+    def start_run(self) -> str:
+        """Count a run starting, or say why none may: agents are off, or today's runs are spent."""
+        with self._lock:
+            data = self._read()
+            if data.get("off"):
+                return "agents are turned off (say `agents on` to turn them back on)"
+            if _count(data, "runs") >= MAX_RUNS_PER_DAY:
+                return f"today's {MAX_RUNS_PER_DAY} agent runs are used up; agents start again tomorrow"
+            data["runs"] = _count(data, "runs") + 1
+            self._write(data)
+            return ""
+
+    def charge_step(self) -> bool:
+        """Count one step of any run; False once today's steps are spent, or agents were turned off."""
+        with self._lock:
+            data = self._read()
+            if data.get("off") or _count(data, "steps") >= MAX_STEPS_PER_DAY:
+                return False
+            data["steps"] = _count(data, "steps") + 1
+            self._write(data)
+            return True
+
+
 def routed(command: str, tier: str) -> Decision:
     """The verdict on one command a model picked for the user's own sentence (the router)."""
     group, _form = group_of(command)
@@ -190,14 +296,24 @@ class RunTree:
     Kept apart from `Supervisor` so a delegated agent cannot start cleaner than the run that
     started it, and one stop anywhere in the tree stops every agent in it."""
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, clock: Callable[[], float] = time.monotonic, *, ledger: AgentLedger | None = None,
+                 unattended: bool = False) -> None:
         self.tainted_by = ""
         self.refusals = 0
         self.last_refusal = ""
         self.stopped: Decision | None = None
         self.agents: list[dict[str, object]] = []
         self.steps = 0
+        self.web = 0
+        self.sites: Counter[str] = Counter()
+        self.sends = 0
+        self.cards = 0
+        self.calls = 0
+        # A run nobody is watching (a scheduled one): no card would be answered, so it only reads and computes.
+        self.unattended = unattended
+        self._ledger = ledger
         self._clock = clock
+        self._started = clock()
         self._recent: deque[float] = deque()
 
     def add_agent(self, parent: str, depth: int, tier: str, task: str) -> str:
@@ -220,6 +336,40 @@ class RunTree:
             return self.stop("breaker:rate", f"its agents took more than {MAX_STEPS_PER_MINUTE} steps in a minute")
         if self.steps > MAX_TREE_STEPS:
             return self.stop("breaker:steps", f"its agents took more than {MAX_TREE_STEPS} steps in all")
+        if now - self._started > MAX_RUN_SECONDS:
+            return self.stop("breaker:time", f"it ran for more than {MAX_RUN_SECONDS // 60} minutes")
+        if self._ledger is not None and not self._ledger.charge_step():
+            return self.stop("breaker:daily", f"agents were turned off, or today's {MAX_STEPS_PER_DAY} agent steps "
+                                              "are used up")
+        return None
+
+    def count_call(self) -> Decision | None:
+        """Count one call to a model by any agent; the stop once the run has made too many. Another stop
+        does not refuse a call: the run is still asked once what its steps found."""
+        self.calls += 1
+        if self.calls > MAX_MODEL_CALLS:
+            return self.stop("breaker:calls", f"its agents asked a model more than {MAX_MODEL_CALLS} times")
+        return None
+
+    def charge(self, command: str, group: str, form: str, asks: bool) -> Decision | None:
+        """What a step about to be allowed or asked costs: web requests, a site's share, a send, a card."""
+        cost = WEB_COST.get(form, 0)
+        if cost:
+            site = site_of(command, form)
+            if self.web + cost > MAX_WEB_REQUESTS:
+                return self.stop("breaker:web", f"it would make more than {MAX_WEB_REQUESTS} web requests")
+            if self.sites[site] + 1 > MAX_PER_SITE:
+                return self.stop("breaker:site", f"it went to {site} more than {MAX_PER_SITE} times")
+            self.web += cost
+            self.sites[site] += 1
+        if form in SENDS:
+            if self.sends >= MAX_SENDS:
+                return Decision(Verdict.REFUSE, "sends", f"a run sends at most {MAX_SENDS} message")
+            self.sends += 1
+        if asks or group == "carded":
+            if self.cards >= MAX_CARDS:
+                return self.stop("breaker:cards", f"it would ask you to approve more than {MAX_CARDS} steps")
+            self.cards += 1
         return None
 
 
@@ -273,6 +423,9 @@ class Supervisor:
         if not trusted(tier) and group not in _UNTRUSTED_MAY:
             self.refused(f"the {tier or 'unnamed'} model chose it, and that model may read and compute but not act")
             return Decision(Verdict.REFUSE, "trust", tree.last_refusal)
+        if tree.unattended and group not in {*_UNTRUSTED_MAY, "delegate"}:
+            self.refused("nobody is watching this run (it was scheduled), so it may read and compute but not act")
+            return Decision(Verdict.REFUSE, "unattended", tree.last_refusal)
         if self.depth > 0 and not helper_may(lowered):
             reason = "a helper only looks things up and works things out: answer in FINAL and the planner will act on it"
             # Counted only when the tree has read outside text and the step is a real command: then it may be
@@ -284,9 +437,15 @@ class Supervisor:
         if group == "delegate":
             return self._delegate(lowered)
         tainted_before = tree.tainted_by
+        asks = bool(tainted_before) and group in {"guarded", "unknown"}
+        charged = tree.charge(lowered, group, form, asks)
+        if charged is not None:
+            if charged.verdict is Verdict.REFUSE:
+                self.refused(charged.reason)
+            return charged
         if is_read(lowered):
             tree.tainted_by = tree.tainted_by or form or lowered[:40]
-        if tainted_before and group in {"guarded", "unknown"}:
+        if asks:
             return Decision(Verdict.ASK, "taint", f"This run has read outside text ({tainted_before}), which can "
                                                   "carry instructions, and now wants to act on the laptop or send "
                                                   "something out.")
