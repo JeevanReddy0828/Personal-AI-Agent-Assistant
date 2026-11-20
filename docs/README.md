@@ -31,7 +31,8 @@ CSV tools. Re-run an evaluation from the repository root, for example
 | `design/` | The detailed design notes that used to fill `CLAUDE.md`, one file per subsystem; see its README. |
 | `analytics.md` | Contract for `analytics/diagnostics.py`: drivers fitted on a prefix and scored on an untouched tail, associations not causes, robust anomalies with unscored zero-MAD values. |
 | `forecasting.md` | Contract for `analytics/forecast.py`: season and tuning from an early prefix, method choice against two baselines, calibrated intervals, and what to say when data is insufficient. |
-| `evals/` | Offline knowledge-ranking experiments, their fixtures and recorded results. |
+| `laya-decision-model.md` | Proposal, not built: whether the Laya typed-decision model could choose the chat tier, which runtime fits this laptop, and the measurement that must come first. Its CPU and GPU runs are in `evals/tier_choice_experiment.md`. |
+| `evals/` | Offline knowledge-ranking and tier-choice experiments, their fixtures and recorded results. |
 | `review/` | Screenshots and notes produced while reviewing UI changes. |
 | `screenshots/` | Images used in the root README. |
 

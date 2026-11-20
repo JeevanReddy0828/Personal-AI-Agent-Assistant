@@ -1,9 +1,9 @@
-# `docs/evals/` — offline evaluations of knowledge ranking
+# `docs/evals/` — offline evaluations of knowledge ranking and the tier choice
 
 ## Purpose
 
 Reproducible experiments that decide whether a change to how `knowledge.py` picks a
-passage is worth shipping. Each one freezes its questions and pass rules **before** it is
+passage, or how the chat tier is chosen, is worth shipping. Each one freezes its questions and pass rules **before** it is
 run, measures the production scorer against a variant, and records the result, so the
 decision can be checked later instead of re-argued. They never edit production code.
 
@@ -49,6 +49,19 @@ the results and a short write-up whose first paragraph is the decision.
 | `knowledge_windows.py` | Fixed-window evaluation of passage choice; never changes the ranking module. |
 | `knowledge_after_note_move.md` | Write-up: rerun after moving one analytics note between README, CLAUDE and MEMORY; ranking unchanged. |
 | `knowledge_after_note_move.json` | That rerun's recorded corpus hashes and answers. |
+| `tier_choice_experiment.md` | Write-up (2026-11-09): the Laya decision model against `_complexity` for choosing the chat tier, on provisional labels ([proposal](../laya-decision-model.md)). |
+| `tier_choice_set.json` | The frozen fixture: 155 hand-written chat requests labelled fast / smart / ultra, with the labelling rule. Labels are provisional until Jeevan reviews them. |
+| `tier_choice_experiment.py` | The experiment: imports `AgentOrchestrator._complexity` read-only; with `laya` installed it also scores each request with both checkpoints. Not part of the test suite and needs no dependency to run the heuristic half. |
+| `tier_choice_results_cpu.json` | The recorded CPU run: accuracy, confusion matrices, latency, memory and per-request scores. |
+| `tier_choice_results_cuda.json` | The same run on the RTX 3050 Ti Laptop GPU (2026-11-10): the same scores to within 0.033, 54 ms median per decision. |
+| `tier_choice_variants.md` | Write-up (2026-11-10): tier-worded questions and combined signals. The best reaches 79.4% cross-validated, but the heuristic's own signals re-fitted reach 76.8% and prompt length biases the set, so a fresh set decides. |
+| `tier_choice_variants.py` | The variants experiment: six Laya questions in one pass, cross-validated thresholds and logistic regressions, a no-Laya control and a frozen selection rule. |
+| `tier_choice_variants_results.json` | Its recorded GPU run: every variant's accuracy and errors, timings and per-request answers. |
+| `tier_choice_fresh_set.json` | The confirmation fixture: 120 fresh, shuffled requests written so that length does not give away the tier. Labelled 2026-11-11: q001–q024 by Jeevan, q025–q120 by Claude at his request. |
+| `tier_choice_confirm.md` | Write-up (2026-11-11): the confirmation run passes Laya's preset question at the frozen thresholds, 62.5% against 50.8% for `_complexity` on 120 fresh requests (McNemar p = 0.049). The variants that looked best on the first set did not hold up. |
+| `tier_choice_confirm_results.json` | The recorded confirmation run: every candidate's accuracy and errors, and each request's prediction. |
+| `tier_choice_apply_labels.py` | Copies labels (`{"q001": "fast", …}`, from the labelling page or typed by hand) into the fresh set, refusing unknown ids or tiers. |
+| `tier_choice_confirm.py` | The confirmation scorer. It fits the four frozen candidates on the original set only, scores them on the fresh labels, and applies the frozen selection and adoption rule. |
 
 ## Read next
 
