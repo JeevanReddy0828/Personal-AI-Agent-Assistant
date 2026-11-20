@@ -920,6 +920,88 @@ class DocumentLengthRoutingTests(unittest.TestCase):
             self.assertEqual(self.command(text), expected, text)
 
 
+class EverydayPhrasingRoutingTests(unittest.TestCase):
+    """Three phrasings fell through to the model router (0.8 s typical, 4 s worst) although
+    the tool for each was plain from the words: a picture with its path, a bare "document",
+    and a logo or poster named by what it is for."""
+
+    def setUp(self) -> None:
+        self.planner = HeuristicPlannerProvider()
+
+    def command(self, text: str) -> str:
+        return self.planner.plan(text, "", {}).command or ""
+
+    def test_describing_a_picture_with_a_path_routes_to_vision(self) -> None:
+        cases = {
+            "describe this image C:/pics/a.png": "describe image C:/pics/a.png",
+            "describe C:/pics/a.png": "describe image C:/pics/a.png",
+            "please describe the picture C:\\my pics\\a b.jpg": "describe image C:\\my pics\\a b.jpg",
+            'describe the photo "C:\\my pics\\a.png"': "describe image C:\\my pics\\a.png",
+            "can you describe the screenshot ~/Desktop/shot.webp?": "describe image ~/Desktop/shot.webp",
+            "describe photo.png": "describe image photo.png",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_describing_without_a_picture_path_is_left_alone(self) -> None:
+        for text in (
+            "describe this image",
+            "describe a png",
+            "describe the mood of photo.png",
+            "describe how to resize photo.png",
+            "describe this image C:/pics/a.pdf",
+        ):
+            self.assertFalse(self.command(text).startswith("describe image"), text)
+
+    def test_a_bare_document_takes_the_tools_default_format(self) -> None:
+        cases = {
+            "make a document about solar power": "document solar power as pdf",
+            "write a document about the french revolution": "document the french revolution as pdf",
+            "create me a document on tcp handshakes": "document tcp handshakes as pdf",
+            "make a 2 page document about rust": "document 2 page: rust as pdf",
+            # The named formats keep theirs.
+            "make a doc about tcp": "document tcp as word",
+            "make a word document about tcp": "document tcp as word",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_a_document_without_a_subject_is_left_alone(self) -> None:
+        for text in (
+            "make a document",
+            "create a document on my desktop",
+            "create a document on the laptop about cats",
+            "write a report on climate",  # no file named: may be a chat answer
+        ):
+            self.assertFalse(self.command(text).startswith("document"), text)
+
+    def test_a_logo_poster_wallpaper_or_icon_routes_to_the_image_tool(self) -> None:
+        cases = {
+            "make me a logo for my coffee shop": "image logo for my coffee shop",
+            "create a poster for the bake sale": "image poster for the bake sale",
+            "make me a wallpaper of a misty forest": "image wallpaper of a misty forest",
+            "design an icon of a rocket": "image icon of a rocket",
+            "could you generate a logo for my band": "image logo for my band",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(self.command(text), expected, text)
+
+    def test_near_misses_for_pictures_are_left_alone(self) -> None:
+        for text in (
+            "make a logo",
+            "make a logo design brief for my client",
+            "make the poster for the event",
+            "make a logo for my shop in svg",
+            "make an icon for my app using css",
+            "paint the wall blue",
+            "paint a sunset",
+            "illustrate the point with an example",
+            "show me a picture of a cat",
+            "picture of a cat",
+        ):
+            self.assertFalse(self.command(text).startswith("image"), text)
+
+
 class AddressStrippingTests(unittest.TestCase):
     """Every heuristic route matches from the start of the message, so addressing the
     assistant by name defeated all of them: "Hey Jarvis, draw me a fox" fell through to
