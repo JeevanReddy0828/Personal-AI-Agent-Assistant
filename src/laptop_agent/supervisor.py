@@ -218,6 +218,11 @@ def site_of(command: str, form: str) -> str:
     return "web search" if form in SEARCHES else form
 
 
+def _count(data: dict[str, object], key: str) -> int:
+    value = data.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
 class AgentLedger:
     """What every run shares across a day, kept in a file so a restart does not reset it: the runs and
     steps taken today (`MAX_RUNS_PER_DAY`, `MAX_STEPS_PER_DAY`), and the switch that turns agents off.
@@ -260,9 +265,9 @@ class AgentLedger:
             data = self._read()
             if data.get("off"):
                 return "agents are turned off (say `agents on` to turn them back on)"
-            if int(data.get("runs", 0)) >= MAX_RUNS_PER_DAY:
+            if _count(data, "runs") >= MAX_RUNS_PER_DAY:
                 return f"today's {MAX_RUNS_PER_DAY} agent runs are used up; agents start again tomorrow"
-            data["runs"] = int(data.get("runs", 0)) + 1
+            data["runs"] = _count(data, "runs") + 1
             self._write(data)
             return ""
 
@@ -270,9 +275,9 @@ class AgentLedger:
         """Count one step of any run; False once today's steps are spent, or agents were turned off."""
         with self._lock:
             data = self._read()
-            if data.get("off") or int(data.get("steps", 0)) >= MAX_STEPS_PER_DAY:
+            if data.get("off") or _count(data, "steps") >= MAX_STEPS_PER_DAY:
                 return False
-            data["steps"] = int(data.get("steps", 0)) + 1
+            data["steps"] = _count(data, "steps") + 1
             self._write(data)
             return True
 
