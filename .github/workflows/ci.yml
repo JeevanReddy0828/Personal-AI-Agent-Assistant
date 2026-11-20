@@ -13,6 +13,7 @@ jobs:
       # Pinned: a new release of either can report new findings on unchanged code.
       - run: pip install ruff==0.17.4 mypy==2.4.1
       - run: ruff check src tests
+      - run: ruff format --check src tests
       - run: mypy
   unit:
     strategy:

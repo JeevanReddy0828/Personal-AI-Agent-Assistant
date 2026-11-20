@@ -19,7 +19,9 @@ class WebSearchError(RuntimeError):
 # A search backend turns (query, limit) into a list of {title, url, snippet} dicts.
 SearchBackend = Callable[[str, int], list[dict[str, str]]]
 
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 
 class WebSearchTool:
@@ -137,9 +139,7 @@ def brave_search_backend(api_key: str, transport: HttpTransport | None = None) -
     send = transport or _http_request
 
     def backend(query: str, limit: int) -> list[dict[str, str]]:
-        url = "https://api.search.brave.com/res/v1/web/search?" + urllib.parse.urlencode(
-            {"q": query, "count": limit}
-        )
+        url = "https://api.search.brave.com/res/v1/web/search?" + urllib.parse.urlencode({"q": query, "count": limit})
         headers = {"Accept": "application/json", "X-Subscription-Token": api_key, "User-Agent": _USER_AGENT}
         body = send(url, headers, None)
         try:

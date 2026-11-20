@@ -11,16 +11,34 @@ from laptop_agent.tools.base import ToolResult
 
 # WMO weather interpretation codes (Open-Meteo) -> plain English.
 _WMO = {
-    0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
-    45: "fog", 48: "freezing fog",
-    51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
-    56: "freezing drizzle", 57: "freezing drizzle",
-    61: "light rain", 63: "rain", 65: "heavy rain",
-    66: "freezing rain", 67: "freezing rain",
-    71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains",
-    80: "light showers", 81: "showers", 82: "violent showers",
-    85: "snow showers", 86: "snow showers",
-    95: "thunderstorm", 96: "thunderstorm with hail", 99: "thunderstorm with hail",
+    0: "clear sky",
+    1: "mainly clear",
+    2: "partly cloudy",
+    3: "overcast",
+    45: "fog",
+    48: "freezing fog",
+    51: "light drizzle",
+    53: "drizzle",
+    55: "heavy drizzle",
+    56: "freezing drizzle",
+    57: "freezing drizzle",
+    61: "light rain",
+    63: "rain",
+    65: "heavy rain",
+    66: "freezing rain",
+    67: "freezing rain",
+    71: "light snow",
+    73: "snow",
+    75: "heavy snow",
+    77: "snow grains",
+    80: "light showers",
+    81: "showers",
+    82: "violent showers",
+    85: "snow showers",
+    86: "snow showers",
+    95: "thunderstorm",
+    96: "thunderstorm with hail",
+    99: "thunderstorm with hail",
 }
 
 # An HTTP transport fetches a URL and returns parsed JSON. Injectable so the success
@@ -46,8 +64,10 @@ _DAY_NAME = r"(?:mon|tues|wednes|thurs|fri|satur|sun)day"
 _WEEKDAY = rf"(?:(?:on\s+)?(?:this|next|coming)\s+|on\s+)?{_DAY_NAME}{_PART_OF_DAY}"
 # At the end, only a weekday said as a day: Mount Sunday is a peak (Codex's review of #251). A bare
 # "tokyo friday" stays whole, and the geocoder's fallback without the last word finds Tokyo.
-_DAY_SAID = (rf"(?:(?:on\s+)?(?:this|next|coming)\s+|on\s+){_DAY_NAME}{_PART_OF_DAY}"
-             rf"|{_DAY_NAME}\s+(?:morning|afternoon|evening|night)")
+_DAY_SAID = (
+    rf"(?:(?:on\s+)?(?:this|next|coming)\s+|on\s+){_DAY_NAME}{_PART_OF_DAY}"
+    rf"|{_DAY_NAME}\s+(?:morning|afternoon|evening|night)"
+)
 _PLACE_HEAD = re.compile(
     r"^(?:(?:the\s+)?(?:weather|forecast|temperature)|like|in|for|at|near|around|of|today|tonight"
     r"|tomorrow|now|right\s+now|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+week"
@@ -60,8 +80,26 @@ _PLACE_TAIL = re.compile(
     rf"|{_DAY_SAID}|(?:for|over)\s+the\s+next\s+(?:few|couple(?:\s+of)?|\d+)\s+days)\s*$",
     re.IGNORECASE,
 )
-_NOT_A_PLACE = {"in", "for", "at", "near", "around", "of", "the", "like", "here", "there", "outside",
-                "my area", "my location", "where i am", "me", "home", "my place", "my city"}
+_NOT_A_PLACE = {
+    "in",
+    "for",
+    "at",
+    "near",
+    "around",
+    "of",
+    "the",
+    "like",
+    "here",
+    "there",
+    "outside",
+    "my area",
+    "my location",
+    "where i am",
+    "me",
+    "home",
+    "my place",
+    "my city",
+}
 
 
 def clean_place(text: str) -> str:
@@ -149,13 +187,15 @@ class WeatherTool:
         precip = daily.get("precipitation_probability_max") or []
         out_days = []
         for i, day in enumerate(times):
-            out_days.append({
-                "date": day,
-                "summary": _WMO.get(_safe_int(codes[i] if i < len(codes) else None), "unknown"),
-                "high": highs[i] if i < len(highs) else None,
-                "low": lows[i] if i < len(lows) else None,
-                "precip_chance": precip[i] if i < len(precip) else None,
-            })
+            out_days.append(
+                {
+                    "date": day,
+                    "summary": _WMO.get(_safe_int(codes[i] if i < len(codes) else None), "unknown"),
+                    "high": highs[i] if i < len(highs) else None,
+                    "low": lows[i] if i < len(lows) else None,
+                    "precip_chance": precip[i] if i < len(precip) else None,
+                }
+            )
 
         lines = [
             f"**{label}** — {now_desc}, {_r(current.get('temperature_2m'))}°F "

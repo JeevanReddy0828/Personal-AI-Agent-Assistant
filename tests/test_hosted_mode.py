@@ -23,11 +23,14 @@ from laptop_agent import access
 from laptop_agent.accounts import AccountStore, Principal
 from laptop_agent.sessions import SessionStore
 
-CHEAP = (2 ** 10, 8, 1)
+CHEAP = (2**10, 8, 1)
 GOOD = "correct horse battery"
 NAME = "jarvis.example.com"
-HOSTED_ENV = {"LAPTOP_AGENT_HOSTED": "1", "LAPTOP_AGENT_ALLOWED_HOSTS": NAME,
-              "LAPTOP_AGENT_CLIENT_IP_HEADER": "Fly-Client-IP"}
+HOSTED_ENV = {
+    "LAPTOP_AGENT_HOSTED": "1",
+    "LAPTOP_AGENT_ALLOWED_HOSTS": NAME,
+    "LAPTOP_AGENT_CLIENT_IP_HEADER": "Fly-Client-IP",
+}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -57,8 +60,11 @@ class LiveHostedTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=CHEAP)
         self.sessions = SessionStore(Path(tmp.name) / "sessions.json")
-        for name, value in (("ACCOUNTS", self.accounts), ("SESSIONS", self.sessions),
-                            ("_SIGNIN_LIMIT", self.webui._SignInLimit())):
+        for name, value in (
+            ("ACCOUNTS", self.accounts),
+            ("SESSIONS", self.sessions),
+            ("_SIGNIN_LIMIT", self.webui._SignInLimit()),
+        ):
             patcher = patch.object(self.webui, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -66,8 +72,17 @@ class LiveHostedTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def call(self, method: str, path: str, body: dict | None = None, cookie: str = "", host: str = NAME,
-             origin: str | None = "https://" + NAME, token: bool = True, headers: dict | None = None):
+    def call(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        cookie: str = "",
+        host: str = NAME,
+        origin: str | None = "https://" + NAME,
+        token: bool = True,
+        headers: dict | None = None,
+    ):
         """(status, parsed body, response headers). Never raises on a 4xx."""
         sent = {"Host": host, "Content-Type": "application/json", **(headers or {})}
         if origin is not None:
@@ -76,8 +91,9 @@ class LiveHostedTests(unittest.TestCase):
             sent["X-Jarvis-Token"] = self.webui._API_TOKEN
         if cookie:
             sent["Cookie"] = cookie
-        request = urllib.request.Request(self.base + path, method=method, headers=sent,
-                                         data=None if body is None else json.dumps(body).encode())
+        request = urllib.request.Request(
+            self.base + path, method=method, headers=sent, data=None if body is None else json.dumps(body).encode()
+        )
         try:
             response = urllib.request.urlopen(request, timeout=15)
         except urllib.error.HTTPError as error:
@@ -87,21 +103,27 @@ class LiveHostedTests(unittest.TestCase):
         return response.status, (json.loads(raw) if kind.startswith("application/json") else raw), response.headers
 
     def sign_in(self, username: str = "jeevan", password: str = GOOD) -> str:
-        status, body, headers = self.call("POST", "/auth/login", {"username": username, "password": password},
-                                          token=False)
+        status, body, headers = self.call(
+            "POST", "/auth/login", {"username": username, "password": password}, token=False
+        )
         self.assertEqual(status, 200, body)
         return headers["Set-Cookie"].split(";", 1)[0]
 
     # --- who is served at all
     def test_only_the_configured_name_is_served(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
-        for host in ("other.example.com", f"127.0.0.1:{self.port}", f"localhost:{self.port}", "203.0.113.9",
-                     "jarvis.example.com.evil.net"):
+        for host in (
+            "other.example.com",
+            f"127.0.0.1:{self.port}",
+            f"localhost:{self.port}",
+            "203.0.113.9",
+            "jarvis.example.com.evil.net",
+        ):
             with self.subTest(host=host):
                 self.assertEqual(self.call("GET", "/", host=host, origin=None)[0], 403)
         for host in (NAME, NAME.upper(), f"{NAME}:443"):
             with self.subTest(host=host):
-                self.assertEqual(self.call("GET", "/", host=host, origin=None)[0], 401)   # the sign-in page
+                self.assertEqual(self.call("GET", "/", host=host, origin=None)[0], 401)  # the sign-in page
 
     def test_the_origin_must_be_https_on_that_name(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
@@ -119,7 +141,7 @@ class LiveHostedTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/health", origin=None)[0], 401)
         self.assertEqual(self.call("POST", "/api/command", {"command": "time"})[0], 401)
         # The passcode that opens a phone on a home network opens nothing here, even the right one.
-        with patch.object(self.webui, "LAN_PASSCODE", "the-right-passcode"),                 patch.object(self.webui, "LAN_MODE", True):
+        with patch.object(self.webui, "LAN_PASSCODE", "the-right-passcode"), patch.object(self.webui, "LAN_MODE", True):
             status, body, headers = self.call("POST", "/api/pair", {"passcode": "the-right-passcode"}, token=False)
         self.assertEqual((status, body["message"]), (403, "Sign in with an account."))
         self.assertNotIn("Set-Cookie", headers)
@@ -138,16 +160,14 @@ class LiveHostedTests(unittest.TestCase):
         self.assertFalse(self.call("GET", "/api/me", cookie=cookie, origin=None)[1]["local"])
         with patch.dict(os.environ, {"LAPTOP_AGENT_HOSTED": ""}):
             # The control: the same socket peer, not hosted, on the names this server answers to.
-            status, body, _ = self.call("GET", "/api/me", cookie=cookie, host=f"127.0.0.1:{self.port}",
-                                        origin=None)
+            status, body, _ = self.call("GET", "/api/me", cookie=cookie, host=f"127.0.0.1:{self.port}", origin=None)
             self.assertEqual(status, 200)
             self.assertTrue(body["local"])
 
     # --- what a signed-in account is
     def test_the_owner_is_personal_and_the_cookie_is_secure(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
-        status, body, headers = self.call("POST", "/auth/login", {"username": "jeevan", "password": GOOD},
-                                          token=False)
+        status, body, headers = self.call("POST", "/auth/login", {"username": "jeevan", "password": GOOD}, token=False)
         self.assertEqual((status, body["user"]["role"]), (200, "personal"))
         cookie = headers["Set-Cookie"]
         for part in ("Secure", "HttpOnly", "SameSite=Strict"):
@@ -157,19 +177,29 @@ class LiveHostedTests(unittest.TestCase):
         self.assertEqual(me["user"]["role"], "personal")
         with patch.dict(os.environ, {"LAPTOP_AGENT_HOSTED": ""}):
             self.assertEqual(self.webui._session_cookie("t").count("Secure"), 0)
-            self.assertNotIn("Strict-Transport-Security", self.call(
-                "GET", "/", host=f"127.0.0.1:{self.port}", origin=None, cookie=cookie.split(";", 1)[0])[2])
+            self.assertNotIn(
+                "Strict-Transport-Security",
+                self.call("GET", "/", host=f"127.0.0.1:{self.port}", origin=None, cookie=cookie.split(";", 1)[0])[2],
+            )
 
     def test_the_machine_is_closed_to_the_owner_too(self) -> None:
         self.accounts.create("jeevan", "dev", GOOD)
         cookie = self.sign_in()
-        for command in ("run command echo hi", "read file notes.txt", "open app notepad", "scan files .",
-                        "screenshot", "email digest", "windows", "download http://example.com/a.zip"):
+        for command in (
+            "run command echo hi",
+            "read file notes.txt",
+            "open app notepad",
+            "scan files .",
+            "screenshot",
+            "email digest",
+            "windows",
+            "download http://example.com/a.zip",
+        ):
             with self.subTest(command=command):
                 status, body, _ = self.call("POST", "/api/command", {"command": command}, cookie=cookie)
                 self.assertFalse(body.get("ok"), (status, body))
                 self.assertIn("isn't available on a hosted copy", body["message"])
-                self.assertNotIn("developer account", body["message"])   # there is none to ask for
+                self.assertNotIn("developer account", body["message"])  # there is none to ask for
         for path in ("/api/accounts", "/api/agent", "/api/upload", "/api/schedule", "/api/notes"):
             with self.subTest(route=path):
                 status, body, headers = self.call("POST", path, {"action": "list"}, cookie=cookie)
@@ -189,8 +219,13 @@ class LiveHostedTests(unittest.TestCase):
         self.accounts.create("jeevan", "dev", GOOD)
 
         def attempt(who: str, username: str):
-            return self.call("POST", "/auth/login", {"username": username, "password": "wrong password"},
-                             token=False, headers={"Fly-Client-IP": who})[0]
+            return self.call(
+                "POST",
+                "/auth/login",
+                {"username": username, "password": "wrong password"},
+                token=False,
+                headers={"Fly-Client-IP": who},
+            )[0]
 
         for n in range(5):
             self.assertEqual(attempt("198.51.100.7", f"guess{n}"), 401)
@@ -200,8 +235,12 @@ class LiveHostedTests(unittest.TestCase):
     def test_a_forged_client_address_is_ignored(self) -> None:
         handler = self.webui.Handler.__new__(self.webui.Handler)
         handler.client_address = ("10.1.1.1", 1234)
-        for sent, expected in (("198.51.100.7", "198.51.100.7"), ("not an ip", "10.1.1.1"), ("", "10.1.1.1"),
-                               ("1.2.3.4, 5.6.7.8", "10.1.1.1")):
+        for sent, expected in (
+            ("198.51.100.7", "198.51.100.7"),
+            ("not an ip", "10.1.1.1"),
+            ("", "10.1.1.1"),
+            ("1.2.3.4, 5.6.7.8", "10.1.1.1"),
+        ):
             handler.headers = {"Fly-Client-IP": sent}
             with self.subTest(sent=sent):
                 self.assertEqual(handler._client(), expected)
@@ -227,7 +266,7 @@ class StartupTests(unittest.TestCase):
         return self.webui._exposure_problem(host, passcode, accounts, hosted, frozenset(allowed))
 
     def test_a_hosted_copy_needs_a_bind_and_a_name_but_not_an_account_or_passcode(self) -> None:
-        self.assertIsNone(self.problem())     # the first account is made on the running server
+        self.assertIsNone(self.problem())  # the first account is made on the running server
         self.assertIn("bind 0.0.0.0", self.problem(host="127.0.0.1"))
         self.assertIn("LAPTOP_AGENT_ALLOWED_HOSTS", self.problem(allowed=()))
 
@@ -238,8 +277,10 @@ class StartupTests(unittest.TestCase):
         self.assertIsNone(self.problem(host="127.0.0.1", hosted=False))
 
     def test_only_plain_hostnames_are_allowed(self) -> None:
-        raw = "Jarvis.Example.com, https://a.example.com, b.example.com:443, *.example.com, localhost, " \
-              "10.0.0.1, , c-d.example.org"
+        raw = (
+            "Jarvis.Example.com, https://a.example.com, b.example.com:443, *.example.com, localhost, "
+            "10.0.0.1, , c-d.example.org"
+        )
         with patch.dict(os.environ, {"LAPTOP_AGENT_ALLOWED_HOSTS": raw}):
             self.assertEqual(self.webui._allowed_hosts(), frozenset({"jarvis.example.com", "c-d.example.org"}))
 

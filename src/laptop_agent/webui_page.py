@@ -40,8 +40,7 @@ def _asset_dir() -> Path:
         return beside
     bundled = getattr(sys, "_MEIPASS", None)
     if bundled:
-        for candidate in (Path(bundled) / "laptop_agent" / _ASSET_DIR_NAME,
-                          Path(bundled) / _ASSET_DIR_NAME):
+        for candidate in (Path(bundled) / "laptop_agent" / _ASSET_DIR_NAME, Path(bundled) / _ASSET_DIR_NAME):
             if candidate.is_dir():
                 return candidate
     return beside  # so the error below names the location that was expected

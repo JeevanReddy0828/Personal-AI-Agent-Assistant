@@ -4,6 +4,7 @@ The server refuses a `personal` account what it may not use; the page should not
 either, and must not loop on the refusals it still meets. Asserted as boxes, not attributes:
 ERRORS.md records a meter that passed its test for three months while rendering nothing.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,10 +28,13 @@ class AccountsInTheBrowser(unittest.TestCase):
         from playwright.sync_api import sync_playwright
 
         cls._tmp = tempfile.TemporaryDirectory()
-        accounts = AccountStore(Path(cls._tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        accounts = AccountStore(Path(cls._tmp.name) / "accounts.json", cost=(2**10, 8, 1))
         sessions = SessionStore(Path(cls._tmp.name) / "sessions.json")
-        cls.patches = [patch.object(webui, "ACCOUNTS", accounts), patch.object(webui, "SESSIONS", sessions),
-                       patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []})]
+        cls.patches = [
+            patch.object(webui, "ACCOUNTS", accounts),
+            patch.object(webui, "SESSIONS", sessions),
+            patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}),
+        ]
         for patcher in cls.patches:
             patcher.start()
         cls.tokens = {}
@@ -56,7 +60,9 @@ class AccountsInTheBrowser(unittest.TestCase):
     def open_as(self, role: str, width: int = 1280, height: int = 900):
         context = self.browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce")
         self.addCleanup(context.close)
-        context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         context.add_cookies([{"name": "jarvis_session", "value": self.tokens[role], "url": self.url}])
         page = context.new_page()
         errors: list[str] = []
@@ -69,16 +75,20 @@ class AccountsInTheBrowser(unittest.TestCase):
 
     @staticmethod
     def on_screen(page, selector: str) -> bool:
-        return bool(page.evaluate(
-            "(s) => [...document.querySelectorAll(s)].some(e => { const r = e.getBoundingClientRect();"
-            " return r.width > 0 && r.height > 0; })", selector))
+        return bool(
+            page.evaluate(
+                "(s) => [...document.querySelectorAll(s)].some(e => { const r = e.getBoundingClientRect();"
+                " return r.width > 0 && r.height > 0; })",
+                selector,
+            )
+        )
 
     def ask(self, page, text: str) -> str:
         before = page.locator(".msg").count()
         page.fill("#ta", text)
         page.press("#ta", "Enter")
         page.wait_for_function(f"() => document.querySelectorAll('.msg').length >= {before + 2}", timeout=10000)
-        page.wait_for_timeout(1500)   # a local answer is revealed by the typewriter
+        page.wait_for_timeout(1500)  # a local answer is revealed by the typewriter
         return page.locator(".msg").last.inner_text()
 
     def test_a_personal_account_is_not_offered_what_it_cannot_use(self):
@@ -121,7 +131,8 @@ class AccountsInTheBrowser(unittest.TestCase):
         page.fill("#admCur", "correct horse battery")
         page.click("#admAdd button[type=submit]")
         page.wait_for_function(
-            "() => [...document.querySelectorAll('#admList .spec')].some(e => e.textContent === 'guest1')", timeout=8000)
+            "() => [...document.querySelectorAll('#admList .spec')].some(e => e.textContent === 'guest1')", timeout=8000
+        )
         self.assertIn("Added guest1", page.inner_text("#admMsg"))
         self.assertTrue(self.on_screen(page, "#admList"))
         self.assertEqual(page.input_value("#admUser"), "", "the form was not cleared after adding")
@@ -140,10 +151,12 @@ class AccountsInTheBrowser(unittest.TestCase):
         self.assertTrue(self.on_screen(page, "#setupList .setrow"))
         self.assertRegex(page.inner_text("#setupPanel summary"), r"^Setup · (\d+ to look at|all set)$")
         # Busy means wait, so it carries no set-up step; everything else that is not ready does.
-        todo = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy]) .setnext",
-                                         "els => els.length")
-        rows = page.eval_on_selector_all("#setupList .setrow:not([data-state=ready]):not([data-state=busy])",
-                                         "els => els.length")
+        todo = page.eval_on_selector_all(
+            "#setupList .setrow:not([data-state=ready]):not([data-state=busy]) .setnext", "els => els.length"
+        )
+        rows = page.eval_on_selector_all(
+            "#setupList .setrow:not([data-state=ready]):not([data-state=busy])", "els => els.length"
+        )
         self.assertEqual(todo, rows, "a row that needs doing shows no next step")
         self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
@@ -163,17 +176,32 @@ class AccountsInTheBrowser(unittest.TestCase):
         return page, methods
 
     def test_a_developer_can_run_the_diagnosis_from_setup(self):
-        report = {"ok": True, "status": "fail", "verdict": "1 problem and 1 warning.", "seconds": 2.4, "probes": [],
-                  "findings": [{"severity": "problem", "area": "Deep model", "detail": "<b>Retired</b> (HTTP 410).",
-                                "fix": "Check OPENAI_ULTRA_MODEL."},
-                               {"severity": "warning", "area": "Web search", "detail": "No results.", "fix": None}],
-                  "working": ["Chat model (1.2 s)", "storage"], "optional": []}
+        report = {
+            "ok": True,
+            "status": "fail",
+            "verdict": "1 problem and 1 warning.",
+            "seconds": 2.4,
+            "probes": [],
+            "findings": [
+                {
+                    "severity": "problem",
+                    "area": "Deep model",
+                    "detail": "<b>Retired</b> (HTTP 410).",
+                    "fix": "Check OPENAI_ULTRA_MODEL.",
+                },
+                {"severity": "warning", "area": "Web search", "detail": "No results.", "fix": None},
+            ],
+            "working": ["Chat model (1.2 s)", "storage"],
+            "optional": [],
+        }
         page, methods = self.run_diagnosis(200, report)
         page.wait_for_function("() => document.querySelectorAll('#diagList .setrow').length === 2", timeout=6000)
         self.assertEqual(methods, ["POST"])
         self.assertEqual(page.inner_text("#diagMsg"), "1 problem and 1 warning. Checked in 2.4 s.")
-        self.assertEqual(page.eval_on_selector_all("#diagList .setrow", "els => els.map(e => e.dataset.severity)"),
-                         ["problem", "warning"])
+        self.assertEqual(
+            page.eval_on_selector_all("#diagList .setrow", "els => els.map(e => e.dataset.severity)"),
+            ["problem", "warning"],
+        )
         listed = page.inner_text("#diagList")
         self.assertIn("Check OPENAI_ULTRA_MODEL.", listed)
         self.assertIn("Working: Chat model (1.2 s), storage.", listed)

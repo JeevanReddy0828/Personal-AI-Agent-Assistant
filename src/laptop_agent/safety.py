@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import threading
-from laptop_agent.cancellation import check_cancelled
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 from laptop_agent.access import developer_only, is_personal
 from laptop_agent.audit import AuditLogger
+from laptop_agent.cancellation import check_cancelled
 
 
 class RiskLevel(str, Enum):

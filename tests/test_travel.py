@@ -5,27 +5,51 @@ import unittest
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.travel import TravelTool
 
-AUSTIN = {"results": [{"name": "Austin", "admin1": "Texas", "country": "United States",
-                       "latitude": 30.27, "longitude": -97.74}]}
-DALLAS = {"results": [{"name": "Dallas", "admin1": "Texas", "country": "United States",
-                       "latitude": 32.78, "longitude": -96.80}]}
-HOUSTON = {"results": [{"name": "Houston", "admin1": "Texas", "country": "United States",
-                       "latitude": 29.76, "longitude": -95.37}]}
+AUSTIN = {
+    "results": [
+        {"name": "Austin", "admin1": "Texas", "country": "United States", "latitude": 30.27, "longitude": -97.74}
+    ]
+}
+DALLAS = {
+    "results": [
+        {"name": "Dallas", "admin1": "Texas", "country": "United States", "latitude": 32.78, "longitude": -96.80}
+    ]
+}
+HOUSTON = {
+    "results": [
+        {"name": "Houston", "admin1": "Texas", "country": "United States", "latitude": 29.76, "longitude": -95.37}
+    ]
+}
 OSRM = {"routes": [{"distance": 312000.0, "duration": 17400.0}]}  # ~194 mi, ~4h50m
 # 3-stop route: two legs, with a total distance/duration.
-OSRM_TRIP = {"routes": [{"distance": 480000.0, "duration": 28800.0,
-    "geometry": {"coordinates": [[-97.74, 30.27], [-97.0, 31.5], [-96.80, 32.78], [-95.37, 29.76]]},
-    "legs": [
-        {"distance": 312000.0, "duration": 17400.0},
-        {"distance": 168000.0, "duration": 11400.0},
-    ]}]}
-GEOLOCATE = {"status": "success", "lat": 30.27, "lon": -97.74,
-             "city": "Austin", "regionName": "Texas", "country": "United States"}
-OVERPASS = {"elements": [
-    {"tags": {"name": "Downtown Inn", "addr:street": "Main St"}, "lat": 30.28, "lon": -97.74},
-    {"tags": {"name": "Far Motel"}, "lat": 30.40, "lon": -97.90},
-    {"tags": {"tourism": "hotel"}, "lat": 30.27, "lon": -97.74},  # unnamed -> skipped
-]}
+OSRM_TRIP = {
+    "routes": [
+        {
+            "distance": 480000.0,
+            "duration": 28800.0,
+            "geometry": {"coordinates": [[-97.74, 30.27], [-97.0, 31.5], [-96.80, 32.78], [-95.37, 29.76]]},
+            "legs": [
+                {"distance": 312000.0, "duration": 17400.0},
+                {"distance": 168000.0, "duration": 11400.0},
+            ],
+        }
+    ]
+}
+GEOLOCATE = {
+    "status": "success",
+    "lat": 30.27,
+    "lon": -97.74,
+    "city": "Austin",
+    "regionName": "Texas",
+    "country": "United States",
+}
+OVERPASS = {
+    "elements": [
+        {"tags": {"name": "Downtown Inn", "addr:street": "Main St"}, "lat": 30.28, "lon": -97.74},
+        {"tags": {"name": "Far Motel"}, "lat": 30.40, "lon": -97.90},
+        {"tags": {"tourism": "hotel"}, "lat": 30.27, "lon": -97.74},  # unnamed -> skipped
+    ]
+}
 
 
 def transport(routing="austin"):
@@ -44,6 +68,7 @@ def transport(routing="austin"):
         if "overpass" in url:
             return OVERPASS
         return {}
+
     return _get
 
 
@@ -64,6 +89,7 @@ class DistanceTests(unittest.TestCase):
 
         def _get(url):
             return {"status": "fail"} if "ip-api" in url else transport()(url)
+
         failed = TravelTool(transport=_get).distance("here", "Dallas")
         self.assertFalse(failed.ok)
         self.assertIn("starting from", failed.message)
@@ -71,6 +97,7 @@ class DistanceTests(unittest.TestCase):
     def test_unknown_origin(self) -> None:
         def _get(url):
             return {"results": []}
+
         self.assertFalse(TravelTool(transport=_get).distance("Nowhere", "Dallas").ok)
 
 
@@ -116,6 +143,7 @@ class TripTests(unittest.TestCase):
     def test_unknown_stop(self) -> None:
         def _get(url):
             return {"results": []} if "geocoding-api" in url else transport()(url)
+
         self.assertFalse(TravelTool(transport=_get).trip(["Nowhere", "Dallas", "Houston"]).ok)
 
 
@@ -137,6 +165,7 @@ class AroundMeTests(unittest.TestCase):
     def test_here_geolocation_fails(self) -> None:
         def _get(url):
             return {"status": "fail"} if "ip-api" in url else transport()(url)
+
         self.assertFalse(TravelTool(transport=_get).here().ok)
 
 
@@ -159,6 +188,7 @@ class MapTests(unittest.TestCase):
     def test_map_unknown_place(self) -> None:
         def _get(url):
             return {"results": []}
+
         self.assertFalse(TravelTool(transport=_get).map_query("Nowhere").ok)
 
 
@@ -170,10 +200,12 @@ class GateTests(unittest.TestCase):
 
     def test_trip_around_map_gated(self) -> None:
         denied = TravelTool(transport=transport(), approval_gate=ApprovalGate(lambda r: False))
-        for call in (lambda: denied.trip(["Austin", "Dallas", "Houston"]),
-                     lambda: denied.around("hotel"),
-                     lambda: denied.here(),
-                     lambda: denied.map_query("Austin")):
+        for call in (
+            lambda: denied.trip(["Austin", "Dallas", "Houston"]),
+            lambda: denied.around("hotel"),
+            lambda: denied.here(),
+            lambda: denied.map_query("Austin"),
+        ):
             with self.assertRaises(ApprovalDenied):
                 call()
 

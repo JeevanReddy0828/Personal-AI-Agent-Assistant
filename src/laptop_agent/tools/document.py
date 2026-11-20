@@ -15,16 +15,29 @@ from laptop_agent.tools.base import ToolResult, reserve_new_path
 # unit-tested offline, per the weather/websearch/imagegen pattern.
 Writer = Callable[[str], str]
 
-FORMATS = {"pdf": "application/pdf",
-           "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-           "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-           "md": "text/markdown; charset=utf-8"}
+FORMATS = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "md": "text/markdown; charset=utf-8",
+}
 # "as a word doc", "in pdf", "as markdown" — the format is usually the tail of the request.
 _FORMAT_WORDS = {
-    "pdf": "pdf", "word": "docx", "docx": "docx", "doc": "docx",
-    "markdown": "md", "md": "md", "text": "md",
-    "ppt": "pptx", "pptx": "pptx", "powerpoint": "pptx", "power point": "pptx",
-    "deck": "pptx", "slide deck": "pptx", "slides": "pptx", "slide": "pptx",
+    "pdf": "pdf",
+    "word": "docx",
+    "docx": "docx",
+    "doc": "docx",
+    "markdown": "md",
+    "md": "md",
+    "text": "md",
+    "ppt": "pptx",
+    "pptx": "pptx",
+    "powerpoint": "pptx",
+    "power point": "pptx",
+    "deck": "pptx",
+    "slide deck": "pptx",
+    "slides": "pptx",
+    "slide": "pptx",
     "presentation": "pptx",
 }
 _FORMAT_TAIL = re.compile(
@@ -88,8 +101,11 @@ def page_target(request: str) -> int | None:
     10 page report' - so it is not a target.
     """
     for match in _PAGE_TARGET.finditer(request or ""):
-        if re.search(r"\b(?:the|this|that|these|those|my|your|our|their|his|her|its)\s*$",
-                     request[: match.start()], re.IGNORECASE):
+        if re.search(
+            r"\b(?:the|this|that|these|those|my|your|our|their|his|her|its)\s*$",
+            request[: match.start()],
+            re.IGNORECASE,
+        ):
             continue
         count = (match.group("count") or "one").lower()
         pages = int(count) if count.isdigit() else _PAGE_WORDS[count]
@@ -99,6 +115,7 @@ def page_target(request: str) -> int | None:
 
 def _pages(count: int) -> str:
     return f"{count} page" if count == 1 else f"{count} pages"
+
 
 # A print stylesheet, not the app's: this is read on paper, so serif body text, real
 # margins and headings that stay with their section.
@@ -291,9 +308,7 @@ def _write_pptx(md: str, out_path: Path) -> ToolResult:
         )
     title, slides = deck_outline(md)
     if not slides:
-        return ToolResult.failure(
-            "The model did not return anything slide-shaped. Try again, or narrow the request."
-        )
+        return ToolResult.failure("The model did not return anything slide-shaped. Try again, or narrow the request.")
     deck = Presentation()
     cover = deck.slides.add_slide(deck.slide_layouts[0])
     cover.shapes.title.text = title
@@ -355,14 +370,14 @@ def _write_docx(md: str, out_path: Path) -> ToolResult:
                 index += 1
             table = document.add_table(rows=1, cols=len(head))
             table.style = "Table Grid"
-            for cell, text in zip(table.rows[0].cells, head):
+            for cell, text in zip(table.rows[0].cells, head, strict=True):
                 cell.text = text
                 for paragraph in cell.paragraphs:
                     for run in paragraph.runs:
                         run.bold = True
             for row in rows:
                 target = table.add_row().cells
-                for cell, text in zip(target, row):
+                for cell, text in zip(target, row, strict=False):
                     cell.text = text
             document.add_paragraph()
             continue
@@ -496,8 +511,10 @@ class DocumentTool:
 def _length_rule(pages: int | None, words: int) -> str:
     if not pages:
         return ""
-    return (f"\n- Length: it must fit on {_pages(pages)} when printed, so at most about {words} words in "
-            "total, headings included. Cover less rather than run long.")
+    return (
+        f"\n- Length: it must fit on {_pages(pages)} when printed, so at most about {words} words in "
+        "total, headings included. Cover less rather than run long."
+    )
 
 
 def _render_pdf(body: str, title: str, out_path: Path) -> ToolResult:

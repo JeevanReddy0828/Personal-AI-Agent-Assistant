@@ -91,12 +91,25 @@ class JobrightParsingTests(unittest.TestCase):
         self.assertEqual(clean_title("Airtable • 5 minutes ago"), "Airtable")  # trailing time in company
 
     def test_is_senior_title(self) -> None:
-        for t in ["Senior Software Engineer", "Sr. Data Engineer", "Staff Engineer",
-                  "Principal ML Engineer", "Engineering Manager", "Software Engineer III",
-                  "Lead Backend Developer", "Solutions Architect"]:
+        for t in [
+            "Senior Software Engineer",
+            "Sr. Data Engineer",
+            "Staff Engineer",
+            "Principal ML Engineer",
+            "Engineering Manager",
+            "Software Engineer III",
+            "Lead Backend Developer",
+            "Solutions Architect",
+        ]:
             self.assertTrue(is_senior_title(t), t)
-        for t in ["Software Engineer", "Data Engineer", "Junior Developer",
-                  "Software Engineer II", "Associate Data Scientist", "New Grad Software Engineer"]:
+        for t in [
+            "Software Engineer",
+            "Data Engineer",
+            "Junior Developer",
+            "Software Engineer II",
+            "Associate Data Scientist",
+            "New Grad Software Engineer",
+        ]:
             self.assertFalse(is_senior_title(t), t)
 
     def test_min_required_years(self) -> None:

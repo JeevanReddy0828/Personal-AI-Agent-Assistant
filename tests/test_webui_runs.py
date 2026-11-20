@@ -87,7 +87,9 @@ class AgentRunsApiTests(unittest.TestCase):
 
     def test_post_not_supported(self) -> None:
         req = urllib.request.Request(
-            self.base + "/api/agent-runs", data=b"{}", method="POST",
+            self.base + "/api/agent-runs",
+            data=b"{}",
+            method="POST",
             headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
         )
         with self.assertRaises(urllib.error.HTTPError) as raised:

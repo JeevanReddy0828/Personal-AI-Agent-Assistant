@@ -47,7 +47,7 @@ class TwoRequestsInOneTests(unittest.TestCase):
         self.assertIn(": call mom", result.message)
         self.assertEqual(sorted(item["message"] for item in self.reminders.list()), ["Timer (5 minutes)", "call mom"])
         self.assertEqual([part["ok"] for part in result.data["parts"]], [True, True])
-        self.assertIn("due_local", result.data)      # the page still schedules the delivery
+        self.assertIn("due_local", result.data)  # the page still schedules the delivery
         result, ran = self.everyday.say("what's the weather and what time is it")
         self.assertEqual(ran.split(" ;; ")[0], "weather")
         self.assertIn("Austin", result.message)
@@ -68,7 +68,7 @@ class TwoRequestsInOneTests(unittest.TestCase):
         self.reminders.add("2030-01-01T09:00:00+00:00", "one")
         self.reminders.add("2030-01-02T09:00:00+00:00", "two")
         result, _ran = self.everyday.say("cancel all my reminders and set a timer for 5 minutes")
-        self.assertIn("Not approved", result.message)            # HIGH is refused in this harness
+        self.assertIn("Not approved", result.message)  # HIGH is refused in this harness
         self.assertIn("Timer set for 5 minutes.", result.message)
         self.assertEqual(len(self.reminders.list()), 3)
 

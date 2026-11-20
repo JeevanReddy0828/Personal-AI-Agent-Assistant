@@ -6,6 +6,7 @@ user's behalf, so the message is put into WhatsApp's or Telegram's own share lin
 an approval card that shows it, and the user picks the chat and presses send. A phone number
 given in the words goes straight to that chat; a name is shown so the user can pick it.
 """
+
 from __future__ import annotations
 
 import re
@@ -42,16 +43,20 @@ class MessagingTool:
         digits = re.sub(r"[^\d]", "", recipient) if re.fullmatch(r"\+?[\d\s().-]{7,20}", recipient) else ""
         phone = digits if app == "whatsapp" else ""
         name = APPS[app]
-        self._gate.require(ApprovalRequest(
-            action=f"Open {name} with a message ready" + (f" for {recipient}" if recipient else ""),
-            risk=RiskLevel.HIGH,
-            reason=f"The text goes to {name} in the link; nothing is sent until you press send there.",
-            preview=text,
-        ))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Open {name} with a message ready" + (f" for {recipient}" if recipient else ""),
+                risk=RiskLevel.HIGH,
+                reason=f"The text goes to {name} in the link; nothing is sent until you press send there.",
+                preview=text,
+            )
+        )
         link = share_link(app, text, phone)
         if not webbrowser.open(link):
             return ToolResult.failure(f"Couldn't open {name}. Here is the link to open yourself: {link}", link=link)
         if phone:
-            return ToolResult.success(f"Opened {name} at {recipient}'s chat with your message ready; press send.", link=link)
+            return ToolResult.success(
+                f"Opened {name} at {recipient}'s chat with your message ready; press send.", link=link
+            )
         chat = f"{recipient}'s chat" if recipient else "the chat"
         return ToolResult.success(f"Opened {name} with your message ready. Choose {chat}, then press send.", link=link)

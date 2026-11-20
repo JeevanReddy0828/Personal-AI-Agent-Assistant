@@ -47,7 +47,7 @@ class SpreadsheetStatsTests(unittest.TestCase):
         # first column's name and summed "1,5" as fifteen, which the forecast tool refused.
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "excel.csv"
-            path.write_bytes('﻿month,amount,price\nJan,"1,5",$1200\nFeb,2,"$1,250"\n'.encode("utf-8"))
+            path.write_bytes('﻿month,amount,price\nJan,"1,5",$1200\nFeb,2,"$1,250"\n'.encode())
             result = FileTool(ApprovalGate(lambda r: True)).analyze_spreadsheet(str(path))
             columns = {column["name"]: column for column in result.data["columns"]}
             self.assertIn("month", columns)

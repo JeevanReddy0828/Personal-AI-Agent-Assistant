@@ -10,8 +10,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
 # A backend takes the model id and the request body and returns the parsed JSON
@@ -200,9 +200,7 @@ class ImageTool:
             # that never even asks — found by a test that set the budget to zero and got
             # a refusal naming the primary it had not tried.
             if index and remaining < MIN_ATTEMPT_SECONDS:
-                problems.append(
-                    f"{candidate} was not tried (the {self.timeout}s budget was already spent)"
-                )
+                problems.append(f"{candidate} was not tried (the {self.timeout}s budget was already spent)")
                 break
             try:
                 raw, used = self._attempt(candidate, body, max(remaining, MIN_ATTEMPT_SECONDS)), candidate
@@ -213,17 +211,19 @@ class ImageTool:
                 # fallback leaves the next person debugging from guesswork. There were
                 # zero `record_failure` calls here, so every reason four failed image
                 # turns produced was discarded at the moment it was understood.
-                record_failure("imagegen/attempt", exc, model=candidate,
-                               waited_s=round(self.timeout - (deadline - time.monotonic()), 1))
+                record_failure(
+                    "imagegen/attempt",
+                    exc,
+                    model=candidate,
+                    waited_s=round(self.timeout - (deadline - time.monotonic()), 1),
+                )
         if not raw:
             return ToolResult.failure(
                 "I could not generate that picture. " + "; ".join(problems) + ".",
                 attempts=problems,
             )
 
-        path = reserve_new_path(
-            self.directory, f"{_slug(described)}-{int(time.time())}", f".{_extension(raw)}"
-        )
+        path = reserve_new_path(self.directory, f"{_slug(described)}-{int(time.time())}", f".{_extension(raw)}")
         path.write_bytes(raw)
         name = path.name
         url = f"/api/image?name={name}"

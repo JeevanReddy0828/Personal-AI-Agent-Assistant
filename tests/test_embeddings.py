@@ -94,7 +94,7 @@ class HybridSearchTests(unittest.TestCase):
         hits = self.store(Embedder(backend=fake_backend)).search("will it delete my documents unasked")
         self.assertTrue(hits)
         self.assertEqual(hits[0]["source"], "safety")
-        self.assertEqual(hits[0]["matched_terms"], 0)   # purely semantic
+        self.assertEqual(hits[0]["matched_terms"], 0)  # purely semantic
         self.assertGreater(hits[0]["similarity"], 0.5)
 
     def test_a_vector_is_stored_once_with_the_document(self) -> None:
@@ -112,7 +112,7 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(calls.count("query"), 1)
 
     def test_backfill_embeds_documents_stored_without_vectors(self) -> None:
-        plain = self.store(None)                       # saved before semantic search existed
+        plain = self.store(None)  # saved before semantic search existed
         raw = plain._load()
         self.assertTrue(all(not d.get("vector") for d in raw["documents"]))
 
@@ -124,7 +124,7 @@ class HybridSearchTests(unittest.TestCase):
         self.assertTrue(all(d.get("vector") for d in with_vectors._load()["documents"]))
 
     def test_backfill_is_idempotent(self) -> None:
-        base = self.store(Embedder(backend=fake_backend))   # already embedded on add
+        base = self.store(Embedder(backend=fake_backend))  # already embedded on add
         outcome = base.backfill_vectors()
         self.assertEqual(outcome["embedded"], 0)
         self.assertEqual(outcome["pending"], 0)
@@ -135,7 +135,7 @@ class HybridSearchTests(unittest.TestCase):
         self.assertIn("no embedding model", outcome["reason"])
 
     def test_a_failed_batch_leaves_those_documents_for_next_time(self) -> None:
-        self.store(None)                                    # documents exist, no vectors
+        self.store(None)  # documents exist, no vectors
 
         def dead(texts, input_type):
             raise TimeoutError("offline")
@@ -260,14 +260,17 @@ class PassageAnswerTests(unittest.TestCase):
         from laptop_agent.knowledge import KnowledgeBase
 
         base = KnowledgeBase(Path(tmp) / "kb.json")
-        base.add("README.md", (
-            "# Zebracorn is a local-first assistant. "
-            "It runs entirely on your own laptop and needs no server. "
-            "It keeps your data where it is. "
-            "Some unrelated middle content about widgets and gears follows here. "
-            "More filler about entirely different subjects continues for a while. "
-            "Optional browser checks need Playwright: ```powershell pip install ZEBRACORN_TESTS``` "
-        ))
+        base.add(
+            "README.md",
+            (
+                "# Zebracorn is a local-first assistant. "
+                "It runs entirely on your own laptop and needs no server. "
+                "It keeps your data where it is. "
+                "Some unrelated middle content about widgets and gears follows here. "
+                "More filler about entirely different subjects continues for a while. "
+                "Optional browser checks need Playwright: ```powershell pip install ZEBRACORN_TESTS``` "
+            ),
+        )
         base.add("other.md", "A different document that also mentions Zebracorn once in passing.")
         return base
 
@@ -308,7 +311,8 @@ class PassageAnswerTests(unittest.TestCase):
     def test_prose_outweighs_a_code_fence(self) -> None:
         from laptop_agent.knowledge import _prose_weight
 
-        self.assertGreater(_prose_weight("A plain explanation of the thing."),
-                           _prose_weight("```powershell\npip install thing\n```"))
+        self.assertGreater(
+            _prose_weight("A plain explanation of the thing."), _prose_weight("```powershell\npip install thing\n```")
+        )
         self.assertGreater(_prose_weight("A plain explanation."), 0.9)
         self.assertGreater(_prose_weight("```code```"), 0.0, "a code block can still be the best answer")

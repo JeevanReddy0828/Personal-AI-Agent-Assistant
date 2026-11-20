@@ -19,7 +19,7 @@ actually in effect.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from laptop_agent.timeparse import on_laptop_clock, spoken_to_digits
 from laptop_agent.tools.base import ToolResult
@@ -28,82 +28,201 @@ from laptop_agent.tools.base import ToolResult
 # Ireland and Israel); these are the readings that come up in practice, and the reply
 # always names the resolved zone so a wrong guess is visible rather than silent.
 _ZONE_WORDS: dict[str, str] = {
-    "est": "America/New_York", "edt": "America/New_York", "et": "America/New_York",
-    "eastern": "America/New_York", "new york": "America/New_York", "nyc": "America/New_York",
-    "cst": "America/Chicago", "cdt": "America/Chicago", "ct": "America/Chicago",
-    "central": "America/Chicago", "chicago": "America/Chicago",
-    "mst": "America/Denver", "mdt": "America/Denver", "mountain": "America/Denver",
-    "pst": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pt": "America/Los_Angeles",
-    "pacific": "America/Los_Angeles", "la": "America/Los_Angeles",
-    "los angeles": "America/Los_Angeles", "san francisco": "America/Los_Angeles",
+    "est": "America/New_York",
+    "edt": "America/New_York",
+    "et": "America/New_York",
+    "eastern": "America/New_York",
+    "new york": "America/New_York",
+    "nyc": "America/New_York",
+    "cst": "America/Chicago",
+    "cdt": "America/Chicago",
+    "ct": "America/Chicago",
+    "central": "America/Chicago",
+    "chicago": "America/Chicago",
+    "mst": "America/Denver",
+    "mdt": "America/Denver",
+    "mountain": "America/Denver",
+    "pst": "America/Los_Angeles",
+    "pdt": "America/Los_Angeles",
+    "pt": "America/Los_Angeles",
+    "pacific": "America/Los_Angeles",
+    "la": "America/Los_Angeles",
+    "los angeles": "America/Los_Angeles",
+    "san francisco": "America/Los_Angeles",
     "seattle": "America/Los_Angeles",
-    "utc": "UTC", "gmt": "UTC", "zulu": "UTC",
-    "bst": "Europe/London", "london": "Europe/London", "uk": "Europe/London",
-    "cet": "Europe/Paris", "cest": "Europe/Paris", "paris": "Europe/Paris",
-    "berlin": "Europe/Berlin", "germany": "Europe/Berlin", "amsterdam": "Europe/Amsterdam",
-    "ist": "Asia/Kolkata", "india": "Asia/Kolkata", "kolkata": "Asia/Kolkata",
-    "delhi": "Asia/Kolkata", "mumbai": "Asia/Kolkata", "bangalore": "Asia/Kolkata",
-    "bengaluru": "Asia/Kolkata", "hyderabad": "Asia/Kolkata", "chennai": "Asia/Kolkata",
-    "jst": "Asia/Tokyo", "tokyo": "Asia/Tokyo", "japan": "Asia/Tokyo",
-    "sgt": "Asia/Singapore", "singapore": "Asia/Singapore",
-    "hkt": "Asia/Hong_Kong", "hong kong": "Asia/Hong_Kong",
-    "china": "Asia/Shanghai", "beijing": "Asia/Shanghai", "shanghai": "Asia/Shanghai",
-    "dubai": "Asia/Dubai", "gst": "Asia/Dubai", "uae": "Asia/Dubai",
-    "aest": "Australia/Sydney", "aedt": "Australia/Sydney", "sydney": "Australia/Sydney",
-    "melbourne": "Australia/Melbourne", "australia": "Australia/Sydney",
-    "nzst": "Pacific/Auckland", "auckland": "Pacific/Auckland",
-    "brt": "America/Sao_Paulo", "sao paulo": "America/Sao_Paulo", "brazil": "America/Sao_Paulo",
-    "toronto": "America/Toronto", "vancouver": "America/Vancouver",
-    "mexico city": "America/Mexico_City", "sast": "Africa/Johannesburg",
-    "johannesburg": "Africa/Johannesburg", "lagos": "Africa/Lagos", "cairo": "Africa/Cairo",
-    "moscow": "Europe/Moscow", "msk": "Europe/Moscow",
+    "utc": "UTC",
+    "gmt": "UTC",
+    "zulu": "UTC",
+    "bst": "Europe/London",
+    "london": "Europe/London",
+    "uk": "Europe/London",
+    "cet": "Europe/Paris",
+    "cest": "Europe/Paris",
+    "paris": "Europe/Paris",
+    "berlin": "Europe/Berlin",
+    "germany": "Europe/Berlin",
+    "amsterdam": "Europe/Amsterdam",
+    "ist": "Asia/Kolkata",
+    "india": "Asia/Kolkata",
+    "kolkata": "Asia/Kolkata",
+    "delhi": "Asia/Kolkata",
+    "mumbai": "Asia/Kolkata",
+    "bangalore": "Asia/Kolkata",
+    "bengaluru": "Asia/Kolkata",
+    "hyderabad": "Asia/Kolkata",
+    "chennai": "Asia/Kolkata",
+    "jst": "Asia/Tokyo",
+    "tokyo": "Asia/Tokyo",
+    "japan": "Asia/Tokyo",
+    "sgt": "Asia/Singapore",
+    "singapore": "Asia/Singapore",
+    "hkt": "Asia/Hong_Kong",
+    "hong kong": "Asia/Hong_Kong",
+    "china": "Asia/Shanghai",
+    "beijing": "Asia/Shanghai",
+    "shanghai": "Asia/Shanghai",
+    "dubai": "Asia/Dubai",
+    "gst": "Asia/Dubai",
+    "uae": "Asia/Dubai",
+    "aest": "Australia/Sydney",
+    "aedt": "Australia/Sydney",
+    "sydney": "Australia/Sydney",
+    "melbourne": "Australia/Melbourne",
+    "australia": "Australia/Sydney",
+    "nzst": "Pacific/Auckland",
+    "auckland": "Pacific/Auckland",
+    "brt": "America/Sao_Paulo",
+    "sao paulo": "America/Sao_Paulo",
+    "brazil": "America/Sao_Paulo",
+    "toronto": "America/Toronto",
+    "vancouver": "America/Vancouver",
+    "mexico city": "America/Mexico_City",
+    "sast": "Africa/Johannesburg",
+    "johannesburg": "Africa/Johannesburg",
+    "lagos": "Africa/Lagos",
+    "cairo": "Africa/Cairo",
+    "moscow": "Europe/Moscow",
+    "msk": "Europe/Moscow",
     # US states and cities, by the zone most of the state keeps. "what time is it in
     # california" was refused as an unknown zone.
-    "california": "America/Los_Angeles", "oregon": "America/Los_Angeles", "nevada": "America/Los_Angeles",
-    "washington state": "America/Los_Angeles", "las vegas": "America/Los_Angeles",
-    "san diego": "America/Los_Angeles", "silicon valley": "America/Los_Angeles",
-    "san jose": "America/Los_Angeles", "arizona": "America/Phoenix", "phoenix": "America/Phoenix",
-    "colorado": "America/Denver", "denver": "America/Denver", "utah": "America/Denver",
-    "salt lake city": "America/Denver", "new mexico": "America/Denver", "montana": "America/Denver",
-    "texas": "America/Chicago", "austin": "America/Chicago", "dallas": "America/Chicago",
-    "houston": "America/Chicago", "san antonio": "America/Chicago", "illinois": "America/Chicago",
-    "minnesota": "America/Chicago", "minneapolis": "America/Chicago", "wisconsin": "America/Chicago",
-    "missouri": "America/Chicago", "louisiana": "America/Chicago", "new orleans": "America/Chicago",
-    "oklahoma": "America/Chicago", "iowa": "America/Chicago", "arkansas": "America/Chicago",
-    "alabama": "America/Chicago", "mississippi": "America/Chicago", "nashville": "America/Chicago",
-    "new york state": "America/New_York", "florida": "America/New_York", "miami": "America/New_York",
-    "orlando": "America/New_York", "atlanta": "America/New_York", "boston": "America/New_York",
-    "massachusetts": "America/New_York", "philadelphia": "America/New_York",
-    "pennsylvania": "America/New_York", "washington dc": "America/New_York", "dc": "America/New_York",
-    "virginia": "America/New_York", "north carolina": "America/New_York", "charlotte": "America/New_York",
-    "south carolina": "America/New_York", "new jersey": "America/New_York", "ohio": "America/New_York",
-    "michigan": "America/New_York", "detroit": "America/Detroit", "maryland": "America/New_York",
-    "connecticut": "America/New_York", "alaska": "America/Anchorage", "hawaii": "Pacific/Honolulu",
-    "honolulu": "Pacific/Honolulu", "canada": "America/Toronto", "ottawa": "America/Toronto",
+    "california": "America/Los_Angeles",
+    "oregon": "America/Los_Angeles",
+    "nevada": "America/Los_Angeles",
+    "washington state": "America/Los_Angeles",
+    "las vegas": "America/Los_Angeles",
+    "san diego": "America/Los_Angeles",
+    "silicon valley": "America/Los_Angeles",
+    "san jose": "America/Los_Angeles",
+    "arizona": "America/Phoenix",
+    "phoenix": "America/Phoenix",
+    "colorado": "America/Denver",
+    "denver": "America/Denver",
+    "utah": "America/Denver",
+    "salt lake city": "America/Denver",
+    "new mexico": "America/Denver",
+    "montana": "America/Denver",
+    "texas": "America/Chicago",
+    "austin": "America/Chicago",
+    "dallas": "America/Chicago",
+    "houston": "America/Chicago",
+    "san antonio": "America/Chicago",
+    "illinois": "America/Chicago",
+    "minnesota": "America/Chicago",
+    "minneapolis": "America/Chicago",
+    "wisconsin": "America/Chicago",
+    "missouri": "America/Chicago",
+    "louisiana": "America/Chicago",
+    "new orleans": "America/Chicago",
+    "oklahoma": "America/Chicago",
+    "iowa": "America/Chicago",
+    "arkansas": "America/Chicago",
+    "alabama": "America/Chicago",
+    "mississippi": "America/Chicago",
+    "nashville": "America/Chicago",
+    "new york state": "America/New_York",
+    "florida": "America/New_York",
+    "miami": "America/New_York",
+    "orlando": "America/New_York",
+    "atlanta": "America/New_York",
+    "boston": "America/New_York",
+    "massachusetts": "America/New_York",
+    "philadelphia": "America/New_York",
+    "pennsylvania": "America/New_York",
+    "washington dc": "America/New_York",
+    "dc": "America/New_York",
+    "virginia": "America/New_York",
+    "north carolina": "America/New_York",
+    "charlotte": "America/New_York",
+    "south carolina": "America/New_York",
+    "new jersey": "America/New_York",
+    "ohio": "America/New_York",
+    "michigan": "America/New_York",
+    "detroit": "America/Detroit",
+    "maryland": "America/New_York",
+    "connecticut": "America/New_York",
+    "alaska": "America/Anchorage",
+    "hawaii": "Pacific/Honolulu",
+    "honolulu": "Pacific/Honolulu",
+    "canada": "America/Toronto",
+    "ottawa": "America/Toronto",
     "montreal": "America/Toronto",
     # Countries and the places people most often ask about.
-    "england": "Europe/London", "britain": "Europe/London", "scotland": "Europe/London",
-    "ireland": "Europe/Dublin", "france": "Europe/Paris", "spain": "Europe/Madrid", "italy": "Europe/Rome",
-    "netherlands": "Europe/Amsterdam", "portugal": "Europe/Lisbon", "switzerland": "Europe/Zurich",
-    "sweden": "Europe/Stockholm", "norway": "Europe/Oslo", "poland": "Europe/Warsaw",
-    "greece": "Europe/Athens", "turkey": "Europe/Istanbul", "russia": "Europe/Moscow",
-    "israel": "Asia/Jerusalem", "saudi arabia": "Asia/Riyadh", "egypt": "Africa/Cairo",
-    "kenya": "Africa/Nairobi", "nigeria": "Africa/Lagos", "south africa": "Africa/Johannesburg",
-    "pakistan": "Asia/Karachi", "bangladesh": "Asia/Dhaka", "nepal": "Asia/Kathmandu",
-    "sri lanka": "Asia/Colombo", "thailand": "Asia/Bangkok", "vietnam": "Asia/Ho_Chi_Minh",
-    "indonesia": "Asia/Jakarta", "philippines": "Asia/Manila", "malaysia": "Asia/Kuala_Lumpur",
-    "korea": "Asia/Seoul", "south korea": "Asia/Seoul", "taiwan": "Asia/Taipei",
-    "new zealand": "Pacific/Auckland", "argentina": "America/Argentina/Buenos_Aires",
-    "buenos aires": "America/Argentina/Buenos_Aires", "chile": "America/Santiago",
-    "colombia": "America/Bogota", "peru": "America/Lima", "mexico": "America/Mexico_City",
-    "pune": "Asia/Kolkata", "noida": "Asia/Kolkata", "gurgaon": "Asia/Kolkata", "gurugram": "Asia/Kolkata",
-    "ahmedabad": "Asia/Kolkata", "vizag": "Asia/Kolkata", "visakhapatnam": "Asia/Kolkata",
-    "vijayawada": "Asia/Kolkata", "warangal": "Asia/Kolkata", "tirupati": "Asia/Kolkata",
+    "england": "Europe/London",
+    "britain": "Europe/London",
+    "scotland": "Europe/London",
+    "ireland": "Europe/Dublin",
+    "france": "Europe/Paris",
+    "spain": "Europe/Madrid",
+    "italy": "Europe/Rome",
+    "netherlands": "Europe/Amsterdam",
+    "portugal": "Europe/Lisbon",
+    "switzerland": "Europe/Zurich",
+    "sweden": "Europe/Stockholm",
+    "norway": "Europe/Oslo",
+    "poland": "Europe/Warsaw",
+    "greece": "Europe/Athens",
+    "turkey": "Europe/Istanbul",
+    "russia": "Europe/Moscow",
+    "israel": "Asia/Jerusalem",
+    "saudi arabia": "Asia/Riyadh",
+    "egypt": "Africa/Cairo",
+    "kenya": "Africa/Nairobi",
+    "nigeria": "Africa/Lagos",
+    "south africa": "Africa/Johannesburg",
+    "pakistan": "Asia/Karachi",
+    "bangladesh": "Asia/Dhaka",
+    "nepal": "Asia/Kathmandu",
+    "sri lanka": "Asia/Colombo",
+    "thailand": "Asia/Bangkok",
+    "vietnam": "Asia/Ho_Chi_Minh",
+    "indonesia": "Asia/Jakarta",
+    "philippines": "Asia/Manila",
+    "malaysia": "Asia/Kuala_Lumpur",
+    "korea": "Asia/Seoul",
+    "south korea": "Asia/Seoul",
+    "taiwan": "Asia/Taipei",
+    "new zealand": "Pacific/Auckland",
+    "argentina": "America/Argentina/Buenos_Aires",
+    "buenos aires": "America/Argentina/Buenos_Aires",
+    "chile": "America/Santiago",
+    "colombia": "America/Bogota",
+    "peru": "America/Lima",
+    "mexico": "America/Mexico_City",
+    "pune": "Asia/Kolkata",
+    "noida": "Asia/Kolkata",
+    "gurgaon": "Asia/Kolkata",
+    "gurugram": "Asia/Kolkata",
+    "ahmedabad": "Asia/Kolkata",
+    "vizag": "Asia/Kolkata",
+    "visakhapatnam": "Asia/Kolkata",
+    "vijayawada": "Asia/Kolkata",
+    "warangal": "Asia/Kolkata",
+    "tirupati": "Asia/Kolkata",
 }
 
 
 def _iana_city(name: str) -> str | None:
-    """"lisbon" -> Europe/Lisbon: any city the zone database itself is named after, so
+    """ "lisbon" -> Europe/Lisbon: any city the zone database itself is named after, so
     the table above only has to hold what that cannot find (states, countries, nicknames)."""
     wanted = name.strip().replace(" ", "_").lower()
     if not wanted or "/" in wanted:
@@ -121,6 +240,7 @@ def _iana_city(name: str) -> str | None:
         if zone.rsplit("/", 1)[-1].lower() == wanted:
             return zone
     return None
+
 
 # Abbreviations that name *standard* time, so asking for one in summer deserves a note
 # about which half of the year is actually in effect.
@@ -186,7 +306,7 @@ def next_clock_change(now: datetime, days: int = 400, direction: int = 0) -> tup
     as (the wall clock just before it, the wall clock it becomes), or None when there is none within
     `days`. "when does daylight saving start" in October answered November's change back (Codex's
     review of #271)."""
-    start = now.astimezone(timezone.utc)
+    start = now.astimezone(UTC)
 
     def offset(moment: datetime) -> timedelta | None:
         return on_laptop_clock(moment, now.tzinfo).utcoffset()
@@ -221,6 +341,8 @@ def time_ahead(text: str) -> tuple[timedelta, str] | None:
     minutes = amount * _AHEAD_MINUTES[unit.rstrip("s")]
     # Past ten years a date question says it better, and a timedelta overflows long before a numeral does.
     return (timedelta(minutes=minutes), said) if 0 < minutes <= 10 * 366 * 1440 else None
+
+
 _TIME_WORD = re.compile(r"\b(?:time|date|day|clock|o'?clock)\b", re.IGNORECASE)
 
 
@@ -234,18 +356,32 @@ def asks_the_time(text: str) -> bool:
     if not candidate or len(candidate) > 90:
         return False
     lowered = candidate.lower()
-    if any(word in lowered for word in (
-        "schedule", "remind", "meeting", "deadline", "zone conversion", "timer",
-        "timestamp", "time to ", "how long", "took", "spent", "latency",
-    )):
+    if any(
+        word in lowered
+        for word in (
+            "schedule",
+            "remind",
+            "meeting",
+            "deadline",
+            "zone conversion",
+            "timer",
+            "timestamp",
+            "time to ",
+            "how long",
+            "took",
+            "spent",
+            "latency",
+        )
+    ):
         return False
     if _ASKS_THE_TIME.match(candidate) or time_ahead(candidate) or asks_clock_change(candidate):
         return True
     # "time in IST", "tokyo time in japan": only a zone that exists. Any time word before "in
     # <words>" was enough, so "say that one more time in english" answered "I do not know the
     # time zone 'english'".
-    return bool(_TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered)
-                and _requested_zone(candidate)[0])
+    return bool(
+        _TIME_WORD.search(lowered) and re.search(r"\bin\s+[a-z /]{2,30}$", lowered) and _requested_zone(candidate)[0]
+    )
 
 
 def _requested_zone(text: str) -> tuple[str | None, str | None]:
@@ -280,23 +416,40 @@ def _requested_zone(text: str) -> tuple[str | None, str | None]:
 # wrong, so it is computed here from the zone database; these went to the chat model. The
 # whole sentence must be one of these shapes, and both zones must be known, or it is left
 # to the router.
-_TIME_OF_DAY = (r"(?P<h>\d{1,2})(?::(?P<m>[0-5]\d))?\s*(?P<ap>a\.?\s?m\.?|p\.?\s?m\.?)?"
-                r"|(?P<word>noon|midday|midnight)")
+_TIME_OF_DAY = (
+    r"(?P<h>\d{1,2})(?::(?P<m>[0-5]\d))?\s*(?P<ap>a\.?\s?m\.?|p\.?\s?m\.?)?"
+    r"|(?P<word>noon|midday|midnight)"
+)
 _ZONE_PHRASE = r"[a-z][a-z .'/_-]{0,30}?"
 _HERE = {"here", "local", "local time", "my time", "my local time", "me", "mine", "where i am", "my end"}
 _ZONE_ASKS = (
-    re.compile(rf"(?:convert\s+|what(?:'s|s|\s+is)\s+|when\s+is\s+)?(?:{_TIME_OF_DAY})(?:\s+(?P<src>{_ZONE_PHRASE}))?"
-               rf"\s+(?:to|in|into)\s+(?P<dst>{_ZONE_PHRASE})", re.IGNORECASE),
-    re.compile(rf"what\s+time\s+(?:is\s+it|will\s+it\s+be)\s+in\s+(?P<dst>{_ZONE_PHRASE})\s+(?:when\s+it(?:'s|s|\s+is)|at)"
-               rf"\s+(?:{_TIME_OF_DAY})(?:\s+(?:in\s+)?(?P<src>{_ZONE_PHRASE}))?", re.IGNORECASE),
+    re.compile(
+        rf"(?:convert\s+|what(?:'s|s|\s+is)\s+|when\s+is\s+)?(?:{_TIME_OF_DAY})(?:\s+(?P<src>{_ZONE_PHRASE}))?"
+        rf"\s+(?:to|in|into)\s+(?P<dst>{_ZONE_PHRASE})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"what\s+time\s+(?:is\s+it|will\s+it\s+be)\s+in\s+(?P<dst>{_ZONE_PHRASE})\s+(?:when\s+it(?:'s|s|\s+is)|at)"
+        rf"\s+(?:{_TIME_OF_DAY})(?:\s+(?:in\s+)?(?P<src>{_ZONE_PHRASE}))?",
+        re.IGNORECASE,
+    ),
 )
 _GAP_ASKS = (
-    re.compile(rf"how\s+many\s+hours\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
-               rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?", re.IGNORECASE),
-    re.compile(rf"how\s+far\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
-               rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?", re.IGNORECASE),
-    re.compile(rf"what(?:'s|s|\s+is)\s+the\s+time\s+difference\s+(?:between\s+(?P<a>{_ZONE_PHRASE})"
-               rf"\s+and\s+(?P<b>{_ZONE_PHRASE})|(?:with|to)\s+(?P<a2>{_ZONE_PHRASE}))", re.IGNORECASE),
+    re.compile(
+        rf"how\s+many\s+hours\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
+        rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"how\s+far\s+(?:ahead|behind)\s+is\s+(?P<a>{_ZONE_PHRASE})"
+        rf"(?:\s+(?:of|from|than)\s+(?P<b>{_ZONE_PHRASE}))?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"what(?:'s|s|\s+is)\s+the\s+time\s+difference\s+(?:between\s+(?P<a>{_ZONE_PHRASE})"
+        rf"\s+and\s+(?P<b>{_ZONE_PHRASE})|(?:with|to)\s+(?P<a2>{_ZONE_PHRASE}))",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -316,8 +469,12 @@ def _zone_named(phrase: str | None) -> tuple[str | None, str] | None:
 
 def zone_question(text: str) -> dict[str, object] | None:
     """A conversion or a gap between zones, read from the whole sentence, else None."""
-    candidate = re.sub(r"^\s*(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)|,?\s+please$", "",
-                       (text or "").strip().rstrip("?.!").strip(), flags=re.IGNORECASE)
+    candidate = re.sub(
+        r"^\s*(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)|,?\s+please$",
+        "",
+        (text or "").strip().rstrip("?.!").strip(),
+        flags=re.IGNORECASE,
+    )
     for pattern in _ZONE_ASKS:
         asked = pattern.fullmatch(candidate)
         if not asked:
@@ -327,7 +484,7 @@ def zone_question(text: str) -> dict[str, object] | None:
         else:
             hour, minute, half = int(asked.group("h")), int(asked.group("m") or 0), (asked.group("ap") or "").lower()
             if not half and asked.group("m") is None:
-                return None                      # "9 pst" could be morning or night
+                return None  # "9 pst" could be morning or night
             if half and not 1 <= hour <= 12 or hour > 23:
                 return None
             if half:
@@ -374,15 +531,18 @@ class ClockTool:
         ahead = time_ahead(request)
         if ahead is not None:
             # Real elapsed time, read on the laptop's clock: across a clock change the offset differs.
-            moment = on_laptop_clock(local.astimezone(timezone.utc) + ahead[0], local.tzinfo)
-            return ToolResult.success(f"In {ahead[1]} it will be **{self._clock(moment)}** on "
-                                      f"{moment.strftime('%A, %d %B %Y').replace(' 0', ' ')}.",
-                                      at=moment.isoformat())
+            moment = on_laptop_clock(local.astimezone(UTC) + ahead[0], local.tzinfo)
+            return ToolResult.success(
+                f"In {ahead[1]} it will be **{self._clock(moment)}** on "
+                f"{moment.strftime('%A, %d %B %Y').replace(' 0', ' ')}.",
+                at=moment.isoformat(),
+            )
         if asks_clock_change(request):
             change = next_clock_change(local, direction=clock_change_direction(request))
             if change is None:
-                return ToolResult.success("The clocks on this laptop don't change in the coming year: its time "
-                                          "zone has no daylight saving.")
+                return ToolResult.success(
+                    "The clocks on this laptop don't change in the coming year: its time zone has no daylight saving."
+                )
             was, becomes = change
             size = becomes.utcoffset() - was.utcoffset()
             minutes = abs(int(size.total_seconds() // 60))
@@ -390,7 +550,9 @@ class ClockTool:
             return ToolResult.success(
                 f"The clocks go **{'forward' if size > timedelta() else 'back'} {length}** on "
                 f"{was.strftime('%A, %d %B %Y').replace(' 0', ' ')}: at {self._clock(was)} it becomes "
-                f"{self._clock(becomes)}.", at=becomes.isoformat())
+                f"{self._clock(becomes)}.",
+                at=becomes.isoformat(),
+            )
         between = zone_question(request)
         if between is not None:
             return self._between_zones(between, local)
@@ -433,12 +595,16 @@ class ClockTool:
 
     def _between_zones(self, asked: dict[str, object], local: datetime) -> ToolResult:
         """A time said in one zone, read in another; or how far apart two zones are now."""
-        first, second = (asked["source"], asked["target"]) if asked["kind"] == "convert" else (asked["first"], asked["second"])
+        first, second = (
+            (asked["source"], asked["target"]) if asked["kind"] == "convert" else (asked["first"], asked["second"])
+        )
         try:
             zone_a, zone_b = ((_load_zone(name) if name else local.tzinfo) for name, _said in (first, second))
         except Exception as exc:
-            return ToolResult.failure(f"I cannot look up that time zone on this machine ({type(exc).__name__}). "
-                                      f"Time zone data needs: pip install tzdata.")
+            return ToolResult.failure(
+                f"I cannot look up that time zone on this machine ({type(exc).__name__}). "
+                f"Time zone data needs: pip install tzdata."
+            )
         label_a, label_b = (name or "your computer" for name, _said in (first, second))
         place_a, place_b = ("here" if name is None else f"in `{name}`" for name, _said in (first, second))
         if asked["kind"] == "convert":
@@ -449,38 +615,60 @@ class ClockTool:
             # by a round trip through UTC; it answered 7:30 UTC for the missing one, and silently
             # picked the first of the two (Codex's review of #243).
             readings = [wall.replace(tzinfo=zone_a, fold=fold) for fold in (0, 1)]
-            real = [moment for moment in readings
-                    if moment.astimezone(timezone.utc).astimezone(zone_a).replace(tzinfo=None) == wall]
+            real = [
+                moment for moment in readings if moment.astimezone(UTC).astimezone(zone_a).replace(tzinfo=None) == wall
+            ]
             if not real:
-                return ToolResult.failure(f"{self._clock(wall)} does not happen {place_a} on "
-                                          f"{wall.strftime('%A %d %B').replace(' 0', ' ')}: the clocks go "
-                                          f"forward past it that night.")
-            if len({moment.astimezone(timezone.utc) for moment in real}) > 1:
-                both = [f"**{self._clock(moment)} {moment.strftime('%Z')}** is **{self._clock(moment.astimezone(zone_b))} "
-                        f"{moment.astimezone(zone_b).strftime('%Z')}** {place_b}" for moment in real]
+                return ToolResult.failure(
+                    f"{self._clock(wall)} does not happen {place_a} on "
+                    f"{wall.strftime('%A %d %B').replace(' 0', ' ')}: the clocks go "
+                    f"forward past it that night."
+                )
+            if len({moment.astimezone(UTC) for moment in real}) > 1:
+                both = [
+                    f"**{self._clock(moment)} {moment.strftime('%Z')}** is **{self._clock(moment.astimezone(zone_b))} "
+                    f"{moment.astimezone(zone_b).strftime('%Z')}** {place_b}"
+                    for moment in real
+                ]
                 return ToolResult.success(
                     f"{self._clock(wall)} happens twice {place_a} on {wall.strftime('%A %d %B').replace(' 0', ' ')}, "
                     f"when the clocks go back: the first, {both[0]}; the second, {both[1]}.",
                     source=[moment.isoformat() for moment in real],
-                    target=[moment.astimezone(zone_b).isoformat() for moment in real])
+                    target=[moment.astimezone(zone_b).isoformat() for moment in real],
+                )
             start = real[0]
             end = start.astimezone(zone_b)
             shift = {1: " the next day", -1: " the day before"}.get((end.date() - start.date()).days, "")
-            lines = [f"**{self._clock(start)} {start.strftime('%Z')}** {place_a} is "
-                     f"**{self._clock(end)} {end.strftime('%Z')}**{shift} {place_b}."]
+            lines = [
+                f"**{self._clock(start)} {start.strftime('%Z')}** {place_a} is "
+                f"**{self._clock(end)} {end.strftime('%Z')}**{shift} {place_b}."
+            ]
             notes = [self._standard_time_note(first[1], start), self._standard_time_note(second[1], end)]
             lines += ["", *(note for note in notes if note)] if any(notes) else []
-            return ToolResult.success(NL.join(lines), source=start.isoformat(), target=end.isoformat(),
-                                      source_zone=label_a, target_zone=label_b)
+            return ToolResult.success(
+                NL.join(lines),
+                source=start.isoformat(),
+                target=end.isoformat(),
+                source_zone=label_a,
+                target_zone=label_b,
+            )
         now_a, now_b = local.astimezone(zone_a), local.astimezone(zone_b)
         minutes = int(((now_a.utcoffset() or timedelta(0)) - (now_b.utcoffset() or timedelta(0))).total_seconds() // 60)
         hours, spare = divmod(abs(minutes), 60)
-        size = " ".join(part for part in (f"{hours} hour{'s' if hours != 1 else ''}" if hours else "",
-                                          f"{spare} minutes" if spare else "") if part)
+        size = " ".join(
+            part
+            for part in (
+                f"{hours} hour{'s' if hours != 1 else ''}" if hours else "",
+                f"{spare} minutes" if spare else "",
+            )
+            if part
+        )
         relation = "the same time as" if minutes == 0 else f"**{size} {'ahead of' if minutes > 0 else 'behind'}**"
         other = "you" if second[0] is None else f"`{label_b}`"
-        text = (f"`{label_a}` is {relation} {other} right now: it is {self._clock(now_a)} {now_a.strftime('%Z')} "
-                f"there and {self._clock(now_b)} {now_b.strftime('%Z')} {place_b}.")
+        text = (
+            f"`{label_a}` is {relation} {other} right now: it is {self._clock(now_a)} {now_a.strftime('%Z')} "
+            f"there and {self._clock(now_b)} {now_b.strftime('%Z')} {place_b}."
+        )
         return ToolResult.success(text, minutes=minutes, first_zone=label_a, second_zone=label_b)
 
     @staticmethod
@@ -494,8 +682,7 @@ class ClockTool:
         return (
             # Backticks, not italics: an IANA name contains an underscore, so
             # _America/New_York_ rendered with its underscores showing.
-            f"**{self._clock(moment)}** {label} — {day}"
-            f"{NL}{NL}`{where}` · {_offset_text(moment)}"
+            f"**{self._clock(moment)}** {label} — {day}{NL}{NL}`{where}` · {_offset_text(moment)}"
         )
 
     @staticmethod

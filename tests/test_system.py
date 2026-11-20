@@ -12,14 +12,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools import system
 from laptop_agent.tools.system import SystemTool, settings_page
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 
@@ -29,10 +29,12 @@ class FakeSystem:
         self.calls: list[tuple] = []
         self.level: int | None = 50
         self.paper = r"C:\Windows\Web\old.jpg"
-        self.running = [{"name": "chrome.exe", "pid": 10, "memory_mb": 900},
-                        {"name": "chrome.exe", "pid": 11, "memory_mb": 300},
-                        {"name": "notepad.exe", "pid": 12, "memory_mb": 20},
-                        {"name": "svchost.exe", "pid": 4, "memory_mb": 40}]
+        self.running = [
+            {"name": "chrome.exe", "pid": 10, "memory_mb": 900},
+            {"name": "chrome.exe", "pid": 11, "memory_mb": 300},
+            {"name": "notepad.exe", "pid": 12, "memory_mb": 20},
+            {"name": "svchost.exe", "pid": 4, "memory_mb": 40},
+        ]
 
     def lock(self) -> None:
         self.calls.append(("lock",))
@@ -121,7 +123,13 @@ class SystemToolTests(unittest.TestCase):
         self.assertEqual(self.backend.calls, [])
 
     def test_a_wallpaper_needs_a_real_picture_and_can_be_put_back(self) -> None:
-        for words in ("a beach photo", "blue", "beach.jpg", str(self.root / "missing.jpg"), str(self.root / "notes.txt")):
+        for words in (
+            "a beach photo",
+            "blue",
+            "beach.jpg",
+            str(self.root / "missing.jpg"),
+            str(self.root / "notes.txt"),
+        ):
             with self.subTest(words):
                 self.assertFalse(self.tool.set_wallpaper(words).ok)
         self.assertEqual((self.cards, self.backend.calls), ([], []))
@@ -139,13 +147,17 @@ class SystemToolTests(unittest.TestCase):
 
     def test_processes_are_grouped_by_name_largest_first(self) -> None:
         result = self.tool.processes()
-        self.assertEqual([row["name"] for row in result.data["processes"]], ["chrome.exe", "svchost.exe", "notepad.exe"])
+        self.assertEqual(
+            [row["name"] for row in result.data["processes"]], ["chrome.exe", "svchost.exe", "notepad.exe"]
+        )
         self.assertIn("chrome.exe ×2: 1,200 MB", result.message)
 
     def test_windows_own_processes_and_this_one_are_never_ended(self) -> None:
         # Listed as running, so only the guards themselves can refuse them.
-        self.backend.running += [{"name": Path(sys.executable).name, "pid": 20, "memory_mb": 80},
-                                 {"name": "notepad & del *.exe", "pid": 21, "memory_mb": 1}]
+        self.backend.running += [
+            {"name": Path(sys.executable).name, "pid": 20, "memory_mb": 80},
+            {"name": "notepad & del *.exe", "pid": 21, "memory_mb": 1},
+        ]
         for name in ("svchost", "explorer.exe", "lsass", Path(sys.executable).stem):
             with self.subTest(name):
                 self.assertFalse(self.tool.end_process(name).ok)
@@ -165,8 +177,16 @@ class SystemToolTests(unittest.TestCase):
 
     def test_without_a_backend_every_control_says_windows_only(self) -> None:
         tool = SystemTool(ApprovalGate(ask=lambda r: True), None, self.root)
-        for result in (tool.lock(), tool.sleep(), tool.power("shutdown"), tool.brightness("up"), tool.processes(),
-                       tool.set_wallpaper("x"), tool.end_process("x"), tool.open_settings("x")):
+        for result in (
+            tool.lock(),
+            tool.sleep(),
+            tool.power("shutdown"),
+            tool.brightness("up"),
+            tool.processes(),
+            tool.set_wallpaper("x"),
+            tool.end_process("x"),
+            tool.open_settings("x"),
+        ):
             self.assertFalse(result.ok)
             self.assertIn("Windows only", result.message)
 
@@ -202,9 +222,20 @@ class SystemCommandTests(unittest.TestCase):
 
     def test_every_control_is_developer_only(self) -> None:
         with acting_as(PERSONAL):
-            for command in ("lock screen", "power sleep", "power shutdown", "power restart", "power cancel",
-                            "brightness", "brightness up", "wallpaper x", "processes", "end process x",
-                            "settings", "settings bluetooth"):
+            for command in (
+                "lock screen",
+                "power sleep",
+                "power shutdown",
+                "power restart",
+                "power cancel",
+                "brightness",
+                "brightness up",
+                "wallpaper x",
+                "processes",
+                "end process x",
+                "settings",
+                "settings bluetooth",
+            ):
                 with self.subTest(command):
                     self.assertIsNotNone(refused_command(command))
             self.assertFalse(self.say("lock my computer").ok)
@@ -212,8 +243,15 @@ class SystemCommandTests(unittest.TestCase):
 
     def test_agent_mode_is_not_offered_the_laptops_own_controls(self) -> None:
         reference = self.orch._agent_reference()
-        for command in ("lock screen", "power sleep|shutdown|restart|cancel", "brightness <0-100|up|down>",
-                        "wallpaper <image path>", "processes", "end process <name>", "settings <page>"):
+        for command in (
+            "lock screen",
+            "power sleep|shutdown|restart|cancel",
+            "brightness <0-100|up|down>",
+            "wallpaper <image path>",
+            "processes",
+            "end process <name>",
+            "settings <page>",
+        ):
             with self.subTest(command):
                 self.assertNotIn(f"- {command}\n", reference + "\n")
         self.assertIn("- read file <path>\n", reference + "\n")
@@ -238,10 +276,22 @@ class SystemRoutingTests(unittest.TestCase):
         "force quit spotify": "end process spotify",
         "open display settings": "settings display",
     }
-    STAY = ("lock it", "go to sleep", "i need to shut down for the night", "how do I restart my pc",
-            "my screen is too bright", "what is a process", "end the meeting", "the brightness is fine",
-            "restart the timer", "turn off the lights", "open the settings app on my phone",
-            "stop the timer task", "stop the backup task", "stop the download task")
+    STAY = (
+        "lock it",
+        "go to sleep",
+        "i need to shut down for the night",
+        "how do I restart my pc",
+        "my screen is too bright",
+        "what is a process",
+        "end the meeting",
+        "the brightness is fine",
+        "restart the timer",
+        "turn off the lights",
+        "open the settings app on my phone",
+        "stop the timer task",
+        "stop the backup task",
+        "stop the download task",
+    )
 
     def test_controls_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()
@@ -254,8 +304,12 @@ class SystemRoutingTests(unittest.TestCase):
         for text in self.STAY:
             with self.subTest(text):
                 command = planner.plan(text, "", {}).command or ""
-                self.assertFalse(command.startswith(("lock", "power", "brightness", "wallpaper", "processes",
-                                                     "end process", "settings")), f"{text} -> {command}")
+                self.assertFalse(
+                    command.startswith(
+                        ("lock", "power", "brightness", "wallpaper", "processes", "end process", "settings")
+                    ),
+                    f"{text} -> {command}",
+                )
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ from laptop_agent.analytics.forecast import MAX_HORIZON, forecast
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.files import parse_number, read_rows
 
-MAX_ROWS = 10000   # what `analyze spreadsheet` reads too
+MAX_ROWS = 10000  # what `analyze spreadsheet` reads too
 DEFAULT_HORIZON = 3
 USAGE = "forecast <column> in <file.csv> [by <date column>] [for N] [season N]"
 
@@ -30,13 +30,17 @@ USAGE = "forecast <column> in <file.csv> [by <date column>] [for N] [season N]"
 # two optional clauses in either order, and a sentence may end in "." or "please".
 _REQUEST = re.compile(
     r"forecast\s+(?P<column>.+?)\s+(?:in|from)\s+(?P<path>\"[^\"]+\.(?:csv|tsv)\"|\S.*?\.(?:csv|tsv))"
-    r"(?P<rest>(?:\s.*)?)", re.IGNORECASE | re.DOTALL)
+    r"(?P<rest>(?:\s.*)?)",
+    re.IGNORECASE | re.DOTALL,
+)
 # The optional word after the number is a unit ("months"), never the start of another clause:
 # taking "season" lost the season and read "by Month for 3 season 12" as a column "Month 12".
-_HORIZON = re.compile(r"\s+for\s+(?:the\s+)?(?:next\s+)?(?P<horizon>\d+)(?:\s+(?!(?:by|season|with|a)\b)[a-z]+)?(?=\s|$)",
-                      re.IGNORECASE)
-_SEASON = re.compile(r"\s+(?:with\s+)?(?:a\s+)?season(?:\s+of)?\s+(?P<season>\d+)(?:\s+(?!by\b|for\b)[a-z]+)?(?=\s|$)",
-                     re.IGNORECASE)
+_HORIZON = re.compile(
+    r"\s+for\s+(?:the\s+)?(?:next\s+)?(?P<horizon>\d+)(?:\s+(?!(?:by|season|with|a)\b)[a-z]+)?(?=\s|$)", re.IGNORECASE
+)
+_SEASON = re.compile(
+    r"\s+(?:with\s+)?(?:a\s+)?season(?:\s+of)?\s+(?P<season>\d+)(?:\s+(?!by\b|for\b)[a-z]+)?(?=\s|$)", re.IGNORECASE
+)
 _DATE = re.compile(r"\s+by\s+(?P<date>\S.*)", re.IGNORECASE | re.DOTALL)
 _TRAILING = re.compile(r"(?:[\s,]+please)?[\s.?!]*$", re.IGNORECASE)
 # A sentence that starts with "forecast" and names a table is a data forecast whether or not it
@@ -69,10 +73,10 @@ class SeriesError(ValueError):
 
 @dataclass(frozen=True)
 class Series:
-    labels: list[str]       # one per observation: "2025-03", "2025-Q1", "2025-03-14", "3"
+    labels: list[str]  # one per observation: "2025-03", "2025-Q1", "2025-03-14", "3"
     values: list[float]
-    period: str             # "day", "week", "month", "quarter", "year", or "row"
-    last: date | None       # the last observation's date; None without a date column
+    period: str  # "day", "week", "month", "quarter", "year", or "row"
+    last: date | None  # the last observation's date; None without a date column
 
     def next_labels(self, count: int) -> list[str]:
         """Labels for the `count` periods after the last observation."""
@@ -132,15 +136,22 @@ def _label(day: date, period: str) -> str:
 
 def _rows(path: Path) -> tuple[list[str], list[list[str]]]:
     if path.suffix.lower() not in {".csv", ".tsv"}:
-        raise SeriesError(f"I can forecast from a .csv or .tsv file, not {path.suffix or 'that file'}. "
-                          "Save the sheet as CSV first.")
+        raise SeriesError(
+            f"I can forecast from a .csv or .tsv file, not {path.suffix or 'that file'}. Save the sheet as CSV first."
+        )
     try:
         rows = read_rows(path, MAX_ROWS)
     except FileNotFoundError:
         # The column is read up to the first "in": "Revenue in USD in sales.csv" asks for a
         # file called "USD in sales.csv" (review of #159).
-        hint = (' If the column\'s name has "in" or "from" in it, put the file in quotes: '
-                'forecast Revenue in USD in "sales.csv".') if re.search(r"\s(?:in|from)\s", str(path)) else ""
+        hint = (
+            (
+                ' If the column\'s name has "in" or "from" in it, put the file in quotes: '
+                'forecast Revenue in USD in "sales.csv".'
+            )
+            if re.search(r"\s(?:in|from)\s", str(path))
+            else ""
+        )
         raise SeriesError(f"There is no file at {path}.{hint}") from None
     if len(rows) < 2:
         raise SeriesError(f"{path.name} has no rows under its header.")
@@ -151,8 +162,12 @@ def _column(header: list[str], wanted: str, body: list[list[str]], numeric: bool
     lowered = [name.lower() for name in header]
     if wanted.strip().lower() in lowered:
         return lowered.index(wanted.strip().lower())
-    names = [name for index, name in enumerate(header) if not numeric or all(
-        parse_number(row[index]) is not None for row in body[:20] if index < len(row) and row[index].strip())]
+    names = [
+        name
+        for index, name in enumerate(header)
+        if not numeric
+        or all(parse_number(row[index]) is not None for row in body[:20] if index < len(row) and row[index].strip())
+    ]
     listed = f" Its {'numeric ' if numeric else ''}columns are: {', '.join(names)}." if names else ""
     raise SeriesError(f"There is no column called '{wanted}'.{listed}")
 
@@ -164,8 +179,9 @@ def _numbers(header: list[str], body: list[list[str]], at: int) -> list[float]:
     for line, row in enumerate(body, start=2):
         cell = row[at] if at < len(row) else ""
         if not cell.strip():
-            raise SeriesError(f"Row {line} has no {header[at]}. Fill it in or remove the row; "
-                              "I will not guess a missing value.")
+            raise SeriesError(
+                f"Row {line} has no {header[at]}. Fill it in or remove the row; I will not guess a missing value."
+            )
         number = parse_number(cell)
         if number is None:
             raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[at]} is not a number.")
@@ -185,41 +201,52 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
 
     date_at = _column(header, date_column, body, numeric=False)
     dated: list[tuple[date, float]] = []
-    for line, (row, value) in enumerate(zip(body, values), start=2):
+    for line, (row, value) in enumerate(zip(body, values, strict=True), start=2):
         cell = row[date_at] if date_at < len(row) else ""
         day = _date(cell)
         if day is None:
-            raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[date_at]} is not a date I can read "
-                              "(try 2025-03-14 or 2025-03).")
+            raise SeriesError(
+                f"Row {line}: '{cell.strip()}' in {header[date_at]} is not a date I can read "
+                "(try 2025-03-14 or 2025-03)."
+            )
         dated.append((day, value))
     if len(dated) < 2:
         raise SeriesError("One dated row is not a series.")
     dated.sort(key=lambda pair: pair[0])
     days = [day for day, _value in dated]
-    gaps = [(later - earlier).days for earlier, later in zip(days, days[1:]) if later > earlier]
+    gaps = [(later - earlier).days for earlier, later in zip(days, days[1:], strict=False) if later > earlier]
     if not gaps:
         raise SeriesError(f"Every row has the same {header[date_at]}, so there is no series over time.")
     closest = min(gaps)
     period = next((name for name, low, high in _PERIODS if low <= closest <= high), None)
     if period is None:
-        raise SeriesError(f"The closest dates in {header[date_at]} are {closest} days apart, which is not a "
-                          "day, week, month, quarter or year. Total them per period first.")
+        raise SeriesError(
+            f"The closest dates in {header[date_at]} are {closest} days apart, which is not a "
+            "day, week, month, quarter or year. Total them per period first."
+        )
 
     first = days[0]
     indices = [_index(day, period, first) for day in days]
-    for day, index in zip(days, indices):
+    for day, index in zip(days, indices, strict=True):
         if index is None:
             raise SeriesError(f"{day.isoformat()} falls between two {period}s, so the rows are not evenly spaced.")
-    for day, index, following in zip(days, indices, indices[1:]):
+    for day, index, following in zip(days, indices, indices[1:], strict=False):
         if following == index:
-            raise SeriesError(f"Two rows fall in the {period} of {_label(day, period)}. Total them or keep one "
-                              "row per period; I will not decide which.")
-    missing = [_label(_step(first, period, index), period)
-               for before, after in zip(indices, indices[1:]) for index in range(before + 1, after)]
+            raise SeriesError(
+                f"Two rows fall in the {period} of {_label(day, period)}. Total them or keep one "
+                "row per period; I will not decide which."
+            )
+    missing = [
+        _label(_step(first, period, index), period)
+        for before, after in zip(indices, indices[1:], strict=False)
+        for index in range(before + 1, after)
+    ]
     if missing:
         shown = ", ".join(missing[:3]) + (f" and {len(missing) - 3} more" if len(missing) > 3 else "")
-        raise SeriesError(f"{len(missing)} {period}{'s are' if len(missing) > 1 else ' is'} missing: {shown}. "
-                          "Add them (as 0 if that is what happened) or forecast from after the gap.")
+        raise SeriesError(
+            f"{len(missing)} {period}{'s are' if len(missing) > 1 else ' is'} missing: {shown}. "
+            "Add them (as 0 if that is what happened) or forecast from after the gap."
+        )
     return Series([_label(day, period) for day in days], [value for _day, value in dated], period, days[-1])
 
 
@@ -229,7 +256,7 @@ class Request:
     path: str
     date_column: str | None
     horizon: int
-    season: int | None = None   # a cycle the user knows; never inferred from the calendar
+    season: int | None = None  # a cycle the user knows; never inferred from the calendar
 
 
 def forecast_request(command: str) -> Request | None:
@@ -239,9 +266,9 @@ def forecast_request(command: str) -> Request | None:
         return None
     rest, horizon, season, date_column = match["rest"], DEFAULT_HORIZON, None, None
     if (found := _HORIZON.search(rest)) is not None:
-        horizon, rest = int(found["horizon"]), rest[:found.start()] + rest[found.end():]
+        horizon, rest = int(found["horizon"]), rest[: found.start()] + rest[found.end() :]
     if (found := _SEASON.search(rest)) is not None:
-        season, rest = int(found["season"]), rest[:found.start()] + rest[found.end():]
+        season, rest = int(found["season"]), rest[: found.start()] + rest[found.end() :]
     if rest.strip():
         if (by := _DATE.fullmatch(rest)) is None:
             return None
@@ -255,8 +282,9 @@ def forecast_command(command: str) -> ToolResult | None:
     if (request := forecast_request(command)) is not None:
         return run_forecast(request)
     if _NAMES_TABLE.match(command):
-        return ToolResult.failure(f"That names a table, so I took it for a data forecast, but I could not "
-                                  f"follow the rest. Use: {USAGE}")
+        return ToolResult.failure(
+            f"That names a table, so I took it for a data forecast, but I could not follow the rest. Use: {USAGE}"
+        )
     return None
 
 
@@ -281,35 +309,45 @@ def run_forecast(request: Request) -> ToolResult:
     try:
         series = load_series(request.path, request.column, request.date_column)
         result = forecast(series.values, request.horizon, season=request.season)
-    except ValueError as exc:   # SeriesError, or one of the core's own input limits
+    except ValueError as exc:  # SeriesError, or one of the core's own input limits
         return ToolResult.failure(str(exc))
     name, count = Path(request.path).name, len(series.values)
     noun = "value" if series.period == "row" else series.period
     if not result.enough_data:
         # The core's points are then the last value repeated - explicitly not a forecast - so
         # no number is shown at all.
-        short = (f"testing a forecast against simply repeating the last value needs at least 8 {noun}s, "
-                 f"and it has {count}" if count < 8 else
-                 f"testing a {request.season}-{noun} season needs two full cycles of history and more after "
-                 f"them to score it on, and {_many(count, noun)} are not enough. Leave the season out, or add "
-                 f"history" if request.season else
-                 f"{_many(count, noun)} are not enough to test a {request.horizon}-{noun} forecast against "
-                 f"simply repeating the last value. Ask for fewer {noun}s ahead, or add history")
-        return ToolResult.failure(f"I can't forecast {request.column} from {name} yet: {short}.",
-                                  forecast=asdict(result))
+        short = (
+            f"testing a forecast against simply repeating the last value needs at least 8 {noun}s, and it has {count}"
+            if count < 8
+            else f"testing a {request.season}-{noun} season needs two full cycles of history and more after "
+            f"them to score it on, and {_many(count, noun)} are not enough. Leave the season out, or add "
+            f"history"
+            if request.season
+            else f"{_many(count, noun)} are not enough to test a {request.horizon}-{noun} forecast against "
+            f"simply repeating the last value. Ask for fewer {noun}s ahead, or add history"
+        )
+        return ToolResult.failure(
+            f"I can't forecast {request.column} from {name} yet: {short}.", forecast=asdict(result)
+        )
 
     labels = series.next_labels(request.horizon)
     # Both bounds at every step, or no band at all: the contract allows a null anywhere.
-    banded = all(low is not None and high is not None for low, high in zip(result.lower, result.upper))
-    lines = [f"**{request.column}: the next {_many(request.horizon, noun)}** "
-             f"(from {name}, {_many(count, noun)} of history)", ""]
+    banded = all(low is not None and high is not None for low, high in zip(result.lower, result.upper, strict=True))
+    lines = [
+        f"**{request.column}: the next {_many(request.horizon, noun)}** (from {name}, {_many(count, noun)} of history)",
+        "",
+    ]
     if series.period == "row":
         lines += [f"_Taking the rows of {name} as evenly spaced, in file order._", ""]
-    lines += [f"| {'Row' if series.period == 'row' else noun.title()} | Forecast |"
-              + (f" {result.level:.0%} range |" if banded else ""),
-              "|---|---:|" + ("---|" if banded else "")]
-    lines += [f"| {label} | {_shown(point)} |" + (f" {_shown(low)} to {_shown(high)} |" if banded else "")
-              for label, point, low, high in zip(labels, result.points, result.lower, result.upper)]
+    lines += [
+        f"| {'Row' if series.period == 'row' else noun.title()} | Forecast |"
+        + (f" {result.level:.0%} range |" if banded else ""),
+        "|---|---:|" + ("---|" if banded else ""),
+    ]
+    lines += [
+        f"| {label} | {_shown(point)} |" + (f" {_shown(low)} to {_shown(high)} |" if banded else "")
+        for label, point, low, high in zip(labels, result.points, result.lower, result.upper, strict=True)
+    ]
     how = _HOW[result.method].format(season=result.season, unit=noun)
     baseline = _HOW[result.baseline_method].format(season=result.season, unit=noun)
     tested = f"tested on {result.backtest_origins} earlier stretches of your own history"
@@ -322,17 +360,27 @@ def run_forecast(request: Request) -> ToolResult:
     if result.holdout_mae is not None:
         # Scored where nothing was chosen, so this one is evidence; the selection scores are not.
         kept = result.method == result.baseline_method
-        lines.append(f"On {result.calibration_origins} later stretches that played no part in choosing it, "
-                     f"its average miss was {_shown(result.holdout_mae)}"
-                     + ("." if kept else f", against {_shown(result.holdout_baseline_mae)} for {baseline}."))
+        lines.append(
+            f"On {result.calibration_origins} later stretches that played no part in choosing it, "
+            f"its average miss was {_shown(result.holdout_mae)}"
+            + ("." if kept else f", against {_shown(result.holdout_baseline_mae)} for {baseline}.")
+        )
     if banded:
-        lines.append(f"Range: the middle {result.level:.0%} of its own errors at each step ahead on those later "
-                     "stretches. Not a guarantee: a change in whatever drives these numbers would not be in it.")
+        lines.append(
+            f"Range: the middle {result.level:.0%} of its own errors at each step ahead on those later "
+            "stretches. Not a guarantee: a change in whatever drives these numbers would not be in it."
+        )
     else:
         lines.append(f"No range yet ({result.interval_reason}).")
     cycle = _CYCLE.get(series.period)
     if cycle and request.season is None and result.season is None and count >= 2 * cycle:
-        lines.append(f"_No season was found in it. If it repeats every {cycle} {noun}s, add `season {cycle}` "
-                     "and that cycle is tested too._")
-    return ToolResult.success("\n".join(lines), forecast=asdict(result), labels=labels,
-                              series={"labels": series.labels, "values": series.values, "period": series.period})
+        lines.append(
+            f"_No season was found in it. If it repeats every {cycle} {noun}s, add `season {cycle}` "
+            "and that cycle is tested too._"
+        )
+    return ToolResult.success(
+        "\n".join(lines),
+        forecast=asdict(result),
+        labels=labels,
+        series={"labels": series.labels, "values": series.values, "period": series.period},
+    )

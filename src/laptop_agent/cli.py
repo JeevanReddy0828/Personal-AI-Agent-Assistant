@@ -19,8 +19,7 @@ def _due_reminder_lines(reminders, announced: set) -> list[str]:
         if key in announced:
             continue
         announced.add(key)
-        lines.append(f"Reminder: {item.get('message')}   "
-                     f"(say 'reminder done {item.get('id')}' or 'snooze')")
+        lines.append(f"Reminder: {item.get('message')}   (say 'reminder done {item.get('id')}' or 'snooze')")
     return lines
 
 
@@ -58,8 +57,9 @@ async def repl() -> None:
     orchestrator = build_orchestrator()
     history: list[dict[str, str]] = []  # this terminal session's transcript, for follow-ups
     stop = threading.Event()
-    threading.Thread(target=_watch_reminders, args=(orchestrator.context.reminders, stop),
-                     daemon=True, name="reminders").start()
+    threading.Thread(
+        target=_watch_reminders, args=(orchestrator.context.reminders, stop), daemon=True, name="reminders"
+    ).start()
     print("Laptop Agent MVP. Type 'help' for commands, 'exit' to quit.")
     try:
         await _converse(orchestrator, history)

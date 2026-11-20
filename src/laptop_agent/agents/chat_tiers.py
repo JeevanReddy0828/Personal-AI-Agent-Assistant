@@ -2,11 +2,13 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
-from laptop_agent.cancellation import check_cancelled
 import re
 from datetime import datetime
+
+from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import accepts_context_query, accepts_keyword
 from laptop_agent.planner import Planner
 from laptop_agent.tools.base import ToolResult
@@ -15,23 +17,64 @@ from laptop_agent.tracing import TurnTrace
 
 
 class ChatTiers:
-
     # The page's estimateTier keeps the same two lists to colour the wait;
     # test_page_integrity fails when they differ.
     _ULTRA_CUES = (
-        "in depth", "in-depth", "step by step", "step-by-step", "comprehensive", "thorough", "rigorous",
-        "deep dive", "detailed analysis", "prove", "derive", "full implementation", "design a system",
-        "architecture", "from scratch", "think hard", "deeply", "use the big model", "ultra",
+        "in depth",
+        "in-depth",
+        "step by step",
+        "step-by-step",
+        "comprehensive",
+        "thorough",
+        "rigorous",
+        "deep dive",
+        "detailed analysis",
+        "prove",
+        "derive",
+        "full implementation",
+        "design a system",
+        "architecture",
+        "from scratch",
+        "think hard",
+        "deeply",
+        "use the big model",
+        "ultra",
         # Logic / puzzle / multi-step reasoning cues -> the reasoning tier, which
         # thinks before answering (the non-reasoning tiers ramble on these).
-        "puzzle", "riddle", "brain teaser", "logic puzzle", "logic problem",
-        "measure exactly", "show your reasoning", "show your work", "show the steps",
-        "find the flaw", "fallacy", "how many ways", "solve for",
+        "puzzle",
+        "riddle",
+        "brain teaser",
+        "logic puzzle",
+        "logic problem",
+        "measure exactly",
+        "show your reasoning",
+        "show your work",
+        "show the steps",
+        "find the flaw",
+        "fallacy",
+        "how many ways",
+        "solve for",
     )
     _SMART_CUES = (
-        "explain", "why", "analy", "compare", "design", "reason", "debug", "refactor", "optimi",
-        "trade-off", "tradeoff", "write code", "implement", "algorithm", "strategy", "pros and cons",
-        "evaluate", "critique", "plan ",
+        "explain",
+        "why",
+        "analy",
+        "compare",
+        "design",
+        "reason",
+        "debug",
+        "refactor",
+        "optimi",
+        "trade-off",
+        "tradeoff",
+        "write code",
+        "implement",
+        "algorithm",
+        "strategy",
+        "pros and cons",
+        "evaluate",
+        "critique",
+        "plan ",
     )
 
     @staticmethod
@@ -110,8 +153,9 @@ class ChatTiers:
         self.model_status.record(tier, False, reason=kind, detail=detail)
 
     @classmethod
-    def _tier_reply(cls, provider, command, profile, history, on_token, query=None,
-                    failures: list[tuple[str, str]] | None = None) -> str:
+    def _tier_reply(
+        cls, provider, command, profile, history, on_token, query=None, failures: list[tuple[str, str]] | None = None
+    ) -> str:
         """One tier's conversational reply: stream when a sink is given (and stream
         is supported), else a plain answer. Returns '' if the tier produced nothing
         (e.g. it was unreachable/congested), which signals the caller to fall back.
@@ -243,5 +287,8 @@ class ChatTiers:
         # Reached by a command no tool recognised, from a router or an agent step. It used
         # to claim no language model was connected, which was usually untrue.
         shown = " ".join((text or "").split())[:80]
-        return ToolResult.failure(f"I don't know how to do that yet: “{shown}”. Say 'help' to see what I can do.",
-                                  heard=text, unrecognised=True)
+        return ToolResult.failure(
+            f"I don't know how to do that yet: “{shown}”. Say 'help' to see what I can do.",
+            heard=text,
+            unrecognised=True,
+        )

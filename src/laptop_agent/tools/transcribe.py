@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import math
-import time
 import os
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,7 +12,6 @@ from laptop_agent import nvcf
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
-
 
 NL = chr(10)
 
@@ -30,7 +29,6 @@ class MissingDependencyError(RuntimeError):
 OcrBackend = Callable[[Path], str]
 # An ASR backend turns a media path into a dict with at least a "text" key.
 AsrBackend = Callable[[Path], dict[str, object]]
-
 
 
 def _describe_extraction(name: str, text: str, max_chars: int, limit: int = 4000) -> str:
@@ -101,8 +99,9 @@ class TranscribeTool:
             return ToolResult.failure(str(exc))
         except Exception as exc:
             record_failure("transcribe", exc, file=target.name)
-            return ToolResult.failure(nvcf.describe(exc, "NVIDIA's speech recognition")
-                                      or f"Transcription failed: {exc}")
+            return ToolResult.failure(
+                nvcf.describe(exc, "NVIDIA's speech recognition") or f"Transcription failed: {exc}"
+            )
 
         text = str(result.get("text", "")).strip()
         segments = result.get("segments") or []
@@ -127,9 +126,14 @@ _PARSE_MODEL = "nvidia/nemotron-parse"
 # comfortably under this.
 _PARSE_MAX_BYTES = 6_000_000
 _PARSE_MIME = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp",
-    ".tif": "image/tiff", ".tiff": "image/tiff",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".webp": "image/webp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
 }
 # How a region type becomes Markdown. Anything unlisted is emitted as a plain line.
 _PARSE_PREFIX = {"Title": "# ", "Section-header": "## ", "List-item": "- "}
@@ -181,9 +185,7 @@ def _nemotron_parse_ocr_backend(target: Path) -> str:
         # The model takes an image and nothing else: a text part is rejected outright
         # with "The model does not support text input".
         "messages": [
-            {"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
-            ]}
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}]}
         ],
         "max_tokens": 4000,
         "stream": False,
@@ -448,12 +450,11 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
     import wave
 
     try:
-        import riva.client  # type: ignore
         import grpc  # type: ignore
+        import riva.client  # type: ignore
     except ImportError as exc:
         raise MissingDependencyError(
-            "Cloud speech recognition needs: pip install nvidia-riva-client "
-            "(or install this app's 'riva' extra)."
+            "Cloud speech recognition needs: pip install nvidia-riva-client (or install this app's 'riva' extra)."
         ) from exc
     key = _riva_key()
     if not key:
@@ -522,11 +523,16 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
             finally:
                 auth.channel.close()
 
-    response = nvcf.call(RIVA_ASR_NAME, RIVA_ASR_FUNCTION_ID, "RIVA_ASR_FUNCTION_ID", key, attempt,
-                         deadline=deadline, check_cancelled=check_cancelled)
-    text = " ".join(
-        result.alternatives[0].transcript for result in response.results if result.alternatives
-    ).strip()
+    response = nvcf.call(
+        RIVA_ASR_NAME,
+        RIVA_ASR_FUNCTION_ID,
+        "RIVA_ASR_FUNCTION_ID",
+        key,
+        attempt,
+        deadline=deadline,
+        check_cancelled=check_cancelled,
+    )
+    text = " ".join(result.alternatives[0].transcript for result in response.results if result.alternatives).strip()
     return {"text": text, "segments": [], "language": language, "engine": "riva:parakeet"}
 
 
@@ -609,9 +615,7 @@ def warm_stt() -> bool:
 
 def _builtin_asr_backend(target: Path) -> dict[str, object]:
     if importlib.util.find_spec("whisper") is None:
-        raise MissingDependencyError(
-            "Media transcription requires: pip install openai-whisper (and ffmpeg on PATH)."
-        )
+        raise MissingDependencyError("Media transcription requires: pip install openai-whisper (and ffmpeg on PATH).")
     model_name = os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base")
     model = _load_whisper_model(model_name)
     # Pin the language (default English). Without this, Whisper auto-detects per clip

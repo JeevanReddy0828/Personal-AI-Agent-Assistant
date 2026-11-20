@@ -149,8 +149,9 @@ class EmailTool:
         )
 
         try:
-            with imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port, ssl_context=_verified_tls(),
-                                   timeout=MAIL_TIMEOUT) as client:
+            with imaplib.IMAP4_SSL(
+                self.config.imap_host, self.config.imap_port, ssl_context=_verified_tls(), timeout=MAIL_TIMEOUT
+            ) as client:
                 client.login(self.config.imap_username, self.config.imap_password)
                 client.select(self.config.imap_mailbox, readonly=True)
                 status, payload = client.search(None, *criteria)
@@ -202,7 +203,10 @@ class EmailTool:
         except TokenVaultError as exc:
             return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
         if not token_payload:
-            return ToolResult.failure(f"No stored OAuth token for {normalized}.", hint=f"Run: email oauth exchange {normalized} <authorization-code>")
+            return ToolResult.failure(
+                f"No stored OAuth token for {normalized}.",
+                hint=f"Run: email oauth exchange {normalized} <authorization-code>",
+            )
         access_token = token_payload.get("access_token")
         if not access_token:
             return ToolResult.failure(f"Stored OAuth token for {normalized} has no access token.")
@@ -439,7 +443,10 @@ class EmailTool:
         except TokenVaultError as exc:
             return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
         if not existing:
-            return ToolResult.failure(f"No stored OAuth token for {normalized}.", hint=f"Run: email oauth exchange {normalized} <authorization-code>")
+            return ToolResult.failure(
+                f"No stored OAuth token for {normalized}.",
+                hint=f"Run: email oauth exchange {normalized} <authorization-code>",
+            )
         refresh_token = existing.get("refresh_token")
         if not refresh_token:
             return ToolResult.failure(f"Stored OAuth token for {normalized} does not include a refresh token.")
@@ -496,7 +503,11 @@ class EmailTool:
             )
         )
         removed = self.token_vault.forget(normalized)
-        return ToolResult.success("Removed stored OAuth token." if removed else "No stored OAuth token existed.", provider=normalized, removed=removed)
+        return ToolResult.success(
+            "Removed stored OAuth token." if removed else "No stored OAuth token existed.",
+            provider=normalized,
+            removed=removed,
+        )
 
     @staticmethod
     def _preview(draft: EmailDraft, attachments: list[LoadedAttachment] | None = None) -> str:
@@ -602,14 +613,20 @@ class EmailTool:
             detail = self._api_get_json(self._gmail_get_url(str(message_id)), access_token)
             if detail.ok:
                 summaries.append(self._gmail_summary(detail.data.get("json", {})))
-        return ToolResult.success(f"Found {len(summaries)} Gmail message(s).", provider="gmail", query=query, messages=summaries)
+        return ToolResult.success(
+            f"Found {len(summaries)} Gmail message(s).", provider="gmail", query=query, messages=summaries
+        )
 
     def _search_outlook_api(self, access_token: str, query: str, limit: int) -> ToolResult:
-        payload = self._api_get_json(self._outlook_messages_url(query, limit), access_token, {"Prefer": 'outlook.body-content-type="text"'})
+        payload = self._api_get_json(
+            self._outlook_messages_url(query, limit), access_token, {"Prefer": 'outlook.body-content-type="text"'}
+        )
         if not payload.ok:
             return payload
         messages = [self._outlook_summary(item) for item in payload.data.get("json", {}).get("value", [])]
-        return ToolResult.success(f"Found {len(messages)} Outlook message(s).", provider="outlook", query=query, messages=messages)
+        return ToolResult.success(
+            f"Found {len(messages)} Outlook message(s).", provider="outlook", query=query, messages=messages
+        )
 
     def _load_oauth_access_token(self, provider: str) -> ToolResult:
         try:
@@ -617,7 +634,10 @@ class EmailTool:
         except TokenVaultError as exc:
             return ToolResult.failure(f"Could not load OAuth token securely: {exc}")
         if not token_payload:
-            return ToolResult.failure(f"No stored OAuth token for {provider}.", hint=f"Run: email oauth exchange {provider} <authorization-code>")
+            return ToolResult.failure(
+                f"No stored OAuth token for {provider}.",
+                hint=f"Run: email oauth exchange {provider} <authorization-code>",
+            )
         access_token = token_payload.get("access_token")
         if not access_token:
             return ToolResult.failure(f"Stored OAuth token for {provider} has no access token.")
@@ -654,7 +674,9 @@ class EmailTool:
             with urllib.request.urlopen(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
                 parsed = json.loads(raw) if raw.strip() else {}
-                return ToolResult.success("API request succeeded.", json=parsed, status=getattr(response, "status", None))
+                return ToolResult.success(
+                    "API request succeeded.", json=parsed, status=getattr(response, "status", None)
+                )
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
             return ToolResult.failure(f"API request failed with HTTP {exc.code}.", detail=detail)
@@ -678,7 +700,10 @@ class EmailTool:
             ("metadataHeaders", "Subject"),
             ("metadataHeaders", "Date"),
         ]
-        return f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?" + urllib.parse.urlencode(params)
+        return (
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?"
+            + urllib.parse.urlencode(params)
+        )
 
     @staticmethod
     def _gmail_draft_url() -> str:

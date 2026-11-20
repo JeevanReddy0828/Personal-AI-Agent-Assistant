@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from laptop_agent.failures import record_failure
-from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
-
 import base64
 import ctypes
 import json
@@ -11,6 +8,9 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 
 
 class TokenVaultError(RuntimeError):
@@ -92,8 +92,9 @@ class TokenVault:
         try:
             loaded = read_json_strict(self.path, {})
         except StorageDamaged as exc:
-            raise TokenVaultError("The token vault cannot be read. Reconnect the account to store a fresh "
-                                  "token.") from exc
+            raise TokenVaultError(
+                "The token vault cannot be read. Reconnect the account to store a fresh token."
+            ) from exc
         return {str(key): str(value) for key, value in loaded.items()}
 
     def _readable(self) -> tuple[dict[str, str], bool]:

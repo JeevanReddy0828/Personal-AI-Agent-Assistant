@@ -20,10 +20,11 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import describe, parse_when, spoken_to_digits
-from test_everyday_requests import Everyday
 
 # A fixed Saturday morning, so every expectation is exact.
 NOW = datetime(2026, 9, 26, 6, 12, tzinfo=timezone(timedelta(hours=-5)))
@@ -108,7 +109,7 @@ class VoiceRoutingTests(unittest.TestCase):
             "cancel the last reminder": "reminder delete last",
             "cancel the reminder to call mom": "reminder delete call mom",
             "cancel the vitamins reminder": "reminder delete vitamins",
-            "stop the timer": "reminder stop timer",       # stop: what is going off, never a schedule
+            "stop the timer": "reminder stop timer",  # stop: what is going off, never a schedule
             "turn off my alarm": "reminder stop alarm",
             "mark reminder 1 done": "reminder done 1",
             "snooze": "reminder snooze",
@@ -121,7 +122,7 @@ class VoiceRoutingTests(unittest.TestCase):
             "how much time is left on my timer": "timers",
             "show my timers": "timers",
             "never mind the timer": "reminder delete timer",
-            "never mind the pasta timer": "reminder delete pasta timer",     # found on the live server
+            "never mind the pasta timer": "reminder delete pasta timer",  # found on the live server
             "forget my dentist reminder": "reminder delete dentist",
             "i don't need the alarm anymore": "reminder delete alarm",
             "forget the timer": "reminder delete timer",
@@ -141,9 +142,17 @@ class VoiceRoutingTests(unittest.TestCase):
             self.assertEqual(self.command(text), expected, text)
 
     def test_things_that_only_sound_like_it(self) -> None:
-        for text in ("what is a timer", "alarm clock recommendations", "stop the music", "cancel that",
-                     "never mind", "i don't need the car anymore", "stop reminding me", "delete everything",
-                     "remind me of my wife's birthday"):
+        for text in (
+            "what is a timer",
+            "alarm clock recommendations",
+            "stop the music",
+            "cancel that",
+            "never mind",
+            "i don't need the car anymore",
+            "stop reminding me",
+            "delete everything",
+            "remind me of my wife's birthday",
+        ):
             self.assertFalse(self.command(text).startswith(("timer", "alarm", "reminder")), text)
 
 
@@ -169,7 +178,7 @@ class ReminderConversationTests(unittest.TestCase):
     def test_a_named_timer_keeps_its_name(self) -> None:
         self.assertIn("Pasta timer set for 10 minutes", self.say("set a pasta timer for 10 minutes"))
         (item,) = self.reminders.list()
-        self.assertEqual(item["message"], "Pasta timer (10 minutes)")   # what the card will say
+        self.assertEqual(item["message"], "Pasta timer (10 minutes)")  # what the card will say
 
     def test_an_alarm_is_in_the_morning(self) -> None:
         self.assertIn("Alarm set for", self.say("wake me up at 7"))
@@ -241,8 +250,10 @@ class ReminderConversationTests(unittest.TestCase):
 
     def test_an_alarm_can_repeat(self) -> None:
         # "every weekday at 7" was set once, for tomorrow, and the repeat dropped unsaid.
-        self.assertEqual(self.say("set an alarm for every weekday at 7"),
-                         "Alarm set — weekdays at 07:00. Say \"cancel the alarm\" to stop it.")
+        self.assertEqual(
+            self.say("set an alarm for every weekday at 7"),
+            'Alarm set — weekdays at 07:00. Say "cancel the alarm" to stop it.',
+        )
         self.assertIn("daily at 06:30", self.say("wake me up every day at 6:30"))
         self.assertIn("Repeating: weekdays at 07:00 — Alarm", self.say("when is my next alarm"))
         # The same request twice is one alarm, not two ringing together.
@@ -270,7 +281,7 @@ class ReminderConversationTests(unittest.TestCase):
     def test_cancelling_a_ringing_alarm_keeps_its_schedule(self) -> None:
         # The repeating job was matched first: its schedule was deleted, and it kept ringing.
         self.say("set an alarm for every weekday at 7")
-        self.reminders.add((datetime.now(UTC) - timedelta(seconds=5)).isoformat(), "Alarm")   # this morning's
+        self.reminders.add((datetime.now(UTC) - timedelta(seconds=5)).isoformat(), "Alarm")  # this morning's
         self.assertEqual(self.say("cancel the alarm"), "Stopped: Alarm.")
         self.assertEqual(self.reminders.due(), [])
         self.assertEqual(len(self.everyday.orchestrator.context.scheduler.list_jobs()), 1)
@@ -279,7 +290,7 @@ class ReminderConversationTests(unittest.TestCase):
         self.assertIn("You have no reminders coming up.", self.say("what's my next reminder"))
         self.say("remind me to call mom tomorrow at 6pm")
         self.say("remind me to stretch in 2 hours")
-        self.assertIn(": stretch.", self.say("when is my next reminder"))    # the sooner one
+        self.assertIn(": stretch.", self.say("when is my next reminder"))  # the sooner one
         self.say("set a pasta timer for 10 minutes")
         self.assertRegex(self.say("how much longer"), r"^Pasta timer: \*\*")
         self.assertRegex(self.say("time left"), r"^Pasta timer: \*\*")
@@ -323,8 +334,9 @@ class ReminderConversationTests(unittest.TestCase):
         self.assertIn("Timer set for 1 minute 30 seconds.", self.say("count down 90 seconds"))
         self.assertIn("Timer set for 1 hour 30 minutes.", self.say("set a timer for 1 hour and 30 minutes"))
         self.assertIn("Pasta timer set for 10 minutes.", self.say("set a timer for 10 minutes for the pasta"))
-        self.assertIn("Timer to check the oven set for 5 minutes.",
-                      self.say("set a timer for 5 minutes to check the oven"))
+        self.assertIn(
+            "Timer to check the oven set for 5 minutes.", self.say("set a timer for 5 minutes to check the oven")
+        )
 
     def test_a_timer_needs_a_length_and_a_sane_one(self) -> None:
         self.assertIn("How long should the timer run?", self.say("set a timer"))
@@ -338,7 +350,7 @@ class ReminderConversationTests(unittest.TestCase):
     def test_how_long_is_left(self) -> None:
         self.assertIn("No timer is running", self.say("how much time is left on my timer"))
         self.say("set a pasta timer for 10 minutes")
-        self.say("remind me to call mom at 6pm")                # not a timer, not listed
+        self.say("remind me to call mom at 6pm")  # not a timer, not listed
         left = self.say("how much time is left on my timer")
         self.assertRegex(left, r"^Pasta timer: \*\*(?:10 minutes|9 minutes 5\d seconds)\*\* left \(at ")
         self.assertNotIn("call mom", left)
@@ -359,7 +371,7 @@ class ReminderConversationTests(unittest.TestCase):
         result, ran = self.everyday.say("cancel all my reminders")
         self.assertEqual(ran, "(denied)")
         self.assertIn(("high", "Cancel all 2 reminders"), self.everyday.approvals)
-        self.assertEqual(len(self.reminders.list()), 2)              # refused: nothing removed
+        self.assertEqual(len(self.reminders.list()), 2)  # refused: nothing removed
         self.everyday.orchestrator.context.web.approval_gate._ask = lambda request: True
         self.assertIn("Cancelled all 2 reminders.", self.say("cancel all my reminders"))
         self.assertEqual(self.reminders.list(), [])
@@ -432,8 +444,10 @@ class DeliveryApiTests(unittest.TestCase):
 
     def post(self, payload: dict) -> dict:
         request = urllib.request.Request(
-            self.base + "/api/reminders", data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "X-Jarvis-Token": self.webui._API_TOKEN})
+            self.base + "/api/reminders",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": self.webui._API_TOKEN},
+        )
         return json.loads(urllib.request.urlopen(request, timeout=15).read())
 
     def test_due_and_upcoming_with_the_time_to_the_next(self) -> None:
@@ -470,8 +484,7 @@ class DeliveryApiTests(unittest.TestCase):
         self.assertEqual(deleted["upcoming"], [])
 
     def test_a_bad_request_is_refused(self) -> None:
-        for payload in ({"action": "explode", "id": 1}, {"action": "done", "id": "1"},
-                        {"action": "done", "id": True}):
+        for payload in ({"action": "explode", "id": 1}, {"action": "done", "id": "1"}, {"action": "done", "id": True}):
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 self.post(payload)
             self.assertEqual(caught.exception.code, 400)

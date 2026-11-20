@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import tempfile
-import unittest
-from pathlib import Path
-
 import importlib.util
 import os
 import sys
+import tempfile
 import types
+import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.tools.transcribe as transcribe_module
@@ -101,9 +100,11 @@ class SttEngineSelectionTests(unittest.TestCase):
         # transcription itself.
         os.environ["LAPTOP_AGENT_STT"] = "auto"
         transcribe_module._riva_available = lambda: True
+
         def dead(target):
             self.calls.append("riva")
             raise RuntimeError("no route to host")
+
         transcribe_module._riva_asr_backend = dead
         saved = transcribe_module._vosk_available
         transcribe_module._vosk_available = lambda: True
@@ -130,9 +131,11 @@ class SttEngineSelectionTests(unittest.TestCase):
             raise RpcError("NOT_FOUND: Function not found")
 
         transcribe_module._riva_asr_backend = dead
-        with patch.dict(sys.modules, {"grpc": grpc}), \
-                patch.object(transcribe_module, "_vosk_available", lambda: True), \
-                patch.object(transcribe_module, "record_failure") as record:
+        with (
+            patch.dict(sys.modules, {"grpc": grpc}),
+            patch.object(transcribe_module, "_vosk_available", lambda: True),
+            patch.object(transcribe_module, "record_failure") as record,
+        ):
             transcribe_module._default_asr_backend(Path("clip.wav"))
         self.assertEqual(self.calls, ["riva", "vosk"])
         self.assertEqual(record.call_args[0][0], "transcribe/riva")
@@ -328,23 +331,25 @@ class HostedOcrTests(unittest.TestCase):
         return _parse_regions_to_markdown(_payload(regions))
 
     def test_regions_are_ordered_top_to_bottom_then_left_to_right(self) -> None:
-        out = self.markdown([
-            _region("second", "Text", 0.5),
-            _region("first", "Text", 0.1),
-            _region("third-left", "Text", 0.8, xmin=0.1),
-            _region("third-right", "Text", 0.8, xmin=0.6),
-        ])
-        self.assertEqual(
-            out.split("\n\n"), ["first", "second", "third-left", "third-right"]
+        out = self.markdown(
+            [
+                _region("second", "Text", 0.5),
+                _region("first", "Text", 0.1),
+                _region("third-left", "Text", 0.8, xmin=0.1),
+                _region("third-right", "Text", 0.8, xmin=0.6),
+            ]
         )
+        self.assertEqual(out.split("\n\n"), ["first", "second", "third-left", "third-right"])
 
     def test_region_types_become_markdown(self) -> None:
-        out = self.markdown([
-            _region("The title", "Title", 0.1),
-            _region("A section", "Section-header", 0.2),
-            _region("a bullet", "List-item", 0.3),
-            _region("plain words", "Text", 0.4),
-        ])
+        out = self.markdown(
+            [
+                _region("The title", "Title", 0.1),
+                _region("A section", "Section-header", 0.2),
+                _region("a bullet", "List-item", 0.3),
+                _region("plain words", "Text", 0.4),
+            ]
+        )
         self.assertIn("# The title", out)
         self.assertIn("## A section", out)
         self.assertIn("- a bullet", out)
@@ -354,12 +359,14 @@ class HostedOcrTests(unittest.TestCase):
         # Measured: a screenshot of this app's own home view returned 37 caption
         # regions for 2 pictures, one reading "Figure 1: The S-color image of the
         # alpha-ray diffraction pattern..." — fabricated from training data.
-        out = self.markdown([
-            _region("Real body text", "Text", 0.2),
-            _region("Figure 1: The S-color image of the alpha-ray pattern.", "Caption", 0.3),
-            _region("J.A.R.V.I.S YOUR LOCAL ASSISTANT", "Page-header", 0.01),
-            _region("READY", "Page-footer", 0.99),
-        ])
+        out = self.markdown(
+            [
+                _region("Real body text", "Text", 0.2),
+                _region("Figure 1: The S-color image of the alpha-ray pattern.", "Caption", 0.3),
+                _region("J.A.R.V.I.S YOUR LOCAL ASSISTANT", "Page-header", 0.01),
+                _region("READY", "Page-footer", 0.99),
+            ]
+        )
         self.assertEqual(out, "Real body text")
 
     def test_a_response_without_tool_calls_falls_back_to_content(self) -> None:
@@ -374,9 +381,14 @@ class HostedOcrTests(unittest.TestCase):
         from laptop_agent.tools.transcribe import _parse_regions_to_markdown
 
         broken = {
-            "choices": [{"message": {"content": None, "tool_calls": [
-                {"function": {"name": "markdown_bbox", "arguments": "{not json"}}
-            ]}}]
+            "choices": [
+                {
+                    "message": {
+                        "content": None,
+                        "tool_calls": [{"function": {"name": "markdown_bbox", "arguments": "{not json"}}],
+                    }
+                }
+            ]
         }
         self.assertEqual(_parse_regions_to_markdown(broken), "")
 
@@ -444,8 +456,9 @@ class OcrEngineSelectionTests(unittest.TestCase):
         try:
             os.environ["LAPTOP_AGENT_OCR"] = "tesseract"
             self.assertEqual(self.module._default_ocr_backend(Path("x.png")), "local text")
-            self.assertEqual(self.module.ocr_engine_name(), "tesseract"
-                             if importlib.util.find_spec("pytesseract") else None)
+            self.assertEqual(
+                self.module.ocr_engine_name(), "tesseract" if importlib.util.find_spec("pytesseract") else None
+            )
             os.environ["LAPTOP_AGENT_OCR"] = "parse"
             self.assertEqual(self.module.ocr_engine_name(), "nemotron-parse")
         finally:

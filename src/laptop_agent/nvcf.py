@@ -10,6 +10,7 @@ the newest ACTIVE function with the model's exact name, and the call is retried 
 Agreed with Codex (pair log, 2026-10-06): an id the user set is never replaced, and a lookup
 that cannot run - a key without list scope answers 403 - keeps the original failure and says
 what to set, without trying again for `LOOKUP_EVERY` seconds."""
+
 from __future__ import annotations
 
 import json
@@ -47,8 +48,7 @@ def _list_functions(key: str) -> list[dict]:
         return list(json.loads(response.read().decode("utf-8")).get("functions") or [])
 
 
-def _list_with_deadline(key: str, deadline: float | None,
-                        check_cancelled: Callable[[], None] | None) -> list[dict]:
+def _list_with_deadline(key: str, deadline: float | None, check_cancelled: Callable[[], None] | None) -> list[dict]:
     if deadline is None:
         return _list_functions(key)
     if check_cancelled is not None:
@@ -120,8 +120,9 @@ def describe(error: BaseException, service: str) -> str | None:
     return f"{service} {what} ({code}); {advice}."
 
 
-def _lookup(name: str, key: str, deadline: float | None = None,
-            check_cancelled: Callable[[], None] | None = None) -> str | None:
+def _lookup(
+    name: str, key: str, deadline: float | None = None, check_cancelled: Callable[[], None] | None = None
+) -> str | None:
     now = time.monotonic()
     with _lock:
         last = _looked.get(name)
@@ -142,17 +143,25 @@ def _lookup(name: str, key: str, deadline: float | None = None,
         with _lock:
             _looked.pop(name, None)
         raise
-    active = [item for item in functions
-              if item.get("name") == name and item.get("status") == "ACTIVE" and item.get("id")]
+    active = [
+        item for item in functions if item.get("name") == name and item.get("status") == "ACTIVE" and item.get("id")
+    ]
     if not active:
         record_failure("nvcf/lookup", LookupError(f"no ACTIVE function is named {name}"))
         return None
     return str(max(active, key=lambda item: str(item.get("createdAt") or ""))["id"])
 
 
-def call(name: str, pinned: str, variable: str, key: str, attempt: Callable[[str], T],
-         *, deadline: float | None = None,
-         check_cancelled: Callable[[], None] | None = None) -> T:
+def call(
+    name: str,
+    pinned: str,
+    variable: str,
+    key: str,
+    attempt: Callable[[str], T],
+    *,
+    deadline: float | None = None,
+    check_cancelled: Callable[[], None] | None = None,
+) -> T:
     """`attempt(function_id)`, with one retry on a current id if the one used has gone."""
     override = os.environ.get(variable, "").strip()
     if override:

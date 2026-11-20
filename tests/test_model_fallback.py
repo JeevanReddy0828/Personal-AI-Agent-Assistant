@@ -23,7 +23,11 @@ import urllib.error
 from pathlib import Path
 
 from laptop_agent.model_status import (
-    BROKEN, BROKEN_COOLDOWN, DEGRADED, DEGRADED_COOLDOWN, ModelStatus,
+    BROKEN,
+    BROKEN_COOLDOWN,
+    DEGRADED,
+    DEGRADED_COOLDOWN,
+    ModelStatus,
 )
 from laptop_agent.planner.core import PlanDecision, Planner
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider, classify_failure
@@ -43,8 +47,7 @@ class ClassifyTests(unittest.TestCase):
                 kind, detail = classify_failure(http(code), "nvidia/some-model")
                 self.assertEqual(kind, BROKEN, f"HTTP {code} was treated as transient")
                 self.assertIn(str(code), detail)
-                self.assertIn("nvidia/some-model", detail,
-                              "the advice does not name the model to change")
+                self.assertIn("nvidia/some-model", detail, "the advice does not name the model to change")
 
     def test_a_loaded_tier_is_only_degraded(self) -> None:
         for code in self.TRANSIENT:
@@ -106,9 +109,9 @@ class ProviderReportsWhyTests(unittest.TestCase):
             with self.subTest(code):
                 seen: list[tuple[str, str]] = []
                 provider = OpenAICompatiblePlannerProvider(
-                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c)))
-                self.assertIsNone(
-                    provider.answer("hi", {}, on_failure=lambda k, d: seen.append((k, d))))
+                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c))
+                )
+                self.assertIsNone(provider.answer("hi", {}, on_failure=lambda k, d: seen.append((k, d))))
                 self.assertEqual(seen[0][0], expected)
 
     def test_ping_reports_the_reason(self) -> None:
@@ -116,7 +119,8 @@ class ProviderReportsWhyTests(unittest.TestCase):
             with self.subTest(code):
                 seen: list[tuple[str, str]] = []
                 provider = OpenAICompatiblePlannerProvider(
-                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c)))
+                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c))
+                )
                 self.assertFalse(provider.ping(on_failure=lambda k, d: seen.append((k, d))))
                 self.assertEqual(seen[0][0], expected)
 
@@ -124,7 +128,8 @@ class ProviderReportsWhyTests(unittest.TestCase):
         for error, expected in ((http(410), BROKEN), (http(503), DEGRADED), (TimeoutError(), DEGRADED)):
             with self.subTest(type(error).__name__, code=getattr(error, "code", None)):
                 provider = OpenAICompatiblePlannerProvider(
-                    "k", "m", transport=lambda payload, e=error: (_ for _ in ()).throw(e))
+                    "k", "m", transport=lambda payload, e=error: (_ for _ in ()).throw(e)
+                )
                 decision = provider.plan("hi", "", {})
                 self.assertEqual(decision.confidence, 0.0)
                 self.assertEqual(decision.failure[0], expected)
@@ -132,8 +137,7 @@ class ProviderReportsWhyTests(unittest.TestCase):
     def test_a_caller_that_passes_no_sink_is_unaffected(self) -> None:
         """Every existing caller — the advisor, the document tool, the copilot — calls
         answer() with no sink and must behave exactly as before."""
-        provider = OpenAICompatiblePlannerProvider(
-            "k", "m", transport=lambda payload: (_ for _ in ()).throw(http(410)))
+        provider = OpenAICompatiblePlannerProvider("k", "m", transport=lambda payload: (_ for _ in ()).throw(http(410)))
         self.assertIsNone(provider.answer("hi", {}))
 
 
@@ -143,8 +147,10 @@ class LadderTests(unittest.TestCase):
 
     def build(self, root: Path):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_orchestrator import OrchestratorTests
+
         return OrchestratorTests("test_reminder_flow").build(root)
 
     def orchestrator_with_smart(self, root: Path, smart):
@@ -154,8 +160,7 @@ class LadderTests(unittest.TestCase):
 
         class FastRouting:
             def plan(self, text, available_commands, memory_profile, history=None):
-                return PlanDecision(action="chat", confidence=0.5, explanation="",
-                                    response="fast routed answer")
+                return PlanDecision(action="chat", confidence=0.5, explanation="", response="fast routed answer")
 
         orchestrator = self.build(root)
         orchestrator.router = Planner(LowConfRouter())
@@ -199,6 +204,7 @@ class LadderTests(unittest.TestCase):
         """The failed routing call is all such a turn learns about the fast tier, and it
         was recorded without its reason: a retired model id read as busy, retried after
         60s instead of 900."""
+
         class LowConfRouter:
             def plan(self, text, available_commands, memory_profile, history=None):
                 return PlanDecision(action="chat", confidence=0.0, explanation="", response=None)
@@ -207,8 +213,11 @@ class LadderTests(unittest.TestCase):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as raw:
                 orchestrator = self.build(Path(raw))
                 orchestrator.router = Planner(LowConfRouter())
-                orchestrator.planner = Planner(OpenAICompatiblePlannerProvider(
-                    "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c))))
+                orchestrator.planner = Planner(
+                    OpenAICompatiblePlannerProvider(
+                        "k", "m", transport=lambda payload, c=code: (_ for _ in ()).throw(http(c))
+                    )
+                )
                 orchestrator.smart_planner = orchestrator.ultra_planner = orchestrator.fallback_planner = None
                 asyncio.run(orchestrator.handle(self.ASK))
                 self.assertEqual(orchestrator.model_status.status("fast"), state)
@@ -216,6 +225,7 @@ class LadderTests(unittest.TestCase):
     def test_a_silent_tier_is_still_only_degraded(self) -> None:
         """A provider that reports nothing (an older one, or a test double) must not be
         promoted to "broken" on a guess."""
+
         class SilentSmart:
             def answer(self, text, profile, model=None, history=None):
                 return None
@@ -229,20 +239,24 @@ class LadderTests(unittest.TestCase):
 class HealthTests(unittest.TestCase):
     def test_health_names_the_broken_tier_and_what_to_change(self) -> None:
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_health import _config, _orchestrator
+
         from laptop_agent.health import system_health
 
         orchestrator = _orchestrator("OpenAICompatiblePlannerProvider", True)
         orchestrator.model_status = ModelStatus()
         orchestrator.model_status.record(
-            "ultra", False, reason=BROKEN,
-            detail="that model id has been retired by the provider (nvidia/ultra) - HTTP 410")
+            "ultra",
+            False,
+            reason=BROKEN,
+            detail="that model id has been retired by the provider (nvidia/ultra) - HTTP 410",
+        )
         report = system_health(orchestrator, True, _config())
         self.assertEqual(report["llm"]["broken_tiers"], ["ultra"])
         self.assertIn("retired", report["llm"]["tier_reasons"]["ultra"])
         self.assertTrue(report["llm"]["degraded_tier"], "a broken tier is also degraded")
-
 
 
 class PersistenceTests(unittest.TestCase):
@@ -284,26 +298,31 @@ class PersistenceTests(unittest.TestCase):
         clock and the remaining wait is reconstructed from it."""
         with tempfile.TemporaryDirectory() as raw:
             path = self.store(raw)
-            path.write_text(json.dumps({"broken": {
-                "ultra": {"at": time.time() - 10, "reason": "retired"}}}), encoding="utf-8")
-            self.assertFalse(ModelStatus(path).should_attempt("ultra"),
-                             "a tier broken 10s ago was retried immediately after a restart")
+            path.write_text(
+                json.dumps({"broken": {"ultra": {"at": time.time() - 10, "reason": "retired"}}}), encoding="utf-8"
+            )
+            self.assertFalse(
+                ModelStatus(path).should_attempt("ultra"),
+                "a tier broken 10s ago was retried immediately after a restart",
+            )
 
     def test_an_expired_cooldown_is_retried_after_a_restart(self) -> None:
         """The knowledge persists; the blocking does not outlive its cooldown. A key fixed
         while the app was closed has to get a chance to prove itself."""
         with tempfile.TemporaryDirectory() as raw:
             path = self.store(raw)
-            path.write_text(json.dumps({"broken": {
-                "ultra": {"at": time.time() - (BROKEN_COOLDOWN + 60), "reason": "retired"}}}),
-                encoding="utf-8")
+            path.write_text(
+                json.dumps({"broken": {"ultra": {"at": time.time() - (BROKEN_COOLDOWN + 60), "reason": "retired"}}}),
+                encoding="utf-8",
+            )
             self.assertTrue(ModelStatus(path).should_attempt("ultra"))
 
     def test_a_clock_that_moved_backwards_does_not_block_forever(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             path = self.store(raw)
-            path.write_text(json.dumps({"broken": {
-                "ultra": {"at": time.time() + 86400, "reason": "retired"}}}), encoding="utf-8")
+            path.write_text(
+                json.dumps({"broken": {"ultra": {"at": time.time() + 86400, "reason": "retired"}}}), encoding="utf-8"
+            )
             status = ModelStatus(path)
             self.assertTrue(status.should_attempt("ultra", cooldown_seconds=0))
 
@@ -333,10 +352,8 @@ class PersistenceTests(unittest.TestCase):
             status.record("ultra", False, reason=BROKEN, detail="retired again")
 
             stored = json.loads(path.read_text(encoding="utf-8"))["broken"]["ultra"]["at"]
-            self.assertLess(time.time() - stored, BROKEN_COOLDOWN,
-                            "the second break kept the first one's timestamp")
-            self.assertFalse(status.should_attempt("ultra"),
-                             "a freshly broken tier is being retried immediately")
+            self.assertLess(time.time() - stored, BROKEN_COOLDOWN, "the second break kept the first one's timestamp")
+            self.assertFalse(status.should_attempt("ultra"), "a freshly broken tier is being retried immediately")
 
     def test_an_ordinary_turn_does_not_touch_the_disk(self) -> None:
         """Only a change to the broken set is written, so a healthy chat turn costs no IO."""
@@ -354,8 +371,7 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mtime_ns, stamp, "an unchanged state was rewritten")
 
     def test_a_corrupt_file_does_not_take_the_app_down(self) -> None:
-        for bad in ("not json at all", '{"broken": "wrong shape"}',
-                    '{"broken": {"ultra": {"at": "soon"}}}', "{}"):
+        for bad in ("not json at all", '{"broken": "wrong shape"}', '{"broken": {"ultra": {"at": "soon"}}}', "{}"):
             with self.subTest(bad):
                 with tempfile.TemporaryDirectory() as raw:
                     path = self.store(raw)
@@ -368,6 +384,7 @@ class PersistenceTests(unittest.TestCase):
         status.record("ultra", False, reason=BROKEN, detail="retired")
         self.assertEqual(status.status("ultra"), BROKEN)
         self.assertIsNone(status.path)
+
 
 if __name__ == "__main__":
     unittest.main()

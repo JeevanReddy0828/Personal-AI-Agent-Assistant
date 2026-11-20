@@ -4,6 +4,7 @@ Asserted as boxes, not attributes. ERRORS.md records a meter that passed its tes
 three months while rendering nothing, because the test read `hidden` on an element inside
 a `display:none` parent.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,7 +27,9 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
 
-        cls.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []})
+        cls.metrics_patch = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}
+        )
         cls.metrics_patch.start()
         cls._tmp = tempfile.TemporaryDirectory()
         cls._original = webui._orchestrator.context.reminders
@@ -51,7 +54,9 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         object.__setattr__(webui._orchestrator.context, "reminders", self.store)
         self.addCleanup(lambda: object.__setattr__(webui._orchestrator.context, "reminders", self._original))
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
-        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         self.page = self.context.new_page()
         self.errors: list[str] = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -129,9 +134,12 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         self.assertIn("stretch", lines[0])
         box = self.page.locator(".apcard").bounding_box()
         self.assertLessEqual(box["x"] + box["width"], 391)
-        self.assertTrue(self.page.evaluate(
-            "(() => { const p = document.querySelector('.apcard .appre'); return p.scrollWidth <= p.clientWidth + 1; })()"),
-            "a long reminder scrolls sideways inside the card")
+        self.assertTrue(
+            self.page.evaluate(
+                "(() => { const p = document.querySelector('.apcard .appre'); return p.scrollWidth <= p.clientWidth + 1; })()"
+            ),
+            "a long reminder scrolls sideways inside the card",
+        )
         self.page.get_by_role("button", name="Deny").click()
         self.page.wait_for_function("() => !document.querySelector('.apcard')", timeout=6000)
         self.assertEqual(len(self.store.list()), 2, "denied, so nothing is removed")
@@ -144,7 +152,8 @@ class ReminderDeliveryInTheBrowser(unittest.TestCase):
         # A box, not a class: a card is on screen only if it has a height.
         return self.page.evaluate(
             "() => [...document.querySelectorAll('#remtray [data-rem]')]"
-            ".filter(card => card.getBoundingClientRect().height > 0).length")
+            ".filter(card => card.getBoundingClientRect().height > 0).length"
+        )
 
     def test_many_due_reminders_show_a_few_and_count_the_rest(self):
         # Five due at once covered the screen, settings included, and each was dismissed alone.

@@ -38,12 +38,14 @@ class RoutingContractTests(unittest.TestCase):
         shipped broken; dropping one from the table to make a change pass would quietly
         remove the only thing that would catch it happening again."""
         phrases = {phrase for phrase, _expected, _why in ROUTING_CONTRACT}
-        for required in ("do i have any reminders",
-                         "what reminders do i have",
-                         "can you show me my reminders",
-                         "remind me to pay the bill due friday",
-                         "whatsapp on the left and chrome on the right",
-                         "notepad on the top left and spotify on the bottom right"):
+        for required in (
+            "do i have any reminders",
+            "what reminders do i have",
+            "can you show me my reminders",
+            "remind me to pay the bill due friday",
+            "whatsapp on the left and chrome on the right",
+            "notepad on the top left and spotify on the bottom right",
+        ):
             self.assertIn(required, phrases, f"{required!r} was dropped from the contract")
         prose = {phrase for phrase, _why in MUST_STAY_CHAT}
         self.assertIn("the value is in the middle and the key is on the left", prose)
@@ -65,8 +67,7 @@ class SelfcheckDetectsBreakageTests(unittest.TestCase):
 
         checks = check_routing(DeafRouter())
         self.assertTrue(checks, "the contract is empty")
-        self.assertTrue(all(not check.ok for check in checks),
-                        "a router that answers nothing was reported as healthy")
+        self.assertTrue(all(not check.ok for check in checks), "a router that answers nothing was reported as healthy")
         self.assertIn("expected", checks[0].detail)
 
     def test_a_greedy_router_is_reported_as_a_failure(self) -> None:
@@ -75,8 +76,9 @@ class SelfcheckDetectsBreakageTests(unittest.TestCase):
                 return type("D", (), {"command": "window everything"})()
 
         checks = check_not_grabbed(GreedyRouter())
-        self.assertTrue(all(not check.ok for check in checks),
-                        "a router that grabs ordinary prose was reported as healthy")
+        self.assertTrue(
+            all(not check.ok for check in checks), "a router that grabs ordinary prose was reported as healthy"
+        )
         self.assertIn("grabbed by", checks[0].detail)
 
     def test_the_verdict_counts_the_failures_rather_than_hiding_them(self) -> None:

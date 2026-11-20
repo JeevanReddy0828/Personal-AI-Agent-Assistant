@@ -14,9 +14,9 @@ import json
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.failures import record_failure
 from laptop_agent.storage import StorageDamaged, atomic_write_text, file_lock, read_json_strict
@@ -71,9 +71,13 @@ class SessionStore:
             raw_sessions = {}
         for digest, raw in raw_sessions.items():
             try:
-                loaded[str(digest)] = Session(str(raw["account_id"]), float(raw["created"]),
-                                              float(raw["seen"]), str(raw.get("method", "")),
-                                              int(raw.get("epoch", 0)))
+                loaded[str(digest)] = Session(
+                    str(raw["account_id"]),
+                    float(raw["created"]),
+                    float(raw["seen"]),
+                    str(raw.get("method", "")),
+                    int(raw.get("epoch", 0)),
+                )
             except (KeyError, TypeError, ValueError):
                 continue
         self._sessions = loaded
@@ -84,11 +88,12 @@ class SessionStore:
 
     def _save(self) -> None:
         now = self.clock()
-        self._sessions = {digest: session for digest, session in self._sessions.items()
-                          if self._alive(session, now)}
-        atomic_write_text(self.path, json.dumps(
-            {"sessions": {digest: asdict(session) for digest, session in self._sessions.items()}}, indent=2),
-            backup=False)
+        self._sessions = {digest: session for digest, session in self._sessions.items() if self._alive(session, now)}
+        atomic_write_text(
+            self.path,
+            json.dumps({"sessions": {digest: asdict(session) for digest, session in self._sessions.items()}}, indent=2),
+            backup=False,
+        )
         stat = self.path.stat()
         self._stamp = (stat.st_mtime_ns, stat.st_size)
 
@@ -144,8 +149,11 @@ class SessionStore:
         kept = _digest(keep) if keep else None
         with self._lock, file_lock(self.path):
             self._refresh()
-            doomed = [digest for digest, session in self._sessions.items()
-                      if session.account_id == account_id and digest != kept]
+            doomed = [
+                digest
+                for digest, session in self._sessions.items()
+                if session.account_id == account_id and digest != kept
+            ]
             for digest in doomed:
                 del self._sessions[digest]
             if doomed:

@@ -7,6 +7,7 @@ in Windows' z-order) - and says which it used. Only the named shortcuts in `ACTI
 an arbitrary chord from the words. Read/navigation shortcuts are MEDIUM; typing, paste, save,
 and shortcuts that can lose work ask first (HIGH).
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -19,10 +20,30 @@ from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.windows import DesktopWindow
 
-VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "enter": 0x0D, "esc": 0x1B,
-      "space": 0x20, "pageup": 0x21, "pagedown": 0x22, "end": 0x23, "home": 0x24, "left": 0x25, "up": 0x26,
-      "right": 0x27, "down": 0x28, "f4": 0x73, "f5": 0x75, "plus": 0xBB, "minus": 0xBD,
-      **{letter: ord(letter.upper()) for letter in "acdstvwyz"}, "0": 0x30}
+VK = {
+    "ctrl": 0x11,
+    "shift": 0x10,
+    "alt": 0x12,
+    "win": 0x5B,
+    "tab": 0x09,
+    "enter": 0x0D,
+    "esc": 0x1B,
+    "space": 0x20,
+    "pageup": 0x21,
+    "pagedown": 0x22,
+    "end": 0x23,
+    "home": 0x24,
+    "left": 0x25,
+    "up": 0x26,
+    "right": 0x27,
+    "down": 0x28,
+    "f4": 0x73,
+    "f5": 0x75,
+    "plus": 0xBB,
+    "minus": 0xBD,
+    **{letter: ord(letter.upper()) for letter in "acdstvwyz"},
+    "0": 0x30,
+}
 # name -> (keys, what it does, risk)
 ACTIONS: dict[str, tuple[tuple[str, ...], str, RiskLevel]] = {
     "new tab": (("ctrl", "t"), "open a new tab", RiskLevel.MEDIUM),
@@ -76,7 +97,7 @@ class WindowsKeys:  # pragma: no cover - needs a real desktop
 
     def focus(self, window: DesktopWindow) -> bool:
         if self._user32.IsIconic(window.handle):
-            self._user32.ShowWindow(window.handle, 9)            # SW_RESTORE
+            self._user32.ShowWindow(window.handle, 9)  # SW_RESTORE
         # Windows lets the foreground move only after a key press it saw; a bare Alt is that press.
         self._user32.keybd_event(VK["alt"], 0, 0, 0)
         self._user32.keybd_event(VK["alt"], 0, self._KEYUP, 0)
@@ -92,12 +113,18 @@ class WindowsKeys:  # pragma: no cover - needs a real desktop
 
     def type_text(self, text: str) -> None:
         class KEYBDINPUT(ctypes.Structure):
-            _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong),
-                        ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+            _fields_ = [
+                ("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", ctypes.c_size_t),
+            ]
 
         class INPUT(ctypes.Structure):
             class _U(ctypes.Union):
                 _fields_ = [("ki", KEYBDINPUT), ("pad", ctypes.c_byte * 32)]
+
             _anonymous_ = ("u",)
             _fields_ = [("type", ctypes.c_ulong), ("u", _U)]
 
@@ -123,8 +150,11 @@ class KeysTool:
     def _target(self, app: str) -> tuple[DesktopWindow | None, str]:
         others = [window for window in self._backend.windows() if not _OURS.search(window.title)]
         if app:
-            ranked = sorted((rank, index, window) for index, window in enumerate(others)
-                            if (rank := window.match_rank(app)) is not None)
+            ranked = sorted(
+                (rank, index, window)
+                for index, window in enumerate(others)
+                if (rank := window.match_rank(app)) is not None
+            )
             if not ranked:
                 return None, f"I can't see a window for {app!r}. Is it open?"
             return ranked[0][2], ""
@@ -138,8 +168,14 @@ class KeysTool:
         window, why = self._target(app.strip())
         if window is None:
             return ToolResult.failure(why)
-        self._gate.require(ApprovalRequest(action=f"{describe[0].upper()}{describe[1:]} in {window.title}", risk=risk,
-                                           reason="The keys go to that window as if you pressed them.", preview=preview))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"{describe[0].upper()}{describe[1:]} in {window.title}",
+                risk=risk,
+                reason="The keys go to that window as if you pressed them.",
+                preview=preview,
+            )
+        )
         if not self._backend.focus(window):
             return ToolResult.failure(f"Windows wouldn't bring {window.title} to the front, so nothing was pressed.")
         act()

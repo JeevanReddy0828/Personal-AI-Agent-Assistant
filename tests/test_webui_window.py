@@ -4,7 +4,6 @@ import json
 import threading
 import unittest
 import urllib.request
-
 from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui

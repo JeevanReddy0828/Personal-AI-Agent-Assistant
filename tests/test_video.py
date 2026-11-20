@@ -3,6 +3,7 @@
 Nothing here touches the network or needs ffmpeg: the transport, the converter and the
 approval gate are all injected.
 """
+
 from __future__ import annotations
 
 import base64
@@ -12,12 +13,13 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.app import _build_video_planner
 from laptop_agent.planner.core import Planner
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 from laptop_agent.safety import ApprovalDenied, RiskLevel
 from laptop_agent.tools.video import MAX_VIDEO_BYTES, prepare_clip
-import test_orchestrator
 
 CLIP = b"\x00\x00\x00\x18ftypmp42" + b"x" * 100
 
@@ -32,7 +34,8 @@ class ProviderTests(unittest.TestCase):
     def test_the_clip_goes_inline_as_a_video_part(self) -> None:
         sent: list[dict] = []
         provider = OpenAICompatiblePlannerProvider(
-            "k", "vid-model", transport=lambda payload: sent.append(payload) or "A red screen, then blue.")
+            "k", "vid-model", transport=lambda payload: sent.append(payload) or "A red screen, then blue."
+        )
         with tempfile.TemporaryDirectory() as raw:
             answer = provider.describe_video(str(_clip(Path(raw))), "what colours?")
         self.assertEqual(answer, "A red screen, then blue.")
@@ -166,7 +169,7 @@ class DescribeVideoCommandTests(unittest.TestCase):
         self.assertIn("did not answer", self.run_command(str(self.clip)).message)
         self.orchestrator.video_planner = None
         self.assertIn("OPENAI_VIDEO_MODEL", self.run_command(str(self.clip)).message)
-        self.assertEqual(self.questions, [self.questions[0]])   # only the one that was answered with None
+        self.assertEqual(self.questions, [self.questions[0]])  # only the one that was answered with None
 
 
 class ConfigTests(unittest.TestCase):

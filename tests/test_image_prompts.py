@@ -14,10 +14,10 @@ import time
 import unittest
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.planner import Planner
 from laptop_agent.tools.imagegen import ImageTool
-
-import test_orchestrator
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 REWRITE = "A tall glass mojito with crushed ice, mint and lime, a small white knot-shaped logo on the rim"

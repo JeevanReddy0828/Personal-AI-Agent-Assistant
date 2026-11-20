@@ -77,4 +77,6 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
 6. **Never commit secrets.** `.env` is gitignored. Scan staged diffs for
    `nvapi-` (and the Gmail app password) before every push.
 7. **Match the surrounding style.** Concise comments, full type hints,
-   `from __future__ import annotations`.
+   `from __future__ import annotations`. Layout is `ruff format` at 120 columns
+   (adopted 2026-11-20); CI fails a file it would reformat, so run `ruff format src tests`
+   before pushing.

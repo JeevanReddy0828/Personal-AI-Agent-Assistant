@@ -13,8 +13,9 @@ import secrets
 from laptop_agent.tools.base import ToolResult
 
 _POLITE = r"^\s*(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)?"
-_COIN = re.compile(_POLITE + r"(?:(?:flip|toss)\s+(?:a|one)\s+coin|heads\s+or\s+tails)(?:\s+for\s+me)?\s*[?.!]*$",
-                   re.IGNORECASE)
+_COIN = re.compile(
+    _POLITE + r"(?:(?:flip|toss)\s+(?:a|one)\s+coin|heads\s+or\s+tails)(?:\s+for\s+me)?\s*[?.!]*$", re.IGNORECASE
+)
 # Any length of number is matched and then refused by size: a pattern that stopped at two
 # digits sent "roll 99999999999999999999 dice" to a chat model to invent a roll.
 _DICE = re.compile(
@@ -24,7 +25,8 @@ _DICE = re.compile(
 )
 _PICK = re.compile(
     # "random number between 5 and 10" is asked without a verb as often as with one.
-    _POLITE + r"(?:(?:pick|choose|give\s+me|generate|think\s+of)\s+(?:me\s+)?a\s+(?:random\s+)?|(?:a\s+)?random\s+)number"
+    _POLITE
+    + r"(?:(?:pick|choose|give\s+me|generate|think\s+of)\s+(?:me\s+)?a\s+(?:random\s+)?|(?:a\s+)?random\s+)number"
     r"(?:\s+(?:between|from)\s+(?P<low>-?\d+)\s+(?:and|to|-)\s+(?P<high>-?\d+))?\s*[?.!]*$",
     re.IGNORECASE,
 )
@@ -51,8 +53,9 @@ def draw(text: str) -> ToolResult | None:
         if count == 1:
             article = "an" if str(rolls[0]).startswith("8") or rolls[0] in (11, 18) else "a"
             return ToolResult.success(f"You rolled {article} **{rolls[0]}**.", kind="dice", rolls=rolls)
-        return ToolResult.success(f"You rolled {', '.join(map(str, rolls))} — **{sum(rolls)}** in total.",
-                                  kind="dice", rolls=rolls)
+        return ToolResult.success(
+            f"You rolled {', '.join(map(str, rolls))} — **{sum(rolls)}** in total.", kind="dice", rolls=rolls
+        )
     pick = _PICK.match(text or "")
     if pick:
         if any(len(bound.lstrip("-")) > 18 for bound in (pick.group("low") or "", pick.group("high") or "")):

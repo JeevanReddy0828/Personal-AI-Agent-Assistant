@@ -23,15 +23,20 @@ DRIVERS_USAGE = "what drives <column> in <file.csv> [using <column>, <column>] [
 ANOMALIES_USAGE = "anomalies in <column> in <file.csv> [by <label column>]"
 
 _FILE = r"(?P<path>\"[^\"]+\.(?:csv|tsv)\"|\S.*?\.(?:csv|tsv))(?P<rest>(?:\s.*)?)"
-_DRIVERS = re.compile(r"(?:what\s+drives|drivers\s+of)\s+(?P<column>.+?)\s+(?:in|from)\s+" + _FILE,
-                      re.IGNORECASE | re.DOTALL)
-_ANOMALIES = re.compile(r"(?:anomalies|outliers|unusual\s+values)\s+(?:in|of)\s+(?P<column>.+?)\s+(?:in|from)\s+"
-                        + _FILE, re.IGNORECASE | re.DOTALL)
+_DRIVERS = re.compile(
+    r"(?:what\s+drives|drivers\s+of)\s+(?P<column>.+?)\s+(?:in|from)\s+" + _FILE, re.IGNORECASE | re.DOTALL
+)
+_ANOMALIES = re.compile(
+    r"(?:anomalies|outliers|unusual\s+values)\s+(?:in|of)\s+(?P<column>.+?)\s+(?:in|from)\s+" + _FILE,
+    re.IGNORECASE | re.DOTALL,
+)
 _DRIVERS_ASK = re.compile(r"\s*(?:what\s+drives|drivers\s+of)\b", re.IGNORECASE)
 # A sentence that starts like one of these and names a table is ours whether or not it parses,
 # as with `forecast`: unparsed, it would go on to be answered as something else.
-_NAMES_TABLE = re.compile(r"\s*(?:what\s+drives|drivers\s+of|anomalies|outliers|unusual\s+values)\b.*\.(?:csv|tsv)\b",
-                          re.IGNORECASE | re.DOTALL)
+_NAMES_TABLE = re.compile(
+    r"\s*(?:what\s+drives|drivers\s+of|anomalies|outliers|unusual\s+values)\b.*\.(?:csv|tsv)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _CLAUSE = re.compile(r"\s+(by|using)\s+", re.IGNORECASE)
 
 
@@ -39,7 +44,7 @@ _CLAUSE = re.compile(r"\s+(by|using)\s+", re.IGNORECASE)
 class DriversRequest:
     target: str
     path: str
-    features: tuple[str, ...]   # none named: every other column that is all numbers
+    features: tuple[str, ...]  # none named: every other column that is all numbers
     order_by: str | None
 
 
@@ -56,7 +61,7 @@ def _clauses(rest: str, allowed: set[str]) -> dict[str, str] | None:
     if parts[0].strip():
         return None
     found: dict[str, str] = {}
-    for keyword, value in zip(parts[1::2], parts[2::2]):
+    for keyword, value in zip(parts[1::2], parts[2::2], strict=False):
         keyword = keyword.lower()
         if keyword not in allowed or keyword in found or not value.strip():
             return None
@@ -70,10 +75,13 @@ def diagnostics_request(command: str) -> DriversRequest | AnomaliesRequest | Non
     if (match := _DRIVERS.fullmatch(text)) is not None:
         if (clauses := _clauses(match["rest"], {"by", "using"})) is None:
             return None
-        named = tuple(name.strip() for name in re.split(r",|\s+and\s+", clauses.get("using", ""), flags=re.IGNORECASE)
-                      if name.strip())
+        named = tuple(
+            name.strip()
+            for name in re.split(r",|\s+and\s+", clauses.get("using", ""), flags=re.IGNORECASE)
+            if name.strip()
+        )
         if "using" in clauses and not named:
-            return None   # asked for chosen features and named none: never quietly all of them
+            return None  # asked for chosen features and named none: never quietly all of them
         return DriversRequest(match["column"].strip(), match["path"].strip('"'), named, clauses.get("by"))
     if (match := _ANOMALIES.fullmatch(text)) is not None:
         if (clauses := _clauses(match["rest"], {"by"})) is None:
@@ -117,8 +125,9 @@ def _order(header: list[str], body: list[list[str]], at: int) -> list[int]:
     for line, row in enumerate(body, start=2):
         cell = row[at] if at < len(row) else ""
         if (day := _date(cell)) is None:
-            raise SeriesError(f"Row {line}: '{cell.strip()}' in {header[at]} is not a date I can read "
-                              "(try 2025-03-14 or 2025-03).")
+            raise SeriesError(
+                f"Row {line}: '{cell.strip()}' in {header[at]} is not a date I can read (try 2025-03-14 or 2025-03)."
+            )
         days.append(day)
     return sorted(range(len(body)), key=days.__getitem__)
 
@@ -139,28 +148,45 @@ def run_drivers(request: DriversRequest) -> ToolResult:
         rows = _order(header, body, order_at) if order_at is not None else list(range(len(body)))
         target = _numbers(header, body, target_at)
         columns = [_numbers(header, body, at) for at in feature_at]
-        result = drivers([[column[i] for column in columns] for i in rows], [target[i] for i in rows],
-                         feature_names=[header[at] for at in feature_at])
-    except ValueError as exc:   # SeriesError, or one of the core's own input limits
+        result = drivers(
+            [[column[i] for column in columns] for i in rows],
+            [target[i] for i in rows],
+            feature_names=[header[at] for at in feature_at],
+        )
+    except ValueError as exc:  # SeriesError, or one of the core's own input limits
         return ToolResult.failure(str(exc))
     target_name, name = header[target_at], Path(request.path).name
     if not result.enough_data:
         # No coefficient is shown at all: the core could not fit and score one.
-        return ToolResult.failure(f"I can't say what moves with {target_name} in {name} yet: {result.reason}.",
-                                  drivers=asdict(result))
+        return ToolResult.failure(
+            f"I can't say what moves with {target_name} in {name} yet: {result.reason}.", drivers=asdict(result)
+        )
     strongest = sorted(range(len(result.feature_names)), key=lambda j: -abs(result.standardized_coefficients[j]))
-    lines = [f"**What moves with {target_name}** (from {name}: fitted on the first {result.train_rows} rows, "
-             f"scored on the last {result.test_rows})", ""]
+    lines = [
+        f"**What moves with {target_name}** (from {name}: fitted on the first {result.train_rows} rows, "
+        f"scored on the last {result.test_rows})",
+        "",
+    ]
     if order_at is None:
-        lines += [f"_Taking the rows of {name} in file order, so the last {result.test_rows} are the held-out ones._", ""]
+        lines += [
+            f"_Taking the rows of {name} in file order, so the last {result.test_rows} are the held-out ones._",
+            "",
+        ]
     lines += ["| Feature | Association | VIF |", "|---|---:|---:|"]
-    lines += [f"| {result.feature_names[j]} | {result.standardized_coefficients[j]:+.2f} | {result.vif[j]:.1f} |"
-              for j in strongest]
-    lines += ["", f"Association: standard deviations of {target_name} per standard deviation of the feature, "
-                  "the others held fixed, in the rows it was fitted on."]
+    lines += [
+        f"| {result.feature_names[j]} | {result.standardized_coefficients[j]:+.2f} | {result.vif[j]:.1f} |"
+        for j in strongest
+    ]
+    lines += [
+        "",
+        f"Association: standard deviations of {target_name} per standard deviation of the feature, "
+        "the others held fixed, in the rows it was fitted on.",
+    ]
     # Scored where nothing was fitted, so this is evidence; the fit itself is not.
-    lines.append(f"On the last {result.test_rows} rows, which played no part in the fit, its average miss was "
-                 f"{_shown(result.mae)}, against {_shown(result.baseline_mae)} for the training average.")
+    lines.append(
+        f"On the last {result.test_rows} rows, which played no part in the fit, its average miss was "
+        f"{_shown(result.mae)}, against {_shown(result.baseline_mae)} for the training average."
+    )
     if result.out_of_sample_r2 is not None:
         lines.append(f"R² against the training-mean baseline, on those rows: {result.out_of_sample_r2:.2f}.")
     lines.append("Cautions: " + "; ".join(result.warnings) + ".")
@@ -176,7 +202,7 @@ def run_anomalies(request: AnomaliesRequest) -> ToolResult:
         label_at = _column(header, request.label_by, body, numeric=False) if request.label_by else None
         values = _numbers(header, body, value_at)
         result = anomalies(values)
-    except ValueError as exc:   # SeriesError, or one of the core's own input limits
+    except ValueError as exc:  # SeriesError, or one of the core's own input limits
         return ToolResult.failure(str(exc))
 
     def label(i: int) -> str:
@@ -187,15 +213,24 @@ def run_anomalies(request: AnomaliesRequest) -> ToolResult:
     lines = [f"**Unusual {column} values** (from {name}, {len(values)} rows)", ""]
     if result.mad == 0:
         # Not an anomaly and not nothing: a distance with no scale to judge it against.
-        lines.append(f"At least half the values are exactly {_shown(result.median)}, so their spread (MAD) is zero "
-                     "and no value can be scored.")
+        lines.append(
+            f"At least half the values are exactly {_shown(result.median)}, so their spread (MAD) is zero "
+            "and no value can be scored."
+        )
         if result.unscored_indices:
-            lines += ["", f"These differ from {_shown(result.median)}, by amounts nothing here can call large or small:",
-                      "", "| Row | Value |", "|---|---:|"]
+            lines += [
+                "",
+                f"These differ from {_shown(result.median)}, by amounts nothing here can call large or small:",
+                "",
+                "| Row | Value |",
+                "|---|---:|",
+            ]
             lines += [f"| {label(i)} | {_shown(values[i])} |" for i in result.unscored_indices]
     else:
-        lines.append(f"Median {_shown(result.median)}, typical distance from it (MAD) {_shown(result.mad)}. A value is "
-                     f"flagged when its modified z-score passes ±{result.threshold:g}.")
+        lines.append(
+            f"Median {_shown(result.median)}, typical distance from it (MAD) {_shown(result.mad)}. A value is "
+            f"flagged when its modified z-score passes ±{result.threshold:g}."
+        )
         if result.indices:
             ranked = sorted(result.indices, key=lambda i: -abs(result.scores[i]))
             lines += ["", "| Row | Value | Score |", "|---|---:|---:|"]

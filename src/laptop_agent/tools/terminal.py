@@ -10,7 +10,6 @@ from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
-
 CommandRunner = Callable[[str, Path, int], subprocess.CompletedProcess[str]]
 
 
@@ -77,7 +76,8 @@ class TerminalTool:
                 "returncode": completed.returncode,
                 "stdout": stdout,
                 "stderr": stderr,
-                "truncated": len(str(completed.stdout or "")) > len(stdout) or len(str(completed.stderr or "")) > len(stderr),
+                "truncated": len(str(completed.stdout or "")) > len(stdout)
+                or len(str(completed.stderr or "")) > len(stderr),
             },
         )
 
@@ -85,8 +85,15 @@ class TerminalTool:
     def _run_subprocess(command: str, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
         # Not subprocess.run: its timeout kills the shell alone, and whatever the shell started keeps
         # the output pipes open, so the "timed out" answer waited for that program to finish anyway.
-        process = subprocess.Popen(command, cwd=str(cwd), shell=True, text=True, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, start_new_session=os.name != "nt")
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            shell=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=os.name != "nt",
+        )
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -102,8 +109,12 @@ class TerminalTool:
     def _end_tree(process: subprocess.Popen[str]) -> None:
         try:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, timeout=10,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                    capture_output=True,
+                    timeout=10,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
             else:
                 os.killpg(process.pid, signal.SIGKILL)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -113,4 +124,4 @@ class TerminalTool:
     @staticmethod
     def _clip(value: object, max_chars: int) -> str:
         text = "" if value is None else str(value)
-        return text[:max(0, max_chars)]
+        return text[: max(0, max_chars)]

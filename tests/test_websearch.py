@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import unittest
-
 import json
+import unittest
 from unittest.mock import patch
 
-from laptop_agent.safety import ApprovalGate
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.websearch import (
     WebSearchError,
     WebSearchTool,
-    _ResultParser,
     _clean_url,
+    _ResultParser,
     brave_search_backend,
     build_search_backend,
     serpapi_search_backend,
@@ -57,7 +56,7 @@ class WebSearchToolTests(unittest.TestCase):
     def test_denied_approval_blocks_search(self) -> None:
         called = []
         tool = WebSearchTool(deny(), search_backend=lambda q, n: called.append(q) or SAMPLE)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ApprovalDenied):
             tool.search("secret query")
         self.assertEqual(called, [])
 
@@ -75,11 +74,15 @@ class SearchApiBackendTests(unittest.TestCase):
             captured["url"] = url
             captured["token"] = headers.get("X-Subscription-Token")
             return json.dumps(
-                {"web": {"results": [
-                    {"title": "A", "url": "https://a.com", "description": "first"},
-                    {"title": "B", "url": "https://b.com", "description": "second"},
-                    {"title": "C", "url": "https://c.com", "description": "third"},
-                ]}}
+                {
+                    "web": {
+                        "results": [
+                            {"title": "A", "url": "https://a.com", "description": "first"},
+                            {"title": "B", "url": "https://b.com", "description": "second"},
+                            {"title": "C", "url": "https://c.com", "description": "third"},
+                        ]
+                    }
+                }
             )
 
         backend = brave_search_backend("k-123", transport=transport)
@@ -109,10 +112,14 @@ class SearchApiBackendTests(unittest.TestCase):
 
         def transport(url, headers, data):
             seen["url"] = url
-            return json.dumps({"organic_results": [
-                {"title": "Deal", "link": "https://news.com/x", "snippet": "ceasefire"},
-                {"title": "More", "link": "https://news.com/y", "snippet": "details"},
-            ]})
+            return json.dumps(
+                {
+                    "organic_results": [
+                        {"title": "Deal", "link": "https://news.com/x", "snippet": "ceasefire"},
+                        {"title": "More", "link": "https://news.com/y", "snippet": "details"},
+                    ]
+                }
+            )
 
         backend = serpapi_search_backend("sa-key", transport=transport)
         results = backend("iran war", 1)

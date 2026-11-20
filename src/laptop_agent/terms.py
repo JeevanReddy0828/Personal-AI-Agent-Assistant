@@ -36,7 +36,7 @@ _WORD = re.compile(r"[a-z0-9]+")
 
 
 def collapse_acronyms(text: str) -> str:
-    """"J.A.R.V.I.S" -> "JARVIS", so a dotted name survives tokenizing.
+    """ "J.A.R.V.I.S" -> "JARVIS", so a dotted name survives tokenizing.
 
     This also turns "e.g." into "eg", which is meaningless but harmless: it is dropped by
     every caller that asks for 3+ characters, and as a term appearing in a handful of
@@ -64,9 +64,11 @@ def content_terms(text: str, stopwords: Container[str], min_length: int = 2) -> 
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 # Real HTML only: a placeholder such as `127.0.0.1:<port>` is text and must survive.
-_TAG = re.compile(r"</?(?:a|b|i|u|s|em|strong|br|hr|p|div|span|img|sub|sup|small|kbd|code|pre|table|thead|"
-                  r"tbody|tr|td|th|details|summary|picture|source|video|ul|ol|li|h[1-6]|center|del|ins)\b[^<>]*>",
-                  re.IGNORECASE)
+_TAG = re.compile(
+    r"</?(?:a|b|i|u|s|em|strong|br|hr|p|div|span|img|sub|sup|small|kbd|code|pre|table|thead|"
+    r"tbody|tr|td|th|details|summary|picture|source|video|ul|ol|li|h[1-6]|center|del|ins)\b[^<>]*>",
+    re.IGNORECASE,
+)
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _QUOTE = re.compile(r"^\s*>\s?")
 _HEADING_OR_RULE = re.compile(r"#{1,6}\s|(?:-{3,}|={3,}|\*{3,}|_{3,})$")
@@ -106,7 +108,7 @@ def sentences(text: str, structure: bool = False, limit: int = SENTENCE_LIMIT) -
             fence = opened.group(1)
             # A diagram's source is not an answer: "what does the approval gate do" was
             # answered with `TOOLS --> GATE{{"Approval gate"}}`.
-            keep_code = structure and not raw.strip()[len(fence):].strip().lower().startswith("mermaid")
+            keep_code = structure and not raw.strip()[len(fence) :].strip().lower().startswith("mermaid")
             continue
         line = _QUOTE.sub("", _TAG.sub(" ", _LINK.sub(r"\1", _IMAGE.sub(" ", raw)))).strip()
         # A row of links and nothing else is navigation: a table of contents names every
@@ -134,7 +136,7 @@ def sentences(text: str, structure: bool = False, limit: int = SENTENCE_LIMIT) -
             while len(part) > limit:
                 piece = part[:limit].rsplit(" ", 1)[0] or part[:limit]
                 found.append(piece + "…")
-                part = part[len(piece):].strip()
+                part = part[len(piece) :].strip()
             if len(part) > 1:
                 found.append(part)
     return found

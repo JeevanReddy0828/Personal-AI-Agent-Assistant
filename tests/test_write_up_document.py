@@ -7,10 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.document import DocumentTool
 from test_document import SAMPLE
 from test_everyday_requests import Everyday
+
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.document import DocumentTool
 
 
 class WriteUpDocumentTests(unittest.TestCase):
@@ -22,7 +23,8 @@ class WriteUpDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             everyday = Everyday(Path(raw))
             everyday.orchestrator._document_tool_cache = DocumentTool(
-                data_dir=Path(raw), writer=lambda prompt: SAMPLE,
+                data_dir=Path(raw),
+                writer=lambda prompt: SAMPLE,
             )
             with mock.patch("laptop_agent.tools.document._write_docx", side_effect=fake_export):
                 request = "write up a one pager on remote work as a word doc"

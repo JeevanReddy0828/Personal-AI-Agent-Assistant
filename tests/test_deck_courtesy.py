@@ -7,10 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.document import DocumentTool, split_format
 from test_document import DECK
 from test_everyday_requests import Everyday
+
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.document import DocumentTool, split_format
 
 
 class DeckCourtesyTests(unittest.TestCase):
@@ -22,7 +23,8 @@ class DeckCourtesyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             everyday = Everyday(Path(raw))
             everyday.orchestrator._document_tool_cache = DocumentTool(
-                data_dir=Path(raw), writer=lambda prompt: DECK,
+                data_dir=Path(raw),
+                writer=lambda prompt: DECK,
             )
             with mock.patch("laptop_agent.tools.document._write_pptx", side_effect=fake_export):
                 for modal in ("can", "could", "would", "will"):

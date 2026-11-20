@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from laptop_agent.safety import ApprovalGate
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.research import ResearchTool, _TextExtractor
 
 
@@ -52,8 +52,10 @@ class ResearchToolTests(unittest.TestCase):
 
     def test_denied_approval_blocks(self) -> None:
         calls: list[str] = []
-        tool = ResearchTool(deny(), search_backend=lambda q, n: calls.append(q) or RESULTS, fetch_backend=lambda url: "x")
-        with self.assertRaises(Exception):
+        tool = ResearchTool(
+            deny(), search_backend=lambda q, n: calls.append(q) or RESULTS, fetch_backend=lambda url: "x"
+        )
+        with self.assertRaises(ApprovalDenied):
             tool.gather("secret")
         self.assertEqual(calls, [])
 
