@@ -69,6 +69,12 @@ class AppConfig:
     # every model was measured to accept 65,536, and the old caps anywhere else, where a cap
     # the endpoint rejects would be a 400 on every turn.
     llm_max_output_tokens: int | None = None
+    # A local Laya server that scores how hard a chat request is (decisions.py); unset, the
+    # keyword heuristic alone picks the chat tier.
+    laya_url: str | None = None
+    laya_api_key: str | None = None
+    laya_deadline_ms: int = 250
+    laya_tier_context: bool = False
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -200,4 +206,8 @@ def load_config() -> AppConfig:
         jobright_min_match=_env_float("JOBRIGHT_MIN_MATCH", 0.2),
         llm_reasoning_budget=_env_int("OPENAI_REASONING_BUDGET", 16384),
         llm_max_output_tokens=_output_tokens(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS")),
+        laya_url=os.environ.get("LAYA_URL", "").strip() or None,
+        laya_api_key=os.environ.get("LAYA_API_KEY", "").strip() or None,
+        laya_deadline_ms=_env_int("LAYA_DEADLINE_MS", 250),
+        laya_tier_context=os.environ.get("LAYA_TIER_CONTEXT", "").strip().lower() in {"1", "true", "yes", "on"},
     )

@@ -43,6 +43,7 @@ from laptop_agent.context import (
     topic_of,
 )
 from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
+from laptop_agent.decisions import TierDecider
 from laptop_agent.jobs import JobTracker, normalize_stage
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore, list_name
@@ -538,6 +539,7 @@ class AgentOrchestrator:
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
         video_planner: Planner | None = None,
+        tier_decider: TierDecider | None = None,
         data_dir: Path | None = None,
         recording_enabled: bool = False,
     ) -> None:
@@ -552,6 +554,8 @@ class AgentOrchestrator:
         self.vision_planner = vision_planner
         # Optional model that takes a clip, for `describe video`.
         self.video_planner = video_planner
+        # Optional pipeline choosing the chat tier (decisions.py); without it `_complexity` decides.
+        self.tier_decider = tier_decider
         # Optional cross-provider fallback (e.g. OpenRouter) tried when every
         # primary tier is congested/unreachable, so chat keeps working.
         self.fallback_planner = fallback_planner
@@ -647,6 +651,18 @@ class AgentOrchestrator:
         if words > 35 or any(trigger in lowered for trigger in AgentOrchestrator._SMART_CUES):
             return 1
         return 0
+
+    def _chat_level(self, command: str, history_turns: list[dict[str, str]]) -> tuple[int, str]:
+        trace = current_trace()
+        if self.tier_decider is None:
+            if trace is not None:
+                trace.tier_source = "heuristic"
+            return self._complexity(command), "heuristic"
+        decision = self.tier_decider.decide(command, history_turns)
+        if trace is not None:
+            trace.tier_source = decision.source
+            trace.tier_ms = sum(ms for _, ms in decision.steps)
+        return decision.level, decision.source
 
     def _pick_chat_model(self, level: int):
         """Return (planner, label) for the given complexity, falling back down the tiers."""
@@ -2967,7 +2983,7 @@ class AgentOrchestrator:
                         return grounded
                 response = planned.response or ""
                 profile = self._facts()
-                level = self._complexity(command)
+                level, tier_source = self._chat_level(command, history_turns)
                 _, requested_label = self._pick_chat_model(level)
                 model_used = "fast"
                 # Escalate by complexity (fast -> smart -> ultra), but degrade
@@ -3084,6 +3100,7 @@ class AgentOrchestrator:
                         "explanation": planned.explanation,
                         "model": model_used,
                         "requested_model": requested_label,
+                        "tier_source": tier_source,
                     },
                 )
 

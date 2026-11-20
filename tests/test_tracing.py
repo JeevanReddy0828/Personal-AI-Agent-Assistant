@@ -133,7 +133,7 @@ class TurnTraceTests(unittest.TestCase):
         self.assertEqual(
             set(record),
             {"kind", "verb", "route_source", "route_ms", "tool_ms", "ttft_ms", "total_ms",
-             "model", "requested_model", "degraded", "ok", "at"},
+             "model", "requested_model", "degraded", "ok", "at", "tier_source", "tier_ms"},
         )
 
     def test_the_current_trace_is_scoped(self) -> None:

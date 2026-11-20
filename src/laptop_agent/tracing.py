@@ -51,6 +51,8 @@ class TurnTrace:
     degraded: bool = False
     ok: bool = True
     at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    tier_source: str = ""              # what chose the chat tier: cue | laya | heuristic
+    tier_ms: float | None = None       # time the tier decision took, when a decider ran
 
     # Monotonic marks, not part of the persisted record.
     _t0: float = field(default_factory=time.monotonic, repr=False, compare=False)
