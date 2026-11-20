@@ -19,6 +19,24 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-11-20: **Agents may not run wild** (Jeevan's instruction: never hammer a site, never loop off
+  each other). Plain rules beyond the breaker: per run 30 web requests (research costs 6), 5 to one
+  site, 10 minutes, 30 model calls, 1 message, 3 approval cards; scheduled runs only read and
+  compute; 30 runs and 150 steps a day across all runs; one run at a time; scheduled agents at most
+  hourly and 5 in all; `agents off` turns everything off until `agents on`. Table in
+  `docs/design/multi-agent.md` ("No running wild"). Not an AI judge: a model reading injected text
+  can be talked round.
+- 2026-11-20: **Multi-agent mode is `agent team <goal>`, and delegation is one supervised step**
+  (Jeevan chose this over a fixed plan fanned out by the orchestrator, and over LangGraph: 39
+  packages against the zero-dependency rule). The planner leads on the strongest tier configured;
+  `delegate <fast|smart> <sub-task>` runs a child agent strictly below the agent's *assigned* tier
+  (not the tier that happened to answer), whose answer is the step's observation. Every agent of
+  the run shares one `supervisor.RunTree`: taint, refusals and the stop, so delegation launders
+  nothing, and any stop anywhere ends the whole tree. The trip breaker is plain rules over the
+  tree: 15 steps a minute (below the total, so a burst stops sooner), 20 steps in all, depth 2, 4 agents started; a trip names its rule
+  (`breaker:rate|steps|depth|agents`). Hand-offs are `agent_message` audit events; verdicts carry
+  `run`, `parent`, `depth`. A child sees its sub-task and the planner's goal, not the conversation.
+  Children run one at a time; parallel children and a page view of the tree are not built.
 - 2026-11-11: **Every step of an agent run passes through `supervisor.Supervisor` before it is
   dispatched** (Jeevan asked for surveillance over agent actions). Plain rules, never a model: a run
   that has read outside text (web, files, mail, notes, MCP) is asked before a step that runs with

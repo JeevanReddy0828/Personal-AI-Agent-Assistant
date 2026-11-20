@@ -183,7 +183,7 @@ class CommandLengthTests(unittest.TestCase):
     def test_an_enormous_message_is_refused_with_a_way_forward(self) -> None:
         import asyncio
 
-        from laptop_agent.agents.orchestrator import MAX_COMMAND_CHARS
+        from laptop_agent.agents.common import MAX_COMMAND_CHARS
 
         from test_orchestrator import OrchestratorTests
 

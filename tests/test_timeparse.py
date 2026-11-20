@@ -178,7 +178,7 @@ class MessageSplitTests(unittest.TestCase):
     def split(self, text: str) -> str:
         """The real extraction, not a reimplementation of it — a helper that rebuilds the
         logic under test would agree with a bug as readily as with a fix."""
-        from laptop_agent.agents.orchestrator import _reminder_message
+        from laptop_agent.agents.common import _reminder_message
         found = parse_when(text, NOW)
         assert found is not None
         return _reminder_message(text, found.start, found.end)

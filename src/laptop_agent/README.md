@@ -92,7 +92,7 @@ data.
 |---|---|
 | `safety.py` | `RiskLevel` and `ApprovalGate`: risky actions must be approved. |
 | `approvals.py` | Lets the web page answer an approval request (the card you click). |
-| `supervisor.py` | Checks every step of an agent run before it runs: asks, refuses or stops the run. |
+| `supervisor.py` | Checks every step of every agent of a run before it runs: asks, refuses or stops the run (and its delegated agents), with a trip breaker. |
 | `access.py` | What a `personal` account may not do, checked per request. |
 | `accounts.py`, `sessions.py` | Accounts (scrypt passwords, roles) and server-side sessions. |
 | `google_oidc.py` | "Sign in with Google" identity check; keeps no mailbox tokens. |
