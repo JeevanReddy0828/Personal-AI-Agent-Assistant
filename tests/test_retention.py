@@ -166,14 +166,14 @@ class AuditRotationTests(unittest.TestCase):
             # has to reach back into the rotated one.
             deep = logger.tail(kept)
             self.assertEqual(
-                len(deep), kept,
+                len(deep),
+                kept,
                 f"tail stopped at the current generation: got {len(deep)} of {kept}",
             )
             self.assertGreater(len(deep), current, "the rotated generation was not read")
             self.assertIn("thing 119", str(deep[-1]), "newest event is not last")
             actions = [event["payload"]["action"] for event in deep]
-            self.assertEqual(actions, sorted(actions, key=lambda a: int(a.split()[1])),
-                             "events came back out of order")
+            self.assertEqual(actions, sorted(actions, key=lambda a: int(a.split()[1])), "events came back out of order")
             self.assertEqual(len(logger.tail(kept + 50)), kept, "invented events beyond the log")
 
 

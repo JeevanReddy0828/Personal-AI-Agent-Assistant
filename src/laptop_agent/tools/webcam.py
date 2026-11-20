@@ -41,9 +41,7 @@ class WebcamTool:
 
         path = Path(written)
         if not path.exists() or path.stat().st_size == 0:
-            return ToolResult.failure(
-                "Webcam returned no image — is a camera connected and not in use by another app?"
-            )
+            return ToolResult.failure("Webcam returned no image — is a camera connected and not in use by another app?")
         return ToolResult.success(
             f"Captured a webcam frame to {path.name}.",
             path=str(path),

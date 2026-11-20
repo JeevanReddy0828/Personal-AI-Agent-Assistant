@@ -34,7 +34,9 @@ class BrowserAutomationTool:
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
-            return ToolResult.failure("Browser automation requires: pip install playwright && playwright install chromium")
+            return ToolResult.failure(
+                "Browser automation requires: pip install playwright && playwright install chromium"
+            )
 
         self.approval_gate.require(
             ApprovalRequest(
@@ -278,7 +280,9 @@ class BrowserAutomationTool:
         try:
             from playwright.async_api import async_playwright  # type: ignore
         except ImportError:
-            return ToolResult.failure("Form inspection skipped. Install browser extras and run: playwright install chromium")
+            return ToolResult.failure(
+                "Form inspection skipped. Install browser extras and run: playwright install chromium"
+            )
 
         normalized = self._normalize_url(url)
         async with async_playwright() as playwright:
@@ -289,7 +293,9 @@ class BrowserAutomationTool:
             fields = await self._extract_form_fields_from_page(page)
             await browser.close()
         visible_fields = [field for field in fields if self._is_user_field(field)]
-        return ToolResult.success(f"Inspected {len(visible_fields)} form fields.", url=normalized, title=title, fields=visible_fields)
+        return ToolResult.success(
+            f"Inspected {len(visible_fields)} form fields.", url=normalized, title=title, fields=visible_fields
+        )
 
     async def _extract_form_fields_from_page(self, page) -> list[dict[str, object]]:
         return await page.locator("input, textarea, select").evaluate_all(
@@ -318,9 +324,7 @@ class BrowserAutomationTool:
         mappings: list[dict[str, object]] = []
         for field in fields:
             field_text = " ".join(
-                str(field.get(key, ""))
-                for key in ("name", "field_id", "label", "placeholder")
-                if field.get(key)
+                str(field.get(key, "")) for key in ("name", "field_id", "label", "placeholder") if field.get(key)
             )
             candidates = BrowserAutomationTool._profile_candidates(field_text)
             matched_key = next((candidate for candidate in candidates if candidate in normalized_profile), None)
@@ -337,7 +341,9 @@ class BrowserAutomationTool:
         return mappings
 
     @staticmethod
-    def build_fill_preview(fields: list[dict[str, object]], mappings: list[dict[str, object]]) -> list[dict[str, object]]:
+    def build_fill_preview(
+        fields: list[dict[str, object]], mappings: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
         fields_by_index = {field.get("index"): field for field in fields}
         preview: list[dict[str, object]] = []
         for mapping in mappings:
@@ -430,8 +436,7 @@ class BrowserAutomationTool:
     @staticmethod
     def _fill_actions_preview(fill_actions: list[dict[str, object]], warnings: list[str]) -> str:
         lines = [
-            f"{item.get('field_label') or item.get('selector')}: {item.get('value')}"
-            for item in fill_actions[:20]
+            f"{item.get('field_label') or item.get('selector')}: {item.get('value')}" for item in fill_actions[:20]
         ]
         if len(fill_actions) > 20:
             lines.append(f"...and {len(fill_actions) - 20} more field(s)")

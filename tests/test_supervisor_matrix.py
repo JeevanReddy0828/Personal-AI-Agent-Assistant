@@ -1,6 +1,7 @@
 """The supervisor's rules, checked wholesale: every agent command by every kind of agent, random step
 sequences against the rules that must always hold, disguised spellings, and every branch of the
 orchestrator that reaches a tool no run may use. `test_supervisor.py` holds the case-by-case tests."""
+
 from __future__ import annotations
 
 import ast
@@ -24,63 +25,144 @@ def orchestrator_source() -> str:
 # one moved to another group, fails here until this table says so: a write filed under SAFE would run
 # for a helper, and a change filed under READS would skip the taint card.
 GROUPS = {
-    "scan files <path>": "safe", "scan files <path> by size": "safe", "read file <path>": "reads",
-    "ask file <path> about <question>": "reads", "summarize file <path>": "reads", "extract text <path>": "reads",
-    "extract tables <path>": "reads", "analyze spreadsheet <path>": "reads", "process file <path>": "reads",
-    "file info <path>": "safe", "search files <query> <path>": "reads", "file move <file> to <folder>": "carded",
-    "file copy <file> to <folder>": "carded", "file rename <file> to <name>": "carded",
-    "file delete <file>": "direct", "undo file": "carded", "convert file <source> to <destination>": "carded",
-    "organize folder <path>": "carded", "index file <path>": "guarded", "recall <query>": "reads",
-    "ask knowledge <question>": "reads", "knowledge list": "safe", "knowledge stats": "safe",
-    "notes search <query>": "reads", "ask vault <question>": "reads", "notes audit": "safe",
-    "read note <name>": "reads", "save note <title> : <body>": "guarded", "remember <key> = <value>": "guarded",
-    "learn from chat": "carded", "forget <key>": "guarded", "knowledge prune": "guarded",
-    "window <name> <left|right|top|bottom|full|corner>": "guarded", "windows": "safe",
-    "web search <query>": "reads", "news [topic]": "reads", "watch news <topic>": "guarded",
-    "watch health": "safe", "watches": "safe", "unwatch <topic|health>": "guarded", "image <description>": "safe",
-    "document <request> as pdf|word|markdown": "safe", "workspace <request>": "carded",
-    "weather <location>": "safe", "translate <text> to <language>": "safe",
-    "distance <origin> to <destination>": "safe", "trip <stop1> to <stop2> to <stop3>": "safe",
-    "around <category>": "safe", "map <place|origin to destination>": "safe", "hotels near <place>": "safe",
-    "summarize youtube <url>": "reads", "research <topic>": "reads", "research report <topic>": "reads",
-    "mcp": "carded", "mcp <server> <tool> <json arguments>": "carded", "solve <problem or decision>": "reads",
-    "open url <https url>": "guarded", "message whatsapp|telegram [to <who>] :: <text>": "carded",
-    "download <url>": "carded", "inspect page <url>": "guarded", "read screen <question>": "reads",
-    "describe image <path>": "reads", "describe video <path> :: <question>": "reads",
-    "look at webcam <question>": "reads", "open app <path-or-app>": "carded", "screenshot <output.png>": "guarded",
-    "play music <file-folder-or-url>": "guarded", "email digest": "reads", "email api search gmail <query>": "reads",
+    "scan files <path>": "safe",
+    "scan files <path> by size": "safe",
+    "read file <path>": "reads",
+    "ask file <path> about <question>": "reads",
+    "summarize file <path>": "reads",
+    "extract text <path>": "reads",
+    "extract tables <path>": "reads",
+    "analyze spreadsheet <path>": "reads",
+    "process file <path>": "reads",
+    "file info <path>": "safe",
+    "search files <query> <path>": "reads",
+    "file move <file> to <folder>": "carded",
+    "file copy <file> to <folder>": "carded",
+    "file rename <file> to <name>": "carded",
+    "file delete <file>": "direct",
+    "undo file": "carded",
+    "convert file <source> to <destination>": "carded",
+    "organize folder <path>": "carded",
+    "index file <path>": "guarded",
+    "recall <query>": "reads",
+    "ask knowledge <question>": "reads",
+    "knowledge list": "safe",
+    "knowledge stats": "safe",
+    "notes search <query>": "reads",
+    "ask vault <question>": "reads",
+    "notes audit": "safe",
+    "read note <name>": "reads",
+    "save note <title> : <body>": "guarded",
+    "remember <key> = <value>": "guarded",
+    "learn from chat": "carded",
+    "forget <key>": "guarded",
+    "knowledge prune": "guarded",
+    "window <name> <left|right|top|bottom|full|corner>": "guarded",
+    "windows": "safe",
+    "web search <query>": "reads",
+    "news [topic]": "reads",
+    "watch news <topic>": "guarded",
+    "watch health": "safe",
+    "watches": "safe",
+    "unwatch <topic|health>": "guarded",
+    "image <description>": "safe",
+    "document <request> as pdf|word|markdown": "safe",
+    "workspace <request>": "carded",
+    "weather <location>": "safe",
+    "translate <text> to <language>": "safe",
+    "distance <origin> to <destination>": "safe",
+    "trip <stop1> to <stop2> to <stop3>": "safe",
+    "around <category>": "safe",
+    "map <place|origin to destination>": "safe",
+    "hotels near <place>": "safe",
+    "summarize youtube <url>": "reads",
+    "research <topic>": "reads",
+    "research report <topic>": "reads",
+    "mcp": "carded",
+    "mcp <server> <tool> <json arguments>": "carded",
+    "solve <problem or decision>": "reads",
+    "open url <https url>": "guarded",
+    "message whatsapp|telegram [to <who>] :: <text>": "carded",
+    "download <url>": "carded",
+    "inspect page <url>": "guarded",
+    "read screen <question>": "reads",
+    "describe image <path>": "reads",
+    "describe video <path> :: <question>": "reads",
+    "look at webcam <question>": "reads",
+    "open app <path-or-app>": "carded",
+    "screenshot <output.png>": "guarded",
+    "play music <file-folder-or-url>": "guarded",
+    "email digest": "reads",
+    "email api search gmail <query>": "reads",
     "email api draft gmail to <addr> subject <subject> body <body>": "carded",
-    "email api send gmail to <addr> subject <subject> body <body>": "carded", "briefing": "reads",
+    "email api send gmail to <addr> subject <subject> body <body>": "carded",
+    "briefing": "reads",
     "briefing set <reminders, weather [in city], news [about topic], mail, <name> list, laptop>": "guarded",
-    "total|average|count <column> by <column> in <file.csv>": "safe", "jobs": "safe",
-    "job add <company> [stage]": "guarded", "tasks": "safe", "reminders due": "safe",
-    "reminder add <YYYY-MM-DD> <text>": "safe", "timer <duration>": "safe", "alarm <time>": "safe",
-    "timers": "safe", "alarms": "safe", "lists": "safe", "list <name> show": "safe",
-    "list <name> add <items>": "safe", "calendar": "safe", "convert <amount> <unit> to <unit>": "safe",
-    "run command <command>": "direct", "code run <script.py>": "direct", "code fix <script.py>": "direct",
-    "memory": "safe", "audit": "safe",
+    "total|average|count <column> by <column> in <file.csv>": "safe",
+    "jobs": "safe",
+    "job add <company> [stage]": "guarded",
+    "tasks": "safe",
+    "reminders due": "safe",
+    "reminder add <YYYY-MM-DD> <text>": "safe",
+    "timer <duration>": "safe",
+    "alarm <time>": "safe",
+    "timers": "safe",
+    "alarms": "safe",
+    "lists": "safe",
+    "list <name> show": "safe",
+    "list <name> add <items>": "safe",
+    "calendar": "safe",
+    "convert <amount> <unit> to <unit>": "safe",
+    "run command <command>": "direct",
+    "code run <script.py>": "direct",
+    "code fix <script.py>": "direct",
+    "memory": "safe",
+    "audit": "safe",
 }
 # The forms a helper may run: reads, minus the camera and the screen, and a few computations.
 HELPER_RUNS = {
-    "read file <path>", "ask file <path> about <question>", "summarize file <path>", "extract text <path>",
-    "extract tables <path>", "analyze spreadsheet <path>", "process file <path>", "file info <path>",
-    "search files <query> <path>", "recall <query>", "ask knowledge <question>", "notes search <query>",
-    "ask vault <question>", "read note <name>", "web search <query>", "news [topic]", "weather <location>",
-    "translate <text> to <language>", "distance <origin> to <destination>", "trip <stop1> to <stop2> to <stop3>",
-    "summarize youtube <url>", "research <topic>", "research report <topic>", "solve <problem or decision>",
-    "describe image <path>", "describe video <path> :: <question>", "email digest",
-    "email api search gmail <query>", "briefing", "total|average|count <column> by <column> in <file.csv>",
-    "calendar", "convert <amount> <unit> to <unit>",
+    "read file <path>",
+    "ask file <path> about <question>",
+    "summarize file <path>",
+    "extract text <path>",
+    "extract tables <path>",
+    "analyze spreadsheet <path>",
+    "process file <path>",
+    "file info <path>",
+    "search files <query> <path>",
+    "recall <query>",
+    "ask knowledge <question>",
+    "notes search <query>",
+    "ask vault <question>",
+    "read note <name>",
+    "web search <query>",
+    "news [topic]",
+    "weather <location>",
+    "translate <text> to <language>",
+    "distance <origin> to <destination>",
+    "trip <stop1> to <stop2> to <stop3>",
+    "summarize youtube <url>",
+    "research <topic>",
+    "research report <topic>",
+    "solve <problem or decision>",
+    "describe image <path>",
+    "describe video <path> :: <question>",
+    "email digest",
+    "email api search gmail <query>",
+    "briefing",
+    "total|average|count <column> by <column> in <file.csv>",
+    "calendar",
+    "convert <amount> <unit> to <unit>",
 }
 # What each kind of agent gets for each group, outside the helper's own list.
 EXPECTED = {
     #           planner  tainted planner  helper   backup model
-    "reads":   ("allow", "allow", "helper", "allow"),
-    "safe":    ("allow", "allow", "helper", "allow"),
-    "carded":  ("allow", "allow", "helper", "trust"),
-    "guarded": ("allow", "ask",   "helper", "trust"),
-    "unknown": ("allow", "ask",   "helper", "trust"),
-    "direct":  ("direct", "direct", "direct", "direct"),
+    "reads": ("allow", "allow", "helper", "allow"),
+    "safe": ("allow", "allow", "helper", "allow"),
+    "carded": ("allow", "allow", "helper", "trust"),
+    "guarded": ("allow", "ask", "helper", "trust"),
+    "unknown": ("allow", "ask", "helper", "trust"),
+    "direct": ("direct", "direct", "direct", "direct"),
 }
 
 
@@ -94,7 +176,7 @@ def concrete(form: str) -> str:
     text = " ".join(words)
     while "[" in text:
         start = text.index("[")
-        text = text[:start] + text[text.index("]", start) + 1:]
+        text = text[:start] + text[text.index("]", start) + 1 :]
     return " ".join(text.replace(">", "").split())
 
 
@@ -113,8 +195,12 @@ def roles(command: str) -> tuple[str, str, str, str]:
     tainted.check("web search cats", "ultra")
     helper = Supervisor(supervisor.RunTree(), agent="a1", parent="a0", depth=1, tier="smart")
     backup = Supervisor(tier="ultra")
-    return (verdict(planner, command, "ultra"), verdict(tainted, command, "ultra"),
-            verdict(helper, command, "smart"), verdict(backup, command, "fallback"))
+    return (
+        verdict(planner, command, "ultra"),
+        verdict(tainted, command, "ultra"),
+        verdict(helper, command, "smart"),
+        verdict(backup, command, "fallback"),
+    )
 
 
 class CommandTableTests(unittest.TestCase):
@@ -163,12 +249,16 @@ class DirectBranchTests(unittest.TestCase):
             if not isinstance(node, ast.If) or not self._reaches_direct(node.body):
                 continue
             test = node.test
-            if (isinstance(test, ast.Call) and isinstance(test.func, ast.Attribute) and test.func.attr == "startswith"
-                    and getattr(test.func.value, "id", "") == "lowered"):
+            if (
+                isinstance(test, ast.Call)
+                and isinstance(test.func, ast.Attribute)
+                and test.func.attr == "startswith"
+                and getattr(test.func.value, "id", "") == "lowered"
+            ):
                 for arg in test.args:
                     values = arg.elts if isinstance(arg, ast.Tuple) else [arg]
                     prefixes += [value.value for value in values if isinstance(value, ast.Constant)]
-        self.assertGreaterEqual(len(prefixes), 8, prefixes)   # the walk itself still finds the branches
+        self.assertGreaterEqual(len(prefixes), 8, prefixes)  # the walk itself still finds the branches
         for prefix in prefixes:
             self.assertEqual(supervisor.group_of(f"{prefix.strip()} x")[0], "direct", prefix)
 
@@ -180,17 +270,25 @@ class DisguiseTests(unittest.TestCase):
     def test_case_and_spacing_do_not_change_a_verdict(self) -> None:
         for form, group in GROUPS.items():
             plain = concrete(form)
-            for disguise in (plain.upper(), plain.title(), "  " + plain.replace(" ", "   ") + "  ",
-                             plain.replace(" ", "\t")):
+            for disguise in (
+                plain.upper(),
+                plain.title(),
+                "  " + plain.replace(" ", "   ") + "  ",
+                plain.replace(" ", "\t"),
+            ):
                 self.assertEqual(roles(disguise), roles(plain), repr(disguise))
 
     def test_a_disguised_command_is_never_judged_more_quietly(self) -> None:
         for form in GROUPS:
             plain = concrete(form)
             head, _, rest = plain.partition(" ")
-            for disguise in ("please " + plain, '"' + plain, plain.replace(" ", "​", 1),
-                             "".join(chr(ord(c) + 0xFEE0) if "a" <= c <= "z" else c for c in head) + " " + rest,
-                             head + "-" + rest.replace(" ", "-", 1)):
+            for disguise in (
+                "please " + plain,
+                '"' + plain,
+                plain.replace(" ", "​", 1),
+                "".join(chr(ord(c) + 0xFEE0) if "a" <= c <= "z" else c for c in head) + " " + rest,
+                head + "-" + rest.replace(" ", "-", 1),
+            ):
                 group = supervisor.group_of(disguise)[0]
                 self.assertIn(group, {supervisor.group_of(plain)[0], "unknown"}, repr(disguise))
                 if group == "unknown":
@@ -201,19 +299,31 @@ class DisguiseTests(unittest.TestCase):
         source = orchestrator_source()
         for plain in ("run command whoami", "file delete a.txt", "code run a.py", "agent run tidy", "shell whoami"):
             head, _, rest = plain.partition(" ")
-            for disguise in ("please " + plain, '"' + plain, plain.replace(" ", "​", 1),
-                             "".join(chr(ord(c) + 0xFEE0) for c in head) + " " + rest):
+            for disguise in (
+                "please " + plain,
+                '"' + plain,
+                plain.replace(" ", "​", 1),
+                "".join(chr(ord(c) + 0xFEE0) for c in head) + " " + rest,
+            ):
                 lowered = disguise.strip().lower()
-                prefixes = [p for p in ("run command ", "terminal ", "shell ", "file delete ", "code run ",
-                                        "agent run ") if f'lowered.startswith("{p}")' in source]
+                prefixes = [
+                    p
+                    for p in ("run command ", "terminal ", "shell ", "file delete ", "code run ", "agent run ")
+                    if f'lowered.startswith("{p}")' in source
+                ]
                 self.assertFalse(any(lowered.startswith(p) for p in prefixes), repr(disguise))
 
 
 class RandomRunTests(unittest.TestCase):
     """Thousands of random steps across a tree, against the rules that must always hold."""
 
-    COMMANDS = [concrete(form) for form in GROUPS] + ["delegate fast part", "delegate smart part",
-                                                      "delegate ultra part", "frobnicate", "(no command)"]
+    COMMANDS = [concrete(form) for form in GROUPS] + [
+        "delegate fast part",
+        "delegate smart part",
+        "delegate ultra part",
+        "frobnicate",
+        "(no command)",
+    ]
 
     def test_the_rules_hold_for_any_order_of_steps(self) -> None:
         for seed in range(300):
@@ -232,7 +342,7 @@ class RandomRunTests(unittest.TestCase):
                 decision = agent.check(command, tier)
                 where = f"seed {seed}: {agent.agent} depth {agent.depth} {tier} {command!r}"
                 if stopped_at is not None:
-                    self.assertIs(decision.verdict, Verdict.STOP, where)          # a stop is final
+                    self.assertIs(decision.verdict, Verdict.STOP, where)  # a stop is final
                     continue
                 if decision.verdict is Verdict.STOP:
                     stopped_at = decision

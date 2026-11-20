@@ -258,7 +258,9 @@ class Dashboard:
         field.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         inner = tk.Frame(field, bg=THEME["panel"])
         inner.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
-        tk.Label(inner, text="❯", font=self.f_label, fg=THEME["cyan"], bg=THEME["panel"]).pack(side=tk.LEFT, padx=(12, 4))
+        tk.Label(inner, text="❯", font=self.f_label, fg=THEME["cyan"], bg=THEME["panel"]).pack(
+            side=tk.LEFT, padx=(12, 4)
+        )
         self.input_var = tk.StringVar()
         self.entry = tk.Entry(
             inner,
@@ -351,9 +353,7 @@ class Dashboard:
 
     def _finish_command(self, text: str, message: str, data: str, ok: bool) -> None:
         self.busy = False
-        self.status_line.configure(
-            text="Just A Rather Very Intelligent System  ·  status: ONLINE", fg=THEME["muted"]
-        )
+        self.status_line.configure(text="Just A Rather Very Intelligent System  ·  status: ONLINE", fg=THEME["muted"])
         self._append("J.A.R.V.I.S", message, THEME["text"], tag="agent")
         if data:
             self._append_data(data)

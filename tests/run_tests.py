@@ -1,4 +1,5 @@
 """Run the unit suite without reading .env, contacting services, or using personal data."""
+
 from __future__ import annotations
 
 import os
@@ -34,8 +35,10 @@ def write_failure_report(result, path: Path, argv: list[str] | None = None) -> i
     # Without it a run that failed *only* because an `expectedFailure` started passing
     # would write "0 failure(s)/error(s)" — a report claiming nothing is wrong, for a run
     # that just failed, which is worse than no file because it looks authoritative.
-    entries += [("UNEXPECTED SUCCESS", test, "This test is marked expectedFailure and passed.")
-                for test in getattr(result, "unexpectedSuccesses", [])]
+    entries += [
+        ("UNEXPECTED SUCCESS", test, "This test is marked expectedFailure and passed.")
+        for test in getattr(result, "unexpectedSuccesses", [])
+    ]
     lines = [
         f"{len(entries)} failure(s)/error(s)",
         f"python   {sys.version.split()[0]} on {sys.platform}",
@@ -56,7 +59,25 @@ def main() -> int:
     # Riva speech, voice and translation go over gRPC, whose sockets are opened in C where the
     # guard below cannot see them, so their keys must not reach a test at all.
     for key in list(os.environ):
-        if key.startswith(("OPENAI_", "OPENROUTER_", "SMTP_", "IMAP_", "GOOGLE_", "MICROSOFT_", "JOBRIGHT_", "SEARCH_", "BRAVE_", "SERPER_", "SERPAPI_", "OBSIDIAN_", "LAPTOP_AGENT_", "RIVA_", "NVIDIA_")):
+        if key.startswith(
+            (
+                "OPENAI_",
+                "OPENROUTER_",
+                "SMTP_",
+                "IMAP_",
+                "GOOGLE_",
+                "MICROSOFT_",
+                "JOBRIGHT_",
+                "SEARCH_",
+                "BRAVE_",
+                "SERPER_",
+                "SERPAPI_",
+                "OBSIDIAN_",
+                "LAPTOP_AGENT_",
+                "RIVA_",
+                "NVIDIA_",
+            )
+        ):
             os.environ.pop(key, None)
     os.environ["LAPTOP_AGENT_LLM_PROVIDER"] = "heuristic"
     connect = socket.socket.connect
@@ -111,8 +132,10 @@ def main() -> int:
                 # Last line on purpose — after the summary, so a `| tail` still shows it.
                 print(f"\n{count} failure(s)/error(s) written to {FAILURE_REPORT}")
             except OSError as exc:
-                print(f"\nnote: could not write {FAILURE_REPORT}: {exc}"
-                      f"\nThe failures are above, in the runner's own output.")
+                print(
+                    f"\nnote: could not write {FAILURE_REPORT}: {exc}"
+                    f"\nThe failures are above, in the runner's own output."
+                )
             return 1
         finally:
             os.chdir(ROOT)

@@ -117,7 +117,6 @@ class MarkdownSummaryTests(unittest.TestCase):
         self.assertLess(len(summary), 500)
 
 
-
 class FileQuestionStructureTests(unittest.TestCase):
     """Codex's review of #165: Q&A went through the summary's prose-only splitter, so a file
     whose answer is a command or a table row answered "No readable prose to answer from"."""

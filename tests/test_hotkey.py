@@ -66,8 +66,10 @@ class GlobalHotkeyTests(unittest.TestCase):
     def test_each_press_of_our_hotkey_calls_back_once(self) -> None:
         pressed: list[int] = []
         other = (WM_HOTKEY, hotkey._HOTKEY_ID + 1)
-        self.run_hotkey(FakeUser32([(WM_HOTKEY, hotkey._HOTKEY_ID), other, (0x0100, 0), (WM_HOTKEY, hotkey._HOTKEY_ID)]),
-                        lambda: pressed.append(1))
+        self.run_hotkey(
+            FakeUser32([(WM_HOTKEY, hotkey._HOTKEY_ID), other, (0x0100, 0), (WM_HOTKEY, hotkey._HOTKEY_ID)]),
+            lambda: pressed.append(1),
+        )
         self.assertEqual(pressed, [1, 1])
 
     def test_a_press_that_raises_does_not_end_the_listener(self) -> None:
@@ -85,7 +87,9 @@ class GlobalHotkeyTests(unittest.TestCase):
         key = GlobalHotkey(lambda: None, user32=FakeUser32([], register_ok=False), kernel32=FakeKernel32())
         self.assertFalse(key.start())
         newest = FAILURES.recent(1)[0]
-        self.assertEqual((newest["where"], newest["message"]), ("hotkey/register", "Ctrl+Alt+J is taken by another app"))
+        self.assertEqual(
+            (newest["where"], newest["message"]), ("hotkey/register", "Ctrl+Alt+J is taken by another app")
+        )
 
     def test_stop_ends_the_message_loop(self) -> None:
         user32 = FakeUser32([])
@@ -118,8 +122,10 @@ class FallbackAppHotkeyTests(unittest.TestCase):
             with response:
                 return response.status, json.loads(response.read())
 
-        with patch.object(webui, "ACCOUNTS", Mock(exists=lambda: False)), \
-             patch.object(webui, "_HOTKEY_CHANNEL", "private-test-channel"):
+        with (
+            patch.object(webui, "ACCOUNTS", Mock(exists=lambda: False)),
+            patch.object(webui, "_HOTKEY_CHANNEL", "private-test-channel"),
+        ):
             with patch.object(webui, "_DESKTOP_MODE", False):
                 self.assertEqual(get("/api/hotkey?channel=private-test-channel")[0], 404)
             with patch.object(webui, "_DESKTOP_MODE", True):
@@ -152,12 +158,18 @@ class FallbackAppHotkeyTests(unittest.TestCase):
                 self.stopped = True
 
         before = webui._wait_hotkey(None)
-        with patch.object(webui, "_refuse_if_running"), patch.object(webui, "_Server", return_value=server), \
-             patch.object(webui, "_warmup"), patch.object(webui, "_keep_warm"), \
-             patch.object(webui, "_schedule_ticker"), patch.object(transcribe, "warm_stt"), \
-             patch.object(webui, "_launch_webview", return_value=False), \
-             patch.object(webui, "_launch_app_window", return_value=process) as launch, \
-             patch.object(webui, "GlobalHotkey", FakeHotkey), patch.object(webui, "_DESKTOP_MODE", False):
+        with (
+            patch.object(webui, "_refuse_if_running"),
+            patch.object(webui, "_Server", return_value=server),
+            patch.object(webui, "_warmup"),
+            patch.object(webui, "_keep_warm"),
+            patch.object(webui, "_schedule_ticker"),
+            patch.object(transcribe, "warm_stt"),
+            patch.object(webui, "_launch_webview", return_value=False),
+            patch.object(webui, "_launch_app_window", return_value=process) as launch,
+            patch.object(webui, "GlobalHotkey", FakeHotkey),
+            patch.object(webui, "_DESKTOP_MODE", False),
+        ):
             webui.run_desktop()
 
         self.assertEqual(len(created), 1)

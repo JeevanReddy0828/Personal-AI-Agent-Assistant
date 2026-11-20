@@ -30,9 +30,25 @@ def main() -> None:
 
     config._load_dotenv = lambda *args, **kwargs: None
     for key in list(os.environ):
-        if key.startswith(("OPENAI_", "OPENROUTER_", "SMTP_", "IMAP_", "GOOGLE_", "MICROSOFT_",
-                           "JOBRIGHT_", "SEARCH_", "BRAVE_", "SERPER_", "SERPAPI_", "OBSIDIAN_",
-                           "LAPTOP_AGENT_", "RIVA_", "NVIDIA_")):
+        if key.startswith(
+            (
+                "OPENAI_",
+                "OPENROUTER_",
+                "SMTP_",
+                "IMAP_",
+                "GOOGLE_",
+                "MICROSOFT_",
+                "JOBRIGHT_",
+                "SEARCH_",
+                "BRAVE_",
+                "SERPER_",
+                "SERPAPI_",
+                "OBSIDIAN_",
+                "LAPTOP_AGENT_",
+                "RIVA_",
+                "NVIDIA_",
+            )
+        ):
             os.environ.pop(key, None)
     os.environ["LAPTOP_AGENT_LLM_PROVIDER"] = "heuristic"
     connect = socket.socket.connect
@@ -42,7 +58,10 @@ def main() -> None:
             raise OSError("External connections are disabled by the speech measurement")
         return connect(sock, address)
 
-    with tempfile.TemporaryDirectory(prefix="jarvis_speech_measure_") as scratch, patch.object(socket.socket, "connect", local_only):
+    with (
+        tempfile.TemporaryDirectory(prefix="jarvis_speech_measure_") as scratch,
+        patch.object(socket.socket, "connect", local_only),
+    ):
         os.environ["LAPTOP_AGENT_DATA_DIR"] = str(Path(scratch) / "data")
         os.environ["LAPTOP_AGENT_PORT"] = "19877"
         import laptop_agent.webui as webui
@@ -58,7 +77,9 @@ def main() -> None:
                 try:
                     page = browser.new_page()
                     base = f"http://127.0.0.1:{server.server_port}"
-                    page.route("**/*", lambda route: route.continue_() if route.request.url.startswith(base) else route.abort())
+                    page.route(
+                        "**/*", lambda route: route.continue_() if route.request.url.startswith(base) else route.abort()
+                    )
                     engine_state = {"engine": "riva:magpie"}
 
                     def health(route) -> None:
@@ -107,6 +128,7 @@ def main() -> None:
                     for case in CASES:
                         reply = case["reply"] * case.get("repeat", 1)
                         for path in ("baseline", "sse"):
+
                             async def instant(*args, **kwargs):
                                 return ToolResult.success(reply)
 
@@ -115,7 +137,8 @@ def main() -> None:
                             try:
                                 for engine in ("riva:magpie", "pyttsx3"):
                                     engine_state["engine"] = engine
-                                    result = page.evaluate("""async ({reply, engine, path}) => {
+                                    result = page.evaluate(
+                                        """async ({reply, engine, path}) => {
                               window.__spoken.length=0;
                               ttsEngine=engine; voiceActive=true; voiceTurnReset();
                               const start=performance.now();
@@ -135,18 +158,25 @@ def main() -> None:
                                 voicedWords:spoken.map(e=>e.text).join(' ').split(/\\s+/).filter(Boolean).length,
                                 voicedChars:spoken.map(e=>e.text).join(' ').length,
                                 voicedText:spoken.map(e=>e.text).join(' ')};
-                            }""", {"reply": reply, "engine": engine, "path": path})
+                            }""",
+                                        {"reply": reply, "engine": engine, "path": path},
+                                    )
                                     expected = clean_for_speech(reply)
                                     result["expectedWords"] = len(expected.split())
                                     result["expectedChars"] = len(expected)
                                     result["expectedText"] = expected
                                     if path == "sse" and os.environ.get("SPEECH_EXPECT_SPLIT", "1") == "1":
                                         if result["voicedText"].split() != expected.split():
-                                            raise AssertionError(f"{case['name']} {engine}: words voiced out of order or missing")
+                                            raise AssertionError(
+                                                f"{case['name']} {engine}: words voiced out of order or missing"
+                                            )
                                     if case["name"] not in ("bullets", "table"):
                                         result.pop("expectedText")
                                         result.pop("voicedText")
-                                    print(json.dumps({"case": case["name"], "path": path, "engine": engine, **result}), flush=True)
+                                    print(
+                                        json.dumps({"case": case["name"], "path": path, "engine": engine, **result}),
+                                        flush=True,
+                                    )
                             finally:
                                 webui._orchestrator.handle = original
                     page.close()

@@ -38,7 +38,10 @@ class HarnessImportTests(unittest.TestCase):
             with self.subTest(module):
                 result = subprocess.run(
                     [sys.executable, "-B", "-c", CHECK.format(module=module), str(ROOT / "src"), str(ROOT / "tests")],
-                    capture_output=True, text=True, timeout=180, cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    cwd=ROOT,
                 )
                 self.assertEqual(result.stdout.strip(), "inert", result.stderr[-2000:])
 

@@ -31,7 +31,7 @@ class KindWeightTests(unittest.TestCase):
             kb = KnowledgeBase(Path(raw) / "knowledge.json")
             body = "The approval gate stops risky actions before they run."
             kb.add("advice: how should approvals work", body)
-            kb.add("notes.md", body)                      # identical text, so only kind differs
+            kb.add("notes.md", body)  # identical text, so only kind differs
             self.assertEqual(kb.search("approval gate")[0]["source"], "notes.md")
 
     def test_the_weight_does_not_overrule_relevance(self) -> None:
@@ -68,10 +68,20 @@ class PruneTests(unittest.TestCase):
             cap = GENERATED_CAPS["research"]
             # Write past the cap without add()'s pruning, as an older store would look.
             import json as _json
-            documents = [{"id": i + 1, "source": f"research: topic {i}", "text": f"About topic {i}.",
-                          "char_count": 14, "preview": "x"} for i in range(cap + 3)]
+
+            documents = [
+                {
+                    "id": i + 1,
+                    "source": f"research: topic {i}",
+                    "text": f"About topic {i}.",
+                    "char_count": 14,
+                    "preview": "x",
+                }
+                for i in range(cap + 3)
+            ]
             (Path(raw) / "knowledge.json").write_text(
-                _json.dumps({"next_id": cap + 4, "documents": documents}), encoding="utf-8")
+                _json.dumps({"next_id": cap + 4, "documents": documents}), encoding="utf-8"
+            )
 
             outcome = kb.prune()
             self.assertEqual(outcome["removed"], 3)
@@ -107,7 +117,7 @@ class KnowledgeBaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             kb = self._kb(Path(raw))
             kb.add("first.md", "The approval gate stops risky actions.")
-            self.assertEqual(kb.search("approval")[0]["source"], "first.md")   # warms the cache
+            self.assertEqual(kb.search("approval")[0]["source"], "first.md")  # warms the cache
 
             kb.add("second.md", "The approval gate also guards downloads and shell commands.")
             sources = {hit["source"] for hit in kb.search("approval")}
@@ -126,6 +136,7 @@ class KnowledgeBaseTests(unittest.TestCase):
         a change made by another process is not served stale."""
         import json
         import os
+
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "knowledge.json"
             kb = KnowledgeBase(path)
@@ -133,11 +144,17 @@ class KnowledgeBaseTests(unittest.TestCase):
             self.assertTrue(kb.search("approval"))
 
             store = json.loads(path.read_text(encoding="utf-8"))
-            store["documents"].append({"id": 99, "source": "outside.md",
-                                       "text": "An approval gate written by another process.",
-                                       "char_count": 44, "preview": "outside"})
+            store["documents"].append(
+                {
+                    "id": 99,
+                    "source": "outside.md",
+                    "text": "An approval gate written by another process.",
+                    "char_count": 44,
+                    "preview": "outside",
+                }
+            )
             path.write_text(json.dumps(store), encoding="utf-8")
-            os.utime(path, (1, 1))          # a different mtime, as any real write would have
+            os.utime(path, (1, 1))  # a different mtime, as any real write would have
 
             sources = {hit["source"] for hit in kb.search("approval")}
             self.assertIn("outside.md", sources, "an edit by another process was served from cache")
@@ -147,11 +164,13 @@ class KnowledgeBaseTests(unittest.TestCase):
         in it, which is most of them. The substring pre-check must not change the answer."""
         with tempfile.TemporaryDirectory() as raw:
             kb = self._kb(Path(raw))
-            kb.add("mixed.md",
-                   "Unrelated opening sentence about weather. "
-                   "Another filler line with nothing useful. "
-                   "The approval gate blocks a download until you say yes. "
-                   "More filler that mentions nothing. ")
+            kb.add(
+                "mixed.md",
+                "Unrelated opening sentence about weather. "
+                "Another filler line with nothing useful. "
+                "The approval gate blocks a download until you say yes. "
+                "More filler that mentions nothing. ",
+            )
             answer = kb.answer("what does the approval gate do")
             self.assertTrue(answer["ok"], answer)
             self.assertIn("approval gate", str(answer["answer"]).lower())
@@ -288,8 +307,9 @@ class ReadableAnswerTests(unittest.TestCase):
     def test_the_opening_it_falls_back_to_is_prose(self) -> None:
         # Found by meaning alone, with no word in common, it quotes the opening: that was the
         # first 400 characters as stored, which in a README are the title and its badges.
-        base = KnowledgeBase(Path(self._tmp.name) / "kb.json",
-                             embedder=Embedder(backend=lambda texts, kind: [[1.0, 0.0] for _ in texts]))
+        base = KnowledgeBase(
+            Path(self._tmp.name) / "kb.json", embedder=Embedder(backend=lambda texts, kind: [[1.0, 0.0] for _ in texts])
+        )
         base.add("file:README.md", GUIDE)
         out = base.answer("does it nag me")
         self.assertTrue(out["ok"], out)
@@ -301,11 +321,14 @@ class ReadableAnswerTests(unittest.TestCase):
         # in a browser tab", and the row that answers it was never quoted. Neutral sentences
         # keep the two apart here, so no window holds both.
         base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
-        base.add("file:notes.md", "Do it in order: do the setup in a terminal, do the import in the shell, and "
-                                  "do the review in a week.\n\nPlans are plain text files.\n\n"
-                                  "Each plan has a title and a list of goals.\n\n"
-                                  "Goals can be marked done at any time.\n\n"
-                                  "| Browser tab | `orbit serve` opens port 8080 |\n")
+        base.add(
+            "file:notes.md",
+            "Do it in order: do the setup in a terminal, do the import in the shell, and "
+            "do the review in a week.\n\nPlans are plain text files.\n\n"
+            "Each plan has a title and a list of goals.\n\n"
+            "Goals can be marked done at any time.\n\n"
+            "| Browser tab | `orbit serve` opens port 8080 |\n",
+        )
         best = str(base.answer("how do i start the app in a browser tab", limit=1)["answer"])
         self.assertTrue(best.startswith("Browser tab"), best)
 
@@ -313,8 +336,11 @@ class ReadableAnswerTests(unittest.TestCase):
         # The check before tokenizing read the raw text, where "jarvis" is not a substring of
         # "J.A.R.V.I.S", so the app's own name never reached the scoring.
         base = KnowledgeBase(Path(self._tmp.name) / "kb.json")
-        base.add("file:about.md", "Plans live on your disk. Nothing leaves it. Backups are yours to keep.\n\n"
-                                  "J.A.R.V.I.S is a local-first assistant that runs on your laptop.\n")
+        base.add(
+            "file:about.md",
+            "Plans live on your disk. Nothing leaves it. Backups are yours to keep.\n\n"
+            "J.A.R.V.I.S is a local-first assistant that runs on your laptop.\n",
+        )
         # The name alone: with any other term in the question, that term lets the window through.
         answer = str(base.answer("jarvis")["answer"])
         self.assertIn("J.A.R.V.I.S is a local-first assistant", answer)

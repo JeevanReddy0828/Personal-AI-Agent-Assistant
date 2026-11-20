@@ -22,12 +22,15 @@ class SpokenDeckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             everyday = Everyday(Path(raw))
             everyday.orchestrator._document_tool_cache = DocumentTool(
-                data_dir=Path(raw), writer=lambda prompt: DECK,
+                data_dir=Path(raw),
+                writer=lambda prompt: DECK,
             )
             with mock.patch("laptop_agent.tools.document._write_pptx", side_effect=fake_export):
-                for said in ("throw together slides about the water cycle",
-                             "um throw together a slide deck about the water cycle",
-                             "whip up slides on the water cycle"):
+                for said in (
+                    "throw together slides about the water cycle",
+                    "um throw together a slide deck about the water cycle",
+                    "whip up slides on the water cycle",
+                ):
                     with self.subTest(said=said):
                         result, ran = everyday.say(said, stream=False)
                         self.assertTrue(ran and ran.startswith("document "), (ran, result.message))
@@ -36,8 +39,7 @@ class SpokenDeckTests(unittest.TestCase):
                         self.assertIn(".pptx", result.message)
 
     def test_format_parser_reads_the_spoken_verbs(self) -> None:
-        self.assertEqual(split_format("throw together slides about the water cycle"),
-                         ("the water cycle", "pptx"))
+        self.assertEqual(split_format("throw together slides about the water cycle"), ("the water cycle", "pptx"))
         self.assertEqual(split_format("whip up a slide deck on tides"), ("tides", "pptx"))
         self.assertEqual(split_format("throw together a salad"), ("throw together a salad", "pdf"))
 

@@ -68,8 +68,11 @@ class FileOpsTests(unittest.TestCase):
     def test_the_home_folder_and_a_drive_root_are_never_changed(self) -> None:
         # Never approved: should a guard fail, nothing outside the temporary folder moves.
         self.approve = False
-        for change in (lambda: self.ops.delete(self.home.anchor), lambda: self.ops.rename(self.home.anchor, "x"),
-                       lambda: FileOps(self.ops._gate, self.home / "j.json", recycler=lambda p: None).delete(str(Path.home()))):
+        for change in (
+            lambda: self.ops.delete(self.home.anchor),
+            lambda: self.ops.rename(self.home.anchor, "x"),
+            lambda: FileOps(self.ops._gate, self.home / "j.json", recycler=lambda p: None).delete(str(Path.home())),
+        ):
             self.assertFalse(change().ok)
         self.assertEqual(self.cards, [])
 
@@ -138,8 +141,9 @@ class FileOpsCommandTests(unittest.TestCase):
         (self.home / "Desktop").mkdir(parents=True)
         (self.home / "Downloads").mkdir(parents=True)
         (self.home / "Downloads" / "report.pdf").write_text("pdf", encoding="utf-8")
-        self.orch._file_ops_cache = FileOps(self.orch.context.web.approval_gate, root / "journal.json",
-                                            home=self.home, recycler=lambda path: None)
+        self.orch._file_ops_cache = FileOps(
+            self.orch.context.web.approval_gate, root / "journal.json", home=self.home, recycler=lambda path: None
+        )
 
     def say(self, text: str, history=None):
         return asyncio.run(self.orch.handle(text, history=history or []))
@@ -148,8 +152,10 @@ class FileOpsCommandTests(unittest.TestCase):
         moved = self.say("move report.pdf to my desktop")
         self.assertTrue(moved.ok, moved.message)
         self.assertTrue((self.home / "Desktop" / "report.pdf").exists())
-        undone = self.say("undo that", [{"role": "user", "text": "move report.pdf to my desktop"},
-                                        {"role": "assistant", "text": moved.message}])
+        undone = self.say(
+            "undo that",
+            [{"role": "user", "text": "move report.pdf to my desktop"}, {"role": "assistant", "text": moved.message}],
+        )
         self.assertTrue(undone.ok, undone.message)
         self.assertTrue((self.home / "Downloads" / "report.pdf").exists())
 
@@ -160,8 +166,13 @@ class FileOpsCommandTests(unittest.TestCase):
 
     def test_every_form_is_developer_only(self) -> None:
         with acting_as(PERSONAL):
-            for command in ("file move a.txt to desktop", "file copy a.txt to desktop", "file rename a.txt to b.txt",
-                            "file delete a.txt", "undo file"):
+            for command in (
+                "file move a.txt to desktop",
+                "file copy a.txt to desktop",
+                "file rename a.txt to b.txt",
+                "file delete a.txt",
+                "undo file",
+            ):
                 with self.subTest(command):
                     self.assertIsNotNone(refused_command(command))
             self.assertFalse(self.say("move report.pdf to my desktop").ok)
@@ -177,9 +188,17 @@ class FileOpsRoutingTests(unittest.TestCase):
         "delete old-notes.txt": "file delete old-notes.txt",
         "undo the last move": "undo file move",
     }
-    STAY = ("move the meeting to friday", "delete my last note", "copy that to my clipboard",
-            "how do I move files to another drive", "rename my wifi network", "remove google.com from my bookmarks",
-            "delete it", "move it to my desktop", "undo")
+    STAY = (
+        "move the meeting to friday",
+        "delete my last note",
+        "copy that to my clipboard",
+        "how do I move files to another drive",
+        "rename my wifi network",
+        "remove google.com from my bookmarks",
+        "delete it",
+        "move it to my desktop",
+        "undo",
+    )
 
     def test_file_changes_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()
@@ -207,7 +226,7 @@ class ReviewOf287Tests(FileOpsTests):
 
     def test_a_drive_without_a_recycle_bin_is_refused_before_anything(self) -> None:
         calls: list = []
-        kernel32 = type("K", (), {"GetDriveTypeW": lambda self, root: 2})()   # DRIVE_REMOVABLE
+        kernel32 = type("K", (), {"GetDriveTypeW": lambda self, root: 2})()  # DRIVE_REMOVABLE
         shell32 = type("S", (), {"SHFileOperationW": lambda self, op: calls.append(op) or 0})()
         with self.assertRaisesRegex(OSError, "no Recycle Bin"):
             fileops.recycle_windows(Path("E:/photos"), kernel32, shell32)
@@ -231,8 +250,12 @@ class ReviewOf287Tests(FileOpsTests):
     def test_a_home_spelled_differently_from_its_resolved_path_is_still_protected(self) -> None:
         # CI's Windows temp dir is an 8.3 name (RUNNER~1) that resolve() expands; ".." stands in for it.
         spelled = self.home / ".." / self.home.name
-        ops = FileOps(ApprovalGate(ask=lambda request: True), self.home.parent / "journal2.json",
-                      home=spelled, recycler=self.recycled.append)
+        ops = FileOps(
+            ApprovalGate(ask=lambda request: True),
+            self.home.parent / "journal2.json",
+            home=spelled,
+            recycler=self.recycled.append,
+        )
         for target in (str(self.home.parent), str(self.home / "Desktop")):
             with self.subTest(target):
                 self.assertFalse(ops.delete(target).ok)
@@ -283,7 +306,7 @@ class ReviewOf287Tests(FileOpsTests):
 
     def test_undo_leaves_a_copied_folder_whose_file_was_edited_in_place(self) -> None:
         copy = self.copied_drafts()
-        self.edit_keeping_size_and_time(copy / "outline.txt", "revised")   # same length as "outline"
+        self.edit_keeping_size_and_time(copy / "outline.txt", "revised")  # same length as "outline"
         self.assertFalse(self.ops.undo().ok)
         self.assertEqual(self.recycled, [])
 
@@ -336,10 +359,14 @@ class ReviewOf287Tests(FileOpsTests):
 class ReviewOf287CommandTests(FileOpsCommandTests):
     def test_a_name_with_to_in_it_is_one_name(self) -> None:
         (self.home / "Downloads" / "back to school.docx").write_text("x", encoding="utf-8")
-        self.assertEqual(self.orch._file_change_parts("file move back to school.docx to desktop"),
-                         ("move", "back to school.docx", "desktop"))
-        self.assertEqual(self.orch._file_change_parts('file move "back to school.docx" to desktop'),
-                         ("move", "back to school.docx", "desktop"))
+        self.assertEqual(
+            self.orch._file_change_parts("file move back to school.docx to desktop"),
+            ("move", "back to school.docx", "desktop"),
+        )
+        self.assertEqual(
+            self.orch._file_change_parts('file move "back to school.docx" to desktop'),
+            ("move", "back to school.docx", "desktop"),
+        )
 
     def test_an_invented_target_is_refused(self) -> None:
         self.assertIn("file delete", self.orch._TARGET_COMMANDS)
@@ -348,8 +375,16 @@ class ReviewOf287CommandTests(FileOpsCommandTests):
 class ReviewOf287UndoTests(FileOpsCommandTests):
     def test_the_model_router_cannot_undo_a_file_after_something_else(self) -> None:
         from laptop_agent.planner.core import PlanDecision
-        fake = type("P", (), {"plan": lambda self, *a, **k: PlanDecision(action="command", command="undo file",
-                                                                          confidence=0.9, explanation="model")})()
+
+        fake = type(
+            "P",
+            (),
+            {
+                "plan": lambda self, *a, **k: PlanDecision(
+                    action="command", command="undo file", confidence=0.9, explanation="model"
+                )
+            },
+        )()
         self.orch.planner = type("Planner", (), {"plan": fake.plan, "provider": None})()
         after_reminder = [{"role": "assistant", "text": "Reminder set for 5pm."}]
         after_move = [{"role": "assistant", "text": "Moved report.pdf to C:/Users/me/Desktop/report.pdf."}]
@@ -359,8 +394,15 @@ class ReviewOf287UndoTests(FileOpsCommandTests):
 
 
 class ReviewOf287RoutingTests(FileOpsRoutingTests):
-    STAY = FileOpsRoutingTests.STAY + ("delete the alarm at 6.30", "remove my alarm at 7.45", "delete google.com",
-                                "remove v1.2", "delete chapter 3.1", "undo the last change", "revert the last change")
+    STAY = FileOpsRoutingTests.STAY + (
+        "delete the alarm at 6.30",
+        "remove my alarm at 7.45",
+        "delete google.com",
+        "remove v1.2",
+        "delete chapter 3.1",
+        "undo the last change",
+        "revert the last change",
+    )
 
 
 if __name__ == "__main__":

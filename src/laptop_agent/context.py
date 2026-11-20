@@ -466,7 +466,11 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
         if note:
             lines.append(note)
         return SessionContext(
-            text="\n".join(lines) + "\n", query=resolved, referent=referent, refers_back=anaphoric, summarized=summarized
+            text="\n".join(lines) + "\n",
+            query=resolved,
+            referent=referent,
+            refers_back=anaphoric,
+            summarized=summarized,
         )
 
     # Small corpus: everything verbatim beats any summary or retrieval.
@@ -494,7 +498,10 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
             add(summary)
             summarized = True
         else:
-            outline = [f"{index + 1}. {_ROLE_LABEL[role]}: {_summary_line(text)}" for index, (role, text) in enumerate(turns[:recent_start])]
+            outline = [
+                f"{index + 1}. {_ROLE_LABEL[role]}: {_summary_line(text)}"
+                for index, (role, text) in enumerate(turns[:recent_start])
+            ]
             outline_budget = int(budget * 0.15)
             while outline and sum(len(line) + 1 for line in outline) > outline_budget:
                 outline.pop(0)
@@ -538,7 +545,7 @@ def _assemble(turns: list[tuple[str, str]], query: str, budget: int, recent_turn
         if not kept:  # only a prefix is shown, so the chunk stays retrievable later
             cut = _split_point(text, cap)
             return f"{label}{text[:cut].rstrip()} …", []
-        rest = by_turn[index][len(kept):]
+        rest = by_turn[index][len(kept) :]
         sections: list[str] = []
         for chunk in rest:
             if chunk.heading and chunk.heading not in sections:

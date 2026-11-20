@@ -11,8 +11,16 @@ from http.server import ThreadingHTTPServer
 
 import laptop_agent.webui as webui
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
-from laptop_agent.spoken import (MORE_ON_SCREEN, SPOKEN, SPOKEN_WORDS, VOICE_STYLE, SpokenBudget, greeting,
-                                 reply_style, spoken_turn)
+from laptop_agent.spoken import (
+    MORE_ON_SCREEN,
+    SPOKEN,
+    SPOKEN_WORDS,
+    VOICE_STYLE,
+    SpokenBudget,
+    greeting,
+    reply_style,
+    spoken_turn,
+)
 from laptop_agent.tools.base import ToolResult
 
 from test_llm_planner import _FakeStream
@@ -69,10 +77,18 @@ class GreetingTests(unittest.TestCase):
     first = staticmethod(lambda options: options[0])
 
     def test_by_time_of_day_and_name(self) -> None:
-        self.assertEqual(greeting("Jeevan", datetime(2026, 10, 15, 8), self.first), "Good morning, Jeevan. What can I do for you?")
-        self.assertEqual(greeting("Jeevan", datetime(2026, 10, 15, 14), self.first), "Good afternoon, Jeevan. What can I do for you?")
-        self.assertEqual(greeting("Jeevan", datetime(2026, 10, 15, 19), self.first), "Good evening, Jeevan. What can I do for you?")
-        self.assertEqual(greeting("Jeevan", datetime(2026, 10, 15, 2), self.first), "Still up, Jeevan? What can I do for you?")
+        self.assertEqual(
+            greeting("Jeevan", datetime(2026, 10, 15, 8), self.first), "Good morning, Jeevan. What can I do for you?"
+        )
+        self.assertEqual(
+            greeting("Jeevan", datetime(2026, 10, 15, 14), self.first), "Good afternoon, Jeevan. What can I do for you?"
+        )
+        self.assertEqual(
+            greeting("Jeevan", datetime(2026, 10, 15, 19), self.first), "Good evening, Jeevan. What can I do for you?"
+        )
+        self.assertEqual(
+            greeting("Jeevan", datetime(2026, 10, 15, 2), self.first), "Still up, Jeevan? What can I do for you?"
+        )
 
     def test_without_a_name_it_does_not_invent_one(self) -> None:
         self.assertEqual(greeting(None, datetime(2026, 10, 15, 19), self.first), "Good evening. What can I do for you?")
@@ -97,8 +113,11 @@ class SpokenStreamTests(unittest.TestCase):
         webui._orchestrator.handle = cls._original_handle
 
     def stream(self, payload: dict) -> list[dict]:
-        request = urllib.request.Request(self.base + "/api/stream", data=json.dumps(payload).encode(),
-                                         headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN})
+        request = urllib.request.Request(
+            self.base + "/api/stream",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
+        )
         body = urllib.request.urlopen(request, timeout=15).read().decode()
         return [json.loads(block.strip()[5:]) for block in body.split("\n\n") if block.strip().startswith("data:")]
 
@@ -121,7 +140,9 @@ class SpokenStreamTests(unittest.TestCase):
             return ToolResult.success(reply)
 
         webui._orchestrator.handle = handle
-        said = [event["text"] for event in self.stream({"command": "long", "voice": True}) if event.get("type") == "tts"]
+        said = [
+            event["text"] for event in self.stream({"command": "long", "voice": True}) if event.get("type") == "tts"
+        ]
         self.assertEqual(said[-1], MORE_ON_SCREEN)
         words = sum(len(text.split()) for text in said[:-1])
         self.assertLessEqual(words, SPOKEN_WORDS + 60)
@@ -132,8 +153,12 @@ class SpokenStreamTests(unittest.TestCase):
         before = memory.get_profile().get("name")
         memory.set_profile_value("name", "jeevan")
         try:
-            body = json.loads(urllib.request.urlopen(urllib.request.Request(
-                self.base + "/api/greeting", headers={"X-Jarvis-Token": webui._API_TOKEN}), timeout=15).read())
+            body = json.loads(
+                urllib.request.urlopen(
+                    urllib.request.Request(self.base + "/api/greeting", headers={"X-Jarvis-Token": webui._API_TOKEN}),
+                    timeout=15,
+                ).read()
+            )
         finally:
             if before is None:
                 memory.forget_profile_value("name")

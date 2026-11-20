@@ -6,6 +6,7 @@ window first. Windows' own RegisterHotKey (ctypes, no extra package) delivers th
 thread here, which hands it to the page. Ctrl+Space is not used globally: Windows switches the
 input language with it.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -19,7 +20,7 @@ from laptop_agent.failures import record_failure
 MOD_ALT, MOD_CONTROL, MOD_NOREPEAT = 0x0001, 0x0002, 0x4000
 WM_HOTKEY, WM_QUIT = 0x0312, 0x0012
 LABEL = "Ctrl+Alt+J"
-_HOTKEY_ID = 0x4A41   # "JA"
+_HOTKEY_ID = 0x4A41  # "JA"
 
 
 class GlobalHotkey:
@@ -47,7 +48,9 @@ class GlobalHotkey:
     def _loop(self) -> None:
         self._thread_id = self._kernel32.GetCurrentThreadId()
         # The hotkey belongs to the thread that registers it, so this thread also reads its messages.
-        self.registered = bool(self._user32.RegisterHotKey(None, _HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("J")))
+        self.registered = bool(
+            self._user32.RegisterHotKey(None, _HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("J"))
+        )
         self._ready.set()
         if not self.registered:
             record_failure("hotkey/register", f"{LABEL} is taken by another app")
@@ -58,7 +61,7 @@ class GlobalHotkey:
                 if message.message == WM_HOTKEY and message.wParam == _HOTKEY_ID:
                     try:
                         self._on_press()
-                    except Exception as exc:   # one bad press must not end the listener
+                    except Exception as exc:  # one bad press must not end the listener
                         record_failure("hotkey/press", exc)
         finally:
             self._user32.UnregisterHotKey(None, _HOTKEY_ID)

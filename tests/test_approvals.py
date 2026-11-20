@@ -14,7 +14,7 @@ class ApprovalBrokerTests(unittest.TestCase):
 
     def broker(self, timeout: float = 5.0) -> ApprovalBroker:
         broker = ApprovalBroker(timeout=timeout)
-        broker.add_listener(lambda request: None)      # a connected UI
+        broker.add_listener(lambda request: None)  # a connected UI
         return broker
 
     def answer_soon(self, broker: ApprovalBroker, approved: bool, delay: float = 0.05):
@@ -84,7 +84,9 @@ class ApprovalBrokerTests(unittest.TestCase):
         broker = self.broker(timeout=2.0)
         threading.Thread(
             target=lambda: broker.request(
-                "Download file: https://example.com/a.csv", "high", "Downloads can be unsafe.",
+                "Download file: https://example.com/a.csv",
+                "high",
+                "Downloads can be unsafe.",
                 preview="Destination: C:/downloads/a.csv",
             ),
             daemon=True,

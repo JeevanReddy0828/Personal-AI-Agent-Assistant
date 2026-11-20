@@ -107,7 +107,9 @@ class WorkflowTracker:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2)
+        )
 
     @synchronized
     def _infer_next_run(self) -> int:

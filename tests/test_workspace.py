@@ -26,8 +26,9 @@ class NameAndPlaceTests(unittest.TestCase):
     home = Path("/home/x")
 
     def test_a_named_folder_on_the_desktop(self) -> None:
-        self.assertEqual(folder_and_place("make a folder called notes on my desktop", self.home),
-                         ("notes", self.home / "Desktop"))
+        self.assertEqual(
+            folder_and_place("make a folder called notes on my desktop", self.home), ("notes", self.home / "Desktop")
+        )
 
     def test_the_default_is_a_workspace_in_documents(self) -> None:
         self.assertEqual(folder_and_place(REQUEST, self.home), ("workspace", self.home / "Documents"))
@@ -68,8 +69,12 @@ class FilePlanTests(unittest.TestCase):
     def test_a_file_that_is_also_a_folder_is_refused_in_either_order(self) -> None:
         # "src" as a file and "src/app.py" beneath it: the second write raised FileExistsError after the
         # card was approved, leaving half a workspace (Codex's review of #282). Windows ignores case.
-        for files in ((("src", "x"), ("src/app.py", "y")), (("src/app.py", "y"), ("src", "x")),
-                      (("SRC", "x"), ("src/app.py", "y")), (("a/b", "x"), ("A/b/c.py", "y"))):
+        for files in (
+            (("src", "x"), ("src/app.py", "y")),
+            (("src/app.py", "y"), ("src", "x")),
+            (("SRC", "x"), ("src/app.py", "y")),
+            (("a/b", "x"), ("A/b/c.py", "y")),
+        ):
             with self.subTest(files):
                 self.assertIsNone(file_plan(plan_json(*files)))
         self.assertIsNotNone(file_plan(plan_json(("src/a.py", "1"), ("src/b.py", "2"), ("srcx.py", "3"))))
@@ -180,34 +185,57 @@ class ReviewOf282Tests(unittest.TestCase):
         return HeuristicPlannerProvider().plan(text, "", {})
 
     def test_only_a_whole_sentence_asking_for_a_folder_routes(self) -> None:
-        for text in ("make my downloads folder less cluttered", "create a folder structure for a react app",
-                     "set up a directory of plumbers", "start a project with my manager",
-                     "write a report on folders as a pdf and make a folder", "create a notion workspace with pages"):
+        for text in (
+            "make my downloads folder less cluttered",
+            "create a folder structure for a react app",
+            "set up a directory of plumbers",
+            "start a project with my manager",
+            "write a report on folders as a pdf and make a folder",
+            "create a notion workspace with pages",
+        ):
             self.assertFalse(self.route(text).is_command and self.route(text).command.startswith("workspace "), text)
-        for text in ("create a project folder with flask starter files", "make a folder called notes on my desktop.",
-                     "make an empty folder on my desktop", "create a folder called rust, with examples"):
+        for text in (
+            "create a project folder with flask starter files",
+            "make a folder called notes on my desktop.",
+            "make an empty folder on my desktop",
+            "create a folder called rust, with examples",
+        ):
             self.assertTrue(self.route(text).command.startswith("workspace "), text)
 
     def test_the_name_and_place_come_from_before_the_contents(self) -> None:
         home = Path("/h")
-        self.assertEqual(folder_and_place("create a folder with notes on home loans in my downloads", home),
-                         ("workspace", home / "Documents"))
+        self.assertEqual(
+            folder_and_place("create a folder with notes on home loans in my downloads", home),
+            ("workspace", home / "Documents"),
+        )
         self.assertEqual(folder_and_place("make a folder with notes on a book called dune", home)[0], "workspace")
         self.assertEqual(folder_and_place("make an empty folder on my desktop", home), ("workspace", home / "Desktop"))
         self.assertEqual(folder_and_place("create a folder with the name rust", home)[0], "rust")
         self.assertEqual(folder_and_place("create a folder called downloads", home)[0], "downloads")
-        self.assertEqual(folder_and_place('create a folder in "C:/My Projects" called demo', home),
-                         ("demo", Path("C:/My Projects")))
+        self.assertEqual(
+            folder_and_place('create a folder in "C:/My Projects" called demo', home), ("demo", Path("C:/My Projects"))
+        )
         self.assertEqual(folder_and_place("make a folder at /tmp/x.", home)[1], Path("/tmp/x"))
-        self.assertEqual(folder_and_place("make a folder with a script that cleans files in /tmp/junk", home)[1],
-                         home / "Documents")
+        self.assertEqual(
+            folder_and_place("make a folder with a script that cleans files in /tmp/junk", home)[1], home / "Documents"
+        )
 
     def test_a_readme_holding_a_fence_and_prose_after_still_parse(self) -> None:
         reply = "Sure!\n" + plan_json(("README.md", "```py\nprint(1)\n```\n")) + "\nEnjoy."
         self.assertEqual(file_plan(reply), [("README.md", "```py\nprint(1)\n```\n")])
 
     def test_files_windows_acts_on_and_null_paths_are_refused(self) -> None:
-        for bad in ("evil.url", "x.LNK", "a.scf", "run.bat", "s.ps1", "desktop.ini", "Desktop.INI", "x.library-ms", None):
+        for bad in (
+            "evil.url",
+            "x.LNK",
+            "a.scf",
+            "run.bat",
+            "s.ps1",
+            "desktop.ini",
+            "Desktop.INI",
+            "x.library-ms",
+            None,
+        ):
             self.assertIsNone(safe_relative(bad), bad)
 
     def test_an_unmade_place_is_refused_not_created(self) -> None:
@@ -235,7 +263,7 @@ class ReviewOf282Tests(unittest.TestCase):
 
     def test_a_folder_the_cleanup_could_not_remove_is_named_not_denied(self) -> None:
         tool = self.tool(plan_json(("a.py", "1"), ("b.py", "\ud800")))
-        with mock.patch("laptop_agent.tools.workspace.shutil.rmtree"):   # a file held open by another program
+        with mock.patch("laptop_agent.tools.workspace.shutil.rmtree"):  # a file held open by another program
             result = tool.create(REQUEST)
         folder = self.home / "Documents" / "workspace"
         self.assertTrue((folder / "a.py").exists())
@@ -255,8 +283,9 @@ class ReviewOf282Tests(unittest.TestCase):
 
     def test_the_prompt_states_the_limits(self) -> None:
         prompts: list[str] = []
-        WorkspaceTool(lambda prompt: prompts.append(prompt) or "", ApprovalGate(ask=lambda r: True),
-                      home=self.home).create(REQUEST)
+        WorkspaceTool(
+            lambda prompt: prompts.append(prompt) or "", ApprovalGate(ask=lambda r: True), home=self.home
+        ).create(REQUEST)
         self.assertIn(str(MAX_FILES), prompts[0])
         self.assertIn("12,000", prompts[0])
 
@@ -284,14 +313,26 @@ class RoutingTests(unittest.TestCase):
         return HeuristicPlannerProvider().plan(text, "", {})
 
     def test_a_folder_with_files_is_a_workspace_not_a_document(self) -> None:
-        for text in (REQUEST, "make a folder called notes on my desktop", "can you create a new python basics folder",
-                     "create a workspace and fill it with rust examples", "I want you to make a folder on my desktop"):
+        for text in (
+            REQUEST,
+            "make a folder called notes on my desktop",
+            "can you create a new python basics folder",
+            "create a workspace and fill it with rust examples",
+            "I want you to make a folder on my desktop",
+        ):
             decision = self.route(text)
             self.assertTrue(decision.is_command and decision.command.startswith("workspace "), text)
 
     def test_near_misses_stay_with_the_chat(self) -> None:
-        for text in ("how do I create a folder in python", "create a folder in python", "create a folder using powershell",
-                     "how to make a folder", "create a slack workspace", "create a project plan", "don't create a folder"):
+        for text in (
+            "how do I create a folder in python",
+            "create a folder in python",
+            "create a folder using powershell",
+            "how to make a folder",
+            "create a slack workspace",
+            "create a project plan",
+            "don't create a folder",
+        ):
             self.assertFalse(self.route(text).is_command, text)
 
     def test_a_pdf_is_still_a_document(self) -> None:

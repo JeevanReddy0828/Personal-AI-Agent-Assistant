@@ -19,11 +19,15 @@ class FakeBackend:
     def __init__(self, windows=None, place_ok=True):
         self.placed: list[tuple] = []
         self.place_ok = place_ok
-        self._windows = windows if windows is not None else [
-            DesktopWindow(101, "WhatsApp", "WhatsApp.Root.exe"),
-            DesktopWindow(202, "Inbox (3) - Gmail - Google Chrome", "chrome.exe"),
-            DesktopWindow(303, ".env - codex new project - Visual Studio Code", "Code.exe"),
-        ]
+        self._windows = (
+            windows
+            if windows is not None
+            else [
+                DesktopWindow(101, "WhatsApp", "WhatsApp.Root.exe"),
+                DesktopWindow(202, "Inbox (3) - Gmail - Google Chrome", "chrome.exe"),
+                DesktopWindow(303, ".env - codex new project - Visual Studio Code", "Code.exe"),
+            ]
+        )
 
     def list_windows(self):
         return list(self._windows)
@@ -149,7 +153,7 @@ class AmbiguousNameTests(unittest.TestCase):
         self.assertEqual(backend.placed[0][0], 1, "picked the msedgewebview2 window")
 
     def test_a_title_only_match_still_works(self) -> None:
-        """"gmail" names no process at all, only a page title."""
+        """ "gmail" names no process at all, only a page title."""
         backend = FakeBackend(windows=[DesktopWindow(9, "Inbox - Gmail - Google Chrome", "chrome.exe")])
         result = tool(backend).arrange([("gmail", "left")])
         self.assertTrue(result.ok, result.message)
@@ -170,11 +174,13 @@ class ArrangeTests(unittest.TestCase):
         self.assertEqual(backend.placed, [(202, 0, 0, 1920, 1032)])
 
     def test_the_shortest_title_wins_a_tie(self) -> None:
-        """"chrome" should prefer a real Chrome window over one that merely mentions it."""
-        backend = FakeBackend(windows=[
-            DesktopWindow(1, "How to uninstall Google Chrome - Stack Overflow — Firefox", "firefox.exe"),
-            DesktopWindow(2, "Google Chrome", "chrome.exe"),
-        ])
+        """ "chrome" should prefer a real Chrome window over one that merely mentions it."""
+        backend = FakeBackend(
+            windows=[
+                DesktopWindow(1, "How to uninstall Google Chrome - Stack Overflow — Firefox", "firefox.exe"),
+                DesktopWindow(2, "Google Chrome", "chrome.exe"),
+            ]
+        )
         tool(backend).arrange([("chrome", "left")])
         self.assertEqual(backend.placed[0][0], 2)
 

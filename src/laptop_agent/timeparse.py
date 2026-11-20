@@ -34,33 +34,86 @@ _ZONE_YEARS = range(1971, 3000)
 _LONGEST_WAIT = 20 * 365 * 86400
 
 DURATION_UNITS: dict[str, int] = {
-    "second": 1, "seconds": 1, "sec": 1, "secs": 1, "s": 1,
-    "minute": 60, "minutes": 60, "min": 60, "mins": 60, "m": 60,
-    "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600, "h": 3600,
-    "day": 86400, "days": 86400,
-    "week": 604800, "weeks": 604800,
+    "second": 1,
+    "seconds": 1,
+    "sec": 1,
+    "secs": 1,
+    "s": 1,
+    "minute": 60,
+    "minutes": 60,
+    "min": 60,
+    "mins": 60,
+    "m": 60,
+    "hour": 3600,
+    "hours": 3600,
+    "hr": 3600,
+    "hrs": 3600,
+    "h": 3600,
+    "day": 86400,
+    "days": 86400,
+    "week": 604800,
+    "weeks": 604800,
 }
 
 WEEKDAYS: dict[str, int] = {
-    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2, "wed": 2,
-    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "friday": 4, "fri": 4,
-    "saturday": 5, "sat": 5, "sunday": 6, "sun": 6,
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "tues": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
 }
 
 MONTHS: dict[str, int] = {
-    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
-    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
-    "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9, "october": 10, "oct": 10,
-    "november": 11, "nov": 11, "december": 12, "dec": 12,
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
 }
 
 # Named times. A reminder with a day but no time lands at DEFAULT_HOUR, which matches the
 # long-standing behaviour of a bare ISO date.
 DEFAULT_HOUR = 9
 NAMED_TIMES: dict[str, tuple[int, int]] = {
-    "noon": (12, 0), "midday": (12, 0), "midnight": (0, 0),
-    "morning": (9, 0), "afternoon": (14, 0), "evening": (18, 0),
-    "tonight": (20, 0), "night": (20, 0),
+    "noon": (12, 0),
+    "midday": (12, 0),
+    "midnight": (0, 0),
+    "morning": (9, 0),
+    "afternoon": (14, 0),
+    "evening": (18, 0),
+    "tonight": (20, 0),
+    "night": (20, 0),
 }
 
 _MERIDIEM = r"(?:am|pm|a\.m\.|p\.m\.)"
@@ -71,8 +124,7 @@ _TIME_PATTERNS = (
     r"\b(?P<h2>[01]?\d|2[0-3]):(?P<m2>[0-5]\d)\b",
     r"\bat\s+(?P<h3>\d{1,2})\b(?!\s*[:\d])",
 )
-_NAMED_TIME_PATTERN = (
-    r"\b(?P<named>noon|midday|midnight|morning|afternoon|evening|night)\b")
+_NAMED_TIME_PATTERN = r"\b(?P<named>noon|midday|midnight|morning|afternoon|evening|night)\b"
 # Words that introduce a time and belong to it, not to the message: "call mom at 6pm"
 # should leave "call mom", not "call mom at".
 _LEAD_WORDS = r"(?:\b(?:at|on|by|around|about|the|this|next|of)\s+)+$"
@@ -104,8 +156,7 @@ def parse_clock(text: str) -> tuple[int, int] | None:
     named = re.fullmatch(r"(?:at\s+)?(noon|midday|midnight)", lowered)
     if named:
         return NAMED_TIMES[named.group(1)]
-    match = re.fullmatch(
-        rf"(?:at\s+)?(\d{{1,2}})(?::(\d{{2}}))?\s*({_MERIDIEM})?", lowered)
+    match = re.fullmatch(rf"(?:at\s+)?(\d{{1,2}})(?::(\d{{2}}))?\s*({_MERIDIEM})?", lowered)
     if not match:
         return None
     hour = int(match.group(1))
@@ -154,8 +205,7 @@ def _apply(day: date, clock: tuple[int, int], now: datetime, local: bool = False
     return on_laptop_clock(wall, now.tzinfo) if local else wall.replace(tzinfo=now.tzinfo)
 
 
-def parse_when(text: str, now: datetime | None = None, default_half: str = "",
-               local: bool = False) -> When | None:
+def parse_when(text: str, now: datetime | None = None, default_half: str = "", local: bool = False) -> When | None:
     """Resolve the first date/time expression in `text`, or None if there is none.
 
     The result is in `now`'s zone, and a fixed offset stays fixed, so the parse is pure.
@@ -172,8 +222,12 @@ def parse_when(text: str, now: datetime | None = None, default_half: str = "",
         now = on_laptop_clock(now, now.tzinfo)
     lowered = text.lower()
 
-    resolvers = (lambda text, now: _iso(text, now, local), _duration,
-                 lambda text, now: _day_and_time(text, now, default_half, local), _right_now)
+    resolvers = (
+        lambda text, now: _iso(text, now, local),
+        _duration,
+        lambda text, now: _day_and_time(text, now, default_half, local),
+        _right_now,
+    )
     for resolve in resolvers:
         found = resolve(lowered, now)
         if found is not None:
@@ -189,7 +243,7 @@ def parse_when(text: str, now: datetime | None = None, default_half: str = "",
 
 
 def _right_now(text: str, now: datetime) -> When | None:
-    """"now" - tried last, so "at 5pm, now that the store is open" still means five."""
+    """ "now" - tried last, so "at 5pm, now that the store is open" still means five."""
     match = re.search(r"\b(?:right\s+)?now\b", text)
     return When(now, match.start(), match.end()) if match else None
 
@@ -197,13 +251,29 @@ def _right_now(text: str, now: datetime) -> When | None:
 # Numbers said out loud. Voice arrives as "at six" and "in five minutes", and a reminder
 # that could not read them answered "I could not find a time in that" to a clear request.
 _ONES = {
-    "zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
-    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "zero": 0,
+    "oh": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
     "nineteen": 19,
 }
-_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
-         "eighty": 80, "ninety": 90}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
 _SPOKEN = (
     r"(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
     r"(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?"
@@ -221,16 +291,22 @@ def _spoken_number(words: str) -> int:
 
 
 def spoken_to_digits(text: str) -> str:
-    """"at six thirty" -> "at 6:30", "in five minutes" -> "in 5 minutes", "quarter to
+    """ "at six thirty" -> "at 6:30", "in five minutes" -> "in 5 minutes", "quarter to
     eight" -> "7:45". Only numbers that belong to a time are touched, so "buy two
     apples at six" keeps its two."""
     flags = re.IGNORECASE
-    out = re.sub(rf"\bhalf\s+(?:past|after)\s+({_HOUR})\b",
-                 lambda m: f"{_spoken_number(m.group(1))}:30", text, flags=flags)
-    out = re.sub(rf"\bquarter\s+(?:past|after)\s+({_HOUR})\b",
-                 lambda m: f"{_spoken_number(m.group(1))}:15", out, flags=flags)
-    out = re.sub(rf"\bquarter\s+(?:to|til|till|before)\s+({_HOUR})\b",
-                 lambda m: f"{(_spoken_number(m.group(1)) - 2) % 12 + 1}:45", out, flags=flags)
+    out = re.sub(
+        rf"\bhalf\s+(?:past|after)\s+({_HOUR})\b", lambda m: f"{_spoken_number(m.group(1))}:30", text, flags=flags
+    )
+    out = re.sub(
+        rf"\bquarter\s+(?:past|after)\s+({_HOUR})\b", lambda m: f"{_spoken_number(m.group(1))}:15", out, flags=flags
+    )
+    out = re.sub(
+        rf"\bquarter\s+(?:to|til|till|before)\s+({_HOUR})\b",
+        lambda m: f"{(_spoken_number(m.group(1)) - 2) % 12 + 1}:45",
+        out,
+        flags=flags,
+    )
 
     def clock(match: re.Match[str]) -> str:
         hour = _spoken_number(match.group(2))
@@ -240,16 +316,21 @@ def spoken_to_digits(text: str) -> str:
             return match.group(0)
         return f"{match.group(1)} {hour}" + (f":{minute:02d}" if minute is not None else "")
 
-    out = re.sub(rf"\b(at|by|around|until|till|before|after)\s+({_SPOKEN})"
-                 rf"(?:\s+((?:oh\s+)?{_SPOKEN}))?(?:\s+o'?clock)?\b", clock, out, flags=flags)
+    out = re.sub(
+        rf"\b(at|by|around|until|till|before|after)\s+({_SPOKEN})"
+        rf"(?:\s+((?:oh\s+)?{_SPOKEN}))?(?:\s+o'?clock)?\b",
+        clock,
+        out,
+        flags=flags,
+    )
     out = re.sub(rf"\ba\s+couple\s+(?:of\s+)?(?={_SPOKEN_UNITS}\b)", "2 ", out, flags=flags)
-    return re.sub(rf"\b({_SPOKEN})(?=[\s-]+{_SPOKEN_UNITS}\b)",
-                  lambda m: str(_spoken_number(m.group(1))), out, flags=flags)
+    return re.sub(
+        rf"\b({_SPOKEN})(?=[\s-]+{_SPOKEN_UNITS}\b)", lambda m: str(_spoken_number(m.group(1))), out, flags=flags
+    )
 
 
 def _iso(text: str, now: datetime, local: bool = False) -> When | None:
-    match = re.search(
-        r"\b(\d{4})-(\d{2})-(\d{2})(?:[ t](\d{1,2}):(\d{2}))?\b", text)
+    match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})(?:[ t](\d{1,2}):(\d{2}))?\b", text)
     if not match:
         return None
     year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -257,20 +338,21 @@ def _iso(text: str, now: datetime, local: bool = False) -> When | None:
     minute = int(match.group(5)) if match.group(5) else 0
     try:
         at = _apply(date(year, month, day), (hour, minute), now, local)
-    except ValueError as exc:                       # 2026-02-30, 25:00
+    except ValueError as exc:  # 2026-02-30, 25:00
         raise TimeParseError(str(exc)) from exc
     return When(at, match.start(), match.end())
 
 
 def _duration(text: str, now: datetime) -> When | None:
-    """"in 20 minutes", "in an hour and a half", "in 2 hours and 30 minutes". The whole
+    """ "in 20 minutes", "in an hour and a half", "in 2 hours and 30 minutes". The whole
     length is one span: "in an hour and a half to stretch" was set an hour out and filed
     as "and a half to stretch"."""
     units = "|".join(sorted(DURATION_UNITS, key=len, reverse=True))
     match = re.search(
         rf"\bin\s+(?:(?P<n>\d+)(?P<and_half>\s+and\s+a\s+half)?|(?P<article>an?)|(?P<half>half\s+an?))"
         rf"\s*(?P<unit>{units})\b(?P<half_after>\s+and\s+a\s+half)?",
-        text)
+        text,
+    )
     if not match:
         return None
     unit_seconds = DURATION_UNITS[match.group("unit")]
@@ -304,7 +386,7 @@ _AM_WORDS = re.compile(r"\b(?:morning)\b")
 
 def _half_of_day(text: str, start: int, end: int) -> str:
     """'pm', 'am' or '' from the words within a few words of a time."""
-    window = text[max(0, start - 24): end + 24]
+    window = text[max(0, start - 24) : end + 24]
     if _PM_WORDS.search(window):
         return "pm"
     if _AM_WORDS.search(window):
@@ -336,8 +418,7 @@ def _find_time(text: str, default_half: str = "") -> tuple[tuple[int, int], int,
                     meridiem = (groups.get("mer1") or "").replace(".", "")
                     if not meridiem and 1 <= int(hour) <= 12:
                         meridiem = _half_of_day(text, match.start(), match.end()) or default_half
-                    clock = _normalise_clock(
-                        int(hour), int(minute or 0), meridiem, had_minutes=minute is not None)
+                    clock = _normalise_clock(int(hour), int(minute or 0), meridiem, had_minutes=minute is not None)
                 if best is None or match.end() > best[2]:
                     best = (clock, match.start(), match.end())
         if best is not None:
@@ -371,7 +452,9 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
     months = "|".join(sorted(MONTHS, key=len, reverse=True))
     written = re.search(
         rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<mon1>{months})"
-        rf"|(?P<mon2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b", text)
+        rf"|(?P<mon2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b",
+        text,
+    )
     if written:
         groups = written.groupdict()
         day = int(groups["d1"] or groups["d2"])
@@ -381,10 +464,10 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
             candidate = date(year, month, day)
         except ValueError as exc:
             raise TimeParseError(str(exc)) from exc
-        if candidate < today:                      # a date already gone means next year
+        if candidate < today:  # a date already gone means next year
             try:
                 candidate = date(year + 1, month, day)
-            except ValueError as exc:              # 29 February
+            except ValueError as exc:  # 29 February
                 raise TimeParseError(str(exc)) from exc
         return candidate, written.start(), written.end(), False
 
@@ -392,11 +475,14 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
     # "remind me on the 15th to pay rent" found no day at all. The ordinal needs "on" or "of …
     # month", and what follows must go on like a date: "on the 2nd floor" and "the 2nd pill"
     # are not days.
-    monthly = re.search(r"(?:\bon\s+(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)"
-                        r"|\bthe\s+(?P<d2>\d{1,2})(?:st|nd|rd|th)(?=\s+of\s+(?:this|the|next)\s+month))\b"
-                        r"(?:\s+of\s+(?P<which>this|the|next)\s+month)?"
-                        r"(?=\s*$|\s*[,.!?]|\s+(?:at|to|in|by|for|and|from|before|after|around|about|morning"
-                        r"|afternoon|evening|night|please|remind)\b)", text)
+    monthly = re.search(
+        r"(?:\bon\s+(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)"
+        r"|\bthe\s+(?P<d2>\d{1,2})(?:st|nd|rd|th)(?=\s+of\s+(?:this|the|next)\s+month))\b"
+        r"(?:\s+of\s+(?P<which>this|the|next)\s+month)?"
+        r"(?=\s*$|\s*[,.!?]|\s+(?:at|to|in|by|for|and|from|before|after|around|about|morning"
+        r"|afternoon|evening|night|please|remind)\b)",
+        text,
+    )
     if monthly and 1 <= int(monthly.group("d") or monthly.group("d2")) <= 31:
         day, year, month = int(monthly.group("d") or monthly.group("d2")), today.year, today.month
         if monthly.group("which") == "this":
@@ -411,14 +497,14 @@ def _find_day(text: str, now: datetime) -> tuple[date, int, int, bool] | None:
             return named, monthly.start(), monthly.end(), False
         if monthly.group("which") == "next":
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-            try:      # a month named outright is not moved: "the 31st of next month" in October
+            try:  # a month named outright is not moved: "the 31st of next month" in October
                 return date(year, month, day), monthly.start(), monthly.end(), False
             except ValueError as exc:
                 raise TimeParseError(f"Next month has no day {day}.") from exc
         for _ in range(14):
             try:
                 candidate = date(year, month, day)
-            except ValueError:                          # the 31st of a 30-day month
+            except ValueError:  # the 31st of a 30-day month
                 candidate = None
             if candidate is not None and candidate >= today:
                 return candidate, monthly.start(), monthly.end(), False
@@ -449,10 +535,10 @@ def _day_and_time(text: str, now: datetime, default_half: str = "", local: bool 
         return None
 
     if day is None:
-        clock, start, end = time_found            # type: ignore[misc]
+        clock, start, end = time_found  # type: ignore[misc]
         start, end = _with_period_words(text, start, end)
         at = _apply(now.date(), clock, now, local)
-        if at <= now:                             # "6pm" said at 7pm means tomorrow
+        if at <= now:  # "6pm" said at 7pm means tomorrow
             # The next day, not 24 hours on: across a daylight-saving change those differ.
             at = _apply(now.date() + timedelta(days=1), clock, now, local)
         return When(at, start, end)
@@ -489,7 +575,7 @@ def describe(moment: datetime, now: datetime | None = None, local: bool = False)
         shown = on_laptop_clock(moment, now.tzinfo)
     else:
         shown = moment.astimezone(now.tzinfo)
-    clock = shown.strftime("%I:%M %p").lstrip("0")   # %-I is glibc only; see ERRORS.md
+    clock = shown.strftime("%I:%M %p").lstrip("0")  # %-I is glibc only; see ERRORS.md
     days = (shown.date() - now.date()).days
     if days == 0:
         return f"today at {clock}"

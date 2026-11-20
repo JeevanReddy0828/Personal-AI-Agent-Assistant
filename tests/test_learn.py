@@ -35,8 +35,13 @@ class ProposedTests(unittest.TestCase):
 
     def test_secrets_are_never_proposed(self) -> None:
         # The key-shaped value is built here so the repository's own secret scan does not flag a fake.
-        reply = facts(("card", "4111 1111 1111 1111"), ("wifi_password", "hunter2"), ("api", "nvapi" + "-abcdefghijkl"),
-                      ("bank_pin", "1234"), ("city", "Austin"))
+        reply = facts(
+            ("card", "4111 1111 1111 1111"),
+            ("wifi_password", "hunter2"),
+            ("api", "nvapi" + "-abcdefghijkl"),
+            ("bank_pin", "1234"),
+            ("city", "Austin"),
+        )
         self.assertEqual(proposed(reply, {}), [("city", "Austin")])
 
     def test_bad_keys_long_values_duplicates_and_known_facts_are_dropped(self) -> None:
@@ -106,7 +111,7 @@ class LearnCommandTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.orch = self.build(Path(temp.name))
-        self.orch._build_agent_brain = lambda **_: (lambda prompt: facts(("employer", "Nvidia")))
+        self.orch._build_agent_brain = lambda **_: lambda prompt: facts(("employer", "Nvidia"))
 
     def test_remember_what_we_talked_about_saves_the_approved_facts(self) -> None:
         result = asyncio.run(self.orch.handle("remember what we talked about", history=HISTORY))
@@ -123,16 +128,26 @@ class LearnCommandTests(unittest.TestCase):
 class LearnRoutingTests(unittest.TestCase):
     def test_learning_is_routed_before_remember(self) -> None:
         planner = HeuristicPlannerProvider()
-        for text in ("learn from this chat", "remember what we talked about", "save what you learned about me",
-                     "remember the important things from this conversation", "remember everything I told you"):
+        for text in (
+            "learn from this chat",
+            "remember what we talked about",
+            "save what you learned about me",
+            "remember the important things from this conversation",
+            "remember everything I told you",
+        ):
             with self.subTest(text):
                 self.assertEqual(planner.plan(text, "", {}).command, "learn from chat")
 
     def test_near_misses_are_not_learning(self) -> None:
         planner = HeuristicPlannerProvider()
-        for text in ("remember that my doctor is dr patel", "remember to call mom", "do you remember what we talked about",
-                     "can you remember what we talked about",
-                     "remember when we went to paris", "what do you remember about me"):
+        for text in (
+            "remember that my doctor is dr patel",
+            "remember to call mom",
+            "do you remember what we talked about",
+            "can you remember what we talked about",
+            "remember when we went to paris",
+            "what do you remember about me",
+        ):
             with self.subTest(text):
                 self.assertNotEqual(planner.plan(text, "", {}).command, "learn from chat")
 
@@ -141,21 +156,39 @@ class ReviewOf288Tests(LearnToolTests):
     """The review of #288, each finding reproduced first."""
 
     def test_secret_shapes_and_secret_names_are_dropped(self) -> None:
-        reply = facts(("social_security_number", "123-45-6789"), ("ssn_last", "x"), ("api_key", "AKIAIOSFODNN7EXAMPLE"),
-                      ("github_token", "abcd1234efgh5678"), ("bank_account_number", "12345678901"),
-                      ("door_code", "4821"), ("wifi_key", "hunter2hunter2"), ("note", "mine is 123-45-6789"),
-                      ("employer", "Nvidia"))
+        reply = facts(
+            ("social_security_number", "123-45-6789"),
+            ("ssn_last", "x"),
+            ("api_key", "AKIAIOSFODNN7EXAMPLE"),
+            ("github_token", "abcd1234efgh5678"),
+            ("bank_account_number", "12345678901"),
+            ("door_code", "4821"),
+            ("wifi_key", "hunter2hunter2"),
+            ("note", "mine is 123-45-6789"),
+            ("employer", "Nvidia"),
+        )
         self.assertEqual(proposed(reply, {}), [("employer", "Nvidia")])
 
     def test_sign_in_codes_are_dropped_by_name_and_ordinary_codes_kept(self) -> None:
-        reply = facts(("recovery_code", "4821"), ("verification_code", "3192"), ("one_time_code", "7744"),
-                      ("otp", "552910"), ("backup_code", "8812"), ("employer", "Nvidia"),
-                      ("area_code", "512"), ("postal_code", "78701"))
+        reply = facts(
+            ("recovery_code", "4821"),
+            ("verification_code", "3192"),
+            ("one_time_code", "7744"),
+            ("otp", "552910"),
+            ("backup_code", "8812"),
+            ("employer", "Nvidia"),
+            ("area_code", "512"),
+            ("postal_code", "78701"),
+        )
         self.assertEqual(proposed(reply, {}), [("employer", "Nvidia"), ("area_code", "512"), ("postal_code", "78701")])
 
     def test_dates_ranges_and_phone_numbers_are_kept(self) -> None:
-        reply = facts(("dentist_appointment", "2026-10-20 10:30 with Dr. Rao"),
-                      ("trip", "Austin 2026-11-02 - 2026-11-05"), ("mom_phone", "+1 512 555 0100"), ("zip_code", "78701"))
+        reply = facts(
+            ("dentist_appointment", "2026-10-20 10:30 with Dr. Rao"),
+            ("trip", "Austin 2026-11-02 - 2026-11-05"),
+            ("mom_phone", "+1 512 555 0100"),
+            ("zip_code", "78701"),
+        )
         self.assertEqual(len(proposed(reply, {})), 4)
 
     def test_a_null_or_a_list_is_no_value(self) -> None:
@@ -164,13 +197,16 @@ class ReviewOf288Tests(LearnToolTests):
 
     def test_a_bare_list_and_trailing_prose_are_read(self) -> None:
         self.assertEqual(proposed('[{"key": "city", "value": "Austin"}]', {}), [("city", "Austin")])
-        self.assertEqual(proposed('Here: {"facts": [{"key": "city", "value": "Austin"}]} hope {that} helps', {}),
-                         [("city", "Austin")])
+        self.assertEqual(
+            proposed('Here: {"facts": [{"key": "city", "value": "Austin"}]} hope {that} helps', {}),
+            [("city", "Austin")],
+        )
 
     def test_a_stored_key_is_matched_however_it_is_spelt(self) -> None:
         self.assertEqual(proposed(facts(("favourite_editor", "VS Code")), {"favourite editor": "VS Code"}), [])
-        self.assertEqual(proposed(facts(("favourite_editor", "Vim")), {"favourite editor": "VS Code"}),
-                         [("favourite editor", "Vim")])
+        self.assertEqual(
+            proposed(facts(("favourite_editor", "Vim")), {"favourite editor": "VS Code"}), [("favourite editor", "Vim")]
+        )
 
     def test_a_replacement_says_what_it_replaces(self) -> None:
         self.tool.learn(HISTORY, {"employer": "Google"})
@@ -206,7 +242,8 @@ class ReviewOf288CommandTests(LearnCommandTests):
 
     def test_a_personal_account_cannot_learn_a_briefing_format(self) -> None:
         self.orch._build_agent_brain = lambda **_: (
-            lambda prompt: facts(("briefing_format", "mail and laptop"), ("employer", "Nvidia")))
+            lambda prompt: facts(("briefing_format", "mail and laptop"), ("employer", "Nvidia"))
+        )
         with acting_as(PERSONAL):
             result = asyncio.run(self.orch.handle("learn from this chat", history=HISTORY))
         self.assertTrue(result.ok, result.message)
@@ -221,7 +258,7 @@ class ReviewOf288CommandTests(LearnCommandTests):
         memory.save = lambda: writes.append(1) or original()
         try:
             self.orch._learn_cache = None
-            self.orch._build_agent_brain = lambda **_: (lambda prompt: facts(("employer", "Nvidia"), ("city", "Austin")))
+            self.orch._build_agent_brain = lambda **_: lambda prompt: facts(("employer", "Nvidia"), ("city", "Austin"))
             asyncio.run(self.orch.handle("learn from chat", history=HISTORY))
         finally:
             memory.save = original

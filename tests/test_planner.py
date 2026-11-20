@@ -22,45 +22,71 @@ class HeuristicPlannerTests(unittest.TestCase):
         """All three of these were reported failing. The first reached the window tool but
         parsed the politeness into the app name; the other two never routed at all and the
         chat tier answered them by asking for approval and then claiming it had acted."""
-        for text in ("Hey Jarvis, could you put my WhatsApp on left and chrome on right?",
-                     "can you split whatsapp left and chrome right please",
-                     "And Chrome on right using split windows function"):
+        for text in (
+            "Hey Jarvis, could you put my WhatsApp on left and chrome on right?",
+            "can you split whatsapp left and chrome right please",
+            "And Chrome on right using split windows function",
+        ):
             decision = self.plan(text)
             self.assertTrue(decision.is_command, text)
             self.assertTrue((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
 
     def test_arrangement_routing_does_not_grab_unrelated_sentences(self) -> None:
-        for text in ("move the report to the archive folder",
-                     "split the bill between four people",
-                     "what is on the left of the diagram"):
+        for text in (
+            "move the report to the archive folder",
+            "split the bill between four people",
+            "what is on the left of the diagram",
+        ):
             decision = self.plan(text)
             self.assertFalse((decision.command or "").startswith("window "), f"{text} -> {decision.command}")
 
     def test_a_verb_and_a_position_are_not_a_window_request(self) -> None:
         # A verb with a position anywhere after it, or "minimize" plus any word, sent 22 of
         # these 24 here, and each got "no window matches" instead of an answer.
-        for text in ("put the milk on the left shelf", "move the meeting to the top of the agenda",
-                     "send the report to the right person", "place the comma in the right spot",
-                     "shift the focus to the bottom line", "arrange the flowers in the center of the table",
-                     "drag the slider to the left to reduce noise", "center the text in css",
-                     "centre the title on the page", "maximize your savings with a roth ira",
-                     "minimize distractions while studying", "minimize the number of api calls",
-                     "maximize the profit given these constraints", "resize the image to full hd",
-                     "snap a photo of the bottom of the page", "move the decimal point two places to the left",
-                     "put the most important point at the top", "send me the bottom line",
-                     "split the data into a left and right subtree", "move forward with the right decision",
-                     "place your hands at the top of the steering wheel",
-                     # Two clean placements, asked as a question.
-                     "is chrome on the left and notepad on the right"):
+        for text in (
+            "put the milk on the left shelf",
+            "move the meeting to the top of the agenda",
+            "send the report to the right person",
+            "place the comma in the right spot",
+            "shift the focus to the bottom line",
+            "arrange the flowers in the center of the table",
+            "drag the slider to the left to reduce noise",
+            "center the text in css",
+            "centre the title on the page",
+            "maximize your savings with a roth ira",
+            "minimize distractions while studying",
+            "minimize the number of api calls",
+            "maximize the profit given these constraints",
+            "resize the image to full hd",
+            "snap a photo of the bottom of the page",
+            "move the decimal point two places to the left",
+            "put the most important point at the top",
+            "send me the bottom line",
+            "split the data into a left and right subtree",
+            "move forward with the right decision",
+            "place your hands at the top of the steering wheel",
+            # Two clean placements, asked as a question.
+            "is chrome on the left and notepad on the right",
+        ):
             with self.subTest(text=text):
                 self.assertFalse((self.plan(text).command or "").startswith("window "), text)
 
     def test_a_short_name_and_a_position_still_arrange(self) -> None:
-        for text in ("move chrome to the top right", "maximise chrome", "minimize spotify", "center the calculator",
-                     "move visual studio code to the left", "put the chrome window on the left",
-                     "move chrome to the left side of the screen", "can you move chrome left please",
-                     "minimize all windows", "put spotify in the bottom right corner", "move notepad to the right third",
-                     "put chrome on the left, notepad on the right", "snap chrome to the left and notepad to the right"):
+        for text in (
+            "move chrome to the top right",
+            "maximise chrome",
+            "minimize spotify",
+            "center the calculator",
+            "move visual studio code to the left",
+            "put the chrome window on the left",
+            "move chrome to the left side of the screen",
+            "can you move chrome left please",
+            "minimize all windows",
+            "put spotify in the bottom right corner",
+            "move notepad to the right third",
+            "put chrome on the left, notepad on the right",
+            "snap chrome to the left and notepad to the right",
+        ):
             with self.subTest(text=text):
                 self.assertTrue((self.plan(text).command or "").startswith("window "), text)
 
@@ -68,12 +94,14 @@ class HeuristicPlannerTests(unittest.TestCase):
         """How it gets said when nobody is being careful: name, position, name, position,
         with no "put" or "move" anywhere. The tool has always parsed these correctly — the
         router simply never sent them."""
-        for text in ("i want whatsapp on the left and chrome on the right",
-                     "whatsapp on the left and chrome on the right",
-                     "whatsapp to the left and chrome to the right",
-                     "can you put whatsapp on the left and chrome on the right",
-                     "notepad on the top left and spotify on the bottom right",
-                     "chrome on the left half and slack on the right half"):
+        for text in (
+            "i want whatsapp on the left and chrome on the right",
+            "whatsapp on the left and chrome on the right",
+            "whatsapp to the left and chrome to the right",
+            "can you put whatsapp on the left and chrome on the right",
+            "notepad on the top left and spotify on the bottom right",
+            "chrome on the left half and slack on the right half",
+        ):
             with self.subTest(text=text):
                 self.assertTrue((self.plan(text).command or "").startswith("window "), text)
 
@@ -88,38 +116,43 @@ class HeuristicPlannerTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase.replace(" ", r"\s+"), _POSITION_WORD, phrase)
         self.assertEqual(
-            len(set(LAYOUTS) | set(_ALIASES)), _POSITION_WORD.count("|") + 1,
+            len(set(LAYOUTS) | set(_ALIASES)),
+            _POSITION_WORD.count("|") + 1,
             "the planner's position list no longer covers the tool's vocabulary",
         )
 
     def test_a_bare_placement_sentence_is_not_a_window_request(self) -> None:
         """The reason this route was left undone. Every one of these is a clean
         `<something> on the <position>`, and none is a request to move a window."""
-        for text in ("i want to go left at the next junction",
-                     "what is on the left side of the brain",
-                     "the chrome finish on the right handle is worn",
-                     "should i put the legend on the right",
-                     "turn left and then right",
-                     "my keys are on the right",
-                     "the report on the left is wrong",
-                     "the left engine and the right engine",
-                     "is the logo on the left or on the right",
-                     "what is on the left and what is on the right",
-                     # "in the middle" is ordinary English, and these fullmatch every
-                     # structural rule above. A name ending in a copula is a sentence
-                     # about something, not the name of a window.
-                     "the value is in the middle and the key is on the left",
-                     "the bug is in the middle and the fix is on the right",
-                     "the labels are on the left and the values are on the right",
-                     "the header was on the top and the footer was on the bottom"):
+        for text in (
+            "i want to go left at the next junction",
+            "what is on the left side of the brain",
+            "the chrome finish on the right handle is worn",
+            "should i put the legend on the right",
+            "turn left and then right",
+            "my keys are on the right",
+            "the report on the left is wrong",
+            "the left engine and the right engine",
+            "is the logo on the left or on the right",
+            "what is on the left and what is on the right",
+            # "in the middle" is ordinary English, and these fullmatch every
+            # structural rule above. A name ending in a copula is a sentence
+            # about something, not the name of a window.
+            "the value is in the middle and the key is on the left",
+            "the bug is in the middle and the fix is on the right",
+            "the labels are on the left and the values are on the right",
+            "the header was on the top and the footer was on the bottom",
+        ):
             with self.subTest(text=text):
                 self.assertFalse((self.plan(text).command or "").startswith("window "), text)
 
     def test_in_the_top_left_is_still_a_placement(self) -> None:
         """The copula guard must not cost the `in` preposition itself — people say
         "spotify in the top left" as readily as "on the top left"."""
-        for text in ("spotify in the top left and notepad in the bottom right",
-                     "chrome in the left half and slack in the right half"):
+        for text in (
+            "spotify in the top left and notepad in the bottom right",
+            "chrome in the left half and slack in the right half",
+        ):
             with self.subTest(text=text):
                 self.assertTrue((self.plan(text).command or "").startswith("window "), text)
 
@@ -131,17 +164,18 @@ class HeuristicPlannerTests(unittest.TestCase):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
-        blobs = [(root / name).read_text(encoding="utf-8")
-                 for name in ("CLAUDE.md", "README.md", "ERRORS.md") if (root / name).exists()]
+        blobs = [
+            (root / name).read_text(encoding="utf-8")
+            for name in ("CLAUDE.md", "README.md", "ERRORS.md")
+            if (root / name).exists()
+        ]
         # CLAUDE.md's detail moved to docs/design/ (2026-10-06); keep it in the corpus.
         blobs += [path.read_text(encoding="utf-8") for path in sorted((root / "docs" / "design").glob("*.md"))]
         sentences = []
         for blob in blobs:
-            sentences += [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", blob)
-                          if 10 < len(s.strip()) < 200]
+            sentences += [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", blob) if 10 < len(s.strip()) < 200]
         self.assertGreater(len(sentences), 500, "corpus did not load")
-        grabbed = [s for s in sentences
-                   if (self.plan(s).command or "").startswith("window ")]
+        grabbed = [s for s in sentences if (self.plan(s).command or "").startswith("window ")]
         self.assertEqual(grabbed, [], f"{len(grabbed)} ordinary sentences routed to the window tool")
 
     def test_routes_a_slide_deck_request(self) -> None:
@@ -235,9 +269,7 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertEqual(self.plan("where to stay in Kyoto").command, "hotels near Kyoto")
 
     def test_flights_route_to_web_search(self) -> None:
-        self.assertEqual(
-            self.plan("flights from Austin to Tokyo").command, "web search flights from Austin to Tokyo"
-        )
+        self.assertEqual(self.plan("flights from Austin to Tokyo").command, "web search flights from Austin to Tokyo")
 
     def test_weather_routes_to_weather_tool(self) -> None:
         decision = self.plan("what's the weather in Austin, TX")
@@ -259,30 +291,50 @@ class HeuristicPlannerTests(unittest.TestCase):
         """This was an exact set of four strings. Everything else went to the LLM router —
         or, when the phrasing avoided the word "my", to no router at all."""
         for text in (
-            "what are my reminders", "what are my reminders?", "what reminders do i have",
-            "do i have any reminders", "any reminders", "show me my reminders",
-            "list my reminders", "check my reminders", "tell me my reminders",
-            "see my reminders", "whats on my reminder list", "reminders", "my reminders",
+            "what are my reminders",
+            "what are my reminders?",
+            "what reminders do i have",
+            "do i have any reminders",
+            "any reminders",
+            "show me my reminders",
+            "list my reminders",
+            "check my reminders",
+            "tell me my reminders",
+            "see my reminders",
+            "whats on my reminder list",
+            "reminders",
+            "my reminders",
             # Politeness. `strip_address` removes greetings and the wake word but not
             # "can you", so without the prefix the commonest spoken form of all missed.
-            "can you show me my reminders", "could you list my reminders",
-            "would you show my reminders", "please show my reminders",
-            "i want to see my reminders", "pull up my reminders",
-            "give me my reminders", "read out my reminders", "read my reminders",
+            "can you show me my reminders",
+            "could you list my reminders",
+            "would you show my reminders",
+            "please show my reminders",
+            "i want to see my reminders",
+            "pull up my reminders",
+            "give me my reminders",
+            "read out my reminders",
+            "read my reminders",
         ):
             with self.subTest(text=text):
                 self.assertEqual(self.plan(text).command, "reminders")
 
     def test_due_is_read_inside_the_question_not_anywhere_in_the_sentence(self) -> None:
-        for text in ("what reminders are due", "which reminders are due",
-                     "any reminders due", "reminders due", "due reminders",
-                     "show due reminders"):
+        for text in (
+            "what reminders are due",
+            "which reminders are due",
+            "any reminders due",
+            "reminders due",
+            "due reminders",
+            "show due reminders",
+        ):
             with self.subTest(text=text):
                 self.assertEqual(self.plan(text).command, "reminders due")
         # The trap: "due" appears, but this is a creation. Testing `due` against the whole
         # sentence would file it as a listing and silently drop the reminder.
-        self.assertEqual(self.plan("remind me to pay the bill due friday").command,
-                         "reminder add to pay the bill due friday")
+        self.assertEqual(
+            self.plan("remind me to pay the bill due friday").command, "reminder add to pay the bill due friday"
+        )
 
     def test_the_listing_pattern_cannot_match_part_way_through_a_sentence(self) -> None:
         """The anchor is in the pattern, not in the caller's `.match()`. Left to the call
@@ -312,9 +364,14 @@ class HeuristicPlannerTests(unittest.TestCase):
         the plural, so these were classified as plain knowledge questions and answered by
         a model that cannot see any of them."""
         for text in (
-            "do i have any reminders", "do i have any drafts", "do i have any documents",
-            "do i have any tasks", "do i have any downloads", "do i have any screenshots",
-            "do i have any workflows", "what reminders do i have",
+            "do i have any reminders",
+            "do i have any drafts",
+            "do i have any documents",
+            "do i have any tasks",
+            "do i have any downloads",
+            "do i have any screenshots",
+            "do i have any workflows",
+            "what reminders do i have",
         ):
             with self.subTest(text=text):
                 self.assertFalse(is_plain_question(text), text)
@@ -333,10 +390,10 @@ class HeuristicPlannerTests(unittest.TestCase):
 
     def test_anything_actionable_still_goes_to_the_router(self) -> None:
         for text in (
-            "what files are here",            # names the user's data
+            "what files are here",  # names the user's data
             "what is the weather in Austin",  # names a tool
-            "what is in config.yaml",         # names a target
-            "summarize the readme",           # an instruction, not a question
+            "what is in config.yaml",  # names a target
+            "summarize the readme",  # an instruction, not a question
             "what do you remember about me",  # personal memory
             "draw me a picture of a fox",
             "email the team about the outage",
@@ -355,13 +412,19 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_a_how_to_question_is_answered_directly(self) -> None:
         # "what's the best way to cook rice" took the advisor's 20-80 s research path for a
         # one-paragraph answer (Jeevan's call, 2026-10-06: a how-to is not a decision).
-        for text in ("what's the best way to learn Rust", "what's the best way to cook rice",
-                     "what is the best strategy for chess openings"):
+        for text in (
+            "what's the best way to learn Rust",
+            "what's the best way to cook rice",
+            "what is the best strategy for chess openings",
+        ):
             with self.subTest(text=text):
                 self.assertTrue(is_plain_question(text), text)
                 self.assertFalse((self.plan(text).command or "").startswith("solve"), text)
-        for text in ("help me decide between a mac and a pc for programming", "how should i approach a salary negotiation",
-                     "should i rent or buy a house in austin"):
+        for text in (
+            "help me decide between a mac and a pc for programming",
+            "how should i approach a salary negotiation",
+            "should i rent or buy a house in austin",
+        ):
             with self.subTest(text=text):
                 self.assertTrue((self.plan(text).command or "").startswith("solve"), text)
 
@@ -427,10 +490,18 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_a_situation_is_not_a_fact(self) -> None:
         # Stored, "my name is on the list" put "on the list" into every chat prompt as the
         # user's name.
-        for text in ("my name is on the list", "my phone is at 5 percent", "my favourite part is when the hero wins",
-                     "my phone is dead", "my birthday is coming up", "my name is not important",
-                     "my email is full", "my birthday is next week", "my birthday is in 3 days",
-                     "my address is changing next month"):
+        for text in (
+            "my name is on the list",
+            "my phone is at 5 percent",
+            "my favourite part is when the hero wins",
+            "my phone is dead",
+            "my birthday is coming up",
+            "my name is not important",
+            "my email is full",
+            "my birthday is next week",
+            "my birthday is in 3 days",
+            "my address is changing next month",
+        ):
             with self.subTest(text=text):
                 self.assertFalse((self.plan(text).command or "").startswith("remember"), text)
 
@@ -441,13 +512,15 @@ class HeuristicPlannerTests(unittest.TestCase):
         self.assertEqual(self.plan("can you remind me what to buy at 5pm").command, "reminder add what to buy at 5pm")
 
     def test_a_fact_is_still_remembered(self) -> None:
-        for text, expected in (("my name is jeevan", "remember name = jeevan"),
-                               ("my birthday is on march 3", "remember birthday = on march 3"),
-                               ("my birthday is in june", "remember birthday = in june"),
-                               ("my email is a@b.com", "remember email = a@b.com"),
-                               ("my phone number is 555-123-4567", "remember phone_number = 555-123-4567"),
-                               ("my favorite movie is the godfather", "remember favorite_movie = the godfather"),
-                               ("my address is 12 main street", "remember address = 12 main street")):
+        for text, expected in (
+            ("my name is jeevan", "remember name = jeevan"),
+            ("my birthday is on march 3", "remember birthday = on march 3"),
+            ("my birthday is in june", "remember birthday = in june"),
+            ("my email is a@b.com", "remember email = a@b.com"),
+            ("my phone number is 555-123-4567", "remember phone_number = 555-123-4567"),
+            ("my favorite movie is the godfather", "remember favorite_movie = the godfather"),
+            ("my address is 12 main street", "remember address = 12 main street"),
+        ):
             with self.subTest(text=text):
                 self.assertEqual(self.plan(text).command, expected)
 
@@ -455,13 +528,21 @@ class HeuristicPlannerTests(unittest.TestCase):
         # Matched as words anywhere, 14 of these read the inbox - a MEDIUM read, so in the
         # web app it ran without asking and put private mail into the reply.
         for text in (
-            "is there a new email standard for spam", "what's the latest email marketing trend",
-            "how do I write a new email in outlook", "any tips for writing a cover email",
-            "what are the most important email etiquette rules", "recent email scams to watch out for",
-            "how do I check my mail in thunderbird", "what is the priority inbox in gmail",
-            "show me how to set up an email signature", "give me a template for a follow up email",
-            "get me a list of email providers", "read me a poem about email", "summarize the history of email",
-            "what does an unread email look like in outlook", "how often should I check my email",
+            "is there a new email standard for spam",
+            "what's the latest email marketing trend",
+            "how do I write a new email in outlook",
+            "any tips for writing a cover email",
+            "what are the most important email etiquette rules",
+            "recent email scams to watch out for",
+            "how do I check my mail in thunderbird",
+            "what is the priority inbox in gmail",
+            "show me how to set up an email signature",
+            "give me a template for a follow up email",
+            "get me a list of email providers",
+            "read me a poem about email",
+            "summarize the history of email",
+            "what does an unread email look like in outlook",
+            "how often should I check my email",
             "write a new email to my landlord about the heater",
             "explain the latest changes to the mail merge feature",
         ):
@@ -470,12 +551,18 @@ class HeuristicPlannerTests(unittest.TestCase):
 
     def test_asking_for_your_mail_reads_it(self) -> None:
         for text, expected in (
-            ("do I have any new emails", "email unread"), ("is there a new email?", "email unread"),
-            ("any new mail?", "email unread"), ("check for new emails", "email unread"),
-            ("unread emails", "email unread"), ("check my email", "email digest"),
-            ("what's in my inbox", "email digest"), ("show me emails from the last 3 days", "email digest"),
-            ("read my latest emails", "email digest"), ("any important emails today", "email digest"),
-            ("can you check my inbox", "email digest"), ("summarize my emails from today", "email digest"),
+            ("do I have any new emails", "email unread"),
+            ("is there a new email?", "email unread"),
+            ("any new mail?", "email unread"),
+            ("check for new emails", "email unread"),
+            ("unread emails", "email unread"),
+            ("check my email", "email digest"),
+            ("what's in my inbox", "email digest"),
+            ("show me emails from the last 3 days", "email digest"),
+            ("read my latest emails", "email digest"),
+            ("any important emails today", "email digest"),
+            ("can you check my inbox", "email digest"),
+            ("summarize my emails from today", "email digest"),
             ("give me my emails in gmail", "email api unread gmail"),
             # A time span is a period of the inbox, not a sender (#196).
             ("show me emails from last week", "email digest"),
@@ -570,9 +657,7 @@ class HeuristicPlannerTests(unittest.TestCase):
         and sent everything else to the model."""
         decision = self.plan("remind me to call Alex at 2026-06-20 09:00")
         self.assertTrue(decision.is_command)
-        self.assertTrue(
-            decision.command.startswith("reminder add "),
-            f"routed to {decision.command!r}")
+        self.assertTrue(decision.command.startswith("reminder add "), f"routed to {decision.command!r}")
         self.assertIn("2026-06-20 09:00", decision.command)
         self.assertIn("call Alex", decision.command)
 
@@ -629,12 +714,16 @@ class HeuristicPlannerTests(unittest.TestCase):
     def test_routes_oauth_email_draft(self) -> None:
         decision = self.plan("draft email using gmail to ada@example.com about hello")
         self.assertTrue(decision.is_command)
-        self.assertEqual(decision.command, "email api draft gmail to ada@example.com subject hello body Draft email about: hello")
+        self.assertEqual(
+            decision.command, "email api draft gmail to ada@example.com subject hello body Draft email about: hello"
+        )
 
     def test_routes_oauth_email_send(self) -> None:
         decision = self.plan("send email using outlook to ada@example.com about hello")
         self.assertTrue(decision.is_command)
-        self.assertEqual(decision.command, "email api send outlook to ada@example.com subject hello body Draft email about: hello")
+        self.assertEqual(
+            decision.command, "email api send outlook to ada@example.com subject hello body Draft email about: hello"
+        )
 
     def test_routes_gmail_api_search(self) -> None:
         decision = self.plan("find emails about invoice in gmail")
@@ -753,22 +842,31 @@ class HeuristicPlannerTests(unittest.TestCase):
 
     def test_a_sentence_using_a_research_verb_is_not_a_research_request(self) -> None:
         # Matched anywhere, 14 of these started the multi-search research workflow.
-        for text in ("how do I research a company before an interview", "the police will investigate the crash",
-                     "I need to look into my taxes this weekend", "I'll look into it",
-                     "we should investigate this bug tomorrow", "they research ai safety at anthropic",
-                     "my professor told me to read up on kant", "is it worth it to research your family tree",
-                     "scientists research new vaccines every year", "why do people investigate ufo sightings",
-                     "did you research this before answering"):
+        for text in (
+            "how do I research a company before an interview",
+            "the police will investigate the crash",
+            "I need to look into my taxes this weekend",
+            "I'll look into it",
+            "we should investigate this bug tomorrow",
+            "they research ai safety at anthropic",
+            "my professor told me to read up on kant",
+            "is it worth it to research your family tree",
+            "scientists research new vaccines every year",
+            "why do people investigate ufo sightings",
+            "did you research this before answering",
+        ):
             with self.subTest(text=text):
                 self.assertFalse((self.plan(text).command or "").startswith("research"), text)
 
     def test_asking_for_research_still_routes(self) -> None:
-        for text, expected in (("research quantum computing", "research quantum computing"),
-                               ("can you research the best laptops under 1000", "research the best laptops under 1000"),
-                               ("investigate why sourdough bread rises", "research why sourdough bread rises"),
-                               ("read up on the history of rome", "research the history of rome"),
-                               ("I want you to research remote work productivity", "research remote work productivity"),
-                               ("do some research on the best running shoes", "research the best running shoes")):
+        for text, expected in (
+            ("research quantum computing", "research quantum computing"),
+            ("can you research the best laptops under 1000", "research the best laptops under 1000"),
+            ("investigate why sourdough bread rises", "research why sourdough bread rises"),
+            ("read up on the history of rome", "research the history of rome"),
+            ("I want you to research remote work productivity", "research remote work productivity"),
+            ("do some research on the best running shoes", "research the best running shoes"),
+        ):
             with self.subTest(text=text):
                 self.assertEqual(self.plan(text).command, expected)
 
@@ -802,7 +900,7 @@ if __name__ == "__main__":
 
 
 class DocumentLengthRoutingTests(unittest.TestCase):
-    """"write a one page pdf on how vaccines work" missed the instant route (a word between
+    """ "write a one page pdf on how vaccines work" missed the instant route (a word between
     "a" and "pdf") and the LLM router dropped "one page"."""
 
     def setUp(self) -> None:
@@ -869,7 +967,7 @@ class AddressStrippingTests(unittest.TestCase):
 
 
 class NewsTopicTests(unittest.TestCase):
-    """"what's the news in india" was answered "Top stories about in india" — the
+    """ "what's the news in india" was answered "Top stories about in india" — the
     preposition was being kept as part of the topic."""
 
     def setUp(self) -> None:
@@ -881,8 +979,13 @@ class NewsTopicTests(unittest.TestCase):
         return self.planner.plan(text, "", {}).command or ""
 
     def test_a_preposition_is_not_part_of_the_topic(self) -> None:
-        for text in ("what's the news in india", "news in india", "news from india",
-                     "news about india", "Hey Jarvis, news in the india"):
+        for text in (
+            "what's the news in india",
+            "news in india",
+            "news from india",
+            "news about india",
+            "Hey Jarvis, news in the india",
+        ):
             self.assertEqual(self.command(text), "news india", text)
 
     def test_a_bare_request_still_gets_everything(self) -> None:
@@ -916,10 +1019,18 @@ class NewsTopicTests(unittest.TestCase):
     def test_talking_about_the_news_is_not_asking_for_it(self) -> None:
         # "good news, i got the job" was answered with the day's top stories, and "fake news
         # is a problem" with a search for "is a problem".
-        for text in ("good news, i got the job", "that's good news", "bad news, the build failed",
-                     "fake news is a problem", "is fox news reliable", "i watched the news yesterday",
-                     "i read the news", "how do news websites make money", "the news is depressing",
-                     "tech news is boring today"):
+        for text in (
+            "good news, i got the job",
+            "that's good news",
+            "bad news, the build failed",
+            "fake news is a problem",
+            "is fox news reliable",
+            "i watched the news yesterday",
+            "i read the news",
+            "how do news websites make money",
+            "the news is depressing",
+            "tech news is boring today",
+        ):
             self.assertEqual(self.command(text), "", text)
 
     def test_the_words_around_the_noun_are_not_the_topic(self) -> None:
@@ -940,25 +1051,39 @@ class EverydayRoutingTests(unittest.TestCase):
 
     def test_the_word_resume_is_not_a_media_key(self) -> None:
         # "pause" and "resume" were matched anywhere, so these toggled playback.
-        for text in ("update my resume", "how to write a good resume", "improve my resume summary",
-                     "what does pause mean", "i need to pause and think about this",
-                     "resume where we left off"):
+        for text in (
+            "update my resume",
+            "how to write a good resume",
+            "improve my resume summary",
+            "what does pause mean",
+            "i need to pause and think about this",
+            "resume where we left off",
+        ):
             self.assertFalse(self.command(text).startswith("media"), f"{text} -> {self.command(text)}")
 
     def test_media_control_said_as_a_command(self) -> None:
         cases = {
-            "pause": "media playpause", "pause the music": "media playpause",
-            "resume the music": "media playpause", "next song": "media next",
-            "skip this song": "media next", "previous track": "media previous",
-            "stop the music": "media stop", "volume up": "media volumeup",
-            "turn it down": "media volumedown", "mute": "media mute",
+            "pause": "media playpause",
+            "pause the music": "media playpause",
+            "resume the music": "media playpause",
+            "next song": "media next",
+            "skip this song": "media next",
+            "previous track": "media previous",
+            "stop the music": "media stop",
+            "volume up": "media volumeup",
+            "turn it down": "media volumedown",
+            "mute": "media mute",
         }
         for text, expected in cases.items():
             self.assertEqual(self.command(text), expected, text)
 
     def test_play_is_music_only_as_a_request(self) -> None:
-        for text in ("how do i play chess", "how do i play guitar better", "play a game with me",
-                     "can kids play outside in this heat"):
+        for text in (
+            "how do i play chess",
+            "how do i play guitar better",
+            "play a game with me",
+            "can kids play outside in this heat",
+        ):
             self.assertFalse(self.command(text).startswith("play music"), f"{text} -> {self.command(text)}")
         self.assertEqual(self.command("play lofi hip hop"), "play music lofi hip hop")
         self.assertEqual(self.command("i want to listen to jazz"), "play music jazz")
@@ -972,17 +1097,28 @@ class EverydayRoutingTests(unittest.TestCase):
 
     def test_small_talk_is_the_whole_message_not_a_substring(self) -> None:
         # "hi " is in "sushi ", "hey " in "they "/"whey ", "hello" in "othello".
-        for text in ("i want sushi for dinner, any ideas?", "they said it would rain tomorrow",
-                     "whey protein or casein?", "othello is a great play", "translate hello to spanish"):
+        for text in (
+            "i want sushi for dinner, any ideas?",
+            "they said it would rain tomorrow",
+            "whey protein or casein?",
+            "othello is a great play",
+            "translate hello to spanish",
+        ):
             decision = self.planner.plan(text, "", {})
             self.assertNotEqual(decision.explanation, "small-talk", text)
         for text in ("hi", "Hey Jarvis!", "good morning", "thanks", "bye", "how are you doing today?"):
             self.assertEqual(self.planner.plan(text, "", {}).explanation, "small-talk", text)
 
     def test_weather_without_a_place_is_weather_where_you_are(self) -> None:
-        for text in ("what's the weather", "weather", "is it going to rain today?",
-                     "will it rain tomorrow", "do i need an umbrella", "how hot is it outside",
-                     "Hey Jarvis, what's the weather?"):
+        for text in (
+            "what's the weather",
+            "weather",
+            "is it going to rain today?",
+            "will it rain tomorrow",
+            "do i need an umbrella",
+            "how hot is it outside",
+            "Hey Jarvis, what's the weather?",
+        ):
             self.assertEqual(self.command(text), "weather", text)
 
     def test_weather_with_a_place_keeps_only_the_place(self) -> None:
@@ -1014,7 +1150,7 @@ class EverydayRoutingTests(unittest.TestCase):
 
 
 class LargestFilesRoutingTests(unittest.TestCase):
-    """"what are the largest files in my downloads folder" reached the LLM router, which
+    """ "what are the largest files in my downloads folder" reached the LLM router, which
     answered `scan files ~/Downloads`: the reply listed the first 200 of 1214 files in name
     order. "find the three largest files in my downloads" searched file contents instead."""
 
@@ -1039,16 +1175,20 @@ class LargestFilesRoutingTests(unittest.TestCase):
             self.assertEqual(self.command(text), expected, text)
 
     def test_a_place_that_is_not_a_folder_here_is_left_to_the_model(self) -> None:
-        for text in ("what are the largest files in a typical linux install",
-                     "what are the biggest files in the linux kernel",
-                     "the largest file in my downloads is a video"):
+        for text in (
+            "what are the largest files in a typical linux install",
+            "what are the biggest files in the linux kernel",
+            "the largest file in my downloads is a video",
+        ):
             self.assertNotIn("by size", self.command(text), text)
 
     def test_a_size_is_never_searched_for_inside_files(self) -> None:
         # It searched a folder called "the linux kernel" for the words "the largest files".
         for text in ("find the largest files in the linux kernel", "look for the biggest files in a typical install"):
             self.assertFalse(self.command(text).startswith("search files"), text)
-        self.assertEqual(self.command("find the three largest files in my downloads folder"), "scan files ~/Downloads by size")
+        self.assertEqual(
+            self.command("find the three largest files in my downloads folder"), "scan files ~/Downloads by size"
+        )
 
     def test_a_size_word_to_look_for_is_still_a_text_search(self) -> None:
         # Codex's review of #180: the first version refused any size word at all.
@@ -1057,7 +1197,9 @@ class LargestFilesRoutingTests(unittest.TestCase):
         self.assertFalse(self.command("find the largest pdf files in the linux kernel").startswith("search files"))
         # Codex's second review: a quoted phrase is something to find, whatever its words.
         self.assertEqual(self.command('find "largest files" in src/app'), "search files largest files src/app")
-        self.assertEqual(self.command('find "smallest pdf files" in src/app'), "search files smallest pdf files src/app")
+        self.assertEqual(
+            self.command('find "smallest pdf files" in src/app'), "search files smallest pdf files src/app"
+        )
 
     def test_a_text_search_names_the_folder_people_mean(self) -> None:
         self.assertEqual(self.command("find report in my documents folder"), "search files report ~/Documents")

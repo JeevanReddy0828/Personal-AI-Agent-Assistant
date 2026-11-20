@@ -15,24 +15,58 @@ JOBRIGHT_LOGIN_URL = "https://jobright.ai/onboarding-v3/signup?login=true"
 
 # Roles worth surfacing; titles must hit one of these and none of the excludes.
 TARGET_KEYWORDS = [
-    "software engineer", "software developer", "software development",
-    "backend engineer", "backend developer", "server-side",
-    "machine learning", "ml engineer", "ai engineer", "applied ai", "applied ml",
-    "deep learning", "nlp engineer", "natural language", "computer vision",
-    "research engineer", "research scientist", "applied scientist",
-    "ml researcher", "ai researcher",
-    "data engineer", "data scientist", "analytics engineer", "data platform",
-    "platform engineer", "infrastructure engineer", "mlops", "llmops",
-    "devops engineer", "site reliability", "sre", "cloud engineer",
-    "fullstack", "full stack", "full-stack",
-    "python engineer", "python developer",
+    "software engineer",
+    "software developer",
+    "software development",
+    "backend engineer",
+    "backend developer",
+    "server-side",
+    "machine learning",
+    "ml engineer",
+    "ai engineer",
+    "applied ai",
+    "applied ml",
+    "deep learning",
+    "nlp engineer",
+    "natural language",
+    "computer vision",
+    "research engineer",
+    "research scientist",
+    "applied scientist",
+    "ml researcher",
+    "ai researcher",
+    "data engineer",
+    "data scientist",
+    "analytics engineer",
+    "data platform",
+    "platform engineer",
+    "infrastructure engineer",
+    "mlops",
+    "llmops",
+    "devops engineer",
+    "site reliability",
+    "sre",
+    "cloud engineer",
+    "fullstack",
+    "full stack",
+    "full-stack",
+    "python engineer",
+    "python developer",
     "solutions architect",
 ]
 EXCLUDE_KEYWORDS = [
-    "staff engineer", "principal engineer",
-    "director", "vp of", "vp,", "senior staff",
-    "manager,", "head of", "chief",
-    "sales engineer", "support engineer", "customer success",
+    "staff engineer",
+    "principal engineer",
+    "director",
+    "vp of",
+    "vp,",
+    "senior staff",
+    "manager,",
+    "head of",
+    "chief",
+    "sales engineer",
+    "support engineer",
+    "customer success",
 ]
 
 
@@ -104,9 +138,7 @@ def resume_match(job_text: str, resume_text: str) -> float:
     return ats_score(extract_keywords(job_text), resume_text).get("coverage", 0.0)
 
 
-_REL_TIME = re.compile(
-    r"(?:posted\s+)?\d+\s*(?:second|minute|hour|day|week|month)s?\s+ago|just\s+now", re.IGNORECASE
-)
+_REL_TIME = re.compile(r"(?:posted\s+)?\d+\s*(?:second|minute|hour|day|week|month)s?\s+ago|just\s+now", re.IGNORECASE)
 
 
 def clean_title(text: str) -> str:
@@ -131,9 +163,8 @@ def parse_jobright_item(item: dict) -> dict | None:
         return None
 
     job_id = str(jr.get("jobId") or "").strip()
-    job_url = (
-        str(jr.get("originalUrl") or jr.get("applyLink") or "").strip()
-        or (f"{JOBRIGHT_BASE}/jobs/{job_id}" if job_id else "")
+    job_url = str(jr.get("originalUrl") or jr.get("applyLink") or "").strip() or (
+        f"{JOBRIGHT_BASE}/jobs/{job_id}" if job_id else ""
     )
 
     location = str(jr.get("jobLocation") or cr.get("companyLocation") or "").strip()
@@ -163,30 +194,42 @@ def try_parse_job_object(obj: object) -> dict | None:
         return None
 
     title = (
-        obj.get("title") or obj.get("jobTitle") or obj.get("job_title") or
-        obj.get("positionTitle") or obj.get("position") or obj.get("name") or ""
+        obj.get("title")
+        or obj.get("jobTitle")
+        or obj.get("job_title")
+        or obj.get("positionTitle")
+        or obj.get("position")
+        or obj.get("name")
+        or ""
     )
     if not isinstance(title, str) or len(title) < 4 or len(title) > 200:
         return None
 
     company_raw = (
-        obj.get("company") or obj.get("companyName") or obj.get("company_name") or
-        obj.get("employer") or obj.get("organizationName") or obj.get("org") or ""
+        obj.get("company")
+        or obj.get("companyName")
+        or obj.get("company_name")
+        or obj.get("employer")
+        or obj.get("organizationName")
+        or obj.get("org")
+        or ""
     )
     if isinstance(company_raw, dict):
-        company = (
-            company_raw.get("name") or company_raw.get("companyName") or
-            company_raw.get("displayName") or ""
-        )
+        company = company_raw.get("name") or company_raw.get("companyName") or company_raw.get("displayName") or ""
     else:
         company = str(company_raw).strip()
     if not company or len(company) < 2:
         return None
 
     job_url = (
-        obj.get("url") or obj.get("jobUrl") or obj.get("job_url") or
-        obj.get("applyUrl") or obj.get("apply_url") or obj.get("link") or
-        obj.get("externalUrl") or ""
+        obj.get("url")
+        or obj.get("jobUrl")
+        or obj.get("job_url")
+        or obj.get("applyUrl")
+        or obj.get("apply_url")
+        or obj.get("link")
+        or obj.get("externalUrl")
+        or ""
     )
     if job_url and not str(job_url).startswith("http"):
         job_url = f"{JOBRIGHT_BASE}{job_url}"
@@ -196,27 +239,28 @@ def try_parse_job_object(obj: object) -> dict | None:
         job_url = f"{JOBRIGHT_BASE}/jobs/{job_id_raw}"
 
     location_raw = (
-        obj.get("location") or obj.get("jobLocation") or obj.get("city") or
-        obj.get("locationName") or obj.get("workLocation") or ""
+        obj.get("location")
+        or obj.get("jobLocation")
+        or obj.get("city")
+        or obj.get("locationName")
+        or obj.get("workLocation")
+        or ""
     )
     if isinstance(location_raw, dict):
-        location = (
-            location_raw.get("city") or location_raw.get("name") or
-            location_raw.get("displayName") or ""
-        )
+        location = location_raw.get("city") or location_raw.get("name") or location_raw.get("displayName") or ""
     else:
         location = str(location_raw).strip()
     is_remote = (
-        obj.get("isRemote") or obj.get("remote") or
-        "remote" in str(obj.get("workType", "")).lower() or
-        "remote" in str(obj.get("locationType", "")).lower()
+        obj.get("isRemote")
+        or obj.get("remote")
+        or "remote" in str(obj.get("workType", "")).lower()
+        or "remote" in str(obj.get("locationType", "")).lower()
     )
     if is_remote and "remote" not in location.lower():
         location = f"{location} (Remote)" if location else "Remote"
 
     description = str(
-        obj.get("description") or obj.get("jobDescription") or
-        obj.get("job_description") or obj.get("details") or ""
+        obj.get("description") or obj.get("jobDescription") or obj.get("job_description") or obj.get("details") or ""
     )
 
     return {
@@ -225,8 +269,13 @@ def try_parse_job_object(obj: object) -> dict | None:
         "location": location,
         "job_url": str(job_url).strip(),
         "date_posted": str(
-            obj.get("datePosted") or obj.get("date_posted") or obj.get("postedAt") or
-            obj.get("posted_at") or obj.get("createdAt") or obj.get("publishDate") or ""
+            obj.get("datePosted")
+            or obj.get("date_posted")
+            or obj.get("postedAt")
+            or obj.get("posted_at")
+            or obj.get("createdAt")
+            or obj.get("publishDate")
+            or ""
         ),
         "job_id_ext": str(job_id_raw).strip(),
         "description": description[:8000],
@@ -350,7 +399,8 @@ class JobrightTool:
                         item["title"] = clean_title(item.get("title", ""))
                         item["company"] = clean_title(item.get("company", ""))
                     relevant = [
-                        j for j in deduplicate(listings)
+                        j
+                        for j in deduplicate(listings)
                         if j.get("title") and j.get("company") and is_relevant(j["title"])
                     ]
                     # Drop senior-by-title roles before the (costly) JD fetch.
@@ -476,7 +526,9 @@ class JobrightTool:
             logger.warning("Jobright login error: %s", exc)
             return False
 
-    async def _scrape_with_interception(self, page, max_scrolls: int) -> list[dict]:  # pragma: no cover - needs a live browser
+    async def _scrape_with_interception(
+        self, page, max_scrolls: int
+    ) -> list[dict]:  # pragma: no cover - needs a live browser
         captured: list[dict] = []
         seen_urls: set[str] = set()
 
@@ -486,14 +538,40 @@ class JobrightTool:
                     return
                 url = response.url
                 path = urlparse(url).path.lower()
-                if any(path.endswith(ext) for ext in (
-                    ".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf", ".ico", ".webp",
-                )):
+                if any(
+                    path.endswith(ext)
+                    for ext in (
+                        ".js",
+                        ".css",
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".svg",
+                        ".woff",
+                        ".woff2",
+                        ".ttf",
+                        ".ico",
+                        ".webp",
+                    )
+                ):
                     return
-                if any(x in url for x in (
-                    "/static/", "/favicon", "__nextjs", "analytics", "sentry",
-                    "google-analytics", "facebook", "hotjar", "mixpanel", "segment.io", "amplitude", "clarity.ms",
-                )):
+                if any(
+                    x in url
+                    for x in (
+                        "/static/",
+                        "/favicon",
+                        "__nextjs",
+                        "analytics",
+                        "sentry",
+                        "google-analytics",
+                        "facebook",
+                        "hotjar",
+                        "mixpanel",
+                        "segment.io",
+                        "amplitude",
+                        "clarity.ms",
+                    )
+                ):
                     return
                 if url in seen_urls:
                     return
@@ -538,7 +616,9 @@ class JobrightTool:
                 pass
         return deduplicate(captured)
 
-    async def _enrich_descriptions(self, page, leads: list[dict], cap: int = 40) -> None:  # pragma: no cover - needs a live browser
+    async def _enrich_descriptions(
+        self, page, leads: list[dict], cap: int = 40
+    ) -> None:  # pragma: no cover - needs a live browser
         """Visit each lead's URL and scrape the job description for the ones missing it."""
         need = [j for j in leads if not j.get("description") and j.get("job_url")][:cap]
         for lead in need:

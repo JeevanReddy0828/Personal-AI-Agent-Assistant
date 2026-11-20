@@ -45,7 +45,9 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(latest["blocked_count"], 1)
 
     def test_parse_autopilot_steps(self) -> None:
-        self.assertEqual(parse_autopilot_steps("briefing ;; tasks ;; knowledge stats"), ["briefing", "tasks", "knowledge stats"])
+        self.assertEqual(
+            parse_autopilot_steps("briefing ;; tasks ;; knowledge stats"), ["briefing", "tasks", "knowledge stats"]
+        )
 
 
 if __name__ == "__main__":

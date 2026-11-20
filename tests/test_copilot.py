@@ -97,16 +97,30 @@ class TailorTests(unittest.TestCase):
 
 
 class TailorResumeTests(unittest.TestCase):
-    JSON = json.dumps({
-        "summary": "Backend engineer with Python and Kubernetes experience.",
-        "skills": [{"category": "Languages", "items": "Python, SQL"}],
-        "experiences": [{"company": "Acme", "dates": "2023", "title": "Engineer",
-                         "location": "NYC", "bullets": ["Built a Python FastAPI service with Redis"]}],
-        "projects": [{"name": "Proj", "stack": "Python", "repo_url": "https://github.com/u/proj", "bullet": "Did X"}],
-        "education": [{"school": "UF", "degree": "M.S. CS", "dates": "2024"}],
-    })
+    JSON = json.dumps(
+        {
+            "summary": "Backend engineer with Python and Kubernetes experience.",
+            "skills": [{"category": "Languages", "items": "Python, SQL"}],
+            "experiences": [
+                {
+                    "company": "Acme",
+                    "dates": "2023",
+                    "title": "Engineer",
+                    "location": "NYC",
+                    "bullets": ["Built a Python FastAPI service with Redis"],
+                }
+            ],
+            "projects": [
+                {"name": "Proj", "stack": "Python", "repo_url": "https://github.com/u/proj", "bullet": "Did X"}
+            ],
+            "education": [{"school": "UF", "degree": "M.S. CS", "dates": "2024"}],
+        }
+    )
 
-    SOURCE = RESUME + "\nBackend engineer with Python and Kubernetes experience.\nLanguages: Python, SQL\nAcme 2023 Engineer NYC\nBuilt a Python FastAPI service with Redis\nProj Python Did X https://github.com/u/proj\nUF M.S. CS 2024\n"
+    SOURCE = (
+        RESUME
+        + "\nBackend engineer with Python and Kubernetes experience.\nLanguages: Python, SQL\nAcme 2023 Engineer NYC\nBuilt a Python FastAPI service with Redis\nProj Python Did X https://github.com/u/proj\nUF M.S. CS 2024\n"
+    )
 
     def test_resume_requires_llm(self) -> None:
         result = JobCopilot().tailor_resume(RESUME, JD, company="Acme", role="Backend")
@@ -122,8 +136,15 @@ class TailorResumeTests(unittest.TestCase):
 
         repos = [{"name": "proj", "url": "https://github.com/u/proj"}]
         result = JobCopilot(decide=decide).tailor_resume(
-            self.SOURCE, JD, company="Acme", role="Backend", repos=repos,
-            contact="<a href='x'>LinkedIn</a>", certs="<a href='y'>AWS</a>", name="JEEVAN")
+            self.SOURCE,
+            JD,
+            company="Acme",
+            role="Backend",
+            repos=repos,
+            contact="<a href='x'>LinkedIn</a>",
+            certs="<a href='y'>AWS</a>",
+            name="JEEVAN",
+        )
         self.assertTrue(result.ok)
         self.assertIn("<!DOCTYPE", result.package)
         self.assertIn("JEEVAN", result.package)  # name from caller
@@ -144,12 +165,17 @@ class TailorResumeTests(unittest.TestCase):
     def test_render_survives_malformed_shapes(self) -> None:
         # Models sometimes emit strings/nulls where the schema wants objects; render must
         # skip them, not raise AttributeError.
-        html = render_resume_html("N", "", "", {
-            "experiences": ["bad shape", {"company": "Acme", "bullets": "not a list"}],
-            "skills": "nope",
-            "projects": [None, 5],
-            "education": [123],
-        })
+        html = render_resume_html(
+            "N",
+            "",
+            "",
+            {
+                "experiences": ["bad shape", {"company": "Acme", "bullets": "not a list"}],
+                "skills": "nope",
+                "projects": [None, 5],
+                "education": [123],
+            },
+        )
         self.assertIn("<!DOCTYPE", html)
         self.assertIn("Acme", html)
 
@@ -160,19 +186,22 @@ class TailorResumeTests(unittest.TestCase):
     def test_grounding_flags_invented_entities(self) -> None:
         data = {
             "summary": "Backend engineer who boosted revenue 87%.",
-            "experiences": [{"company": "MegaCorp", "title": "Staff", "dates": "2019",
-                             "bullets": ["Led a team at MegaCorp"]}],
+            "experiences": [
+                {"company": "MegaCorp", "title": "Staff", "dates": "2019", "bullets": ["Led a team at MegaCorp"]}
+            ],
             "education": [{"school": "Fake University", "degree": "PhD", "dates": "2018"}],
         }
         flags = check_resume_grounding(data, RESUME)
-        self.assertTrue(any("MegaCorp" in f for f in flags))       # invented employer
+        self.assertTrue(any("MegaCorp" in f for f in flags))  # invented employer
         self.assertTrue(any("Fake University" in f for f in flags))  # invented school
-        self.assertTrue(any("87%" in f for f in flags))            # invented metric
+        self.assertTrue(any("87%" in f for f in flags))  # invented metric
 
     def test_grounding_passes_traceable_content(self) -> None:
-        data = {"summary": "Led migration to Kubernetes, cutting deploy time 40%.",
-                "experiences": [{"company": "", "bullets": ["Mentored 3 engineers"]}],
-                "education": []}
+        data = {
+            "summary": "Led migration to Kubernetes, cutting deploy time 40%.",
+            "experiences": [{"company": "", "bullets": ["Mentored 3 engineers"]}],
+            "education": [],
+        }
         self.assertEqual(check_resume_grounding(data, RESUME), [])  # 40 and 3 are in RESUME
 
 

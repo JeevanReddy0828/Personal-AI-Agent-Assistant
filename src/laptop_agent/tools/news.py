@@ -78,21 +78,23 @@ def _parse(raw: bytes, fallback_source: str = "") -> list[dict[str, str]]:
         summary = _clean(node.findtext("description") or "")
         # Google News repeats the headline as the description; that is not a summary.
         if summary.startswith(title):
-            summary = summary[len(title):].strip(" -–—|")
+            summary = summary[len(title) :].strip(" -–—|")
         elif summary[:40] == title[:40]:
             summary = ""
         # What survives stripping the repeated headline is usually just the outlet name.
         if len(summary) < 30:
             summary = ""
         published = (node.findtext("pubDate") or "").strip()
-        items.append({
-            "title": title,
-            "url": link,
-            "source": _clean(node.findtext("source") or "") or fallback_source,
-            "published": published,
-            "age": _age(published),
-            "summary": summary,
-        })
+        items.append(
+            {
+                "title": title,
+                "url": link,
+                "source": _clean(node.findtext("source") or "") or fallback_source,
+                "published": published,
+                "age": _age(published),
+                "summary": summary,
+            }
+        )
     return items
 
 
@@ -119,7 +121,7 @@ class NewsTool:
         try:
             return _parse(self._fetch(url), source)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-            return []       # one dead feed must not lose the whole briefing
+            return []  # one dead feed must not lose the whole briefing
 
     def headlines(self, topic: str = "", limit: int = 8, with_text: int = 3) -> ToolResult:
         subject = (topic or "").strip()

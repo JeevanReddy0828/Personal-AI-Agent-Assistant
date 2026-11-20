@@ -57,8 +57,15 @@ class ParseTests(unittest.TestCase):
                 self.assertEqual(parse_translation(raw), expected)
 
     def test_a_sentence_no_language_closes_is_not_a_request(self):
-        for raw in ("this into a plan of action", "the meeting notes", "to spanish", "to spanish:",
-                    "my notes to klingon", "this into klingon: hello", ""):
+        for raw in (
+            "this into a plan of action",
+            "the meeting notes",
+            "to spanish",
+            "to spanish:",
+            "my notes to klingon",
+            "this into klingon: hello",
+            "",
+        ):
             with self.subTest(raw):
                 self.assertIsNone(parse_translation(raw))
 
@@ -95,8 +102,9 @@ class ToolTests(unittest.TestCase):
         self.tool.translate("bonjour", "english", "french")
         self.tool.translate("ありがとう", "english")
         self.tool.translate("thank you", "korean")
-        self.assertEqual([(source, target) for _, source, target in self.asked],
-                         [("fr", "en"), ("ja", "en"), ("en", "ko")])
+        self.assertEqual(
+            [(source, target) for _, source, target in self.asked], [("fr", "en"), ("ja", "en"), ("en", "ko")]
+        )
 
     def test_latin_text_into_english_asks_the_model_which_language_it_is(self):
         tool = TranslateTool(backend=self.backend, detect=lambda text: "French.")
@@ -104,9 +112,11 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(self.asked[0][1:], ("fr", "en"))
 
     def test_with_nothing_to_tell_the_language_it_asks_instead_of_guessing(self):
-        for tool in (TranslateTool(backend=self.backend),
-                     TranslateTool(backend=self.backend, detect=lambda text: None),
-                     TranslateTool(backend=self.backend, detect=lambda text: "Klingon")):
+        for tool in (
+            TranslateTool(backend=self.backend),
+            TranslateTool(backend=self.backend, detect=lambda text: None),
+            TranslateTool(backend=self.backend, detect=lambda text: "Klingon"),
+        ):
             result = tool.translate("bonjour tout le monde", "english")
             self.assertFalse(result.ok)
             self.assertIn("from French to English", result.message)
@@ -163,8 +173,7 @@ class ToolTests(unittest.TestCase):
         result = TranslateTool(backend=bounded_backend).translate(text, "french")
         self.assertTrue(result.ok, result.message)
         self.assertGreater(len(pieces_seen), 1)
-        self.assertTrue(all(piece.startswith("translation") and piece.endswith("translation")
-                            for piece in pieces_seen))
+        self.assertTrue(all(piece.startswith("translation") and piece.endswith("translation") for piece in pieces_seen))
         self.assertEqual(result.data["translation"], text)
 
     def test_an_unbroken_token_is_bounded_without_inserting_spaces(self):
@@ -210,8 +219,10 @@ class ToolTests(unittest.TestCase):
         with patch.object(translate, "record_failure") as record:
             result = TranslateTool(backend=dead).translate("hello", "french")
         self.assertFalse(result.ok)
-        self.assertEqual(result.message, "NVIDIA's translation service is unreachable or overloaded right now "
-                                         "(UNAVAILABLE); try again in a minute.")
+        self.assertEqual(
+            result.message,
+            "NVIDIA's translation service is unreachable or overloaded right now (UNAVAILABLE); try again in a minute.",
+        )
         record.assert_called_once()
 
     def test_a_short_answer_is_not_passed_off_as_the_translation(self):
@@ -229,9 +240,45 @@ class ToolTests(unittest.TestCase):
         self.assertIn("nvidia-riva-client", result.message)
 
     def test_every_code_is_one_the_model_reported(self):
-        reported = {"ar", "bg", "cs", "da", "de", "el", "en", "es-ES", "es-US", "et", "fi", "fr", "hi", "hr",
-                    "hu", "id", "it", "ja", "ko", "lt", "lv", "nl", "no", "pl", "pt-BR", "pt-PT", "ro", "ru",
-                    "sk", "sl", "sv", "th", "tr", "uk", "vi", "zh-CN", "zh-TW"}
+        reported = {
+            "ar",
+            "bg",
+            "cs",
+            "da",
+            "de",
+            "el",
+            "en",
+            "es-ES",
+            "es-US",
+            "et",
+            "fi",
+            "fr",
+            "hi",
+            "hr",
+            "hu",
+            "id",
+            "it",
+            "ja",
+            "ko",
+            "lt",
+            "lv",
+            "nl",
+            "no",
+            "pl",
+            "pt-BR",
+            "pt-PT",
+            "ro",
+            "ru",
+            "sk",
+            "sl",
+            "sv",
+            "th",
+            "tr",
+            "uk",
+            "vi",
+            "zh-CN",
+            "zh-TW",
+        }
         self.assertEqual(set(LANGUAGES.values()), reported)
 
 
@@ -245,9 +292,12 @@ class RivaBackendTests(unittest.TestCase):
         self.auth_args = []
         self.calls = []
         self.pending = SimpleNamespace(
-            result=lambda timeout=None: (self.calls.append(("wait", timeout)), SimpleNamespace(
-                translations=[SimpleNamespace(text="hola")]))[1],
-            cancel=lambda: self.calls.append("cancel"))
+            result=lambda timeout=None: (
+                self.calls.append(("wait", timeout)),
+                SimpleNamespace(translations=[SimpleNamespace(text="hola")]),
+            )[1],
+            cancel=lambda: self.calls.append("cancel"),
+        )
         client = types.ModuleType("riva.client")
 
         def auth(**kwargs):
@@ -268,8 +318,10 @@ class RivaBackendTests(unittest.TestCase):
         grpc.FutureTimeoutError = WaitExpired
         environ = {key: value for key, value in os.environ.items() if not key.startswith("RIVA_")}
         environ["RIVA_API_KEY"] = "fixture-not-a-key"
-        for fixture in (patch.dict(sys.modules, {"riva": parent, "riva.client": client, "grpc": grpc}),
-                        patch.dict(os.environ, environ, clear=True)):
+        for fixture in (
+            patch.dict(sys.modules, {"riva": parent, "riva.client": client, "grpc": grpc}),
+            patch.dict(os.environ, environ, clear=True),
+        ):
             fixture.start()
             self.addCleanup(fixture.stop)
 
@@ -389,17 +441,23 @@ class OrchestratorTranslationTests(unittest.TestCase):
         return asyncio.run(self.orch.handle(text, history=history or []))
 
     def test_that_means_the_reply_above_without_its_tool_data(self):
-        history = [{"role": "user", "text": "give me a greeting"},
-                   {"role": "assistant", "text": "Good evening, everyone.\n[tool result data, context only - "
-                                                 "not a format to imitate] {\"x\": 1}"}]
+        history = [
+            {"role": "user", "text": "give me a greeting"},
+            {
+                "role": "assistant",
+                "text": 'Good evening, everyone.\n[tool result data, context only - not a format to imitate] {"x": 1}',
+            },
+        ]
         result = self.say("translate that to spanish", history)
         self.assertTrue(result.ok, result.message)
         self.assertEqual(self.asked[0][0], ["Good evening, everyone."])
 
     def test_saying_that_in_a_language_means_the_reply_above(self):
         # Asked aloud the follow-up is "can you say that in german", which went to the chat model.
-        history = [{"role": "user", "text": "when is the meeting"},
-                   {"role": "assistant", "text": "The meeting moved to Friday at 3pm."}]
+        history = [
+            {"role": "user", "text": "when is the meeting"},
+            {"role": "assistant", "text": "The meeting moved to Friday at 3pm."},
+        ]
         for asked in ("can you say that in german", "say it in german"):
             with self.subTest(asked):
                 self.asked.clear()

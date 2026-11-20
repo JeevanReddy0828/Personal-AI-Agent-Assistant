@@ -229,7 +229,9 @@ class EmailToolTests(unittest.TestCase):
 
         cfg = dataclasses.replace(
             self.build_config(),
-            imap_host="imap.gmail.com", imap_username="u@gmail.com", imap_password="stale",
+            imap_host="imap.gmail.com",
+            imap_username="u@gmail.com",
+            imap_password="stale",
         )
         tool = EmailTool(ApprovalGate(lambda request: True), cfg)
 
@@ -297,8 +299,15 @@ class EmailToolTests(unittest.TestCase):
                 pass
 
         cfg = dataclasses.replace(
-            self.build_config(), imap_host="imap.example.com", imap_username="u", imap_password="p",
-            smtp_host="smtp.example.com", smtp_username="u", smtp_password="p", smtp_from="u@example.com")
+            self.build_config(),
+            imap_host="imap.example.com",
+            imap_username="u",
+            imap_password="p",
+            smtp_host="smtp.example.com",
+            smtp_username="u",
+            smtp_password="p",
+            smtp_from="u@example.com",
+        )
         tool = EmailTool(ApprovalGate(lambda request: True), cfg)
         with mock.patch.object(imaplib, "IMAP4_SSL", _FakeIMAP), mock.patch.object(smtplib, "SMTP", _FakeSMTP):
             tool.search_inbox("ALL")

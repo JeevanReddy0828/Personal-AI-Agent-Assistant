@@ -9,7 +9,14 @@ from pathlib import Path
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.tools.diagnostics import (
-    AnomaliesRequest, DriversRequest, _order, diagnostics_command, diagnostics_request, run_anomalies, run_drivers)
+    AnomaliesRequest,
+    DriversRequest,
+    _order,
+    diagnostics_command,
+    diagnostics_request,
+    run_anomalies,
+    run_drivers,
+)
 from test_everyday_requests import Everyday
 
 
@@ -21,8 +28,10 @@ def sales_csv(path: Path, rows: int = 60, seed: int = 11) -> Path:
     for m in range(rows):
         ad, discount, weather = rng.uniform(10, 50), rng.uniform(0, 20), rng.uniform(-5, 5)
         revenue = 1000 + 30 * ad - 12 * discount + rng.gauss(0, 60)
-        lines.append(f"{2020 + m // 12}-{m % 12 + 1:02d},{weather:.1f},{discount:.1f},{ad:.1f},"
-                     f"{'NE' if m % 2 else 'SW'},{revenue:.0f}")
+        lines.append(
+            f"{2020 + m // 12}-{m % 12 + 1:02d},{weather:.1f},{discount:.1f},{ad:.1f},"
+            f"{'NE' if m % 2 else 'SW'},{revenue:.0f}"
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
@@ -32,8 +41,10 @@ class DiagnosticsRequestTests(unittest.TestCase):
         cases = {
             "what drives Revenue in sales.csv": ((), None),
             "drivers of Revenue in sales.csv.": ((), None),
-            "what drives Revenue in sales.csv using Ad spend, Discount and Weather please":
-                (("Ad spend", "Discount", "Weather"), None),
+            "what drives Revenue in sales.csv using Ad spend, Discount and Weather please": (
+                ("Ad spend", "Discount", "Weather"),
+                None,
+            ),
             "what drives Revenue in sales.csv by Month using Ad spend": (("Ad spend",), "Month"),
             "what drives Revenue in sales.csv using Ad spend by Month?": (("Ad spend",), "Month"),
             # Codex's review: the rest of the command ignores case, so "AND" splits too.
@@ -43,12 +54,17 @@ class DiagnosticsRequestTests(unittest.TestCase):
             with self.subTest(text):
                 request = diagnostics_request(text)
                 self.assertIsInstance(request, DriversRequest)
-                self.assertEqual((request.target, request.path, request.features, request.order_by),
-                                 ("Revenue", "sales.csv", features, order_by))
+                self.assertEqual(
+                    (request.target, request.path, request.features, request.order_by),
+                    ("Revenue", "sales.csv", features, order_by),
+                )
 
     def test_an_anomalies_request_is_read_the_way_it_is_said(self) -> None:
-        for text, label_by in (("anomalies in Rate in errors.csv", None), ("outliers in Rate in errors.csv.", None),
-                               ("unusual values of Rate in errors.csv by Day", "Day")):
+        for text, label_by in (
+            ("anomalies in Rate in errors.csv", None),
+            ("outliers in Rate in errors.csv.", None),
+            ("unusual values of Rate in errors.csv by Day", "Day"),
+        ):
             with self.subTest(text):
                 request = diagnostics_request(text)
                 self.assertIsInstance(request, AnomaliesRequest)
@@ -57,17 +73,23 @@ class DiagnosticsRequestTests(unittest.TestCase):
     def test_a_table_that_cannot_be_followed_gets_the_usage(self) -> None:
         # Codex's review: `using` that names nothing is not the same as no `using` at all; it
         # analysed every column instead.
-        for text, usage in (("what drives Revenue in sales.csv with gusto", "what drives <column>"),
-                            ('what drives Revenue in "sales.csv" using ,', "what drives <column>"),
-                            ("anomalies in Rate in errors.csv using Day", "anomalies in <column>")):
+        for text, usage in (
+            ("what drives Revenue in sales.csv with gusto", "what drives <column>"),
+            ('what drives Revenue in "sales.csv" using ,', "what drives <column>"),
+            ("anomalies in Rate in errors.csv using Day", "anomalies in <column>"),
+        ):
             with self.subTest(text):
                 result = diagnostics_command(text)
                 self.assertFalse(result.ok)
                 self.assertIn(f"Use: {usage}", result.message)
 
     def test_a_sentence_naming_no_table_is_left_alone(self) -> None:
-        for text in ("what drives inflation", "anomalies in my sleep", "what drives revenue in sales.xlsx",
-                     "forecast Revenue in sales.csv"):
+        for text in (
+            "what drives inflation",
+            "anomalies in my sleep",
+            "what drives revenue in sales.xlsx",
+            "forecast Revenue in sales.csv",
+        ):
             with self.subTest(text):
                 self.assertIsNone(diagnostics_command(text))
 
@@ -83,14 +105,19 @@ class RunDriversTests(unittest.TestCase):
         return run_drivers(diagnostics_request(f"what drives Revenue in {path or self.sales}{tail}"))
 
     def table(self, message: str) -> list[str]:
-        return [line.split("|")[1].strip() for line in message.splitlines()
-                if line.startswith("| ") and not line.startswith("| Feature")]
+        return [
+            line.split("|")[1].strip()
+            for line in message.splitlines()
+            if line.startswith("| ") and not line.startswith("| Feature")
+        ]
 
     def test_the_strongest_association_leads_and_the_text_column_is_named(self) -> None:
         result = self.run_on(" by Month")
         self.assertTrue(result.ok, result.message)
         self.assertEqual(self.table(result.message), ["Ad spend", "Discount", "Weather"])
-        coefficients = dict(zip(result.data["drivers"]["feature_names"], result.data["drivers"]["standardized_coefficients"]))
+        coefficients = dict(
+            zip(result.data["drivers"]["feature_names"], result.data["drivers"]["standardized_coefficients"])
+        )
         self.assertGreater(coefficients["Ad spend"], 0.8)
         self.assertLess(coefficients["Discount"], 0)
         self.assertIn("Left out, as not all numbers: Region.", result.message)
@@ -119,10 +146,14 @@ class RunDriversTests(unittest.TestCase):
         self.assertIn("cannot explain itself", self.run_on(" using Revenue, Discount").message)
         blank = self.dir / "blank.csv"
         blank.write_text("Month,Ad spend,Revenue\n2020-01,5,10\n2020-02,,12\n", encoding="utf-8")
-        self.assertIn("Row 3 has no Ad spend", run_drivers(diagnostics_request(
-            f"what drives Revenue in {blank} using Ad spend")).message)
-        self.assertIn("is not a date I can read", run_drivers(diagnostics_request(
-            f"what drives Revenue in {self.sales} by Region")).message)
+        self.assertIn(
+            "Row 3 has no Ad spend",
+            run_drivers(diagnostics_request(f"what drives Revenue in {blank} using Ad spend")).message,
+        )
+        self.assertIn(
+            "is not a date I can read",
+            run_drivers(diagnostics_request(f"what drives Revenue in {self.sales} by Region")).message,
+        )
 
     def test_collinear_features_carry_the_core_warning(self) -> None:
         rng = random.Random(3)
@@ -158,8 +189,7 @@ class RunAnomaliesTests(unittest.TestCase):
         path = self.csv("errors.csv", "Day,Rate\n" + "".join(f"d{i},{v:.5f}\n" for i, v in enumerate(rates)))
         result = run_anomalies(diagnostics_request(f"anomalies in Rate in {path} by Day"))
         self.assertTrue(result.ok, result.message)
-        flagged = [line.split("|")[1].strip() for line in result.message.splitlines()
-                   if line.startswith("| d")]
+        flagged = [line.split("|")[1].strip() for line in result.message.splitlines() if line.startswith("| d")]
         self.assertEqual(flagged, ["d17", "d31"])
         self.assertIn("| d31 | -0.002 | -", result.message)
         self.assertIn("a trend or a season", result.message)
@@ -180,7 +210,9 @@ class RunAnomaliesTests(unittest.TestCase):
 
     def test_a_short_column_carries_the_core_caution(self) -> None:
         path = self.csv("few.csv", "v\n1\n2\n3\n50\n")
-        self.assertIn("Fewer than 10 observations", run_anomalies(diagnostics_request(f"anomalies in v in {path}")).message)
+        self.assertIn(
+            "Fewer than 10 observations", run_anomalies(diagnostics_request(f"anomalies in v in {path}")).message
+        )
 
 
 class ThroughTheAssistantTests(unittest.TestCase):
@@ -191,8 +223,10 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.sales = sales_csv(Path(tmp.name) / "sales.csv")
 
     def test_a_developer_gets_both_and_a_personal_account_neither(self) -> None:
-        for command, heading in ((f"what drives Revenue in {self.sales} by Month", "**What moves with Revenue**"),
-                                 (f"anomalies in Revenue in {self.sales} by Month", "**Unusual Revenue values**")):
+        for command, heading in (
+            (f"what drives Revenue in {self.sales} by Month", "**What moves with Revenue**"),
+            (f"anomalies in Revenue in {self.sales} by Month", "**Unusual Revenue values**"),
+        ):
             with self.subTest(command):
                 result, ran = self.everyday.say(command)
                 self.assertIn(heading, result.message)

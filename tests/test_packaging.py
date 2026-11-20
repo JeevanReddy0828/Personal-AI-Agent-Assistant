@@ -32,16 +32,15 @@ class BundledTimeZoneDataTests(unittest.TestCase):
         for script in self.scripts():
             text = script.read_text(encoding="utf-8")
             self.assertIn(
-                "--collect-all tzdata", text,
-                f"{script.name} ships no time zone database, so a packaged app "
-                "cannot convert a named zone",
+                "--collect-all tzdata",
+                text,
+                f"{script.name} ships no time zone database, so a packaged app cannot convert a named zone",
             )
 
     def test_the_package_itself_still_declares_no_dependencies(self) -> None:
         """Bundling is the installer's business. tzdata must not become a runtime dep."""
         pyproject = (PACKAGING.parent / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn("dependencies = []", pyproject,
-                      "the zero-required-dependency rule was broken")
+        self.assertIn("dependencies = []", pyproject, "the zero-required-dependency rule was broken")
 
 
 class FrozenVoskModelTests(unittest.TestCase):

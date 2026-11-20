@@ -1,4 +1,5 @@
 """GPU status rows keep refreshing when adapter names are missing."""
+
 import os
 import unittest
 
@@ -14,10 +15,19 @@ class GPUStatusTests(unittest.TestCase):
     wait_js = browser_tests.BrowserRegressions.wait_js
 
     def show_metrics(self, names):
-        self.page.route("**/api/metrics", lambda route: route.fulfill(json={
-            "cpu_percent": 37, "ram_percent": 51, "gpus": [
-                {"name": name, "util_kind": "3D", "util_percent": 14,
-                 "mem_used_mb": 1024, "mem_total_mb": 4096} for name in names]}))
+        self.page.route(
+            "**/api/metrics",
+            lambda route: route.fulfill(
+                json={
+                    "cpu_percent": 37,
+                    "ram_percent": 51,
+                    "gpus": [
+                        {"name": name, "util_kind": "3D", "util_percent": 14, "mem_used_mb": 1024, "mem_total_mb": 4096}
+                        for name in names
+                    ],
+                }
+            ),
+        )
         self.page.reload()
         self.page.locator("#railStatus").click()
         self.wait_js("document.getElementById('metrics').textContent.includes('37%')")
@@ -31,8 +41,7 @@ class GPUStatusTests(unittest.TestCase):
                 self.page.unroute("**/api/metrics")
 
     def test_each_vram_row_names_its_adapter_and_escapes_html(self):
-        names = ["AMD Radeon(TM) Graphics", "NVIDIA GeForce RTX 4060", None,
-                 '<img src=x onerror="window.__gpuXss=1">']
+        names = ["AMD Radeon(TM) Graphics", "NVIDIA GeForce RTX 4060", None, '<img src=x onerror="window.__gpuXss=1">']
         self.show_metrics(names)
         labels = self.page.locator("#metrics .metric .top span").all_text_contents()
         for name in (names[0], names[1], "GPU 3", names[3]):

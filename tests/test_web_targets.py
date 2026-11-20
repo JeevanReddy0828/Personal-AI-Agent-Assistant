@@ -24,8 +24,13 @@ class UrlValidationTests(unittest.TestCase):
             self.assertFalse(WebTool._looks_like_url(phrase), phrase)
 
     def test_a_real_address_is(self) -> None:
-        for url in ("https://example.com/data.csv", "example.com", "localhost:8770",
-                    "https://youtu.be/abc123", "http://127.0.0.1:8770"):
+        for url in (
+            "https://example.com/data.csv",
+            "example.com",
+            "localhost:8770",
+            "https://youtu.be/abc123",
+            "http://127.0.0.1:8770",
+        ):
             self.assertTrue(WebTool._looks_like_url(url), url)
 
     def test_download_refuses_a_phrase_without_asking_for_approval(self) -> None:
@@ -33,7 +38,7 @@ class UrlValidationTests(unittest.TestCase):
         result = self.tool(ask=lambda request: asked.append(request.action) or True).download("it for me")
         self.assertFalse(result.ok)
         self.assertIn("not an address", result.message)
-        self.assertEqual(asked, [])      # never reaches the gate, so never reaches the network
+        self.assertEqual(asked, [])  # never reaches the gate, so never reaches the network
 
     def test_open_url_refuses_a_phrase(self) -> None:
         result = self.tool().open_url("it for me")
@@ -105,8 +110,14 @@ class WebSchemesOnlyTests(unittest.TestCase):
     """`open url` runs with no card in the web app and hands the address to the Windows shell:
     file://server/share/x.exe started a program, and ms-msdt:, search-ms: start their handlers."""
 
-    NOT_WEB = ("file://localhost/C:/Windows/System32/calc.exe", "file://evil.example.com/share/x.exe",
-               "ms-msdt://a.com/x", "search-ms://q.com", "ftp://ftp.example.com/a", "vscode://ms.ext/x")
+    NOT_WEB = (
+        "file://localhost/C:/Windows/System32/calc.exe",
+        "file://evil.example.com/share/x.exe",
+        "ms-msdt://a.com/x",
+        "search-ms://q.com",
+        "ftp://ftp.example.com/a",
+        "vscode://ms.ext/x",
+    )
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -176,9 +187,12 @@ class BrowserWebOnlyTests(unittest.IsolatedAsyncioTestCase):
 
         asked: list[str] = []
         tool = BrowserAutomationTool(ApprovalGate(ask=lambda request: asked.append(request.action) or True))
-        for call in (tool.inspect_page("file:///C:/Users/me/secret.txt"), tool.inspect_forms("file:///C:/x.html"),
-                     tool.preview_form_fill("file:///C:/x.html", {"name": "A"}),
-                     tool.fill_form("file:///C:/x.html", {"name": "A"})):
+        for call in (
+            tool.inspect_page("file:///C:/Users/me/secret.txt"),
+            tool.inspect_forms("file:///C:/x.html"),
+            tool.preview_form_fill("file:///C:/x.html", {"name": "A"}),
+            tool.fill_form("file:///C:/x.html", {"name": "A"}),
+        ):
             result = await call
             self.assertFalse(result.ok)
             self.assertIn("http", result.message)

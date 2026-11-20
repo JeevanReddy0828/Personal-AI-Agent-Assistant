@@ -45,8 +45,9 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
     # Per-tier reachability from real chat turns (fast/smart/ultra), so the UI can
     # show "the advanced model is busy" even while the fast tier is healthy.
     status = getattr(orchestrator, "model_status", None)
-    tier_status = (status.snapshot() if status is not None
-                   else {"tiers": {}, "degraded": False, "broken": [], "reasons": {}})
+    tier_status = (
+        status.snapshot() if status is not None else {"tiers": {}, "degraded": False, "broken": [], "reasons": {}}
+    )
 
     return {
         "overall": overall,
@@ -81,32 +82,37 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
 # only: never a value, a path or a model id, since this is shown in the page.
 _NEXT = {
     "chat": "Set LAPTOP_AGENT_LLM_PROVIDER=openai-compatible and OPENAI_API_KEY in .env (with OPENAI_BASE_URL "
-            "and OPENAI_MODEL for your provider), then restart.",
+    "and OPENAI_MODEL for your provider), then restart.",
     "deeper": "Set OPENAI_SMART_MODEL and OPENAI_ULTRA_MODEL for harder questions.",
     "vision": "Set OPENAI_VISION_MODEL to describe pictures and the screen.",
     "pictures": "Set OPENAI_IMAGE_KEY (or OPENAI_API_KEY) to draw pictures.",
     "stt": "pip install laptop-agent[stt] and put a Vosk model in models/ (light), or "
-           "pip install laptop-agent[transcribe] for Whisper.",
+    "pip install laptop-agent[transcribe] for Whisper.",
     "tts": "pip install laptop-agent[voice] for an offline voice in the app window, or "
-           "laptop-agent[riva] with OPENAI_API_KEY for NVIDIA's hosted one.",
+    "laptop-agent[riva] with OPENAI_API_KEY for NVIDIA's hosted one.",
     "ocr": "pip install laptop-agent[ocr] and install Tesseract, or set OPENAI_API_KEY for hosted parsing.",
     "docs": "pip install laptop-agent[docs]",
     "browser": "pip install laptop-agent[browser], then python -m playwright install chromium",
     "youtube": "pip install laptop-agent[youtube]",
     "email": "Set IMAP_HOST, IMAP_USERNAME and IMAP_PASSWORD (for Gmail, an app password) in .env, "
-             "and SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD to send.",
+    "and SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD to send.",
     "vault": "Set OBSIDIAN_VAULT to your vault's folder.",
     "metrics": "pip install laptop-agent[metrics]",
     "window": "pip install laptop-agent[app] (optional: the browser tab works without it).",
     "sign_in": "Set up an owner account in the settings popover.",
     "lan": "Set LAPTOP_AGENT_HOST=0.0.0.0 with sign-in on (or LAPTOP_AGENT_LAN_PASSCODE) to use it "
-           "from a phone on the same network.",
+    "from a phone on the same network.",
     "backup": "Set OPENROUTER_API_KEY for a backup when the main models are busy (optional).",
 }
-_STT = {"riva:parakeet": "NVIDIA Parakeet, hosted, with a local engine behind it",
-        "vosk": "Vosk, on this computer", "whisper": "Whisper, on this computer"}
-_TTS = {"riva:magpie": "NVIDIA Magpie, hosted, in the app window and the browser tab",
-        "pyttsx3": "An offline voice on this computer"}
+_STT = {
+    "riva:parakeet": "NVIDIA Parakeet, hosted, with a local engine behind it",
+    "vosk": "Vosk, on this computer",
+    "whisper": "Whisper, on this computer",
+}
+_TTS = {
+    "riva:magpie": "NVIDIA Magpie, hosted, in the app window and the browser tab",
+    "pyttsx3": "An offline voice on this computer",
+}
 _OCR = {"nemotron-parse": "NVIDIA parse, hosted, with Tesseract behind it", "tesseract": "Tesseract, on this computer"}
 
 
@@ -162,8 +168,11 @@ def chromium_installed(package: Path | None = None, browsers: Path | None = None
                 return False
             package = Path(spec.origin).parent
         listed = json.loads((package / "driver" / "package" / "browsers.json").read_text(encoding="utf-8"))
-        wanted = [f"{entry['name'].replace('-', '_')}-{entry['revision']}" for entry in listed["browsers"]
-                  if entry.get("name") in ("chromium", "chromium-headless-shell")]
+        wanted = [
+            f"{entry['name'].replace('-', '_')}-{entry['revision']}"
+            for entry in listed["browsers"]
+            if entry.get("name") in ("chromium", "chromium-headless-shell")
+        ]
     except (ImportError, OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
     browsers = browsers or _playwright_browsers(package)
@@ -172,20 +181,39 @@ def chromium_installed(package: Path | None = None, browsers: Path | None = None
 
 # What a finished Chromium download holds one folder down (chrome-win64, chrome-linux,
 # chrome-headless-shell-win64, ...): named per platform, so matched by name, not by path.
-_CHROMIUM_EXECUTABLES = {"chrome.exe", "chrome", "chrome-headless-shell.exe", "chrome-headless-shell",
-                         "headless_shell.exe", "headless_shell"}
+_CHROMIUM_EXECUTABLES = {
+    "chrome.exe",
+    "chrome",
+    "chrome-headless-shell.exe",
+    "chrome-headless-shell",
+    "headless_shell.exe",
+    "headless_shell",
+}
 
 
 def _installed(revision: Path) -> bool:
     if not (revision / "INSTALLATION_COMPLETE").is_file():
         return False
-    return any((entry.is_file() and entry.name.lower() in _CHROMIUM_EXECUTABLES)
-               or (entry.is_dir() and entry.suffix == ".app") for entry in revision.glob("*/*"))
+    return any(
+        (entry.is_file() and entry.name.lower() in _CHROMIUM_EXECUTABLES) or (entry.is_dir() and entry.suffix == ".app")
+        for entry in revision.glob("*/*")
+    )
 
 
-def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, stt_engine: str | None,
-                 tts_engine: str | None, ocr_engine: str | None, sign_in: bool, lan_mode: bool, find_spec=None,
-                 which=None, browser_engine=None) -> list[dict[str, object]]:
+def setup_report(
+    orchestrator: Any,
+    config: Any,
+    *,
+    llm_reachable: bool | None,
+    stt_engine: str | None,
+    tts_engine: str | None,
+    ocr_engine: str | None,
+    sign_in: bool,
+    lan_mode: bool,
+    find_spec=None,
+    which=None,
+    browser_engine=None,
+) -> list[dict[str, object]]:
     """Each capability, whether it is ready and what to do if not. States: `ready`, `off`
     (optional and not set up), `missing` (a package or engine it needs is absent), `busy` (a
     model tier is loaded or unreachable) and `broken` (a tier is misconfigured, with why).
@@ -218,20 +246,40 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     if provider is None or "OpenAI" not in type(provider).__name__:
         rows.append(_row("chat", "Chat model", "off", "Replies come from built-in rules only."))
     elif llm_reachable is False and tier("fast") != "broken":
-        rows.append(_row("chat", "Chat model", "busy", "Configured, but the endpoint is not answering.",
-                         "Check OPENAI_BASE_URL and the network."))
+        rows.append(
+            _row(
+                "chat",
+                "Chat model",
+                "busy",
+                "Configured, but the endpoint is not answering.",
+                "Check OPENAI_BASE_URL and the network.",
+            )
+        )
     else:
         state = tier("fast")
         reason = str(snapshot.get("reasons", {}).get("fast") or "")
-        detail = {"ready": "Answering.", "busy": "Busy at the moment; replies fall back.",
-                  "broken": "Misconfigured: this will not recover by waiting."}[state]
-        rows.append(_row("chat", "Chat model", state, detail,
-                         (_broken_advice(reason, "OPENAI_MODEL") or "Check OPENAI_API_KEY and OPENAI_MODEL.")
-                         if state == "broken" else None))
+        detail = {
+            "ready": "Answering.",
+            "busy": "Busy at the moment; replies fall back.",
+            "broken": "Misconfigured: this will not recover by waiting.",
+        }[state]
+        rows.append(
+            _row(
+                "chat",
+                "Chat model",
+                state,
+                detail,
+                (_broken_advice(reason, "OPENAI_MODEL") or "Check OPENAI_API_KEY and OPENAI_MODEL.")
+                if state == "broken"
+                else None,
+            )
+        )
 
-    deeper = [(label, name) for label, attr, name in (("balanced", "smart_planner", "smart"),
-                                                      ("deep", "ultra_planner", "ultra"))
-              if getattr(orchestrator, attr, None) is not None]
+    deeper = [
+        (label, name)
+        for label, attr, name in (("balanced", "smart_planner", "smart"), ("deep", "ultra_planner", "ultra"))
+        if getattr(orchestrator, attr, None) is not None
+    ]
     if not deeper:
         rows.append(_row("deeper", "Deeper models", "off", "Harder questions use the chat model."))
     else:
@@ -239,18 +287,40 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
         state = "broken" if "broken" in states.values() else "busy" if "busy" in states.values() else "ready"
         named = " and ".join(label for label, _ in deeper).capitalize()
         variables = {"smart": "OPENAI_SMART_MODEL", "ultra": "OPENAI_ULTRA_MODEL"}
-        advice = "; ".join(_broken_advice(str(snapshot.get("reasons", {}).get(name) or ""), variables[name])
-                           or f"check OPENAI_API_KEY and {variables[name]}."
-                           for name, s in states.items() if s == "broken")
-        rows.append(_row("deeper", "Deeper models", state, f"{named} configured." if state == "ready"
-                         else f"{named} configured; one is {state}.", advice or None))
+        advice = "; ".join(
+            _broken_advice(str(snapshot.get("reasons", {}).get(name) or ""), variables[name])
+            or f"check OPENAI_API_KEY and {variables[name]}."
+            for name, s in states.items()
+            if s == "broken"
+        )
+        rows.append(
+            _row(
+                "deeper",
+                "Deeper models",
+                state,
+                f"{named} configured." if state == "ready" else f"{named} configured; one is {state}.",
+                advice or None,
+            )
+        )
 
     vision = getattr(orchestrator, "vision_planner", None) is not None
-    rows.append(_row("vision", "Vision", "ready" if vision else "off",
-                     "Describes pictures and the screen." if vision else "Pictures and the screen are not described."))
+    rows.append(
+        _row(
+            "vision",
+            "Vision",
+            "ready" if vision else "off",
+            "Describes pictures and the screen." if vision else "Pictures and the screen are not described.",
+        )
+    )
     image_key = bool(getattr(config, "llm_image_api_key", None))
-    rows.append(_row("pictures", "Pictures", "ready" if image_key else "off",
-                     "Draws pictures from a description." if image_key else "Drawing is not set up."))
+    rows.append(
+        _row(
+            "pictures",
+            "Pictures",
+            "ready" if image_key else "off",
+            "Draws pictures from a description." if image_key else "Drawing is not set up.",
+        )
+    )
 
     # Named only from the providers the backend knows: the setting's own text is never shown, since
     # a key pasted into SEARCH_PROVIDER would otherwise be printed in the page.
@@ -260,65 +330,171 @@ def setup_report(orchestrator: Any, config: Any, *, llm_reachable: bool | None, 
     if chosen in _API_BACKENDS and key:
         rows.append(_row("search", "Web search", "ready", f"{chosen.title()}, with DuckDuckGo behind it."))
     elif chosen in _API_BACKENDS:
-        rows.append(_row("search", "Web search", "ready", "DuckDuckGo, because the chosen provider has no key.",
-                         "Set SEARCH_API_KEY for the chosen provider."))
+        rows.append(
+            _row(
+                "search",
+                "Web search",
+                "ready",
+                "DuckDuckGo, because the chosen provider has no key.",
+                "Set SEARCH_API_KEY for the chosen provider.",
+            )
+        )
     elif chosen and chosen != "duckduckgo":
-        rows.append(_row("search", "Web search", "ready", "DuckDuckGo: SEARCH_PROVIDER names no provider it knows.",
-                         f"Set SEARCH_PROVIDER to one of {known}."))
+        rows.append(
+            _row(
+                "search",
+                "Web search",
+                "ready",
+                "DuckDuckGo: SEARCH_PROVIDER names no provider it knows.",
+                f"Set SEARCH_PROVIDER to one of {known}.",
+            )
+        )
     elif key and not chosen:
-        rows.append(_row("search", "Web search", "ready", "DuckDuckGo: a search key is set but no provider.",
-                         f"Set SEARCH_PROVIDER to one of {known}."))
+        rows.append(
+            _row(
+                "search",
+                "Web search",
+                "ready",
+                "DuckDuckGo: a search key is set but no provider.",
+                f"Set SEARCH_PROVIDER to one of {known}.",
+            )
+        )
     else:
         rows.append(_row("search", "Web search", "ready", "DuckDuckGo, no key needed."))
 
-    rows.append(_row("stt", "Speech to text", "ready" if stt_engine else "missing",
-                     _STT.get(stt_engine or "", "No engine here: voice uses the browser's own recognizer.")))
+    rows.append(
+        _row(
+            "stt",
+            "Speech to text",
+            "ready" if stt_engine else "missing",
+            _STT.get(stt_engine or "", "No engine here: voice uses the browser's own recognizer."),
+        )
+    )
     voice = _TTS.get(tts_engine or "", "No voice here: the browser tab still speaks.")
     if tts_engine == "riva:magpie" and has("pyttsx3"):
         voice += ", with the offline voice behind it"
     rows.append(_row("tts", "Spoken replies in the app window", "ready" if tts_engine else "missing", voice))
     if ocr_engine == "tesseract" and not which("tesseract"):
-        rows.append(_row("ocr", "Reading text in images", "missing", "The Tesseract program is not installed.",
-                         "Install Tesseract and put it on PATH."))
+        rows.append(
+            _row(
+                "ocr",
+                "Reading text in images",
+                "missing",
+                "The Tesseract program is not installed.",
+                "Install Tesseract and put it on PATH.",
+            )
+        )
     else:
-        rows.append(_row("ocr", "Reading text in images", "ready" if ocr_engine else "missing",
-                         _OCR.get(ocr_engine or "", "No engine.")))
+        rows.append(
+            _row(
+                "ocr",
+                "Reading text in images",
+                "ready" if ocr_engine else "missing",
+                _OCR.get(ocr_engine or "", "No engine."),
+            )
+        )
 
     formats = {"Word": has("docx"), "PowerPoint": has("pptx"), "PDF reading": has("pdfplumber") or has("pypdf")}
-    rows.append(_row("docs", "Documents", "ready" if all(formats.values()) else "missing",
-                     ", ".join(f"{name}: {'yes' if ok else 'no'}" for name, ok in formats.items()) + "."))
+    rows.append(
+        _row(
+            "docs",
+            "Documents",
+            "ready" if all(formats.values()) else "missing",
+            ", ".join(f"{name}: {'yes' if ok else 'no'}" for name, ok in formats.items()) + ".",
+        )
+    )
     browser = has("playwright")
     engine = browser and browser_engine()
-    rows.append(_row("browser", "Browser and PDF export", "ready" if engine else "missing",
-                     "Reads pages and writes PDFs." if engine else
-                     "Playwright is installed but not the Chromium it uses." if browser else
-                     "Page reading and PDF export are off.",
-                     "python -m playwright install chromium" if browser and not engine else None))
+    rows.append(
+        _row(
+            "browser",
+            "Browser and PDF export",
+            "ready" if engine else "missing",
+            "Reads pages and writes PDFs."
+            if engine
+            else "Playwright is installed but not the Chromium it uses."
+            if browser
+            else "Page reading and PDF export are off.",
+            "python -m playwright install chromium" if browser and not engine else None,
+        )
+    )
     youtube = has("youtube_transcript_api")
-    rows.append(_row("youtube", "YouTube summaries", "ready" if youtube else "missing",
-                     "Summarises a video from its transcript." if youtube else "Videos cannot be summarised."))
+    rows.append(
+        _row(
+            "youtube",
+            "YouTube summaries",
+            "ready" if youtube else "missing",
+            "Summarises a video from its transcript." if youtube else "Videos cannot be summarised.",
+        )
+    )
 
     reads = all(getattr(config, key, None) for key in ("imap_host", "imap_username", "imap_password"))
     sends = all(getattr(config, key, None) for key in ("smtp_host", "smtp_username", "smtp_password"))
-    rows.append(_row("email", "Email", "ready" if reads and sends else "off",
-                     "Reads and sends." if reads and sends else "Reads only." if reads else
-                     "Sends only." if sends else "Not connected."))
+    rows.append(
+        _row(
+            "email",
+            "Email",
+            "ready" if reads and sends else "off",
+            "Reads and sends."
+            if reads and sends
+            else "Reads only."
+            if reads
+            else "Sends only."
+            if sends
+            else "Not connected.",
+        )
+    )
     obsidian = getattr(getattr(orchestrator, "context", None), "obsidian", None)
     vault = bool(obsidian.available()) if obsidian is not None else False
-    rows.append(_row("vault", "Notes vault", "ready" if vault else "off", "Connected." if vault else "No vault connected."))
+    rows.append(
+        _row("vault", "Notes vault", "ready" if vault else "off", "Connected." if vault else "No vault connected.")
+    )
     # Without psutil, metrics.py reads Windows' own counters through PowerShell.
     metrics, counters = has("psutil"), bool(which("powershell"))
-    rows.append(_row("metrics", "Usage meters", "ready" if metrics or counters else "missing",
-                     "CPU and memory in this drawer." if metrics else
-                     "CPU and memory from Windows' own counters." if counters else "This drawer shows no usage."))
+    rows.append(
+        _row(
+            "metrics",
+            "Usage meters",
+            "ready" if metrics or counters else "missing",
+            "CPU and memory in this drawer."
+            if metrics
+            else "CPU and memory from Windows' own counters."
+            if counters
+            else "This drawer shows no usage.",
+        )
+    )
     window = has("webview")
-    rows.append(_row("window", "Desktop window", "ready" if window else "off",
-                     "Opens as its own window." if window else "Opens in a browser tab."))
-    rows.append(_row("sign_in", "Sign-in", "ready" if sign_in else "off",
-                     "On: everyone signs in." if sign_in else "Off: anyone who opens the app here can use it."))
-    rows.append(_row("lan", "Phone access", "ready" if lan_mode else "off",
-                     "On: devices on this network can reach it." if lan_mode else "This computer only."))
+    rows.append(
+        _row(
+            "window",
+            "Desktop window",
+            "ready" if window else "off",
+            "Opens as its own window." if window else "Opens in a browser tab.",
+        )
+    )
+    rows.append(
+        _row(
+            "sign_in",
+            "Sign-in",
+            "ready" if sign_in else "off",
+            "On: everyone signs in." if sign_in else "Off: anyone who opens the app here can use it.",
+        )
+    )
+    rows.append(
+        _row(
+            "lan",
+            "Phone access",
+            "ready" if lan_mode else "off",
+            "On: devices on this network can reach it." if lan_mode else "This computer only.",
+        )
+    )
     backup = bool(getattr(config, "openrouter_api_key", None))
-    rows.append(_row("backup", "Backup model", "ready" if backup else "off",
-                     "Answers when the main models are busy." if backup else "No backup provider."))
+    rows.append(
+        _row(
+            "backup",
+            "Backup model",
+            "ready" if backup else "off",
+            "Answers when the main models are busy." if backup else "No backup provider.",
+        )
+    )
     return rows

@@ -30,15 +30,15 @@ from test_everyday_requests import Everyday
 
 try:
     NEW_YORK: ZoneInfo | None = ZoneInfo("America/New_York")
-except ZoneInfoNotFoundError:   # Windows without the tzdata package; CI installs it
+except ZoneInfoNotFoundError:  # Windows without the tzdata package; CI installs it
     NEW_YORK = None
 
 EDT = timezone(timedelta(hours=-4))
 EST = timezone(timedelta(hours=-5))
 # How the app reads its clock: `datetime.now().astimezone()` carries only today's offset.
-FRIDAY = datetime(2026, 10, 30, 12, 0, tzinfo=EDT)           # two days before the clocks go back
+FRIDAY = datetime(2026, 10, 30, 12, 0, tzinfo=EDT)  # two days before the clocks go back
 SATURDAY = datetime(2026, 10, 31, 12, 0, tzinfo=EDT)
-SPRING_FRIDAY = datetime(2027, 3, 12, 12, 0, tzinfo=EST)      # two days before they go forward
+SPRING_FRIDAY = datetime(2027, 3, 12, 12, 0, tzinfo=EST)  # two days before they go forward
 
 
 def utc(*args: int) -> datetime:
@@ -71,13 +71,13 @@ class OnTheLaptopsClockTests(unittest.TestCase):
 
     def test_a_time_past_the_autumn_change_keeps_its_wall_clock_time(self) -> None:
         when = parse_when("monday at 7am", FRIDAY, local=True)
-        self.assertEqual(when.at, utc(2026, 11, 2, 12, 0))                 # 7:00 EST, not 6:00
+        self.assertEqual(when.at, utc(2026, 11, 2, 12, 0))  # 7:00 EST, not 6:00
         self.assertEqual(when.at.utcoffset(), timedelta(hours=-5))
         self.assertEqual(describe(when.at, FRIDAY, local=True), "Monday at 7:00 AM")
 
     def test_and_past_the_spring_change(self) -> None:
         when = parse_when("monday at 7am", SPRING_FRIDAY, local=True)
-        self.assertEqual(when.at, utc(2027, 3, 15, 11, 0))                 # 7:00 EDT, not 8:00
+        self.assertEqual(when.at, utc(2027, 3, 15, 11, 0))  # 7:00 EDT, not 8:00
         self.assertEqual(describe(when.at, SPRING_FRIDAY, local=True), "Monday at 7:00 AM")
 
     def test_an_iso_date_past_the_change(self) -> None:
@@ -97,14 +97,14 @@ class OnTheLaptopsClockTests(unittest.TestCase):
 
     def test_the_repeated_hour_is_its_first_occurrence(self) -> None:
         when = parse_when("tomorrow at 1:30am", SATURDAY, local=True)
-        self.assertEqual(when.at, utc(2026, 11, 1, 5, 30))                 # 1:30 EDT, the first
+        self.assertEqual(when.at, utc(2026, 11, 1, 5, 30))  # 1:30 EDT, the first
         self.assertEqual(describe(when.at, SATURDAY, local=True), "tomorrow at 1:30 AM")
         # The second 1:30 reads as 1:30 too, in its own offset.
         self.assertEqual(describe(utc(2026, 11, 1, 6, 30), SATURDAY, local=True), "tomorrow at 1:30 AM")
 
     def test_a_skipped_time_moves_forward_by_the_gap(self) -> None:
         when = parse_when("sunday at 2:30am", SPRING_FRIDAY, local=True)
-        self.assertEqual(when.at, utc(2027, 3, 14, 7, 30))                 # 3:30 EDT
+        self.assertEqual(when.at, utc(2027, 3, 14, 7, 30))  # 3:30 EDT
         self.assertEqual(describe(when.at, SPRING_FRIDAY, local=True), "Sunday at 3:30 AM")
 
     def test_a_fixed_offset_now_parses_exactly_as_before(self) -> None:
@@ -147,7 +147,7 @@ class TheOperatingSystemsOwnRulesTests(unittest.TestCase):
 
     def test_monday_at_seven_is_seven_after_the_clocks_go_back(self) -> None:
         self.assertIsNone(timeparse.LOCAL_ZONE)
-        now = datetime(2026, 10, 30, 12, 0).astimezone()           # as the app reads its clock
+        now = datetime(2026, 10, 30, 12, 0).astimezone()  # as the app reads its clock
         when = parse_when("monday at 7am", now, local=True)
         self.assertEqual(when.at, utc(2026, 11, 2, 12, 0))
         self.assertEqual(describe(when.at, now, local=True), "Monday at 7:00 AM")
@@ -169,8 +169,7 @@ class ThroughTheAssistantTests(unittest.TestCase):
         return result.message
 
     def due(self) -> list[datetime]:
-        return [datetime.fromisoformat(item["due_at"])
-                for item in self.everyday.orchestrator.context.reminders.list()]
+        return [datetime.fromisoformat(item["due_at"]) for item in self.everyday.orchestrator.context.reminders.list()]
 
     def test_a_reminder_set_on_friday_for_monday_rings_at_seven(self) -> None:
         self.assertIn("Monday at 7:00 AM", self.say_at(FRIDAY, "remind me monday at 7am to stretch"))
@@ -217,8 +216,11 @@ def _calls(tree: ast.AST, names: set[str]):
     def visit(node: ast.AST, shadowed: frozenset[str]):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-            shadowed = shadowed | {arg.arg for arg in arguments} | {
-                name.id for name in ast.walk(node) if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)}
+            shadowed = (
+                shadowed
+                | {arg.arg for arg in arguments}
+                | {name.id for name in ast.walk(node) if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)}
+            )
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names - shadowed:
             yield node
         for child in ast.iter_child_nodes(node):
@@ -236,9 +238,13 @@ class EveryCallerReadsTheLaptopsClockTests(unittest.TestCase):
         calls, missing = 0, []
         for path in sorted(root.rglob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            names = {alias.asname or alias.name for node in ast.walk(tree)
-                     if isinstance(node, ast.ImportFrom) and node.module == "laptop_agent.timeparse"
-                     for alias in node.names if alias.name in ("parse_when", "describe")}
+            names = {
+                alias.asname or alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom) and node.module == "laptop_agent.timeparse"
+                for alias in node.names
+                if alias.name in ("parse_when", "describe")
+            }
             for call in _calls(tree, names):
                 calls += 1
                 local = next((keyword.value for keyword in call.keywords if keyword.arg == "local"), None)

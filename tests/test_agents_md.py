@@ -36,8 +36,11 @@ class AgentsFileTests(unittest.TestCase):
         rows = [line for line in self.agents.splitlines() if line.startswith("| ") and "---" not in line][1:]
         files = {name for row in rows for name in re.findall(r"`([\w./-]+\.md)`", row.split("|")[2])}
         self.assertGreater(len(files), 8)
-        missing = [name for name in sorted(files)
-                   if not (ROOT / "docs" / "design" / name).is_file() and not (ROOT / name).is_file()]
+        missing = [
+            name
+            for name in sorted(files)
+            if not (ROOT / "docs" / "design" / name).is_file() and not (ROOT / name).is_file()
+        ]
         self.assertEqual(missing, [], "AGENTS.md names design files that do not exist")
 
     def test_claude_md_stays_a_core(self) -> None:

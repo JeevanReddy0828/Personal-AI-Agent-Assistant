@@ -39,8 +39,14 @@ class FailureReportTests(unittest.TestCase):
             return count, path.read_text(encoding="utf-8")
 
     def test_an_error_keeps_its_name_and_traceback(self) -> None:
-        result = _FakeResult(errors=[(_FakeTest("test_thing (pkg.Case.test_thing)"),
-                                      "Traceback (most recent call last):\n  ZeroDivisionError: x")])
+        result = _FakeResult(
+            errors=[
+                (
+                    _FakeTest("test_thing (pkg.Case.test_thing)"),
+                    "Traceback (most recent call last):\n  ZeroDivisionError: x",
+                )
+            ]
+        )
         count, text = self.report(result)
         self.assertEqual(count, 1)
         self.assertIn("test_thing (pkg.Case.test_thing)", text)
@@ -94,13 +100,13 @@ class FailureReportTests(unittest.TestCase):
         here = Path(__file__).resolve().parent
         bodies = {
             "test_probe_boom.py": "import unittest\n\n\n"
-                                  "class Boom(unittest.TestCase):\n"
-                                  "    def test_raises(self):\n"
-                                  "        raise ZeroDivisionError('planted')\n",
+            "class Boom(unittest.TestCase):\n"
+            "    def test_raises(self):\n"
+            "        raise ZeroDivisionError('planted')\n",
             "test_probe_fine.py": "import unittest\n\n\n"
-                                  "class Fine(unittest.TestCase):\n"
-                                  "    def test_passes(self):\n"
-                                  "        self.assertTrue(True)\n",
+            "class Fine(unittest.TestCase):\n"
+            "    def test_passes(self):\n"
+            "        self.assertTrue(True)\n",
         }
         for name, body in bodies.items():
             planted = here / name
@@ -110,21 +116,25 @@ class FailureReportTests(unittest.TestCase):
         blocked = run_tests.FAILURE_REPORT
         if blocked.exists() and blocked.is_file():
             blocked.unlink()
-        blocked.mkdir(exist_ok=True)          # a directory cannot be written or unlinked
+        blocked.mkdir(exist_ok=True)  # a directory cannot be written or unlinked
         self.addCleanup(lambda: blocked.is_dir() and blocked.rmdir())
 
-        for pattern, expect in (("test_probe_boom.py", "FAILED"),
-                                ("test_probe_fine.py", "OK")):
+        for pattern, expect in (("test_probe_boom.py", "FAILED"), ("test_probe_fine.py", "OK")):
             with self.subTest(pattern=pattern):
                 done = subprocess.run(
                     [sys.executable, "-B", "tests/run_tests.py", pattern],
-                    cwd=run_tests.ROOT, capture_output=True, text=True,
+                    cwd=run_tests.ROOT,
+                    capture_output=True,
+                    text=True,
                     env={**os.environ, "PYTHONPATH": "src"},
                 )
                 out = done.stdout + done.stderr
                 self.assertIn(expect, out, "the real test result did not survive")
-                self.assertNotIn("Traceback (most recent call last):\n  File", out.split(expect)[-1],
-                                 "report IO raised past the result")
+                self.assertNotIn(
+                    "Traceback (most recent call last):\n  File",
+                    out.split(expect)[-1],
+                    "report IO raised past the result",
+                )
                 self.assertIn("could not", out, "the reason was swallowed instead of reported")
 
     def test_the_report_path_is_not_committed_by_accident(self) -> None:
@@ -132,10 +142,11 @@ class FailureReportTests(unittest.TestCase):
         self.assertEqual(run_tests.FAILURE_REPORT.parent, run_tests.ROOT)
         ignored = subprocess.run(
             ["git", "check-ignore", str(run_tests.FAILURE_REPORT)],
-            cwd=run_tests.ROOT, capture_output=True, text=True,
+            cwd=run_tests.ROOT,
+            capture_output=True,
+            text=True,
         )
-        self.assertEqual(ignored.returncode, 0,
-                         "test-failures.log is not gitignored; it would be committed")
+        self.assertEqual(ignored.returncode, 0, "test-failures.log is not gitignored; it would be committed")
 
 
 class IsolationTests(unittest.TestCase):
@@ -166,7 +177,10 @@ class IsolationTests(unittest.TestCase):
         self.addCleanup(planted.unlink, True)
         done = subprocess.run(
             [sys.executable, "-B", "tests/run_tests.py", planted.name],
-            cwd=run_tests.ROOT, capture_output=True, text=True, timeout=120,
+            cwd=run_tests.ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
             env={**os.environ, "PYTHONPATH": "src"},
         )
         out = done.stdout + done.stderr
@@ -197,7 +211,10 @@ class IsolationTests(unittest.TestCase):
         self.addCleanup(planted.unlink, True)
         done = subprocess.run(
             [sys.executable, "-B", "tests/run_tests.py", planted.name],
-            cwd=run_tests.ROOT, capture_output=True, text=True, timeout=120,
+            cwd=run_tests.ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
             env={**os.environ, "PYTHONPATH": "src"},
         )
         out = done.stdout + done.stderr

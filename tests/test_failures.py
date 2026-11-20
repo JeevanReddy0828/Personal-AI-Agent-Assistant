@@ -63,8 +63,8 @@ class FailureLogTests(unittest.TestCase):
                 raise RuntimeError("cannot render")
 
         log = FailureLog()
-        log.record("spot", "fine", bad=Hostile())   # must not propagate
-        log.record("spot", Hostile())               # nor here
+        log.record("spot", "fine", bad=Hostile())  # must not propagate
+        log.record("spot", Hostile())  # nor here
         self.assertTrue(log.recent())
 
 
@@ -110,9 +110,7 @@ class TransportRetryTests(unittest.TestCase):
 
         class Response:
             def read(self_inner):
-                return json.dumps(
-                    {"choices": [{"message": {"content": text}}]}
-                ).encode("utf-8")
+                return json.dumps({"choices": [{"message": {"content": text}}]}).encode("utf-8")
 
             def __enter__(self_inner):
                 return self_inner

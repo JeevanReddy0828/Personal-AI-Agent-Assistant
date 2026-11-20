@@ -26,12 +26,18 @@ async def render_html_to_pdf(html: str, out_path: Path, single_page: bool = True
                 await page.route("**/*", lambda route: route.abort())
                 await page.set_content(html, wait_until="domcontentloaded")
                 # Never silently crop, shrink to unreadable text, or publish extra pages.
-                pdf = await page.pdf(format="Letter", print_background=True,
-                                     prefer_css_page_size=True,
-                                     margin={"top": "0.5in", "bottom": "0.5in", "left": "0.7in", "right": "0.7in"})
+                pdf = await page.pdf(
+                    format="Letter",
+                    print_background=True,
+                    prefer_css_page_size=True,
+                    margin={"top": "0.5in", "bottom": "0.5in", "left": "0.7in", "right": "0.7in"},
+                )
                 pages = len(re.findall(rb"/Type\s*/Page\b", pdf))
                 if single_page and pages != 1:
-                    return ToolResult.failure(f"Resume needs {pages or 'an unknown number of'} pages. Shorten its source excerpts and export again; the previous file was preserved.", pages=pages)
+                    return ToolResult.failure(
+                        f"Resume needs {pages or 'an unknown number of'} pages. Shorten its source excerpts and export again; the previous file was preserved.",
+                        pages=pages,
+                    )
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 fd, temporary = tempfile.mkstemp(suffix=".pdf", dir=out_path.parent)
                 with os.fdopen(fd, "wb") as handle:

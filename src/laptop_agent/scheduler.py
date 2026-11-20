@@ -86,14 +86,20 @@ _DAY_SET = rf"(?:weekdays?|weekends?|{_DAY_NAME}(?:\s*(?:,|and|&)\s*{_DAY_NAME})
 
 
 def parse_days(text: str) -> tuple[int, ...]:
-    """"weekdays" -> (0..4), "mondays and thursdays" -> (0, 3). Empty when it names none."""
+    """ "weekdays" -> (0..4), "mondays and thursdays" -> (0, 3). Empty when it names none."""
     lowered = text.strip().lower()
     if re.fullmatch(r"weekdays?", lowered):
         return (0, 1, 2, 3, 4)
     if re.fullmatch(r"weekends?", lowered):
         return (5, 6)
-    return tuple(sorted({_WEEKDAYS.index(name) for name in re.findall(
-        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday", lowered)}))
+    return tuple(
+        sorted(
+            {
+                _WEEKDAYS.index(name)
+                for name in re.findall(r"monday|tuesday|wednesday|thursday|friday|saturday|sunday", lowered)
+            }
+        )
+    )
 
 
 def _describe_days(days: tuple[int, ...]) -> str:
@@ -330,7 +336,9 @@ class SchedulerStore:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_id': self._next_id, 'jobs': [job.to_dict() for job in self._jobs]}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_id": self._next_id, "jobs": [job.to_dict() for job in self._jobs]}, indent=2)
+        )
 
 
 def _parse_iso(value: str | None) -> datetime | None:

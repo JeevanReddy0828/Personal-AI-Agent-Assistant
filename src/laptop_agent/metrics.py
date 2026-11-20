@@ -32,8 +32,7 @@ def _failure_once(probe: str, cause: str) -> None:
 
 
 def _empty_metrics() -> dict[str, object]:
-    return {"cpu_percent": None, "ram_used_mb": None, "ram_total_mb": None,
-            "ram_percent": None, "gpus": []}
+    return {"cpu_percent": None, "ram_used_mb": None, "ram_total_mb": None, "ram_percent": None, "gpus": []}
 
 
 def _refresh_metrics(force: bool = False) -> None:
@@ -125,7 +124,9 @@ def _windows_cpu_ram() -> tuple[float | None, int | None, int | None]:
     try:
         out = subprocess.run(
             [powershell, "-NoProfile", "-Command", script],
-            capture_output=True, text=True, timeout=6,
+            capture_output=True,
+            text=True,
+            timeout=6,
         ).stdout.strip()
         load, free_kb, total_kb = out.split("|")
         cpu = round(float(load), 1) if load else None
@@ -165,10 +166,18 @@ def _dxgi_adapters() -> dict[tuple[int, int], tuple[str, int]]:
         _fields_ = [("low", c.c_uint32), ("high", c.c_int32)]
 
     class Description(c.Structure):
-        _fields_ = [("name", c.c_wchar * 128), ("vendor", c.c_uint32),
-                    ("device", c.c_uint32), ("subsystem", c.c_uint32), ("revision", c.c_uint32),
-                    ("video", c.c_size_t), ("system", c.c_size_t), ("shared", c.c_size_t),
-                    ("luid", Luid), ("flags", c.c_uint32)]
+        _fields_ = [
+            ("name", c.c_wchar * 128),
+            ("vendor", c.c_uint32),
+            ("device", c.c_uint32),
+            ("subsystem", c.c_uint32),
+            ("revision", c.c_uint32),
+            ("video", c.c_size_t),
+            ("system", c.c_size_t),
+            ("shared", c.c_size_t),
+            ("luid", Luid),
+            ("flags", c.c_uint32),
+        ]
 
     def method(pointer, index, result, *arguments):
         table = c.cast(pointer, c.POINTER(c.POINTER(c.c_void_p))).contents
@@ -186,7 +195,7 @@ def _dxgi_adapters() -> dict[tuple[int, int], tuple[str, int]]:
         for index in range(64):
             adapter = c.c_void_p()
             code = method(factory, 12, c.c_int32, c.c_uint32, c.POINTER(c.c_void_p))(factory, index, c.byref(adapter))
-            if code & 0xffffffff == 0x887a0002:  # DXGI_ERROR_NOT_FOUND: enumeration complete
+            if code & 0xFFFFFFFF == 0x887A0002:  # DXGI_ERROR_NOT_FOUND: enumeration complete
                 break
             if code < 0:
                 raise OSError("EnumAdapters1 failed")
@@ -195,7 +204,7 @@ def _dxgi_adapters() -> dict[tuple[int, int], tuple[str, int]]:
                 if method(adapter, 10, c.c_int32, c.POINTER(Description))(adapter, c.byref(desc)) < 0:
                     raise OSError("GetDesc1 failed")
                 if not desc.flags & 2:  # software rendering is not a physical adapter
-                    adapters[(desc.luid.high & 0xffffffff, desc.luid.low)] = (desc.name, desc.video)
+                    adapters[(desc.luid.high & 0xFFFFFFFF, desc.luid.low)] = (desc.name, desc.video)
             finally:
                 method(adapter, 2, c.c_uint32)(adapter)
     except (OSError, AttributeError, c.ArgumentError) as exc:
@@ -241,11 +250,15 @@ def _counter_gpus(output: str, adapters: dict) -> list[dict[str, object]]:
     for index, luid in enumerate(sorted(engines.keys() | memory.keys()), 1):
         name, capacity = adapters.get(luid, (f"GPU {index}", 0))
         busy = max(engines[luid].values()) if luid in engines else None
-        result.append({"name": name or f"GPU {index}",
-                       "util_percent": round(min(100.0, busy), 1) if busy is not None else None,
-                       "util_kind": "3D",
-                       "mem_used_mb": round(memory[luid] / 1_048_576, 1) if luid in memory else None,
-                       "mem_total_mb": round(capacity / 1_048_576) if capacity else None})
+        result.append(
+            {
+                "name": name or f"GPU {index}",
+                "util_percent": round(min(100.0, busy), 1) if busy is not None else None,
+                "util_kind": "3D",
+                "mem_used_mb": round(memory[luid] / 1_048_576, 1) if luid in memory else None,
+                "mem_total_mb": round(capacity / 1_048_576) if capacity else None,
+            }
+        )
     if not result:
         _failure_once("gpu-counters", "no valid adapter samples")
     return result
@@ -259,8 +272,10 @@ def _gpu(*, runner=None, adapter_reader=None) -> list[dict[str, object]]:
     smi = shutil.which("nvidia-smi")
     if smi:
         try:
-            completed = runner([smi, "--query-gpu=name,utilization.gpu,memory.used,memory.total",
-                                "--format=csv,noheader,nounits"], **options)
+            completed = runner(
+                [smi, "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                **options,
+            )
             if completed.returncode:
                 _failure_once("gpu-nvidia", f"exit {completed.returncode}")
             else:
@@ -286,8 +301,9 @@ def _gpu(*, runner=None, adapter_reader=None) -> list[dict[str, object]]:
         _failure_once("gpu-counters", "PowerShell missing")
         return []
     try:
-        completed = runner([powershell, "-NoProfile", "-NonInteractive", "-Command", _GPU_COUNTER_SCRIPT],
-                           **options, encoding="utf-8")
+        completed = runner(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", _GPU_COUNTER_SCRIPT], **options, encoding="utf-8"
+        )
         if completed.returncode:
             _failure_once("gpu-counters", f"exit {completed.returncode}")
             return []
@@ -319,14 +335,19 @@ def battery_status() -> dict[str, object] | None:
         import ctypes
 
         class _PowerStatus(ctypes.Structure):
-            _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
-                        ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
-                        ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+            _fields_ = [
+                ("ACLineStatus", ctypes.c_ubyte),
+                ("BatteryFlag", ctypes.c_ubyte),
+                ("BatteryLifePercent", ctypes.c_ubyte),
+                ("SystemStatusFlag", ctypes.c_ubyte),
+                ("BatteryLifeTime", ctypes.c_ulong),
+                ("BatteryFullLifeTime", ctypes.c_ulong),
+            ]
 
         status = _PowerStatus()
         if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
             return None
-        if status.BatteryFlag == 128 or status.BatteryLifePercent == 255:   # no battery / unknown
+        if status.BatteryFlag == 128 or status.BatteryLifePercent == 255:  # no battery / unknown
             return None
         return {"percent": int(status.BatteryLifePercent), "plugged": status.ACLineStatus == 1}
     from pathlib import Path

@@ -21,9 +21,7 @@ def _default_transcript(video_id: str) -> str:
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
     except ImportError as exc:
-        raise MissingTranscriptError(
-            "YouTube transcripts need: pip install youtube-transcript-api"
-        ) from exc
+        raise MissingTranscriptError("YouTube transcripts need: pip install youtube-transcript-api") from exc
     langs = ["en", "en-US", "en-GB"]
     # v1.x replaced the classmethod get_transcript() with an instance .fetch() that
     # returns a FetchedTranscript; support both so it works across versions.
