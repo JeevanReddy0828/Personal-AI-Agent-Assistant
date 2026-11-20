@@ -4578,11 +4578,14 @@ class AgentOrchestrator:
     _TEAM_STEPS = 8
     _CHILD_STEPS = 4
 
-    def _agent_reference(self, delegate_to: tuple[str, ...] = ()) -> str:
-        lines = [f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command)]
+    def _agent_reference(self, delegate_to: tuple[str, ...] = (), helper: bool = False) -> str:
+        lines = [f"- {command}" for command in self._AGENT_COMMANDS
+                 if allowed_in_a_run(command) and (not helper or supervision.offered_to_helper(command))]
         if delegate_to:
             lines.append(f"- delegate <{'|'.join(delegate_to)}> <sub-task>   (hand a part that does not need you to a "
-                         "cheaper model, written out in full; its answer comes back as the OBSERVATION)")
+                         "cheaper model, written out in full; its answer comes back as the OBSERVATION. A helper "
+                         "can only look things up, work things out and answer, so make any change yourself; at "
+                         f"most {supervision.MAX_AGENTS} helpers in a run, so give one helper several items)")
         return "\n".join(lines)
 
     def _tier_planners(self) -> dict[str, Planner | None]:
@@ -4674,10 +4677,17 @@ class AgentOrchestrator:
                 execute=self._supervised(None, brain, Supervisor(tree, agent=agent, parent=parent, depth=child_depth,
                                                                  tier=tier),
                                          self._delegator(tree, goal, agent, child_depth, on_step)),
-                command_reference=self._agent_reference(self._delegate_to(tier, child_depth)),
+                command_reference=self._agent_reference(self._delegate_to(tier, child_depth), helper=True),
                 max_steps=self._CHILD_STEPS,
+                close_on_stop=False,
             )
-            result = await child.run(f"{task}\n(This is one part of a larger goal: {goal})", on_step=child_step)
+            result = await child.run(
+                f"{task}\n(This is one part of a larger goal: {goal}. Answer in FINAL from what you know; use a "
+                "command only to look up something you cannot know, such as a file, today's news or a figure to "
+                "compute. You cannot save, change, create or send anything. If the sub-task asks you to save, "
+                "change, create or send something, do not pretend it is done: answer FINAL: Not done - the "
+                "planner must do this itself: <what>. The planner combines your answer with the others.)",
+                on_step=child_step)
             stopped = tree.stopped
             self._record_message(**where, direction="result", text=result.final_answer[:300],
                                  status="stopped" if stopped is not None else result.status)
@@ -6267,6 +6277,9 @@ class AgentOrchestrator:
             return ToolResult.failure("Use: agent <id>")
         if agent_id == "run":   # "agent run" with its goal missing, not an agent named "run"
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
+        if agent_id == "team":
+            return ToolResult.failure("Use: agent team <goal>  (e.g. 'agent team compare the weather in Paris and "
+                                      "Tokyo')")
         detail = self.control_room.detail(agent_id)
         if detail is None:
             return ToolResult.failure(

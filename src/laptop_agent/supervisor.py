@@ -88,6 +88,14 @@ SAFE = (
 ALSO_READS = ("inspect page", "mcp")
 _GROUPS = (("direct", DIRECT), ("guarded", GUARDED), ("carded", CARDED), ("reads", READS), ("safe", SAFE),
            ("delegate", DELEGATE))
+# What a delegated agent may run besides READS and `delegate`: its answer goes back to the planner as
+# text, so it has nothing to make or change. Live, helpers wrote documents and saved notes instead,
+# and one spent all its steps on `scan files` of a folder it made up.
+HELPER_COMPUTES = ("file info", "weather", "translate", "distance", "trip", "convert", "total",
+                   "average", "count", "calendar")
+# Reads a helper may not run: they use the laptop's camera or screen, and the webcam asks nothing
+# (review of #320). The planner can still run them.
+HELPER_SENSORS = ("look at webcam", "read screen")
 MAX_REPEATS = 2
 MAX_REFUSALS = 2
 # The trip breaker, over the whole run tree. Read at each check, so a test can patch them. The rate
@@ -114,9 +122,34 @@ def group_of(command: str) -> tuple[str, str]:
     return best
 
 
+def _form_head(form: str) -> str:
+    """A reference form's fixed words, before its first `<placeholder>` or `[option]`."""
+    return form.split("<", 1)[0].split("[", 1)[0].strip()
+
+
 def allowed_in_a_run(form: str) -> bool:
     """Whether an agent command form may be offered to a run at all."""
-    return group_of(form.split("<", 1)[0].split("[", 1)[0])[0] != "direct"
+    return group_of(_form_head(form))[0] != "direct"
+
+
+def is_read(command: str) -> bool:
+    """Whether a command's result is outside text: READS, or a page or server answering (ALSO_READS)."""
+    lowered = " ".join((command or "").lower().split())
+    return group_of(lowered)[0] == "reads" or any(_matches(lowered, form) for form in ALSO_READS)
+
+
+def helper_may(command: str) -> bool:
+    """Whether a delegated agent may run a command: a read, a computation, or `delegate`."""
+    group, form = group_of(command)
+    if form in HELPER_SENSORS:
+        return False
+    return group in {"reads", "delegate"} or form in HELPER_COMPUTES
+
+
+def offered_to_helper(form: str) -> bool:
+    """Whether a reference form (`total|average|count <column> ...`) is offered to a delegated agent."""
+    head, _, rest = _form_head(form).partition(" ")
+    return any(helper_may(f"{alternative} {rest}") for alternative in head.split("|"))
 
 
 TIERS = ("fast", "smart", "ultra", "fallback")
@@ -225,6 +258,11 @@ class Supervisor:
                                          f"{tree.last_refusal}")
         self._seen[lowered] = self._seen.get(lowered, 0) + 1
         if self._seen[lowered] > MAX_REPEATS:
+            if self.depth > 0:
+                # A helper going in circles is told to answer, not counted toward the stop: live, a
+                # helper's repeat ended the team before its planner had done anything. Its step cap bounds it.
+                return Decision(Verdict.REFUSE, "repeat", "you already ran this step twice: answer in FINAL "
+                                                          "with what you have")
             return tree.stop("repeat", f"it tried the same step a third time: {command[:120]}")
         group, form = group_of(lowered)
         if group == "direct":
@@ -233,10 +271,18 @@ class Supervisor:
         if not trusted(tier) and group not in _UNTRUSTED_MAY:
             self.refused(f"the {tier or 'unnamed'} model chose it, and that model may read and compute but not act")
             return Decision(Verdict.REFUSE, "trust", tree.last_refusal)
+        if self.depth > 0 and not helper_may(lowered):
+            reason = "a helper only looks things up and works things out: answer in FINAL and the planner will act on it"
+            # Counted only when the tree has read outside text and the step is a real command: then it may be
+            # an injected attempt to act (review of #320). Prose written as an ACTION is not: live, a helper
+            # wrote "ACTION: I don't need a command" twice and that ended the whole run.
+            if tree.tainted_by and group != "unknown":
+                self.refused(reason)
+            return Decision(Verdict.REFUSE, "helper", reason)
         if group == "delegate":
             return self._delegate(lowered)
         tainted_before = tree.tainted_by
-        if group == "reads" or any(_matches(lowered, form) for form in ALSO_READS):
+        if is_read(lowered):
             tree.tainted_by = tree.tainted_by or form or lowered[:40]
         if tainted_before and group in {"guarded", "unknown"}:
             return Decision(Verdict.ASK, "taint", f"This run has read outside text ({tainted_before}), which can "
