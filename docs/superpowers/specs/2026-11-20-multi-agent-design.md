@@ -44,7 +44,8 @@ is `delegate`, which carries the tree's state.
   loop is the graph; per-agent steps stay plain functions.
 - No parallel children. Approval cards and desktop tools come one at a time; children run in turn.
 - No change to `agent run` (single agent, as today), to tool risk levels, or to the page
-  (`webui_assets/`). Child steps reach the existing live trace as ordinary steps.
+  (`webui_assets/`). Child steps go to the same `on_step` callback; starting a team run from the
+  page's live agent panel is a follow-up.
 - No model judging anything in the supervisor or the breaker.
 - Not touching the tier-choice work on `claude/laya-tier-pipeline`: the `_complexity` call in
   `_handle`, `TurnTrace` and the `tier_decider` health key.
