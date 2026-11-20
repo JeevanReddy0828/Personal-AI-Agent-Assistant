@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.server
 import io
 import json
 import threading
@@ -14,6 +15,7 @@ from laptop_agent.decisions import (
     COOLDOWN_SECONDS,
     DIFFICULTY_QUESTION,
     END,
+    MAX_LAYA_CHARS,
     TierDecider,
 )
 
@@ -221,11 +223,90 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(decider.decide("what about decoders", []).follow_up)
         self.assertFalse(decider.decide("what about the decoders and how they differ", HISTORY[:2]).follow_up)
 
+    def test_malformed_history_turns_are_skipped(self) -> None:
+        backend = FakeBackend(scored(1.0))
+        history: list[Any] = [
+            {"role": "user", "text": "explain how a transformer attends"},
+            "not a turn",
+            {"role": "user", "text": 5},
+            None,
+        ]
+        decision = TierDecider(heuristic, backend=backend, use_context=True).decide("and the decoder?", history)
+        self.assertEqual(decision.source, "laya")
+        self.assertTrue(decision.follow_up)
+        self.assertEqual(
+            backend.calls[0][0]["state"]["request"],
+            "explain how a transformer attends\nand the decoder?",
+        )
+
+    def test_a_long_previous_request_is_not_prepended(self) -> None:
+        backend = FakeBackend(scored(1.0))
+        history = [{"role": "user", "text": "tidy this: " + "word " * MAX_LAYA_CHARS}]
+        TierDecider(heuristic, backend=backend, use_context=True).decide("and the decoder?", history)
+        self.assertEqual(backend.calls[0][0]["state"]["request"], "and the decoder?")
+
     def test_long_reply_is_sent_alone_even_with_use_context(self) -> None:
         backend = FakeBackend(scored(1.0))
         text = "what about the decoders and how they differ"
         TierDecider(heuristic, backend=backend, use_context=True).decide(text, HISTORY)
         self.assertEqual(backend.calls[0][0]["state"]["request"], text)
+
+
+class LongRequestTests(unittest.TestCase):
+    def test_a_request_over_the_cap_goes_to_the_heuristic_without_cooling_down(self) -> None:
+        backend = FakeBackend(scored(1.0))
+        decider = TierDecider(heuristic, backend=backend)
+        decision = decider.decide("x" * (MAX_LAYA_CHARS + 1))
+        self.assertEqual((decision.level, decision.source), (1, "heuristic"))
+        self.assertEqual(backend.calls, [])
+        self.assertFalse(decider.status()["cooling_down"])
+        self.assertEqual(decider.decide("x" * MAX_LAYA_CHARS).source, "laya")
+
+
+class RedirectTests(unittest.TestCase):
+    def test_a_redirect_is_not_followed_and_the_key_stays_home(self) -> None:
+        seen: list[str | None] = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps(scored(1.8)).encode("utf-8"))
+
+            do_POST = do_GET
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        elsewhere = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Elsewhere)
+        target = f"http://127.0.0.1:{elsewhere.server_address[1]}/v1/systemone"
+
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.end_headers()
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        redirector = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Redirector)
+        servers = (elsewhere, redirector)
+        for server in servers:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{redirector.server_address[1]}"
+            decider = TierDecider(heuristic, url, api_key="secret-key", deadline_ms=2000)
+            with mock.patch.object(decisions, "record_failure") as record:
+                decision = decider.decide("explain monads")
+        finally:
+            for server in servers:
+                server.shutdown()
+                server.server_close()
+        self.assertEqual(seen, [])
+        self.assertEqual(decision.source, "heuristic")
+        record.assert_called_once()
 
 
 class HttpBackendTests(unittest.TestCase):
@@ -276,8 +357,14 @@ class MermaidTests(unittest.TestCase):
 class NeverRaisesTests(unittest.TestCase):
     def test_an_unexpected_step_error_falls_back_to_the_heuristic(self) -> None:
         backend = FakeBackend(scored(0.4))
+        decider = TierDecider(lambda text: 2, backend=backend)
+
+        def broken(state: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError("step bug")
+
+        decider._steps["context"] = broken
         with mock.patch("laptop_agent.decisions.record_failure") as record:
-            decision = TierDecider(lambda text: 2, backend=backend).decide("hello", [None])  # type: ignore[list-item]
+            decision = decider.decide("hello")
         self.assertEqual((decision.level, decision.source), (2, "heuristic"))
         self.assertEqual(backend.calls, [])
         record.assert_called_once()

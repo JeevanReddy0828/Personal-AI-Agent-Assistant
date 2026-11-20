@@ -158,6 +158,17 @@ class TierDeciderWiringTests(unittest.TestCase):
                     record.assert_called_once()
                     self.assertNotIn(url, repr(record.call_args))
 
+    def test_a_deadline_that_is_not_positive_falls_back_to_the_default(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = replace(self.config(Path(raw)), laya_url="http://127.0.0.1:8000")
+            for value in (0, -5):
+                with self.subTest(value=value):
+                    with patch("laptop_agent.app.record_failure") as record:
+                        decider = _build_tier_decider(replace(base, laya_deadline_ms=value))
+                    self.assertEqual(decider.deadline_ms, 250)
+                    record.assert_called_once()
+            self.assertEqual(_build_tier_decider(replace(base, laya_deadline_ms=400)).deadline_ms, 400)
+
 
 class LayaConfigTests(unittest.TestCase):
     def load(self, values: dict[str, str]):

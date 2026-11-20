@@ -97,7 +97,15 @@ answer whenever Laya is absent, slow or wrong. With `LAYA_URL` unset there is no
   `docs/laya-decision-model.md`).
 - **The deadline is 250 ms.** A call that fails, answers without a score or runs past the
   deadline is recorded in `failures` and starts a 60 s cooldown, during which the `laya` step
-  is skipped and the heuristic answers. One success clears it.
+  is skipped and the heuristic answers. One success clears it. A `LAYA_DEADLINE_MS` of zero
+  or less is recorded and replaced by 250.
+- **A request over 2,000 characters never reaches Laya.** Laya was measured on requests of
+  about 250 characters or fewer. A pasted document could miss the deadline and cool Laya down
+  for every turn after it, so the heuristic decides it instead, with no cooldown. For the same
+  reason, a previous request is prepended only while the two together stay within the cap.
+- **`LAYA_URL` must be a loopback http(s) address, and redirects are refused.** urllib would
+  copy the `Authorization` header onto a redirect, carrying `LAYA_API_KEY` past the loopback
+  check, so a 3xx counts as a failed call.
 - **The context step is computed but not used for the decision** unless `LAYA_TIER_CONTEXT`
   is on, which prepends the previous request to a follow-up before it is scored. That effect
   is not measured yet, so it stays off.

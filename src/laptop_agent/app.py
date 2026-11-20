@@ -8,7 +8,7 @@ from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
-from laptop_agent.decisions import TierDecider
+from laptop_agent.decisions import DEFAULT_DEADLINE_MS, TierDecider
 from laptop_agent.embeddings import Embedder
 from laptop_agent.failures import record_failure
 from laptop_agent.jobs import JobTracker
@@ -223,11 +223,19 @@ def _build_tier_decider(config: AppConfig) -> TierDecider | None:
             host=parsed.hostname,
         )
         return None
+    deadline_ms = config.laya_deadline_ms
+    if deadline_ms <= 0:
+        record_failure(
+            "decisions/config",
+            f"LAYA_DEADLINE_MS must be positive; using {DEFAULT_DEADLINE_MS}",
+            value=deadline_ms,
+        )
+        deadline_ms = DEFAULT_DEADLINE_MS
     return TierDecider(
         AgentOrchestrator._complexity,
         config.laya_url,
         api_key=config.laya_api_key,
-        deadline_ms=config.laya_deadline_ms,
+        deadline_ms=deadline_ms,
         use_context=config.laya_tier_context,
     )
 

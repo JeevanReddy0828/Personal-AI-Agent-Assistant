@@ -50,6 +50,9 @@ EXPLICIT_CUES = (
     "rigorous",
 )
 DEFAULT_DEADLINE_MS = 250
+# Laya was measured on requests up to about 250 characters; a longer one (a pasted document)
+# can miss the deadline and cool Laya down for everyone, so it goes to the heuristic.
+MAX_LAYA_CHARS = 2000
 COOLDOWN_SECONDS = 60.0
 END = "end"
 
@@ -58,9 +61,17 @@ DecisionBackend = Callable[[dict[str, Any], float], dict[str, Any]]
 
 State = dict[str, Any]
 
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # urllib copies the Authorization header onto a redirect, which would carry the key, and
+    # the request, past the loopback check; a 3xx is an HTTPError here instead.
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 # Laya runs on this machine, and the default opener's system-proxy lookup (on Windows a
 # registry read plus DNS work) is unbounded, so the proxy is bypassed entirely.
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 @dataclass
@@ -75,7 +86,9 @@ class TierDecision:
 def _after_cue(state: State) -> str:
     if "level" in state:
         return END
-    return "laya" if state["laya_ready"] else "heuristic"
+    if not state["laya_ready"] or len(state["text"]) > MAX_LAYA_CHARS:
+        return "heuristic"
+    return "laya"
 
 
 def _after_laya(state: State) -> str:
@@ -192,7 +205,10 @@ class TierDecider:
         text = state["text"]
         previous = None
         for turn in reversed(state["history"]):
-            said = (turn.get("text") or "").strip()
+            said = turn.get("text") if isinstance(turn, dict) else None
+            if not isinstance(said, str):
+                continue
+            said = said.strip()
             if turn.get("role") == "user" and said and said != text.strip():
                 previous = said
                 break
@@ -211,7 +227,9 @@ class TierDecider:
         assert self._backend is not None
         request = state["text"]
         if self.use_context and state["follow_up"]:
-            request = f"{state['previous_request']}\n{request}"
+            combined = f"{state['previous_request']}\n{request}"
+            if len(combined) <= MAX_LAYA_CHARS:
+                request = combined
         body = {
             "state": {"request": request},
             "questions": {"difficulty": DIFFICULTY_QUESTION},
