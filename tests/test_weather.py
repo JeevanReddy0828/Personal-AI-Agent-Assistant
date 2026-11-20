@@ -135,7 +135,7 @@ class PlaceCleaningTests(unittest.TestCase):
             with self.subTest(place):
                 self.assertTrue(WeatherTool(transport=transport).forecast(place).ok)
                 self.assertEqual(len(asked), len(expected))
-                for url, name in zip(asked, expected):
+                for url, name in zip(asked, expected, strict=True):
                     self.assertIn(f"name={name}", url)
 
 

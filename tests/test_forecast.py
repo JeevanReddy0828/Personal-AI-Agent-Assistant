@@ -232,7 +232,7 @@ class ForecastTests(unittest.TestCase):
         for factor in (1e-200, 1e80):
             result = f.forecast([v * factor for v in values], 3)
             self.assertEqual((result.method, result.season), (reference.method, reference.season))
-            for actual, expected in zip(result.points, reference.points):
+            for actual, expected in zip(result.points, reference.points, strict=True):
                 self.assertAlmostEqual(actual / factor, expected, places=8)
 
     def test_results_are_deterministic_immutable_and_json_safe(self):
@@ -261,7 +261,7 @@ class ForecastTests(unittest.TestCase):
                 self.assertLessEqual(result.mase, result.baseline_mase + 1e-12)
                 baseline = f._predict(values[:180], 6, f._Spec(result.baseline_method, result.season or 0))
                 for value, point, naive, low, high in zip(
-                    values[180:], result.points, baseline, result.lower, result.upper
+                    values[180:], result.points, baseline, result.lower, result.upper, strict=True
                 ):
                     counts[kind][0] += int(low <= value <= high)
                     counts[kind][1] += 1

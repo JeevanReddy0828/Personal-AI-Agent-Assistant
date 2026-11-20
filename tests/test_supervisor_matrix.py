@@ -268,7 +268,7 @@ class DisguiseTests(unittest.TestCase):
     which a tainted run is asked about, and a helper or the backup model is refused."""
 
     def test_case_and_spacing_do_not_change_a_verdict(self) -> None:
-        for form, group in GROUPS.items():
+        for form in GROUPS:
             plain = concrete(form)
             for disguise in (
                 plain.upper(),

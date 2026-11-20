@@ -1017,7 +1017,7 @@ class Routing:
         ran = [((result.data or {}).get("planner") or {}).get("planned_command") or part for part, result in results]
         data["parts"] = [
             {"request": part, "command": command, "ok": result.ok, "message": result.message}
-            for (part, result), command in zip(results, ran)
+            for (part, result), command in zip(results, ran, strict=True)
         ]
         data["planner"] = {"planned_command": " ;; ".join(ran), "source": "split"}
         return ToolResult(

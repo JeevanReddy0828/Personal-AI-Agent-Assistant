@@ -274,7 +274,7 @@ class KnowledgeBase:
             vectors = self.embedder.documents([str(d.get("text", "")) for d in batch])
             if not vectors:
                 continue
-            for doc, vector in zip(batch, vectors):
+            for doc, vector in zip(batch, vectors, strict=False):
                 doc["vector"] = vector
                 embedded += 1
         if embedded:
@@ -345,7 +345,7 @@ class KnowledgeBase:
         arithmetically makes the blend depend on whichever spread happens to be wider.
         """
         similar: list[tuple[float, dict[str, object]]] = []
-        for doc, text, counts in indexed:
+        for doc, _text, _counts in indexed:
             vector = doc.get("vector")
             if not vector:
                 continue

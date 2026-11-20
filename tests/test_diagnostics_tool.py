@@ -117,7 +117,11 @@ class RunDriversTests(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertEqual(self.table(result.message), ["Ad spend", "Discount", "Weather"])
         coefficients = dict(
-            zip(result.data["drivers"]["feature_names"], result.data["drivers"]["standardized_coefficients"])
+            zip(
+                result.data["drivers"]["feature_names"],
+                result.data["drivers"]["standardized_coefficients"],
+                strict=True,
+            )
         )
         self.assertGreater(coefficients["Ad spend"], 0.8)
         self.assertLess(coefficients["Discount"], 0)

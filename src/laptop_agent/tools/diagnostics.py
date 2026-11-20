@@ -61,7 +61,7 @@ def _clauses(rest: str, allowed: set[str]) -> dict[str, str] | None:
     if parts[0].strip():
         return None
     found: dict[str, str] = {}
-    for keyword, value in zip(parts[1::2], parts[2::2]):
+    for keyword, value in zip(parts[1::2], parts[2::2], strict=False):
         keyword = keyword.lower()
         if keyword not in allowed or keyword in found or not value.strip():
             return None

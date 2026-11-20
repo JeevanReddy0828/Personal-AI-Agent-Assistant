@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from laptop_agent.safety import ApprovalGate
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.websearch import (
     WebSearchError,
     WebSearchTool,
@@ -56,7 +56,7 @@ class WebSearchToolTests(unittest.TestCase):
     def test_denied_approval_blocks_search(self) -> None:
         called = []
         tool = WebSearchTool(deny(), search_backend=lambda q, n: called.append(q) or SAMPLE)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ApprovalDenied):
             tool.search("secret query")
         self.assertEqual(called, [])
 

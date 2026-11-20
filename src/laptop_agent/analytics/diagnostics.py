@@ -105,7 +105,7 @@ def _standardize(values):
 
 
 def _dot(a, b):
-    return math.fsum(x * y for x, y in zip(a, b))
+    return math.fsum(x * y for x, y in zip(a, b, strict=True))
 
 
 def _solve(r, rhs):
@@ -125,7 +125,7 @@ def _fit(columns, response):
             for k, axis in enumerate(q):
                 projection = _dot(axis, residual)
                 r[k][j] += projection
-                residual = [v - projection * u for v, u in zip(residual, axis)]
+                residual = [v - projection * u for v, u in zip(residual, axis, strict=True)]
         norm = math.sqrt(_dot(residual, residual))
         if norm <= 1e-10 * math.sqrt(n):
             raise ValueError("Training features are rank deficient or numerically inseparable")
@@ -219,7 +219,7 @@ def drivers(
         actual = target[train:]
         baseline = fmean(target[:train])
         unit = max(*(abs(v) for v in actual + predictions), abs(baseline)) or 1.0
-        errors = [a / unit - b / unit for a, b in zip(actual, predictions)]
+        errors = [a / unit - b / unit for a, b in zip(actual, predictions, strict=True)]
         mae = fmean(abs(e) for e in errors) * unit
         baseline_mae = fmean(abs(a / unit - baseline / unit) for a in actual) * unit
         center = baseline / unit

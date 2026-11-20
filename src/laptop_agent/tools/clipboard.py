@@ -83,7 +83,7 @@ class WindowsClipboard:
 
     def _open(self, owner=None) -> None:
         # A clipboard manager holds it for a few milliseconds at a time; one refusal is not "in use".
-        for attempt in range(10):
+        for _attempt in range(10):
             if self._user32.OpenClipboard(owner):
                 return
             time.sleep(0.03)

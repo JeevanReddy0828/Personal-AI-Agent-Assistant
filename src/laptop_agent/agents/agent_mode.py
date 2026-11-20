@@ -654,7 +654,7 @@ class AgentMode:
         ensure_signed_in()
         payload = []
         records = []
-        for index, (command, result) in enumerate(zip(commands, results)):
+        for index, (command, result) in enumerate(zip(commands, results, strict=True)):
             if isinstance(result, BaseException):
                 payload.append({"command": command, "ok": False, "message": str(result), "data": {}})
                 records.append(TaskRecord(index=index, command=command, status="failed", message=str(result)))
