@@ -1,6 +1,6 @@
 # Multi-agent mode: delegation as a supervised step
 
-Status: draft for Jeevan's approval, 2026-11-20. Branch `claude/multi-agent`, from `main` at 49112ea.
+Status: Approved by Jeevan 2026-11-20. Branch `claude/multi-agent`, from `main` at 49112ea. How it was built is in `orchestrator.md` ("A team run is one tree").
 
 ## Why
 

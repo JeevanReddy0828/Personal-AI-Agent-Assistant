@@ -32,6 +32,7 @@ not re-learn, add it to the file for that area (one paragraph, with the measurem
 | `architecture-map.md` | The long map: every tool and subsystem, with the decisions that shaped it. |
 | `routing.md` | Everyday requests: polite prefixes, the prose guard, follow-up answers, negation, the shell backstop, the open substitution limit. |
 | `orchestrator.md` | `handle()`, session context, the freshness path, the search backend, `AgentContext`, the two autonomy layers, agent replies. |
+| `multi-agent.md` | `agent team`: the design Jeevan approved on 2026-11-20 - delegation as a supervised step, the shared run tree, the trip breaker. |
 | `models.md` | Model tiers, reply length, `reasoning_budget`, busy versus broken tiers, persistence, the OpenRouter backup, what the chat tier is told. |
 | `web-server.md` | Routes and SSE, ports, the request-body rule, page caching, LAN mode, the Setup report. |
 | `accounts.md` | Accounts and sessions, the `personal` role, account management, Google identity. |
