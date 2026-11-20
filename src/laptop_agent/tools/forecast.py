@@ -201,7 +201,7 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
 
     date_at = _column(header, date_column, body, numeric=False)
     dated: list[tuple[date, float]] = []
-    for line, (row, value) in enumerate(zip(body, values), start=2):
+    for line, (row, value) in enumerate(zip(body, values, strict=True), start=2):
         cell = row[date_at] if date_at < len(row) else ""
         day = _date(cell)
         if day is None:
@@ -214,7 +214,7 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
         raise SeriesError("One dated row is not a series.")
     dated.sort(key=lambda pair: pair[0])
     days = [day for day, _value in dated]
-    gaps = [(later - earlier).days for earlier, later in zip(days, days[1:]) if later > earlier]
+    gaps = [(later - earlier).days for earlier, later in zip(days, days[1:], strict=False) if later > earlier]
     if not gaps:
         raise SeriesError(f"Every row has the same {header[date_at]}, so there is no series over time.")
     closest = min(gaps)
@@ -227,10 +227,10 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
 
     first = days[0]
     indices = [_index(day, period, first) for day in days]
-    for day, index in zip(days, indices):
+    for day, index in zip(days, indices, strict=True):
         if index is None:
             raise SeriesError(f"{day.isoformat()} falls between two {period}s, so the rows are not evenly spaced.")
-    for day, index, following in zip(days, indices, indices[1:]):
+    for day, index, following in zip(days, indices, indices[1:], strict=False):
         if following == index:
             raise SeriesError(
                 f"Two rows fall in the {period} of {_label(day, period)}. Total them or keep one "
@@ -238,7 +238,7 @@ def load_series(path: str | Path, column: str, date_column: str | None = None) -
             )
     missing = [
         _label(_step(first, period, index), period)
-        for before, after in zip(indices, indices[1:])
+        for before, after in zip(indices, indices[1:], strict=False)
         for index in range(before + 1, after)
     ]
     if missing:
@@ -332,7 +332,7 @@ def run_forecast(request: Request) -> ToolResult:
 
     labels = series.next_labels(request.horizon)
     # Both bounds at every step, or no band at all: the contract allows a null anywhere.
-    banded = all(low is not None and high is not None for low, high in zip(result.lower, result.upper))
+    banded = all(low is not None and high is not None for low, high in zip(result.lower, result.upper, strict=True))
     lines = [
         f"**{request.column}: the next {_many(request.horizon, noun)}** (from {name}, {_many(count, noun)} of history)",
         "",
@@ -346,7 +346,7 @@ def run_forecast(request: Request) -> ToolResult:
     ]
     lines += [
         f"| {label} | {_shown(point)} |" + (f" {_shown(low)} to {_shown(high)} |" if banded else "")
-        for label, point, low, high in zip(labels, result.points, result.lower, result.upper)
+        for label, point, low, high in zip(labels, result.points, result.lower, result.upper, strict=True)
     ]
     how = _HOW[result.method].format(season=result.season, unit=noun)
     baseline = _HOW[result.baseline_method].format(season=result.season, unit=noun)

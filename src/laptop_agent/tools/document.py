@@ -370,14 +370,14 @@ def _write_docx(md: str, out_path: Path) -> ToolResult:
                 index += 1
             table = document.add_table(rows=1, cols=len(head))
             table.style = "Table Grid"
-            for cell, text in zip(table.rows[0].cells, head):
+            for cell, text in zip(table.rows[0].cells, head, strict=True):
                 cell.text = text
                 for paragraph in cell.paragraphs:
                     for run in paragraph.runs:
                         run.bold = True
             for row in rows:
                 target = table.add_row().cells
-                for cell, text in zip(target, row):
+                for cell, text in zip(target, row, strict=False):
                     cell.text = text
             document.add_paragraph()
             continue

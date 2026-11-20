@@ -63,11 +63,16 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-# Correctness (syntax errors, undefined names, invalid comparisons, unused imports), sorted imports (I)
-# and modern syntax (UP). Layout is `ruff format`.
-select = ["E9", "F63", "F7", "F82", "F401", "I", "UP"]
+# Correctness (syntax errors, undefined names, invalid comparisons, unused imports), sorted imports (I),
+# modern syntax (UP) and likely bugs (B, flake8-bugbear). Layout is `ruff format`.
+select = ["E9", "F63", "F7", "F82", "F401", "I", "UP", "B"]
 # UP042 (str-based enum to StrEnum) changes what str() of a member returns: not a pure modernisation.
 ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# A test builds a fake inside a loop and calls it in that same iteration, which is when B023's late
+# binding cannot bite (each of the 16 was checked when B was adopted, 2026-11-20).
+"tests/**" = ["B023"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["laptop_agent"]

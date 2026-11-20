@@ -48,7 +48,7 @@ def read_rows(path: Path, max_rows: int) -> list[list[str]]:
     name and stop it from matching."""
     with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle, delimiter="\t" if Path(path).suffix.lower() == ".tsv" else ",")
-        return [row for _, row in zip(range(max_rows + 1), reader)]
+        return [row for _, row in zip(range(max_rows + 1), reader, strict=False)]
 
 
 # `read file` shows what it read: the tool's message used to name the file and nothing else.
@@ -827,7 +827,7 @@ class FileTool:
         try:
             with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
                 reader = csv.reader(handle, delimiter=delimiter)
-                rows = [row for _, row in zip(range(max_rows + 1), reader)]
+                rows = [row for _, row in zip(range(max_rows + 1), reader, strict=False)]
         except OSError:
             return []
         if not rows:

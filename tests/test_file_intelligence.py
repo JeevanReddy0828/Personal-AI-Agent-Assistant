@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.terms import sentences
 from laptop_agent.tools.files import FileTool
 
@@ -232,7 +232,7 @@ class ConvertTests(unittest.TestCase):
             src = Path(raw) / "in.txt"
             dst = Path(raw) / "out.txt"
             src.write_text("data", encoding="utf-8")
-            with self.assertRaises(Exception):
+            with self.assertRaises(ApprovalDenied):
                 deny_tool().convert(str(src), str(dst))
             self.assertFalse(dst.exists())
 
@@ -254,7 +254,7 @@ class ConvertTests(unittest.TestCase):
     def test_denied_write_text_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             dst = Path(raw) / "report.md"
-            with self.assertRaises(Exception):
+            with self.assertRaises(ApprovalDenied):
                 deny_tool().write_text(str(dst), "# Report\n", description="research report")
             self.assertFalse(dst.exists())
 

@@ -283,7 +283,7 @@ def rank_chunks(
                 document_frequency[term] += 1
     total = max(1, len(chunks))
     ranked: list[tuple[float, Chunk]] = []
-    for chunk, counts, length in zip(chunks, counts_per_chunk, lengths):
+    for chunk, counts, length in zip(chunks, counts_per_chunk, lengths, strict=True):
         score = 0.0
         for term in query_terms:
             frequency = counts.get(term, 0)

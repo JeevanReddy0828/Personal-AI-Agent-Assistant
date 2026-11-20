@@ -24,7 +24,7 @@ class DriversTests(unittest.TestCase):
         self.assertEqual((r.train_rows, r.test_rows), (80, 20))
         self.assertAlmostEqual(r.standardized_coefficients[0], 3 / math.sqrt(13))
         self.assertAlmostEqual(r.standardized_coefficients[1], -2 / math.sqrt(13))
-        for a, b in zip(r.predictions, y[80:]):
+        for a, b in zip(r.predictions, y[80:], strict=True):
             self.assertAlmostEqual(a, b)
         self.assertAlmostEqual(r.out_of_sample_r2, 1.0)
         self.assertLess(r.mae, 1e-12)
@@ -62,11 +62,11 @@ class DriversTests(unittest.TestCase):
         for factor in (1e-200, 1e80):
             r = drivers([[a * factor, b * factor] for a, b in x], [v * factor for v in y])
             self.assertTrue(r.enough_data, r.reason)
-            for a, b in zip(r.standardized_coefficients, base.standardized_coefficients):
+            for a, b in zip(r.standardized_coefficients, base.standardized_coefficients, strict=True):
                 self.assertAlmostEqual(a, b)
             self.assertAlmostEqual(r.out_of_sample_r2, base.out_of_sample_r2)
         shifted = drivers([[a + 1000, b - 500] for a, b in x], [v - 300 for v in y])
-        for a, b in zip(shifted.standardized_coefficients, base.standardized_coefficients):
+        for a, b in zip(shifted.standardized_coefficients, base.standardized_coefficients, strict=True):
             self.assertAlmostEqual(a, b)
 
     def test_small_sample_constant_feature_and_rank_deficiency_are_explicit(self):
@@ -196,7 +196,7 @@ class AnomalyTests(unittest.TestCase):
         for factor in (1e-200, 1e80):
             r = anomalies([v * factor for v in [-100, -2, -1, 0, 1, 2, 100]])
             self.assertEqual(r.indices, base.indices)
-            for a, b in zip(r.scores, base.scores):
+            for a, b in zip(r.scores, base.scores, strict=True):
                 self.assertAlmostEqual(a, b)
 
     def test_validation_and_overflow_have_json_safe_outcomes(self):

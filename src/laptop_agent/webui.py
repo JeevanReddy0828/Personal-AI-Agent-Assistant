@@ -1832,8 +1832,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                raise OperationCancelled("Client disconnected")
+            except (BrokenPipeError, ConnectionResetError, OSError) as exc:
+                raise OperationCancelled("Client disconnected") from exc
 
         # In voice mode, split the streamed reply into sentences and push each as a
         # `tts` event the moment it completes, so the browser starts speaking the
@@ -1956,8 +1956,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(("data: " + json.dumps(obj, default=str) + "\n\n").encode("utf-8"))
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                raise OperationCancelled("Client disconnected")
+            except (BrokenPipeError, ConnectionResetError, OSError) as exc:
+                raise OperationCancelled("Client disconnected") from exc
 
         emit({"type": "start", "goal": goal})
         history = payload.get("history") or []  # validated by _read_json

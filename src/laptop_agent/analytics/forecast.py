@@ -91,7 +91,7 @@ def detect_season(values: Sequence[float]) -> int | None:
         a, b = residual[:-lag], residual[lag:]
         am, bm = fmean(a), fmean(b)
         denominator = math.sqrt(sum((v - am) ** 2 for v in a)) * math.sqrt(sum((v - bm) ** 2 for v in b))
-        scores[lag] = sum((x - am) * (z - bm) for x, z in zip(a, b)) / denominator if denominator else 0
+        scores[lag] = sum((x - am) * (z - bm) for x, z in zip(a, b, strict=True)) / denominator if denominator else 0
     best = max(scores[lag] for lag in range(2, limit + 1))
     return next(
         (
@@ -172,7 +172,9 @@ def _errors(y: Sequence[float], spec: _Spec, origins: Sequence[int], horizon: in
 
 def _scores(errors: tuple[tuple[float, ...], ...], scales: Sequence[float]) -> tuple[float, float | None]:
     mae = fmean(abs(error) for row in errors for error in row)
-    ratios = [abs(error) / scale for row in errors for error, scale in zip(row, scales)] if all(scales) else []
+    ratios = (
+        [abs(error) / scale for row in errors for error, scale in zip(row, scales, strict=True)] if all(scales) else []
+    )
     try:
         mase = fmean(ratios) if ratios and all(math.isfinite(v) for v in ratios) else None
     except OverflowError:
@@ -280,8 +282,8 @@ def forecast(values: Sequence[float], horizon: int = 1, *, season: int | None = 
     interval_reason = f"Need {minimum} calibration origins for {level:.0%} bounds; have {len(calibration)}"
     if errors is not None and len(calibration) >= minimum:
         tail = (1 - level) / 2
-        lower = tuple(point + _quantile(row, tail) for point, row in zip(points, errors))
-        upper = tuple(point + _quantile(row, 1 - tail) for point, row in zip(points, errors))
+        lower = tuple(point + _quantile(row, tail) for point, row in zip(points, errors, strict=True))
+        upper = tuple(point + _quantile(row, 1 - tail) for point, row in zip(points, errors, strict=True))
         interval_reason = (
             "Empirical horizon-specific calibration errors; coverage is not guaranteed under distribution changes"
         )
