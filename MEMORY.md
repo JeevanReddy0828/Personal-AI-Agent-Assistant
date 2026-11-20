@@ -19,6 +19,17 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   builder starts from it, so a new field is added there and nowhere else.
 
 ## Decisions
+- 2026-11-20: **Multi-agent mode is `agent team <goal>`, and delegation is one supervised step**
+  (Jeevan chose this over a fixed plan fanned out by the orchestrator, and over LangGraph: 39
+  packages against the zero-dependency rule). The planner leads on the strongest tier configured;
+  `delegate <fast|smart> <sub-task>` runs a child agent strictly below the agent's *assigned* tier
+  (not the tier that happened to answer), whose answer is the step's observation. Every agent of
+  the run shares one `supervisor.RunTree`: taint, refusals and the stop, so delegation launders
+  nothing, and any stop anywhere ends the whole tree. The trip breaker is plain rules over the
+  tree: 15 steps a minute (below the total, so a burst stops sooner), 20 steps in all, depth 2, 4 agents started; a trip names its rule
+  (`breaker:rate|steps|depth|agents`). Hand-offs are `agent_message` audit events; verdicts carry
+  `run`, `parent`, `depth`. A child sees its sub-task and the planner's goal, not the conversation.
+  Children run one at a time; parallel children and a page view of the tree are not built.
 - 2026-11-19: **The chat tier choice is a fixed pipeline in plain Python shaped like LangGraph**
   (`decisions.py`: each step maps state to updates, an edge table names the next step), with
   Laya reached over loopback HTTP under a 250 ms deadline and a 60 s cooldown. Not LangGraph or

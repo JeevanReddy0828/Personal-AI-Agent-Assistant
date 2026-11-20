@@ -606,6 +606,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"Command timed out after 1s" arrived after 30 s** (audit, 11-11) → `subprocess.run`'s timeout
   kills the shell alone; its child keeps the pipes open → the whole tree is ended
   (`TerminalTool._end_tree`, `test_a_timeout_ends_what_the_shell_started`).
+- **An agent run could shed its own taint by starting another run** (design review, 11-20) →
+  `agent run`, `schedule agent` and `autopilot` were in no supervisor group, so a step could run
+  them, and `agent run` built a fresh `Supervisor()` with no taint, refusals or repeats → they are
+  `DIRECT`, and the one way an agent starts another is `delegate`, which shares the run's
+  `RunTree` (`test_a_run_cannot_start_another_run`, `test_a_child_cannot_escape_the_taint_of_its_planner`).
 - **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
   clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
   the gate, and the routes matched pronouns and verbs about the clipboard itself → not in
