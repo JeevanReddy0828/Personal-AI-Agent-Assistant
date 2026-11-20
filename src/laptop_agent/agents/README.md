@@ -26,7 +26,7 @@ in its "tool activity" panel.
  tools/* and the stores, all reached through AgentContext
 ```
 
-- **`AgentContext`** (a frozen dataclass in `orchestrator.py`) holds every tool and store.
+- **`AgentContext`** (a frozen dataclass in `common.py`) holds every tool and store.
   It is built in exactly one place, `app.build_context()`; add a new tool there and nowhere
   else.
 - Risky tools raise an approval request through `safety.ApprovalGate`; in the web app
@@ -59,7 +59,19 @@ the routing contract in `selfcheck.py` so `tests/test_everyday_requests.py` hold
 
 | File | What it does |
 |---|---|
-| `orchestrator.py` | `AgentContext` and `AgentOrchestrator`: direct dispatch, routing, the checks applied to every routed command, the chat tiers and their fallback, follow-up answers ("10 minutes" after "How long should the timer run?"), and the plain-language summaries of tool results. |
+| `orchestrator.py` | `AgentOrchestrator`: its set-up, `handle`/`_handle` (the path every message takes) and the `_DISPATCH` order. The class is assembled from the parts below, one per area, split out of this file unchanged on 2026-11-20; a part reads the rest through `self`. |
+| `common.py` | `AgentContext`, and the helpers and constants the parts share. |
+| `routing.py` | Understanding a request: the model router, the checks on every routed command, follow-ups ("10 minutes" after "How long should the timer run?"), prose, split requests. |
+| `chat_tiers.py` | The chat tiers and their fallback, how hard a question is, answers grounded in a live search. |
+| `dispatch_core.py` | Command tables for the app itself: memory, jobs, automation, files, knowledge, notes, vision, tasks, research, utilities. |
+| `dispatch_outside.py` | Command tables that reach outside: generation, translation, travel, the web, the desktop, email. |
+| `everyday.py` | Everyday answers: dates, lists, facts, calendar, status, and what a `personal` account may run. |
+| `reminders.py` | Reminders, timers, alarms and repeats. |
+| `briefing_jobs.py` | The daily briefing, the job tracker and job applications. |
+| `agent_mode.py` | Agent runs and teams under the supervisor, the shell, schedules, autopilot, workflows, the control room. |
+| `knowledge_actions.py` | Research, solving, the knowledge base, vision, memory, notes and email. |
+| `tool_access.py` | Tools built on first use. |
+| `presentation.py` | Help, capabilities, reports, and the plain-language summaries of tool results (`_humanize`). |
 | `control_room.py` | `AgentControlRoom`: maps commands to 14 specialist slots (planner, files, knowledge, research, browser, vision, email, music, notes, tasks, workflow, autopilot, reminders, terminal) and marks them working or done for the dashboard. |
 | `__init__.py` | Package marker. |
 
