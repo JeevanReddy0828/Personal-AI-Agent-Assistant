@@ -7,6 +7,7 @@ hosted engine, so what is said near the laptop leaves it only after "Hey Jarvis"
 voice path takes over. Only an opening "Jarvis" wakes - "I told Jarvis…" in conversation does not -
 and a clip Whisper itself rates as probably not speech is ignored rather than guessed at.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -15,7 +16,7 @@ import os
 import re
 import threading
 import wave
-from typing import Callable
+from collections.abc import Callable
 
 from laptop_agent.failures import record_failure
 
@@ -61,9 +62,10 @@ def whisper_recognizer() -> Recognize | None:
 
         audio = numpy.frombuffer(pcm_samples(wav), dtype="<i2").astype(numpy.float32) / 32768.0
         name = os.environ.get("LAPTOP_AGENT_WAKE_MODEL") or os.environ.get("LAPTOP_AGENT_WHISPER_MODEL", "base")
-        with lock:   # one clip at a time: the model is shared with the voice loop
-            result = _load_whisper_model(name).transcribe(audio, language="en", fp16=False,
-                                                          condition_on_previous_text=False)
+        with lock:  # one clip at a time: the model is shared with the voice loop
+            result = _load_whisper_model(name).transcribe(
+                audio, language="en", fp16=False, condition_on_previous_text=False
+            )
         segments = [segment for segment in result.get("segments") or [] if isinstance(segment, dict)]
         no_speech = min((float(segment.get("no_speech_prob", 0.0)) for segment in segments), default=1.0)
         return str(result.get("text") or ""), no_speech
@@ -81,15 +83,18 @@ class WakeDetector:
 
     def check(self, wav: bytes) -> dict[str, object]:
         if self._recognize is None:
-            return {"available": False, "wake": False,
-                    "message": "The wake word needs local speech recognition: pip install openai-whisper."}
+            return {
+                "available": False,
+                "wake": False,
+                "message": "The wake word needs local speech recognition: pip install openai-whisper.",
+            }
         if not wav or len(wav) > MAX_WAV_BYTES:
             return {"available": True, "wake": False, "message": "clip empty or too long"}
         try:
             text, no_speech = self._recognize(wav)
         except ValueError as exc:
             return {"available": True, "wake": False, "message": str(exc)}
-        except Exception as exc:   # a broken engine must not take the listener down
+        except Exception as exc:  # a broken engine must not take the listener down
             record_failure("wake/recognize", exc)
             return {"available": True, "wake": False, "message": "the wake check failed"}
         if no_speech > NO_SPEECH_ABOVE:

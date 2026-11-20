@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from laptop_agent.embeddings import DEFAULT_MODEL as DEFAULT_EMBED_MODEL
-from laptop_agent.tools.imagegen import BASE_URL as IMAGE_BASE_URL, DEFAULT_MODEL as DEFAULT_IMAGE_MODEL
+from laptop_agent.tools.imagegen import BASE_URL as IMAGE_BASE_URL
+from laptop_agent.tools.imagegen import DEFAULT_MODEL as DEFAULT_IMAGE_MODEL
 
 
 @dataclass(frozen=True)

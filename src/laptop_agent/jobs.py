@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, positive_int, read_json, synchronized
 
 # Pipeline stages, in funnel order. "lead" is a sourced-but-not-yet-applied state
 # (e.g. a Jobright pull) that sits before the funnel; "rejected" is a terminal
@@ -26,14 +26,33 @@ def _reached_rank(job: dict) -> int:
     reached = job.get("reached") or job.get("stage", "applied")
     return _PROGRESS.get(reached, _PROGRESS["applied"])
 
+
 _STAGE_ALIASES = {
-    "lead": "lead", "leads": "lead", "sourced": "lead", "discovered": "lead", "new": "lead",
-    "apply": "applied", "applied": "applied", "submitted": "applied",
-    "screen": "screen", "screening": "screen", "phone": "screen", "recruiter": "screen", "oa": "screen",
-    "interview": "interview", "onsite": "interview", "technical": "interview",
-    "final": "final", "finals": "final", "final round": "final",
-    "offer": "offer", "offered": "offer",
-    "reject": "rejected", "rejected": "rejected", "declined": "rejected", "closed": "rejected",
+    "lead": "lead",
+    "leads": "lead",
+    "sourced": "lead",
+    "discovered": "lead",
+    "new": "lead",
+    "apply": "applied",
+    "applied": "applied",
+    "submitted": "applied",
+    "screen": "screen",
+    "screening": "screen",
+    "phone": "screen",
+    "recruiter": "screen",
+    "oa": "screen",
+    "interview": "interview",
+    "onsite": "interview",
+    "technical": "interview",
+    "final": "final",
+    "finals": "final",
+    "final round": "final",
+    "offer": "offer",
+    "offered": "offer",
+    "reject": "rejected",
+    "rejected": "rejected",
+    "declined": "rejected",
+    "closed": "rejected",
 }
 
 
@@ -55,9 +74,19 @@ class JobTracker:
         self._load()
 
     @synchronized
-    def add(self, company: str, role: str = "", stage: str = "applied", recruiter: str = "",
-            next_date: str = "", notes: str = "", source: str = "manual",
-            url: str = "", external_id: str = "", description: str = "") -> dict:
+    def add(
+        self,
+        company: str,
+        role: str = "",
+        stage: str = "applied",
+        recruiter: str = "",
+        next_date: str = "",
+        notes: str = "",
+        source: str = "manual",
+        url: str = "",
+        external_id: str = "",
+        description: str = "",
+    ) -> dict:
         company = (company or "").strip()
         if not company:
             raise ValueError("A job needs a company name.")
@@ -149,7 +178,7 @@ class JobTracker:
                     job["applied_at"] = now
                 if new_stage != job.get("stage"):
                     # A job saved before events has none; its history starts here.
-                    job["events"] = (job.get("events") or [])[-(MAX_EVENTS - 1):] + [{"stage": new_stage, "at": now}]
+                    job["events"] = (job.get("events") or [])[-(MAX_EVENTS - 1) :] + [{"stage": new_stage, "at": now}]
                 job["stage"] = new_stage
                 if _PROGRESS.get(new_stage, -1) > _reached_rank(job):
                     job["reached"] = new_stage
@@ -194,8 +223,16 @@ class JobTracker:
         return dict(self._resume)
 
     @synchronized
-    def set_tailoring(self, job_id: int, *, package: str, used_llm: bool,
-                      grounding: dict | None = None, ats: dict | None = None, expected_resume: str | None = None) -> dict | None:
+    def set_tailoring(
+        self,
+        job_id: int,
+        *,
+        package: str,
+        used_llm: bool,
+        grounding: dict | None = None,
+        ats: dict | None = None,
+        expected_resume: str | None = None,
+    ) -> dict | None:
         """Persist a tailoring result (package + grounding + ATS) onto a tracked job."""
         job = self.get(job_id)
         if job is None:
@@ -316,4 +353,6 @@ class JobTracker:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_id': self._next_id, 'jobs': self._jobs, 'resume': self._resume}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_id": self._next_id, "jobs": self._jobs, "resume": self._resume}, indent=2)
+        )

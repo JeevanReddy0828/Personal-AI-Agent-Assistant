@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import threading
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import laptop_agent.webui as webui
-from laptop_agent.voice import clean_for_speech
 from laptop_agent.spoken import MORE_ON_SCREEN, SPOKEN_WORDS
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.voice import clean_for_speech
 
 
 class VoiceStreamTests(unittest.TestCase):
@@ -76,7 +76,9 @@ class VoiceStreamTests(unittest.TestCase):
         self.assertEqual([e["text"] for e in events if e.get("type") == "tts"], ["Done."])
 
     def test_long_nonstreamed_results_are_bounded_and_complete(self) -> None:
-        cases = json.loads((Path(__file__).parent / "data" / "nonstreamed_speech_cases.json").read_text(encoding="utf-8"))["cases"]
+        cases = json.loads(
+            (Path(__file__).parent / "data" / "nonstreamed_speech_cases.json").read_text(encoding="utf-8")
+        )["cases"]
         for case in cases:
             reply = case["reply"] * case.get("repeat", 1)
 
@@ -95,7 +97,7 @@ class VoiceStreamTests(unittest.TestCase):
                     continue
                 self.assertEqual(chunks[-1], MORE_ON_SCREEN)
                 said = " ".join(chunks[:-1]).split()
-                self.assertEqual(said, expected.split()[:len(said)])
+                self.assertEqual(said, expected.split()[: len(said)])
                 self.assertLess(len(said), len(expected.split()))
                 self.assertTrue(all(len(chunk) <= 360 for chunk in chunks))
 
@@ -109,12 +111,12 @@ class VoiceStreamTests(unittest.TestCase):
 
         webui._orchestrator.handle = fallback
         events = self._stream({"command": "report", "voice": True})
-        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
+        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1 :]
         chunks = [e["text"] for e in after_reset if e.get("type") == "tts"]
         self.assertGreater(len(chunks), 1)
         self.assertEqual(chunks[-1], MORE_ON_SCREEN)
         said = " ".join(chunks[:-1]).split()
-        self.assertEqual(said, clean_for_speech(reply).split()[:len(said)])
+        self.assertEqual(said, clean_for_speech(reply).split()[: len(said)])
         self.assertNotIn("Old draft", " ".join(chunks))
         self.assertNotIn("secret_code", " ".join(chunks))
 
@@ -140,9 +142,11 @@ class VoiceStreamTests(unittest.TestCase):
 
         webui._orchestrator.handle = replaced
         events = self._stream({"command": "move it", "voice": True})
-        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1:]
-        self.assertEqual([e["text"] for e in after_reset if e.get("type") == "tts"],
-                         ["The operation failed. Ask for approval before retrying."])
+        after_reset = events[next(i for i, event in enumerate(events) if event.get("type") == "reset") + 1 :]
+        self.assertEqual(
+            [e["text"] for e in after_reset if e.get("type") == "tts"],
+            ["The operation failed. Ask for approval before retrying."],
+        )
 
 
 if __name__ == "__main__":

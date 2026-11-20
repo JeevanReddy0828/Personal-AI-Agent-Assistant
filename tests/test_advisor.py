@@ -39,7 +39,10 @@ class ProblemSolverTests(unittest.TestCase):
 
     def test_conversation_context_precedes_the_problem(self) -> None:
         brain = _Brain()
-        ProblemSolver(decide=brain).solve("is option B safer for this?", conversation="User: pick a DB\nJ.A.R.V.I.S: Option A Postgres, Option B MySQL")
+        ProblemSolver(decide=brain).solve(
+            "is option B safer for this?",
+            conversation="User: pick a DB\nJ.A.R.V.I.S: Option A Postgres, Option B MySQL",
+        )
         prompt = brain.prompts[0]
         self.assertIn("Conversation so far in this session", prompt)
         self.assertLess(prompt.index("Option B MySQL"), prompt.index("PROBLEM: is option B safer"))

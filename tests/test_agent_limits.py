@@ -1,5 +1,6 @@
 """No running wild: the limits on what agents may do across a run, a day and the app, beyond the
 supervisor's step-by-step rules (test_supervisor.py). Each is a plain rule, with its own test."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,10 +12,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import test_orchestrator as base
+from test_supervisor import Clock, Script, step
+
 from laptop_agent import supervisor
 from laptop_agent.planner import Planner
 from laptop_agent.supervisor import AgentLedger, RunTree, Supervisor, Verdict
-from test_supervisor import Clock, Script, step
 
 
 class RunLimitTests(unittest.TestCase):
@@ -90,8 +92,12 @@ class RunLimitTests(unittest.TestCase):
         run = Supervisor(RunTree(unattended=True), tier="ultra")
         for command in ("read file a.txt", "weather Oslo", "convert 3 km to miles"):
             self.assertIs(run.check(command, "ultra").verdict, Verdict.ALLOW, command)
-        for command in ("open url https://example.com", "remember x = y", "download https://example.com/a",
-                        "frobnicate"):
+        for command in (
+            "open url https://example.com",
+            "remember x = y",
+            "download https://example.com/a",
+            "frobnicate",
+        ):
             refused = Supervisor(RunTree(unattended=True), tier="ultra").check(command, "ultra")
             self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "unattended"), command)
 
@@ -136,8 +142,10 @@ class LedgerTests(unittest.TestCase):
         self.assertFalse(self.ledger.charge_step())
 
     def test_a_run_stops_when_the_day_is_spent(self) -> None:
-        self.path.write_text(json.dumps({"date": self.day[0].isoformat(), "runs": 1,
-                                         "steps": supervisor.MAX_STEPS_PER_DAY}), encoding="utf-8")
+        self.path.write_text(
+            json.dumps({"date": self.day[0].isoformat(), "runs": 1, "steps": supervisor.MAX_STEPS_PER_DAY}),
+            encoding="utf-8",
+        )
         stopped = Supervisor(RunTree(ledger=self.ledger), tier="ultra").check("convert 1 km to miles", "ultra")
         self.assertEqual((stopped.verdict, stopped.rule), (Verdict.STOP, "breaker:daily"))
 
@@ -177,7 +185,11 @@ class AppLimitTests(unittest.TestCase):
         self.brain("FINAL: done", "FINAL: done again")
         off = asyncio.run(self.orchestrator.handle("agents off"))
         self.assertTrue(off.ok)
-        for result in (self.run_agent(), self.run_agent(team=True), asyncio.run(self.orchestrator.handle("agent run x"))):
+        for result in (
+            self.run_agent(),
+            self.run_agent(team=True),
+            asyncio.run(self.orchestrator.handle("agent run x")),
+        ):
             self.assertFalse(result.ok)
             self.assertIn("turned off", result.message)
         asyncio.run(self.orchestrator.handle("agents on"))
@@ -189,8 +201,9 @@ class AppLimitTests(unittest.TestCase):
             self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "direct"), command)
 
     def test_a_run_past_its_model_calls_stops_and_says_what_it_found(self) -> None:
-        self.brain(step("convert 1 km to miles"), step("convert 2 km to miles"), step("convert 3 km to miles"),
-                   "FINAL: never")
+        self.brain(
+            step("convert 1 km to miles"), step("convert 2 km to miles"), step("convert 3 km to miles"), "FINAL: never"
+        )
         with patch.object(supervisor, "MAX_MODEL_CALLS", 2):
             result = self.run_agent()
         self.assertEqual(result.data["agent"]["status"], "stopped")
@@ -200,8 +213,9 @@ class AppLimitTests(unittest.TestCase):
     def test_a_helpers_model_calls_count_toward_the_run(self) -> None:
         self.orchestrator.ultra_planner = Planner(Script(step("delegate fast count it"), "FINAL: planner done"))
         self.orchestrator.smart_planner = None
-        self.orchestrator.planner = Planner(Script(step("convert 1 km to miles"), step("convert 2 km to miles"),
-                                                   "FINAL: helper done"))
+        self.orchestrator.planner = Planner(
+            Script(step("convert 1 km to miles"), step("convert 2 km to miles"), "FINAL: helper done")
+        )
         with patch.object(supervisor, "MAX_MODEL_CALLS", 3):
             result = self.run_agent(team=True)
         self.assertEqual(result.data["agent"]["status"], "stopped")

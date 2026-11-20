@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
@@ -15,8 +17,6 @@ from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools import keys
 from laptop_agent.tools.keys import MAX_TYPED, KeysTool
 from laptop_agent.tools.windows import DesktopWindow
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 JARVIS = DesktopWindow(1, "J.A.R.V.I.S", "msedgewebview2.exe")
@@ -81,8 +81,13 @@ class KeysToolTests(unittest.TestCase):
         self.assertEqual(self.backend.focused, [])
 
     def test_losing_work_and_typing_ask_first_the_rest_run(self) -> None:
-        for action, risk in (("new tab", RiskLevel.MEDIUM), ("close window", RiskLevel.HIGH),
-                             ("enter", RiskLevel.HIGH), ("save", RiskLevel.HIGH), ("paste", RiskLevel.HIGH)):
+        for action, risk in (
+            ("new tab", RiskLevel.MEDIUM),
+            ("close window", RiskLevel.HIGH),
+            ("enter", RiskLevel.HIGH),
+            ("save", RiskLevel.HIGH),
+            ("paste", RiskLevel.HIGH),
+        ):
             self.cards.clear()
             self.tool.shortcut(action)
             self.assertIs(self.cards[0].risk, risk, action)
@@ -175,15 +180,29 @@ class KeysCommandTests(unittest.TestCase):
 
 class KeysRoutingTests(unittest.TestCase):
     ROUTED = {
-        "new tab": "keys new tab", "close this tab": "keys close tab", "go back": "keys back",
-        "refresh the page": "keys refresh", "scroll to the bottom": "keys bottom", "paste it": "keys paste",
-        "scroll down in edge": "keys scroll down in edge", "minimize this window": "keys minimize",
-        'type "hello world"': "keys type :: hello world", "type hello in notepad": "keys type notepad :: hello",
+        "new tab": "keys new tab",
+        "close this tab": "keys close tab",
+        "go back": "keys back",
+        "refresh the page": "keys refresh",
+        "scroll to the bottom": "keys bottom",
+        "paste it": "keys paste",
+        "scroll down in edge": "keys scroll down in edge",
+        "minimize this window": "keys minimize",
+        'type "hello world"': "keys type :: hello world",
+        "type hello in notepad": "keys type notepad :: hello",
         'type "hello" in notepad': "keys type notepad :: hello",
     }
-    STAY = ("type 2 diabetes symptoms", "type out a poem about cats", "type out the steps",
-            "go back to sleep", "I need to go back home", "save the planet",
-            "scroll down the list of options for me", "what does select all do", "zoom in on the map of paris")
+    STAY = (
+        "type 2 diabetes symptoms",
+        "type out a poem about cats",
+        "type out the steps",
+        "go back to sleep",
+        "I need to go back home",
+        "save the planet",
+        "scroll down the list of options for me",
+        "what does select all do",
+        "zoom in on the map of paris",
+    )
 
     def test_key_requests_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()

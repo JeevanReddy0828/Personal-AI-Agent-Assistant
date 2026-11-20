@@ -33,9 +33,22 @@ DIFFICULTY_QUESTION = {
     ],
 }
 THRESHOLDS = (1.55, 2.05)
-EXPLICIT_CUES = ("use the big model", "ultra model", "think hard", "think carefully", "in depth",
-                 "in-depth", "step by step", "step-by-step", "show your work", "show your reasoning",
-                 "deep dive", "thorough", "comprehensive", "rigorous")
+EXPLICIT_CUES = (
+    "use the big model",
+    "ultra model",
+    "think hard",
+    "think carefully",
+    "in depth",
+    "in-depth",
+    "step by step",
+    "step-by-step",
+    "show your work",
+    "show your reasoning",
+    "deep dive",
+    "thorough",
+    "comprehensive",
+    "rigorous",
+)
 DEFAULT_DEADLINE_MS = 250
 COOLDOWN_SECONDS = 60.0
 END = "end"

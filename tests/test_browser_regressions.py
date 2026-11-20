@@ -1,15 +1,16 @@
 """Opt-in isolated Chromium checks: JARVIS_BROWSER_TESTS=1 python tests/run_tests.py."""
+
 from __future__ import annotations
 
 import asyncio
 import io
 import os
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.webui as webui
@@ -25,7 +26,10 @@ class BrowserRegressions(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
-        cls.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 12, "ram_percent": 30, "gpus": []})
+
+        cls.metrics_patch = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 12, "ram_percent": 30, "gpus": []}
+        )
         cls.metrics_patch.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
         cls.server.daemon_threads = False
@@ -46,7 +50,9 @@ class BrowserRegressions(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context(viewport={"width": 1440, "height": 950}, reduced_motion="reduce")
-        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         self.page = self.context.new_page()
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -65,10 +71,24 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_gpu_unknown_usage_is_not_zero_and_fallback_is_labelled_3d(self):
-        self.page.route("**/api/metrics", lambda route: route.fulfill(json={
-            "cpu_percent": 12, "ram_percent": 30, "gpus": [
-                {"name": "GPU 2", "util_kind": "3D", "util_percent": None,
-                 "mem_used_mb": None, "mem_total_mb": 4096}]}))
+        self.page.route(
+            "**/api/metrics",
+            lambda route: route.fulfill(
+                json={
+                    "cpu_percent": 12,
+                    "ram_percent": 30,
+                    "gpus": [
+                        {
+                            "name": "GPU 2",
+                            "util_kind": "3D",
+                            "util_percent": None,
+                            "mem_used_mb": None,
+                            "mem_total_mb": 4096,
+                        }
+                    ],
+                }
+            ),
+        )
         self.page.locator("#railStatus").click()
         self.wait_js("document.getElementById('metrics').textContent.includes('GPU 2 (3D)')")
         rendered = self.page.locator("#metrics").inner_text()
@@ -76,24 +96,26 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(rendered.count("n/a"), 2)
 
     def test_overview_and_drawer_distinguish_named_and_unknown_adapters(self):
-        gpus=[{"name":"AMD Radeon Graphics","util_kind":"3D","util_percent":12},
-              {"name":"NVIDIA GeForce RTX 4060","util_kind":"3D","util_percent":37}]
-        self.page.route("**/api/metrics",lambda route:route.fulfill(json={"gpus":gpus}))
+        gpus = [
+            {"name": "AMD Radeon Graphics", "util_kind": "3D", "util_percent": 12},
+            {"name": "NVIDIA GeForce RTX 4060", "util_kind": "3D", "util_percent": 37},
+        ]
+        self.page.route("**/api/metrics", lambda route: route.fulfill(json={"gpus": gpus}))
         self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
-        for area in ("#ovMetrics","#metrics"):
-            labels=self.page.locator(area+" .top span").all_text_contents()
-            self.assertIn("AMD Radeon Graphics (3D)",labels)
-            self.assertIn("NVIDIA GeForce RTX 4060 (3D)",labels)
-        gpus[:]=[{"util_kind":"3D","util_percent":None},{"name":" ","util_kind":"3D","util_percent":0}]
+        for area in ("#ovMetrics", "#metrics"):
+            labels = self.page.locator(area + " .top span").all_text_contents()
+            self.assertIn("AMD Radeon Graphics (3D)", labels)
+            self.assertIn("NVIDIA GeForce RTX 4060 (3D)", labels)
+        gpus[:] = [{"util_kind": "3D", "util_percent": None}, {"name": " ", "util_kind": "3D", "util_percent": 0}]
         self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
-        for area in ("#ovMetrics","#metrics"):
-            labels=self.page.locator(area+" .top span").all_text_contents()
-            self.assertIn("GPU 1 (3D)",labels)
-            self.assertIn("GPU 2 (3D)",labels)
-        gpus[:]=[{"name":"<img src=x onerror=alert(1)>","util_percent":0}]
+        for area in ("#ovMetrics", "#metrics"):
+            labels = self.page.locator(area + " .top span").all_text_contents()
+            self.assertIn("GPU 1 (3D)", labels)
+            self.assertIn("GPU 2 (3D)", labels)
+        gpus[:] = [{"name": "<img src=x onerror=alert(1)>", "util_percent": 0}]
         self.page.evaluate("async()=>{await loadOverview();await loadMetrics();}")
-        self.assertEqual(self.page.locator("#ovMetrics img,#metrics img").count(),0)
-        self.assertIn("<img",self.page.locator("#ovMetrics").inner_text())
+        self.assertEqual(self.page.locator("#ovMetrics img,#metrics img").count(), 0)
+        self.assertIn("<img", self.page.locator("#ovMetrics").inner_text())
 
     def test_four_views_at_mobile_tablet_and_desktop_widths(self):
         for width in (390, 700, 1100, 1440):
@@ -118,20 +140,24 @@ class BrowserRegressions(unittest.TestCase):
         self.page.screenshot(path=str(artifacts / "mobile.png"))
 
     def test_markdown_and_attachment_names_cannot_create_event_attributes(self):
-        self.page.evaluate('''() => {
+        self.page.evaluate(
+            """() => {
             renderMsg('bot', '[click](https://example.com/" onmouseover="window.__xss=1)
                 <img src=x onerror=window.__xss=2>'.replace(/\\n\\s+/g,' '));
             renderMsg('user','attachment',['<img src=x onerror=window.__xss=3>']);
-        }'''.replace('1)\n                ', '1) '))
-        self.assertEqual(self.page.locator('.msg [onmouseover],.msg [onerror],.msg img').count(), 0)
+        }""".replace("1)\n                ", "1) ")
+        )
+        self.assertEqual(self.page.locator(".msg [onmouseover],.msg [onerror],.msg img").count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
 
     def test_reply_stays_with_original_session_when_chats_switch(self):
         started, release = threading.Event(), threading.Event()
+
         async def delayed(*args, **kwargs):
             started.set()
             release.wait(5)
             return ToolResult.success("Answer for the first chat")
+
         with patch.object(webui._orchestrator, "handle", delayed):
             self.page.evaluate("void send('First chat prompt')")
             self.page.expose_function("testStarted", started.is_set)
@@ -139,7 +165,9 @@ class BrowserRegressions(unittest.TestCase):
             first = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions)[0].id")
             self.page.evaluate("newSession()")
             release.set()
-            self.wait_js("JSON.parse(localStorage.jarvis_sessions).some(s=>s.msgs.some(m=>m.text==='Answer for the first chat'))")
+            self.wait_js(
+                "JSON.parse(localStorage.jarvis_sessions).some(s=>s.msgs.some(m=>m.text==='Answer for the first chat'))"
+            )
             sessions = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions)")
             self.assertEqual(sessions[0]["msgs"], [])
             original = next(s for s in sessions if s["id"] == first)
@@ -151,21 +179,26 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("void send('help')")
         # Chats are saved once the page knows whose they are, so the damaged value may still be
         # there for a moment after the send: unparsed yet is not a failure.
-        self.wait_js("(()=>{try{return JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2}catch(e){return false}})()")
+        self.wait_js(
+            "(()=>{try{return JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2}catch(e){return false}})()"
+        )
 
     def test_stop_reaches_backend_and_prevents_followup(self):
-        from laptop_agent.cancellation import check_cancelled, OperationCancelled
+        from laptop_agent.cancellation import OperationCancelled, check_cancelled
+
         entered, stopped = threading.Event(), threading.Event()
+
         async def work(*args, **kwargs):
             entered.set()
             try:
                 for _ in range(200):
                     check_cancelled()
-                    await asyncio.sleep(.02)
+                    await asyncio.sleep(0.02)
             except OperationCancelled:
                 stopped.set()
                 raise
             return ToolResult.success("should not finish")
+
         with patch.object(webui._orchestrator, "handle", work):
             self.page.evaluate("void send('long task')")
             self.page.expose_function("testEntered", entered.is_set)
@@ -192,14 +225,14 @@ class BrowserRegressions(unittest.TestCase):
     def test_profile_fields_round_trip_in_pipeline(self):
         self.page.evaluate("()=>{location.hash='#/pipeline';}")
         self.wait_js("document.body.dataset.view==='pipeline' && profileLoaded")
-        self.page.get_by_text('Resume contact and certifications', exact=True).click()
-        self.page.locator('#rsContact').fill('candidate@example.com · 555-123-4567')
-        self.page.locator('#rsCerts').fill('Source certification')
-        self.page.locator('#rsProfileSave').click()
+        self.page.get_by_text("Resume contact and certifications", exact=True).click()
+        self.page.locator("#rsContact").fill("candidate@example.com · 555-123-4567")
+        self.page.locator("#rsCerts").fill("Source certification")
+        self.page.locator("#rsProfileSave").click()
         self.wait_js("document.getElementById('pipeMsg').textContent.includes('profile saved')")
         self.page.reload()
         self.wait_js("profileLoaded")
-        self.assertEqual(self.page.locator('#rsContact').input_value(), 'candidate@example.com · 555-123-4567')
+        self.assertEqual(self.page.locator("#rsContact").input_value(), "candidate@example.com · 555-123-4567")
 
     def test_server_speech_is_preferred_when_the_server_has_an_engine(self):
         state = self.page.evaluate("""() => {
@@ -238,8 +271,8 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("""() => {
             renderMsg('bot', '| Planet | Moons |\\n|---|---|\\n| Earth | 1 |\\n| Mars, red | 2 |');
         }""")
-        self.assertEqual(self.page.locator('.msg .md table').count(), 1)
-        labels = self.page.locator('.msg .tableacts .oact').all_text_contents()
+        self.assertEqual(self.page.locator(".msg .md table").count(), 1)
+        labels = self.page.locator(".msg .tableacts .oact").all_text_contents()
         self.assertEqual(labels, ["Copy", "CSV"])
         # a field holding a comma must survive the round trip as one quoted cell
         csv = self.page.evaluate("toCSV(tableToRows(document.querySelector('.msg .md table')))")
@@ -250,19 +283,19 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("""() => {
             renderMsg('bot', '[REST vs GraphQL](/api/document?name=rest-vs-graphql-1.pdf) — PDF ready.');
         }""")
-        link = self.page.locator('.msg .md a.doclink')
+        link = self.page.locator(".msg .md a.doclink")
         self.assertEqual(link.count(), 1)
-        self.assertEqual(link.get_attribute('href'), '/api/document?name=rest-vs-graphql-1.pdf')
-        self.assertEqual(link.get_attribute('download'), 'rest-vs-graphql-1.pdf')
-        self.assertEqual(self.page.locator('.msg .md a.doclink .dockind').inner_text(), 'PDF')
+        self.assertEqual(link.get_attribute("href"), "/api/document?name=rest-vs-graphql-1.pdf")
+        self.assertEqual(link.get_attribute("download"), "rest-vs-graphql-1.pdf")
+        self.assertEqual(self.page.locator(".msg .md a.doclink .dockind").inner_text(), "PDF")
 
     def test_a_link_cannot_smuggle_a_javascript_url(self):
         self.page.evaluate("""() => {
             renderMsg('bot', '[click](javascript:alert(1)) and [x](/ok" onclick="window.__xss=1)');
         }""")
         hrefs = self.page.evaluate("[...document.querySelectorAll('.msg .md a')].map(a=>a.getAttribute('href'))")
-        self.assertTrue(all(h is None or h.startswith(('/', 'http')) for h in hrefs), hrefs)
-        self.assertEqual(self.page.locator('.msg .md [onclick]').count(), 0)
+        self.assertTrue(all(h is None or h.startswith(("/", "http")) for h in hrefs), hrefs)
+        self.assertEqual(self.page.locator(".msg .md [onclick]").count(), 0)
         self.assertIsNone(self.page.evaluate("window.__xss"))
 
     def test_another_site_is_never_rendered_as_one_of_our_own_links(self):
@@ -270,32 +303,56 @@ class BrowserRegressions(unittest.TestCase):
         self.page.evaluate("""() => {
             renderMsg('bot', '[your report](//evil.example/login) and ![x](//evil.example/p.png)');
         }""")
-        self.assertEqual(self.page.locator('.msg .md a').count(), 0)
-        self.assertEqual(self.page.locator('.msg .md img').count(), 0)
+        self.assertEqual(self.page.locator(".msg .md a").count(), 0)
+        self.assertEqual(self.page.locator(".msg .md img").count(), 0)
 
     def test_display_maths_becomes_a_real_fraction(self):
         # A division arrived as literal "\[ \frac{754}{86982} \approx 0.008668 \]".
-        block = "Gives:" + NEWLINE * 2 + BACKSLASH + "[" + NEWLINE + BACKSLASH + "frac{754}{86982} "             + BACKSLASH + "approx 0.008668" + NEWLINE + BACKSLASH + "]"
+        block = (
+            "Gives:"
+            + NEWLINE * 2
+            + BACKSLASH
+            + "["
+            + NEWLINE
+            + BACKSLASH
+            + "frac{754}{86982} "
+            + BACKSLASH
+            + "approx 0.008668"
+            + NEWLINE
+            + BACKSLASH
+            + "]"
+        )
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        md = self.page.locator('.msg .md')
-        self.assertEqual(md.locator('.mathblock .frac').count(), 1)
-        self.assertEqual(md.locator('.frac .num').inner_text(), "754")
-        self.assertEqual(md.locator('.frac .den').inner_text(), "86982")
+        md = self.page.locator(".msg .md")
+        self.assertEqual(md.locator(".mathblock .frac").count(), 1)
+        self.assertEqual(md.locator(".frac .num").inner_text(), "754")
+        self.assertEqual(md.locator(".frac .den").inner_text(), "86982")
         self.assertIn("≈ 0.008668", md.inner_text())
         self.assertNotIn(BACKSLASH, md.inner_text())
 
     def test_inline_maths_renders_within_a_sentence(self):
         block = "Exact value: " + BACKSLASH + "( " + BACKSLASH + "frac{377}{43491} " + BACKSLASH + ")"
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        md = self.page.locator('.msg .md')
-        self.assertEqual(md.locator('.math .frac').count(), 1)
+        md = self.page.locator(".msg .md")
+        self.assertEqual(md.locator(".math .frac").count(), 1)
         self.assertIn("Exact value:", md.inner_text())
         self.assertNotIn(BACKSLASH, md.inner_text())
 
     def test_maths_symbols_and_scripts_convert(self):
-        block = BACKSLASH + "( 3 " + BACKSLASH + "times 5 " + BACKSLASH + "le 20, x^{2}, "             + BACKSLASH + "sqrt{16} " + BACKSLASH + ")"
+        block = (
+            BACKSLASH
+            + "( 3 "
+            + BACKSLASH
+            + "times 5 "
+            + BACKSLASH
+            + "le 20, x^{2}, "
+            + BACKSLASH
+            + "sqrt{16} "
+            + BACKSLASH
+            + ")"
+        )
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        text = self.page.locator('.msg .md').inner_text()
+        text = self.page.locator(".msg .md").inner_text()
         for token in ("×", "≤", "x²", "√(16)"):
             self.assertIn(token, text)
 
@@ -303,31 +360,58 @@ class BrowserRegressions(unittest.TestCase):
         # Conversion is deliberately confined to delimiters: a path is not an equation.
         block = "Open " + BACKSLASH.join(["C:", "new", "table.txt"]) + " to check."
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        self.assertIn(BACKSLASH.join(["C:", "new", "table.txt"]), self.page.locator('.msg .md').inner_text())
+        self.assertIn(BACKSLASH.join(["C:", "new", "table.txt"]), self.page.locator(".msg .md").inner_text())
 
     def test_an_er_diagram_is_drawn_as_svg(self):
         block = (
-            "```mermaid" + NEWLINE + "erDiagram" + NEWLINE
-            + "    USERS {" + NEWLINE + "        int id PK" + NEWLINE + "        varchar name" + NEWLINE + "    }" + NEWLINE
-            + "    ORDERS {" + NEWLINE + "        int id PK" + NEWLINE + "        int user_id FK" + NEWLINE + "    }" + NEWLINE
-            + "    USERS ||--o{ ORDERS : places" + NEWLINE + "```"
+            "```mermaid"
+            + NEWLINE
+            + "erDiagram"
+            + NEWLINE
+            + "    USERS {"
+            + NEWLINE
+            + "        int id PK"
+            + NEWLINE
+            + "        varchar name"
+            + NEWLINE
+            + "    }"
+            + NEWLINE
+            + "    ORDERS {"
+            + NEWLINE
+            + "        int id PK"
+            + NEWLINE
+            + "        int user_id FK"
+            + NEWLINE
+            + "    }"
+            + NEWLINE
+            + "    USERS ||--o{ ORDERS : places"
+            + NEWLINE
+            + "```"
         )
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        self.assertEqual(self.page.locator('.msg .dgm svg').count(), 1)
-        text = self.page.locator('.msg .dgm').inner_text()
+        self.assertEqual(self.page.locator(".msg .dgm svg").count(), 1)
+        text = self.page.locator(".msg .dgm").inner_text()
         for token in ("USERS", "ORDERS", "id : int PK", "places"):
             self.assertIn(token, text)
         # the relationship is a real line, not just a label
-        self.assertGreaterEqual(self.page.locator('.msg .dgm svg > path').count(), 1)
+        self.assertGreaterEqual(self.page.locator(".msg .dgm svg > path").count(), 1)
 
     def test_a_flowchart_reads_from_its_entry_point(self):
         # A cycle used to invert the layering and put the entry state at the bottom.
         block = (
-            "```mermaid" + NEWLINE + "flowchart TD" + NEWLINE
-            + "    A[Slow Start] --> B[Congestion Avoidance]" + NEWLINE
-            + "    B -->|3 dup ACKs| C[Fast Retransmit]" + NEWLINE
-            + "    C --> B" + NEWLINE
-            + "    B -->|timeout| A" + NEWLINE + "```"
+            "```mermaid"
+            + NEWLINE
+            + "flowchart TD"
+            + NEWLINE
+            + "    A[Slow Start] --> B[Congestion Avoidance]"
+            + NEWLINE
+            + "    B -->|3 dup ACKs| C[Fast Retransmit]"
+            + NEWLINE
+            + "    C --> B"
+            + NEWLINE
+            + "    B -->|timeout| A"
+            + NEWLINE
+            + "```"
         )
         self.page.evaluate("md=>renderMsg('bot', md)", block)
         order = self.page.evaluate("""() => [...document.querySelectorAll('.msg .dgm text')]
@@ -339,15 +423,15 @@ class BrowserRegressions(unittest.TestCase):
     def test_an_unsupported_diagram_stays_a_readable_code_block(self):
         block = "```mermaid" + NEWLINE + "pie title Votes" + NEWLINE + '    "A" : 10' + NEWLINE + "```"
         self.page.evaluate("md=>renderMsg('bot', md)", block)
-        self.assertEqual(self.page.locator('.msg .dgm').count(), 0)
-        self.assertIn("pie title Votes", self.page.locator('.msg .md pre').inner_text())
+        self.assertEqual(self.page.locator(".msg .dgm").count(), 0)
+        self.assertIn("pie title Votes", self.page.locator(".msg .md pre").inner_text())
 
     def test_a_model_cannot_smuggle_a_base64_image(self):
         # One reply arrived carrying a fabricated data:image/png;base64 blob.
         self.page.evaluate("""() => {
             renderMsg('bot', '![fake](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)');
         }""")
-        self.assertEqual(self.page.locator('.msg .md img').count(), 0)
+        self.assertEqual(self.page.locator(".msg .md img").count(), 0)
 
     def test_a_broken_generated_image_leaves_no_phantom_save(self):
         # A model sometimes writes its own image link to a file that was never generated.
@@ -356,26 +440,30 @@ class BrowserRegressions(unittest.TestCase):
             renderMsg('bot', '![diagram](/api/image?name=does-not-exist-123.png)\\n\\nHere is a diagram.');
         }""")
         self.wait_js("document.querySelectorAll('.msg .md img').length===0")
-        self.assertEqual(self.page.locator('.msg .md .figure').count(), 0)
-        self.assertEqual(self.page.locator('.msg .md .oact').count(), 0)
-        self.assertIn("Here is a diagram.", self.page.locator('.msg .md').inner_text())
+        self.assertEqual(self.page.locator(".msg .md .figure").count(), 0)
+        self.assertEqual(self.page.locator(".msg .md .oact").count(), 0)
+        self.assertIn("Here is a diagram.", self.page.locator(".msg .md").inner_text())
 
     def test_a_picture_reply_gets_a_save_action(self):
         from laptop_agent.webui import _CONFIG
-        directory = (_CONFIG.data_dir / 'images').resolve()
+
+        directory = (_CONFIG.data_dir / "images").resolve()
         directory.mkdir(parents=True, exist_ok=True)
-        picture = directory / 'fox-1.png'
+        picture = directory / "fox-1.png"
         # a 1x1 PNG, so the image actually loads and keeps its Save control
-        picture.write_bytes(bytes.fromhex(
-            '89504e470d0a1a0a0000000d494844520000000100000001080600000'
-            '01f15c4890000000a49444154789c6360000002000100ffff0300000600'
-            '0557bfabd40000000049454e44ae426082'))
+        picture.write_bytes(
+            bytes.fromhex(
+                "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+                "01f15c4890000000a49444154789c6360000002000100ffff0300000600"
+                "0557bfabd40000000049454e44ae426082"
+            )
+        )
         self.addCleanup(picture.unlink, True)
         self.page.evaluate("""() => {
             renderMsg('bot', '![a fox](/api/image?name=fox-1.png)\\n\\nHere is a fox.');
         }""")
-        self.assertEqual(self.page.locator('.msg .md .figure img').count(), 1)
-        self.assertEqual(self.page.locator('.msg .md .figure .oact').inner_text(), "Save")
+        self.assertEqual(self.page.locator(".msg .md .figure img").count(), 1)
+        self.assertEqual(self.page.locator(".msg .md .figure .oact").inner_text(), "Save")
 
     def test_decorating_twice_does_not_stack_actions(self):
         self.page.evaluate("""() => {
@@ -383,7 +471,7 @@ class BrowserRegressions(unittest.TestCase):
             decorate(document.querySelector('.msg .md'));
             decorate(document.querySelector('.msg .md'));
         }""")
-        self.assertEqual(self.page.locator('.msg .tableacts').count(), 1)
+        self.assertEqual(self.page.locator(".msg .tableacts").count(), 1)
 
     def test_a_deleted_chat_leaves_storage_and_opens_another(self):
         self.page.evaluate("""() => {
@@ -391,7 +479,7 @@ class BrowserRegressions(unittest.TestCase):
                       {id:'b',title:'Second',msgs:[{role:'user',text:'two'}]}];
             current='b'; saveSessions(); renderSessions();
         }""")
-        self.page.locator('.sessrow', has_text="Second").locator('.sessdel').click()
+        self.page.locator(".sessrow", has_text="Second").locator(".sessdel").click()
         stored = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions).map(s=>s.id)")
         self.assertEqual(stored, ["a"])
         # deleting the open chat must leave a chat on screen, not a blank panel
@@ -399,7 +487,7 @@ class BrowserRegressions(unittest.TestCase):
 
     def test_an_incognito_chat_is_never_written_to_storage(self):
         self.page.evaluate("()=>{sessions=[];current=null;saveSessions();}")
-        self.page.locator('#newGhost').click()
+        self.page.locator("#newGhost").click()
         self.page.evaluate("""() => {
             const s=curSession(); s.title='Secret'; s.msgs.push({role:'user',text:'private'}); saveSessions();
         }""")
@@ -411,8 +499,8 @@ class BrowserRegressions(unittest.TestCase):
 
     def test_an_ordinary_chat_is_still_saved_alongside_an_incognito_one(self):
         self.page.evaluate("()=>{sessions=[];current=null;saveSessions();}")
-        self.page.locator('#newGhost').click()
-        self.page.locator('#newChat').click()
+        self.page.locator("#newGhost").click()
+        self.page.locator("#newChat").click()
         self.page.evaluate("()=>{curSession().title='Kept';saveSessions();}")
         stored = self.page.evaluate("JSON.parse(localStorage.jarvis_sessions).map(s=>s.title)")
         self.assertEqual(stored, ["Kept"])
@@ -420,24 +508,30 @@ class BrowserRegressions(unittest.TestCase):
 
     def test_mobile_chat_drawer_and_new_chat_suggestions(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
-        self.page.locator('#mobileChats').click()
-        self.assertTrue(self.page.locator('#newChat').is_visible())
-        self.page.locator('#newChat').click()
-        self.assertFalse(self.page.locator('#newChat').is_visible())
-        self.page.locator('.scard').first.click()
+        self.page.locator("#mobileChats").click()
+        self.assertTrue(self.page.locator("#newChat").is_visible())
+        self.page.locator("#newChat").click()
+        self.assertFalse(self.page.locator("#newChat").is_visible())
+        self.page.locator(".scard").first.click()
         self.wait_js("JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2")
 
     def test_pdf_is_one_page_and_overflow_preserves_previous_file(self):
-        from laptop_agent.copilot import render_resume_html
-        from laptop_agent.tools.resume_pdf import render_html_to_pdf
-        from pypdf import PdfReader
         # Run async PDF export in a separate thread from Playwright's sync loop.
         from concurrent.futures import ThreadPoolExecutor
+
+        from pypdf import PdfReader
+
+        from laptop_agent.copilot import render_resume_html
+        from laptop_agent.tools.resume_pdf import render_html_to_pdf
+
         with tempfile.TemporaryDirectory() as raw, ThreadPoolExecutor(max_workers=1) as pool:
             path = Path(raw) / "resume.pdf"
-            html = render_resume_html("Test Candidate", "test@example.com", "", {
-                "summary": "Python developer", "experiences": [{"company": "Acme", "bullets": ["Built Python APIs"]}]
-            })
+            html = render_resume_html(
+                "Test Candidate",
+                "test@example.com",
+                "",
+                {"summary": "Python developer", "experiences": [{"company": "Acme", "bullets": ["Built Python APIs"]}]},
+            )
             result = pool.submit(lambda: asyncio.run(render_html_to_pdf(html, path))).result()
             self.assertTrue(result.ok, result.message)
             previous = path.read_bytes()
@@ -640,7 +734,7 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_a_breakdown_draws_its_bars_with_names_as_text(self):
-        """"total revenue by region in sales.csv" answers with a bar per group, drawn from the
+        """ "total revenue by region in sales.csv" answers with a bar per group, drawn from the
         numbers the tool computed. A group's name comes from the user's file, so it is text in
         the chart, never markup, and a reopened chat draws the bars again."""
         outcome = self.page.evaluate(
@@ -742,7 +836,8 @@ class BrowserRegressions(unittest.TestCase):
         )
         self.assertEqual(outcome["beforeStop"], 1, "the first sentence should have been spoken")
         self.assertEqual(
-            outcome["after"], 1,
+            outcome["after"],
+            1,
             "speech continued after the stop: " + repr(outcome["spoken"]),
         )
 
@@ -824,7 +919,9 @@ class BrowserRegressions(unittest.TestCase):
         # A loud moment only pauses: the recipe used to end at "cilant" and "G men." was
         # answered as a question.
         self.assertTrue(outcome["pausedNotKilled"], "a loud moment killed the reply instead of pausing it")
-        self.assertTrue(outcome["resumedOnNoise"], "a garbled two-word transcript was answered: " + repr(outcome["sent"]))
+        self.assertTrue(
+            outcome["resumedOnNoise"], "a garbled two-word transcript was answered: " + repr(outcome["sent"])
+        )
         self.assertTrue(outcome["stopped"], "talking over the reply did not stop it: " + repr(outcome["sent"]))
 
     # A fake microphone for the server-STT voice paths, left on window.__rig. `feed` pushes
@@ -916,7 +1013,9 @@ class BrowserRegressions(unittest.TestCase):
         coughs = outcome["coughs"]
         self.assertFalse(outcome["offAfterCoughs"], "coughs switched voice interruption off: " + repr(coughs))
         for cough in coughs[:2]:
-            self.assertTrue(cough["paused"] and cough["resumed"], "a cough should pause the reply, then resume it: " + repr(coughs))
+            self.assertTrue(
+                cough["paused"] and cough["resumed"], "a cough should pause the reply, then resume it: " + repr(coughs)
+            )
         self.assertFalse(
             coughs[2]["heard"] or coughs[2]["paused"],
             "a third false pause in one reply: the rest of the reply should play through: " + repr(coughs),
@@ -977,7 +1076,8 @@ class BrowserRegressions(unittest.TestCase):
             }"""
         )
         self.assertNotIn(
-            "your reminder call the dentist about thursday", outcome["sent"],
+            "your reminder call the dentist about thursday",
+            outcome["sent"],
             "our own reminder, heard back, was answered as the user",
         )
         self.assertEqual(outcome["sent"], ["what time is it in london"], "the user's own question was not heard")
@@ -1097,12 +1197,26 @@ class BrowserRegressions(unittest.TestCase):
                 return out;
             }"""
         )
-        self.assertEqual(outcome["whilePlayingFirst"], ["ask First sentence.", "ask Second sentence.", "play First sentence."])
-        self.assertEqual(outcome["rightAfterFirst"][-2:], ["ask Third sentence.", "play Second sentence."],
-                         "the second sentence waited to be fetched: " + repr(outcome["rightAfterFirst"]))
-        self.assertEqual(outcome["log"], [
-            "ask First sentence.", "ask Second sentence.", "play First sentence.", "ask Third sentence.",
-            "play Second sentence.", "play Third sentence.", "listen"])
+        self.assertEqual(
+            outcome["whilePlayingFirst"], ["ask First sentence.", "ask Second sentence.", "play First sentence."]
+        )
+        self.assertEqual(
+            outcome["rightAfterFirst"][-2:],
+            ["ask Third sentence.", "play Second sentence."],
+            "the second sentence waited to be fetched: " + repr(outcome["rightAfterFirst"]),
+        )
+        self.assertEqual(
+            outcome["log"],
+            [
+                "ask First sentence.",
+                "ask Second sentence.",
+                "play First sentence.",
+                "ask Third sentence.",
+                "play Second sentence.",
+                "play Third sentence.",
+                "listen",
+            ],
+        )
 
     def test_the_voice_follows_the_server_engine(self):
         """Magpie is used in a tab; the offline pyttsx3 voice is not (the browser's are
@@ -1148,7 +1262,9 @@ class BrowserRegressions(unittest.TestCase):
                 return { failed, refused, speaking };
             }"""
         )
-        self.assertEqual(outcome["failed"], ["play First sentence.", "browser Second sentence.", "play Third sentence."])
+        self.assertEqual(
+            outcome["failed"], ["play First sentence.", "browser Second sentence.", "play Third sentence."]
+        )
         self.assertEqual(outcome["refused"], ["browser Autoplay is refused."])
 
     def test_a_stop_drops_hosted_audio_already_on_its_way(self):
@@ -1258,12 +1374,12 @@ class BrowserRegressions(unittest.TestCase):
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
                 wav.setframerate(22050)
-                wav.writeframes(b"\x00\x08" * 5512)     # a quarter second
+                wav.writeframes(b"\x00\x08" * 5512)  # a quarter second
             return out.getvalue()
 
         with patch.object(webui, "_TTS_BACKEND", backend):
             self._magpie_tab()
-            self.page.locator("#ta").click()            # a real gesture, as clicking Voice would be
+            self.page.locator("#ta").click()  # a real gesture, as clicking Voice would be
             outcome = self.page.evaluate(
                 """async () => {
                     const log = [];
@@ -1334,9 +1450,11 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["secondPending"], outcome)
         # About SPOKEN_WORDS are said aloud, then the pointer to the screen (spoken.py, #298).
         heard = (first, second, third, fourth, MORE_ON_SCREEN)
-        self.assertEqual([entry for entry in outcome["log"] if entry.startswith("ask ")],
-                         ["ask " + sentence for sentence in heard],
-                         "the final done message was synthesized again")
+        self.assertEqual(
+            [entry for entry in outcome["log"] if entry.startswith("ask ")],
+            ["ask " + sentence for sentence in heard],
+            "the final done message was synthesized again",
+        )
         self.assertIn("ask " + second, outcome["duringFirst"], "the next sentence was not prefetched")
         self.assertIn("browser " + second, outcome["log"], "a failed sentence lost its fallback")
         self.assertEqual(" ".join(outcome["spoken"]).split(), " ".join(heard).split())
@@ -1386,7 +1504,9 @@ class BrowserRegressions(unittest.TestCase):
         since June, so voice interruption switching itself off told nobody. They go to the
         reminder tray now, which is fixed to the window. Asserted as a real, uncovered box in
         every layout - not `hidden === false`, which is how the meter shipped invisible."""
-        self.page.evaluate("() => { voiceActive = true; bargeReset(); bargeAllowed(); bargeAllowed(); bargeAllowed(); voiceActive = false; }")
+        self.page.evaluate(
+            "() => { voiceActive = true; bargeReset(); bargeAllowed(); bargeAllowed(); bargeAllowed(); voiceActive = false; }"
+        )
         layouts = (
             ("1440", {"width": 1440, "height": 950}, ""),
             ("1440 compact", {"width": 1440, "height": 950}, "setCompact(true)"),
@@ -1413,8 +1533,9 @@ class BrowserRegressions(unittest.TestCase):
         self.page.click("#remtray [data-voice-notice] .apbtn")
         self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE), "Dismiss left the notice up")
         self.page.evaluate("() => { voiceNotice('stale'); bargeReset(); }")
-        self.assertIsNone(self.page.evaluate(self._VOICE_NOTICE),
-                          "restarting voice, or Space, left a notice that no longer holds")
+        self.assertIsNone(
+            self.page.evaluate(self._VOICE_NOTICE), "restarting voice, or Space, left a notice that no longer holds"
+        )
 
     def test_a_blocked_microphone_says_so(self):
         """The server-STT listening turn wrote "Microphone permission is needed" into the
@@ -1564,13 +1685,13 @@ class BrowserRegressions(unittest.TestCase):
         self.assertTrue(outcome["armed"], "barge-in never armed in server-STT mode")
         self.assertTrue(outcome["hiddenBefore"], "the meter is on screen when nothing is listening")
         self.assertTrue(outcome["shownWhileArmed"], "the meter stayed hidden while barge-in listened")
-        self.assertTrue(outcome["paintedWhileArmed"],
-                        "the meter reported itself shown but rendered nothing on screen")
+        self.assertTrue(outcome["paintedWhileArmed"], "the meter reported itself shown but rendered nothing on screen")
         self.assertFalse(outcome["paintedAfter"], "the meter was still drawn after the microphone went")
         self.assertTrue(outcome["hiddenAfter"], "the meter outlived the microphone")
         self.assertEqual(outcome["label"], "0.080", "the slider does not report the level it set")
         self.assertEqual(
-            outcome["threshold"], "0.080",
+            outcome["threshold"],
+            "0.080",
             "the meter shows a threshold the slider did not set: " + repr(outcome["threshold"]),
         )
         self.assertEqual(outcome["quiet"]["now"], "0.020", "the meter misreports a quiet room")
@@ -1633,14 +1754,14 @@ class BrowserRegressions(unittest.TestCase):
                 self.page.evaluate("on => setCompact(on)", arg=compact)
                 self.page.wait_for_timeout(120)
                 seen = self.page.evaluate(geometry)
-                self.assertEqual(seen["stage"], "none",
-                                 f"{label}: the presence panel is on screen, so this proves nothing")
+                self.assertEqual(
+                    seen["stage"], "none", f"{label}: the presence panel is on screen, so this proves nothing"
+                )
                 self.assertGreater(seen["height"], 0, f"{label}: the meter has no box on screen")
                 self.assertGreater(seen["width"], 0, f"{label}: the meter has no box on screen")
                 self.assertNotEqual(seen["visibility"], "hidden", f"{label}: the meter is invisible")
                 # Readable means not sitting on top of the composer, and not off the edge.
-                self.assertLessEqual(seen["bottom"], seen["boxTop"] + 1,
-                                     f"{label}: the meter covers the composer")
+                self.assertLessEqual(seen["bottom"], seen["boxTop"] + 1, f"{label}: the meter covers the composer")
                 self.assertGreaterEqual(seen["left"], 0, f"{label}: the meter runs off the left edge")
                 self.assertLessEqual(seen["right"], width, f"{label}: the meter runs off the right edge")
                 self.assertGreater(seen["top"], 0, f"{label}: the meter is above the top of the window")
@@ -1651,18 +1772,21 @@ class BrowserRegressions(unittest.TestCase):
             wide = self.page.evaluate(geometry)
             self.assertNotEqual(wide["stage"], "none", "the presence panel vanished at 1440px")
             self.assertGreater(wide["height"], 0, "the meter lost its box over the presence panel")
-            self.assertGreaterEqual(wide["left"], wide["stageRect"]["x"],
-                                    "the meter no longer sits over the presence panel")
-            self.assertLessEqual(wide["right"], wide["stageRect"]["x"] + wide["stageRect"]["width"],
-                                 "the meter spilled out of the presence panel and over the chat")
+            self.assertGreaterEqual(
+                wide["left"], wide["stageRect"]["x"], "the meter no longer sits over the presence panel"
+            )
+            self.assertLessEqual(
+                wide["right"],
+                wide["stageRect"]["x"] + wide["stageRect"]["width"],
+                "the meter spilled out of the presence panel and over the chat",
+            )
         finally:
             self.page.evaluate("try{bargeStop();}catch(e){} voiceActive=false; speaking=false;")
 
     def _motion_page(self):
         """A page that actually animates. The shared context is reduced_motion="reduce",
         where orb focus deliberately jumps straight to the end state."""
-        ctx = self.browser.new_context(viewport={"width": 1440, "height": 950},
-                                       reduced_motion="no-preference")
+        ctx = self.browser.new_context(viewport={"width": 1440, "height": 950}, reduced_motion="no-preference")
         ctx.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
         page = ctx.new_page()
         page.goto(self.url)
@@ -1737,7 +1861,8 @@ class BrowserRegressions(unittest.TestCase):
         self.assertEqual(outcome["chatHidden"], "0", "the chat is still visible in orb focus")
         self.assertEqual(outcome["railHidden"], "0", "the rail is still visible in orb focus")
         self.assertGreater(
-            outcome["focused"]["w"], outcome["docked"]["w"] * 1.6,
+            outcome["focused"]["w"],
+            outcome["docked"]["w"] * 1.6,
             "the orb barely grew: " + repr((outcome["docked"], outcome["focused"])),
         )
         # Three, not six: this counts rendered frames, so it scales with whatever frame
@@ -1746,17 +1871,22 @@ class BrowserRegressions(unittest.TestCase):
         # Cutting straight to the end gives 0, so 3 still separates the two decisively,
         # and the largest-jump assertion below is the real guard on smoothness.
         self.assertGreaterEqual(
-            outcome["tween"], 3,
+            outcome["tween"],
+            3,
             "the orb cut to its new size instead of easing there — only "
-            + str(outcome["tween"]) + " intermediate frames of " + str(outcome["frames"]),
+            + str(outcome["tween"])
+            + " intermediate frames of "
+            + str(outcome["frames"]),
         )
         self.assertLess(
-            outcome["biggestJump"], (outcome["focused"]["w"] - outcome["docked"]["w"]) * 0.5,
+            outcome["biggestJump"],
+            (outcome["focused"]["w"] - outcome["docked"]["w"]) * 0.5,
             "one frame moved most of the distance, so the growth is not smooth",
         )
         self.assertFalse(outcome["classAfter"], "orb focus did not come back off")
         self.assertLess(
-            abs(outcome["back"]["w"] - outcome["docked"]["w"]), outcome["docked"]["w"] * 0.15,
+            abs(outcome["back"]["w"] - outcome["docked"]["w"]),
+            outcome["docked"]["w"] * 0.15,
             "the orb did not return to its docked size: " + repr((outcome["docked"], outcome["back"])),
         )
 
@@ -1821,7 +1951,8 @@ class BrowserRegressions(unittest.TestCase):
         )
         self.assertTrue(outcome["focused"], "orb focus never engaged")
         self.assertEqual(
-            outcome["away"]["cls"], "",
+            outcome["away"]["cls"],
+            "",
             "orb focus survived a view switch that hides the orb: " + repr(outcome["away"]),
         )
         self.assertEqual(outcome["away"]["btn"], "none", "the orb button is offered on a view with no orb")
@@ -1893,18 +2024,20 @@ class BrowserRegressions(unittest.TestCase):
         # The chat has to move WITH the orb, not wait for it: by the time the overlay is
         # released it should be nearly back, not still invisible.
         self.assertGreater(
-            before["op"], 0.85,
+            before["op"],
+            0.85,
             "the chat was still hidden when the orb landed, so leaving takes twice as long "
             "as entering: " + repr(before),
         )
         # And the glow must already be its docked size, or releasing the overlay pops it.
         self.assertLess(
-            abs(before["glow"] - settled["glow"]), 20,
-            "the ambient glow jumped when the overlay was released: "
-            + repr((before["glow"], settled["glow"])),
+            abs(before["glow"] - settled["glow"]),
+            20,
+            "the ambient glow jumped when the overlay was released: " + repr((before["glow"], settled["glow"])),
         )
         self.assertGreater(
-            outcome["focusedGlow"], settled["glow"] * 1.5,
+            outcome["focusedGlow"],
+            settled["glow"] * 1.5,
             "the glow did not grow with the orb at all",
         )
 
@@ -1946,8 +2079,9 @@ class BrowserRegressions(unittest.TestCase):
             }"""
         )
         self.assertTrue(outcome["focused"], "orb focus never engaged")
-        self.assertFalse(outcome["pillReachable"],
-                         "the composer pill is reachable in orb focus — this test proves nothing")
+        self.assertFalse(
+            outcome["pillReachable"], "the composer pill is reachable in orb focus — this test proves nothing"
+        )
         self.assertTrue(outcome["orbBtnReachable"], "the orb-focus voice button cannot be clicked")
         self.assertTrue(outcome["voicing"], "clicking it did not start voice")
         self.assertEqual(outcome["offLabel"], "Start voice")
@@ -1965,37 +2099,54 @@ class RecordingBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
+
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.url = f"http://127.0.0.1:{cls.server.server_port}"
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch(headless=True, args=[
-            "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+        cls.browser = cls.playwright.chromium.launch(
+            headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
+        )
 
     @classmethod
     def tearDownClass(cls):
-        cls.browser.close(); cls.playwright.stop()
-        cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
+        cls.browser.close()
+        cls.playwright.stop()
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
 
     def setUp(self):
         from dataclasses import replace
+
         from laptop_agent.tools.transcribe import TranscribeTool
+
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.speech_calls = []
+
         def speech(path):
             self.speech_calls.append(Path(path))
             return {"text": "Remember to buy milk", "engine": "fixture", "segments": []}
+
         self.config_patch = patch.object(webui, "_CONFIG", replace(webui._CONFIG, data_dir=self.root))
-        self.speech_patch = patch.object(webui._orchestrator, "context", replace(
-            webui._orchestrator.context, transcribe=TranscribeTool(asr_backend=speech)))
-        self.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 0, "ram_percent": 0, "gpus": []})
+        self.speech_patch = patch.object(
+            webui._orchestrator,
+            "context",
+            replace(webui._orchestrator.context, transcribe=TranscribeTool(asr_backend=speech)),
+        )
+        self.metrics_patch = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 0, "ram_percent": 0, "gpus": []}
+        )
         for fixture in (self.config_patch, self.speech_patch, self.metrics_patch):
-            fixture.start(); self.addCleanup(fixture.stop)
+            fixture.start()
+            self.addCleanup(fixture.stop)
         self.context = self.browser.new_context(permissions=["microphone"], reduced_motion="reduce")
-        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         self.page = self.context.new_page()
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -2017,7 +2168,7 @@ class RecordingBrowserTests(unittest.TestCase):
 
     def saved(self):
         self.page.locator(".recording-card audio").wait_for(state="visible")
-        files = list((self.root/"recordings").glob("*.wav"))
+        files = list((self.root / "recordings").glob("*.wav"))
         self.assertEqual(len(files), 1)
         self.assertEqual(self.page.locator(".recorder-live").count(), 0)
         self.assertEqual(self.speech_calls, [])
@@ -2025,11 +2176,12 @@ class RecordingBrowserTests(unittest.TestCase):
 
     def test_timeout_saves_one_clip_then_explicit_transcription_joins_history(self):
         import wave
+
         self.start()
         target = self.saved()
-        with wave.open(str(target), 'rb') as audio:
-            self.assertGreater(audio.getnframes()/audio.getframerate(), .3)
-            self.assertLessEqual(audio.getnframes()/audio.getframerate(), 1)
+        with wave.open(str(target), "rb") as audio:
+            self.assertGreater(audio.getnframes() / audio.getframerate(), 0.3)
+            self.assertLessEqual(audio.getnframes() / audio.getframerate(), 1)
         self.page.get_by_role("button", name="Transcribe recording").click()
         self.wait_js("()=>chat.textContent.includes('Remember to buy milk')")
         self.assertEqual(len(self.speech_calls), 1)
@@ -2067,11 +2219,18 @@ class RecordingBrowserTests(unittest.TestCase):
         button = self.page.get_by_role("button", name="Transcribe recording")
         for outcome, expected in (
             (lambda route: route.abort(), "The server could not be reached."),
-            (lambda route: route.fulfill(status=200, content_type="application/json",
-                body='{"ok": false, "text": "", "message": "No readable text in this recording"}'),
-             "No readable text in this recording."),
-            (lambda route: route.fulfill(status=500, content_type="text/html", body="<h1>oops</h1>"),
-             "The server replied with an error (500)."),
+            (
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"ok": false, "text": "", "message": "No readable text in this recording"}',
+                ),
+                "No readable text in this recording.",
+            ),
+            (
+                lambda route: route.fulfill(status=500, content_type="text/html", body="<h1>oops</h1>"),
+                "The server replied with an error (500).",
+            ),
         ):
             self.page.route("**/api/recordings/transcribe", outcome)
             button.click()
@@ -2084,15 +2243,16 @@ class RecordingBrowserTests(unittest.TestCase):
 
     def test_manual_stop_saves_partial_clip_only_once(self):
         import wave
+
         self.start("record my voice for 20 seconds")
         self.page.wait_for_timeout(350)
         self.page.locator(".recorder-live button").click()
         target = self.saved()
         self.page.keyboard.press("Space")
-        with wave.open(str(target), 'rb') as audio:
+        with wave.open(str(target), "rb") as audio:
             self.assertGreater(audio.getnframes(), 0)
-            self.assertLess(audio.getnframes()/audio.getframerate(), 5)
-        self.assertEqual(len(list((self.root/"recordings").glob("*.wav"))), 1)
+            self.assertLess(audio.getnframes() / audio.getframerate(), 5)
+        self.assertEqual(len(list((self.root / "recordings").glob("*.wav"))), 1)
 
     def test_space_stop_survives_switching_chats_and_keeps_original_ownership(self):
         self.start("record 20")
@@ -2112,9 +2272,9 @@ class RecordingBrowserTests(unittest.TestCase):
         self.page.evaluate("Object.defineProperty(navigator,'mediaDevices',{value:undefined,configurable:true})")
         self.page.evaluate("void send('record 1')")
         self.wait_js("()=>chat.textContent.includes('secure connection')")
-        box = self.page.locator('.msg.bot .md').last.bounding_box()
-        self.assertGreater(box['height'], 10)
-        self.assertFalse((self.root/'recordings').exists())
+        box = self.page.locator(".msg.bot .md").last.bounding_box()
+        self.assertGreater(box["height"], 10)
+        self.assertFalse((self.root / "recordings").exists())
         self.assertIsNone(self.page.evaluate("activeRecording"))
 
     def test_cancel_while_permission_pending_stops_late_stream_without_saving(self):
@@ -2125,8 +2285,8 @@ class RecordingBrowserTests(unittest.TestCase):
             });
         }""")
         self.page.evaluate("void send('record 1')")
-        self.page.locator('.recorder-live button').click()
+        self.page.locator(".recorder-live button").click()
         self.page.evaluate("releaseRecordingMic()")
         self.wait_js("()=>window.lateStream.getTracks().every(t=>t.readyState==='ended')")
-        self.assertFalse((self.root/'recordings').exists())
-        self.assertIn('No audio was saved', self.page.locator('#chat').inner_text())
+        self.assertFalse((self.root / "recordings").exists())
+        self.assertIn("No audio was saved", self.page.locator("#chat").inner_text())

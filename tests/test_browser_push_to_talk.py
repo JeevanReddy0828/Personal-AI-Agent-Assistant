@@ -4,6 +4,7 @@ Speech recognition is a stub here, so nothing listens to a microphone: the check
 keys and the desktop hotkey's entry point turn voice on and off, and that Ctrl+Space never
 reaches the Space handler that interrupts a reply.
 """
+
 from __future__ import annotations
 
 import os
@@ -28,7 +29,9 @@ class PushToTalkInTheBrowser(unittest.TestCase):
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
 
-        cls.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []})
+        cls.metrics_patch = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}
+        )
         cls.metrics_patch.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
@@ -46,7 +49,9 @@ class PushToTalkInTheBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
-        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         self.context.add_init_script(STUB_SPEECH)
         self.page = self.context.new_page()
         self.errors: list[str] = []
@@ -77,7 +82,9 @@ class PushToTalkInTheBrowser(unittest.TestCase):
 
     def test_ctrl_space_never_reaches_the_space_handlers(self):
         # Bubbling listeners on the page, as the interrupt and recording handlers are, must not hear it.
-        self.page.evaluate("window.__heard = 0; document.addEventListener('keydown', e => { if (e.code === 'Space') window.__heard++; });")
+        self.page.evaluate(
+            "window.__heard = 0; document.addEventListener('keydown', e => { if (e.code === 'Space') window.__heard++; });"
+        )
         self.page.keyboard.press("Control+Space")
         self.assertTrue(self.voicing())
         self.assertEqual(self.page.evaluate("window.__heard"), 0)

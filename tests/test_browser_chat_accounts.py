@@ -4,6 +4,7 @@ Chats live in the browser's storage. One origin-wide key let a personal account 
 the same browser reopen the owner's chats (Codex's review of #138). They are now kept per
 account id, read only once the page knows who is signed in.
 """
+
 from __future__ import annotations
 
 import os
@@ -28,10 +29,13 @@ class ChatsStayWithTheirAccount(unittest.TestCase):
         from playwright.sync_api import sync_playwright
 
         cls._tmp = tempfile.TemporaryDirectory()
-        accounts = AccountStore(Path(cls._tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        accounts = AccountStore(Path(cls._tmp.name) / "accounts.json", cost=(2**10, 8, 1))
         sessions = SessionStore(Path(cls._tmp.name) / "sessions.json")
-        cls.patches = [patch.object(webui, "ACCOUNTS", accounts), patch.object(webui, "SESSIONS", sessions),
-                       patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []})]
+        cls.patches = [
+            patch.object(webui, "ACCOUNTS", accounts),
+            patch.object(webui, "SESSIONS", sessions),
+            patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}),
+        ]
         for patcher in cls.patches:
             patcher.start()
         cls.tokens = {}
@@ -58,7 +62,9 @@ class ChatsStayWithTheirAccount(unittest.TestCase):
         # One browser, shared by both accounts, as on a family laptop.
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
         self.addCleanup(self.context.close)
-        self.context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        self.context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         self.page = self.context.new_page()
 
     def as_(self, role: str):
@@ -68,7 +74,8 @@ class ChatsStayWithTheirAccount(unittest.TestCase):
         # Arrow functions only: the page's CSP refuses the eval a bare expression needs. Ready
         # means the page knows who is signed in and has chosen whose chats to load.
         self.page.wait_for_function(
-            f"() => chatKey !== null && document.getElementById('acctWho').textContent.endsWith('{name}')", timeout=6000)
+            f"() => chatKey !== null && document.getElementById('acctWho').textContent.endsWith('{name}')", timeout=6000
+        )
         self.page.wait_for_timeout(200)
 
     def rail(self) -> str:
@@ -88,13 +95,15 @@ class ChatsStayWithTheirAccount(unittest.TestCase):
         self.assertIn("Private owner chat", self.rail(), "the owner lost their own chat")
 
     def test_chats_from_before_sign_in_go_to_the_first_developer_only(self):
-        self.page.goto(self.url + "/api/me")   # an origin to write storage from, before the app runs
+        self.page.goto(self.url + "/api/me")  # an origin to write storage from, before the app runs
         self.page.evaluate("""() => localStorage.setItem('jarvis_sessions', JSON.stringify(
             [{id: 'legacy-1', title: 'Before sign-in', msgs: [{role: 'user', text: 'hello', at: 1}]}]))""")
         self.as_("personal")
         self.assertNotIn("Before sign-in", self.rail())
-        self.assertIsNotNone(self.page.evaluate("() => localStorage.getItem('jarvis_sessions')"),
-                             "a personal account must not take the owner's old chats either")
+        self.assertIsNotNone(
+            self.page.evaluate("() => localStorage.getItem('jarvis_sessions')"),
+            "a personal account must not take the owner's old chats either",
+        )
         self.as_("dev")
         self.assertIn("Before sign-in", self.rail())
         self.assertIsNone(self.page.evaluate("() => localStorage.getItem('jarvis_sessions')"))
@@ -104,7 +113,9 @@ class ChatsStayWithTheirAccount(unittest.TestCase):
         self.context.add_cookies([{"name": "jarvis_session", "value": self.tokens["personal"], "url": self.url}])
         with self.page.expect_navigation(timeout=6000):
             self.page.evaluate("() => window.dispatchEvent(new Event('focus'))")
-        self.page.wait_for_function("() => document.getElementById('acctWho').textContent.endsWith('family')", timeout=6000)
+        self.page.wait_for_function(
+            "() => document.getElementById('acctWho').textContent.endsWith('family')", timeout=6000
+        )
 
 
 if __name__ == "__main__":

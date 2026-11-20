@@ -8,7 +8,6 @@ from laptop_agent import nvcf
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
-
 # Sentence-ish boundary: terminal punctuation followed by whitespace, or a newline.
 # Used to carve a streamed token feed into speakable chunks so text-to-speech can
 # start on the first sentence instead of waiting for the whole reply.
@@ -50,7 +49,7 @@ def clean_for_speech(text: str) -> str:
     t = _BARE_URL.sub(" ", t)
     t = re.sub(r"(?m)^[ \t]*[-*•·][ \t]+", "", t)  # bullet markers on every line
     t = _ARROW.sub(" to ", t)
-    t = _SPEAK_STRIP.sub(" ", t)                  # inline markdown markers
+    t = _SPEAK_STRIP.sub(" ", t)  # inline markdown markers
     t = re.sub(r"={2,}|-{3,}|\.{4,}|~{2,}", " ", t)  # leftover decorative runs
     t = re.sub(r"\s+", " ", t)
     # dropping a construct can strand a space in front of punctuation
@@ -80,8 +79,10 @@ class SpeechChunker:
         out: list[str] = []
         while True:
             match = _BOUNDARY.search(self._buf)
-            if self.max_chars is not None and len(self._buf) > self.max_chars and (
-                match is None or match.end() > self.max_chars
+            if (
+                self.max_chars is not None
+                and len(self._buf) > self.max_chars
+                and (match is None or match.end() > self.max_chars)
             ):
                 # A punctuation-free tool result still needs bounded TTS requests.
                 end = self._buf.rfind(" ", 0, self.max_chars + 1)
@@ -201,8 +202,12 @@ def _magpie_wav(text: str) -> bytes:
         pending = None
         try:
             pending = riva.client.SpeechSynthesisService(auth).synthesize(
-                text, voice_name=voice, language_code=language, sample_rate_hz=_MAGPIE_RATE,
-                encoding=riva.client.AudioEncoding.LINEAR_PCM, future=True,
+                text,
+                voice_name=voice,
+                language_code=language,
+                sample_rate_hz=_MAGPIE_RATE,
+                encoding=riva.client.AudioEncoding.LINEAR_PCM,
+                future=True,
             )
             try:
                 return pending.result(timeout=_magpie_timeout(text)).audio

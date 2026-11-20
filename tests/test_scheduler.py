@@ -83,7 +83,7 @@ class DueLogicTests(unittest.TestCase):
 
     def test_a_day_rule_fires_only_on_its_days(self) -> None:
         weekdays = parse_schedule("weekdays at 07:00")
-        tuesday = datetime(2026, 6, 16, 7, 1, tzinfo=UTC)          # 16 June 2026 is a Tuesday
+        tuesday = datetime(2026, 6, 16, 7, 1, tzinfo=UTC)  # 16 June 2026 is a Tuesday
         saturday = datetime(2026, 6, 20, 7, 1, tzinfo=UTC)
         self.assertTrue(weekdays.is_due(tuesday, None))
         self.assertFalse(weekdays.is_due(saturday, None))

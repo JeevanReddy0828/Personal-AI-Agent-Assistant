@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
-
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 
 @dataclass(frozen=True)

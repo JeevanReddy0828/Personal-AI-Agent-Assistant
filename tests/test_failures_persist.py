@@ -49,8 +49,9 @@ class FailurePersistenceTests(unittest.TestCase):
             stored = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(len(stored), 1)
             # Wall clock is seconds since the epoch: a monotonic stamp is far smaller.
-            self.assertGreater(stored[0]["when"], 1_600_000_000,
-                               "`when` is not wall clock; a restart will invent an age")
+            self.assertGreater(
+                stored[0]["when"], 1_600_000_000, "`when` is not wall clock; a restart will invent an age"
+            )
             self.assertLess(abs(stored[0]["when"] - time.time()), 60)
 
             reloaded = FailureLog()
@@ -93,7 +94,7 @@ class FailurePersistenceTests(unittest.TestCase):
         the unhandled exception that a handled one was being recorded for."""
         with tempfile.TemporaryDirectory() as scratch:
             blocked = Path(scratch) / "failures.json"
-            blocked.mkdir()                     # a directory can be neither written nor replaced
+            blocked.mkdir()  # a directory can be neither written nor replaced
             log = FailureLog()
             log.attach(blocked)
             log.record("somewhere", ValueError("still recorded in memory"))
@@ -115,8 +116,7 @@ class FailurePersistenceTests(unittest.TestCase):
 
             reloaded = FailureLog(limit=5)
             reloaded.attach(path)
-            self.assertEqual(len(reloaded.recent(50)), 5,
-                             "the file grew past the ring it is meant to mirror")
+            self.assertEqual(len(reloaded.recent(50)), 5, "the file grew past the ring it is meant to mirror")
             self.assertEqual(reloaded.recent(1)[0]["where"], "where_11")
 
     def test_clear_empties_the_file_too(self) -> None:
@@ -129,17 +129,16 @@ class FailurePersistenceTests(unittest.TestCase):
 
             reloaded = FailureLog()
             reloaded.attach(path)
-            self.assertEqual(reloaded.recent(5), [],
-                             "clearing left the records on disk to come back")
+            self.assertEqual(reloaded.recent(5), [], "clearing left the records on disk to come back")
 
 
 class OrchestratorAttachesTheLogTests(unittest.TestCase):
     def test_the_orchestrator_points_the_log_at_its_own_data_dir(self) -> None:
         """Not `load_config()`: that reads the process-wide directory, which is how
         traces from a test run once landed in the live `.agent_data`."""
-        source = (Path(__file__).resolve().parents[1]
-                  / "src" / "laptop_agent" / "agents" / "orchestrator.py"
-                  ).read_text(encoding="utf-8")
+        source = (
+            Path(__file__).resolve().parents[1] / "src" / "laptop_agent" / "agents" / "orchestrator.py"
+        ).read_text(encoding="utf-8")
         self.assertIn('FAILURES.attach(self.data_dir / "failures.json")', source)
 
 

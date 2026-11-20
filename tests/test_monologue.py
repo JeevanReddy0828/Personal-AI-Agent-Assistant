@@ -54,25 +54,25 @@ class DetectionTests(unittest.TestCase):
         # Opening with "the user is" is only damning when the reply was cut off, or when
         # it promises an answer it never gives.
         self.assertFalse(
-            looks_like_thinking("The user is asking about CSV files, and the answer is: "
-                                "a CSV is comma-separated values.", False))
+            looks_like_thinking(
+                "The user is asking about CSV files, and the answer is: a CSV is comma-separated values.", False
+            )
+        )
 
 
 class StrippingTests(unittest.TestCase):
     def test_an_unclosed_think_tag_is_stripped(self) -> None:
         # A truncated reply leaves the tag open, and the pair regex needs the closing tag
         # to match at all — so the whole chain of thought used to be shown.
-        self.assertEqual(
-            OpenAICompatiblePlannerProvider._strip_reasoning("<think>notes that never close"), "")
+        self.assertEqual(OpenAICompatiblePlannerProvider._strip_reasoning("<think>notes that never close"), "")
 
     def test_a_closed_think_tag_still_works(self) -> None:
         self.assertEqual(
-            OpenAICompatiblePlannerProvider._strip_reasoning("<think>notes</think>The answer."),
-            "The answer.")
+            OpenAICompatiblePlannerProvider._strip_reasoning("<think>notes</think>The answer."), "The answer."
+        )
 
     def test_ordinary_text_is_untouched(self) -> None:
-        self.assertEqual(
-            OpenAICompatiblePlannerProvider._strip_reasoning("A plain answer."), "A plain answer.")
+        self.assertEqual(OpenAICompatiblePlannerProvider._strip_reasoning("A plain answer."), "A plain answer.")
 
 
 class TransportTests(unittest.TestCase):
@@ -97,8 +97,7 @@ class TransportTests(unittest.TestCase):
     def transport(self, content: str, finish: str = "stop") -> str:
         from laptop_agent.planner import openai_compatible as module
 
-        provider = OpenAICompatiblePlannerProvider(
-            "k", "m", base_url="https://example.invalid/v1")
+        provider = OpenAICompatiblePlannerProvider("k", "m", base_url="https://example.invalid/v1")
         original = module.urllib.request.urlopen
         module.urllib.request.urlopen = lambda *a, **k: self.respond(content, finish)
         try:
@@ -109,8 +108,7 @@ class TransportTests(unittest.TestCase):
     def test_a_truncated_monologue_returns_nothing(self) -> None:
         # Empty means "this tier gave nothing", which the orchestrator already handles by
         # degrading to the next one — far better than showing the user the model's notes.
-        self.assertEqual(
-            self.transport("Okay, the user is pointing out a contradiction", "length"), "")
+        self.assertEqual(self.transport("Okay, the user is pointing out a contradiction", "length"), "")
 
     def test_a_truncated_real_answer_is_still_returned(self) -> None:
         out = self.transport("A CSV file is a plain-text format for tabular", "length")

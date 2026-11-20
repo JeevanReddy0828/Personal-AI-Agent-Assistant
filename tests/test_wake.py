@@ -40,8 +40,13 @@ class HeardTests(unittest.TestCase):
         self.assertEqual(heard("Hey Jervis"), (True, ""))
 
     def test_jarvis_in_the_middle_of_talk_does_not(self) -> None:
-        for text in ("I told Jarvis about it yesterday.", "The weather is lovely today.", "", "Jarvisland is a place",
-                     "hey there jarvis"):
+        for text in (
+            "I told Jarvis about it yesterday.",
+            "The weather is lovely today.",
+            "",
+            "Jarvisland is a place",
+            "hey there jarvis",
+        ):
             with self.subTest(text):
                 self.assertFalse(heard(text)[0])
 
@@ -51,8 +56,10 @@ class DetectorTests(unittest.TestCase):
         return WakeDetector(lambda clip: (text, no_speech))
 
     def test_a_clip_saying_it_wakes(self) -> None:
-        self.assertEqual(self.detector(" Hey Jarvis, set a timer").check(wav()),
-                         {"available": True, "wake": True, "rest": "set a timer"})
+        self.assertEqual(
+            self.detector(" Hey Jarvis, set a timer").check(wav()),
+            {"available": True, "wake": True, "rest": "set a timer"},
+        )
 
     def test_what_whisper_thinks_is_not_speech_never_wakes(self) -> None:
         self.assertFalse(self.detector("Hey Jarvis", no_speech=0.9).check(wav())["wake"])
@@ -99,8 +106,11 @@ class WakeEndpointTests(unittest.TestCase):
         cls.server.server_close()
 
     def post(self, payload: dict) -> dict:
-        request = urllib.request.Request(self.base + "/api/wake", data=json.dumps(payload).encode(),
-                                         headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN})
+        request = urllib.request.Request(
+            self.base + "/api/wake",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
+        )
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
                 return json.loads(response.read())

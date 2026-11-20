@@ -40,8 +40,9 @@ class DeployFilesTests(unittest.TestCase):
     def test_the_server_answers_to_the_apps_own_name(self) -> None:
         allowed = self.fly["env"]["LAPTOP_AGENT_ALLOWED_HOSTS"]
         self.assertEqual(allowed, f"{self.fly['app']}.fly.dev")
-        import laptop_agent.webui as webui
         from unittest.mock import patch
+
+        import laptop_agent.webui as webui
 
         with patch.dict("os.environ", {"LAPTOP_AGENT_ALLOWED_HOSTS": allowed}):
             self.assertEqual(webui._allowed_hosts(), frozenset({allowed}), "not a plain hostname the server accepts")
@@ -94,7 +95,7 @@ class ComposeFilesTests(unittest.TestCase):
 
     def test_the_key_and_name_must_be_supplied_not_defaulted(self) -> None:
         env = _service("jarvis")
-        self.assertRegex(env, r"OPENAI_API_KEY: \$\{OPENAI_API_KEY:\?")     # required, and never a literal
+        self.assertRegex(env, r"OPENAI_API_KEY: \$\{OPENAI_API_KEY:\?")  # required, and never a literal
         self.assertNotIn("nvapi-", (ROOT / "compose.yaml").read_text(encoding="utf-8"))
 
     def test_the_proxy_header_the_app_trusts_is_the_one_caddy_sets(self) -> None:
@@ -109,13 +110,17 @@ class ComposeFilesTests(unittest.TestCase):
 
     def test_the_app_and_its_proxy_keep_their_state_across_restarts(self) -> None:
         self.assertIn("jarvis_data:/data", _service("jarvis"))
-        self.assertIn("caddy_data:/data", _service("caddy"))   # certificates: losing them re-requests, and rate limits bite
+        self.assertIn(
+            "caddy_data:/data", _service("caddy")
+        )  # certificates: losing them re-requests, and rate limits bite
         for service in ("jarvis", "caddy"):
             self.assertIn("restart: unless-stopped", _service(service))
 
     def test_fly_names_its_own_proxy_header(self) -> None:
-        self.assertEqual(tomllib.loads((ROOT / "fly.toml").read_text(encoding="utf-8"))["env"]
-                         ["LAPTOP_AGENT_CLIENT_IP_HEADER"], "Fly-Client-IP")
+        self.assertEqual(
+            tomllib.loads((ROOT / "fly.toml").read_text(encoding="utf-8"))["env"]["LAPTOP_AGENT_CLIENT_IP_HEADER"],
+            "Fly-Client-IP",
+        )
 
 
 if __name__ == "__main__":

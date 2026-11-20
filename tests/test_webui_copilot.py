@@ -29,17 +29,21 @@ class CopilotApiTests(unittest.TestCase):
 
     def _post(self, payload: dict) -> dict:
         req = urllib.request.Request(
-            self.base + "/api/copilot", data=json.dumps(payload).encode(),
+            self.base + "/api/copilot",
+            data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
         )
         return json.loads(urllib.request.urlopen(req, timeout=15).read())
 
     def test_tailor_returns_ats_and_missing(self) -> None:
-        data = self._post({
-            "resume_text": "- Built a Python FastAPI service with Redis.",
-            "job_text": "Need Python, FastAPI, and AWS experience.",
-            "company": "Acme", "role": "Backend",
-        })
+        data = self._post(
+            {
+                "resume_text": "- Built a Python FastAPI service with Redis.",
+                "job_text": "Need Python, FastAPI, and AWS experience.",
+                "company": "Acme",
+                "role": "Backend",
+            }
+        )
         self.assertTrue(data["ok"])
         self.assertIn("score", data["ats"])
         self.assertIn("aws", [m.lower() for m in data["missing"]])

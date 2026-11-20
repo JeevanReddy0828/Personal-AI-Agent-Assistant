@@ -18,12 +18,18 @@ from unittest.mock import patch
 
 import laptop_agent.accounts as accounts_module
 from laptop_agent.accounts import (
-    SCRYPT_COST, AccountError, AccountStore, HashingBusy, hash_password, main, verify_password,
+    SCRYPT_COST,
+    AccountError,
+    AccountStore,
+    HashingBusy,
+    hash_password,
+    main,
+    verify_password,
 )
-from laptop_agent.storage import StorageDamaged
 from laptop_agent.sessions import ABSOLUTE_SECONDS, IDLE_SECONDS, SessionStore
+from laptop_agent.storage import StorageDamaged
 
-CHEAP = (2 ** 10, 8, 1)
+CHEAP = (2**10, 8, 1)
 GOOD = "correct horse battery"
 
 
@@ -74,7 +80,7 @@ class PasswordHashTests(unittest.TestCase):
             accounts_module._hashing.acquire()
         try:
             with patch.object(accounts_module, "HASH_WAIT", 0.05):
-                with self.assertRaises(HashingBusy):   # never False: nothing was checked
+                with self.assertRaises(HashingBusy):  # never False: nothing was checked
                     verify_password(GOOD, stored)
         finally:
             for _ in range(accounts_module.HASH_SLOTS):
@@ -101,9 +107,15 @@ class AccountStoreTests(unittest.TestCase):
         self.assertEqual(self.store.find("JeEvAn").id, account.id)
 
     def test_rules_refuse_bad_input_with_a_readable_reason(self) -> None:
-        for username, role, password in (("", "dev", GOOD), ("has space", "dev", GOOD), ("x" * 33, "dev", GOOD),
-                                         ("-dash", "dev", GOOD), ("ok", "admin", GOOD), ("ok", "dev", "short"),
-                                         ("ok", "dev", "p" * 257)):
+        for username, role, password in (
+            ("", "dev", GOOD),
+            ("has space", "dev", GOOD),
+            ("x" * 33, "dev", GOOD),
+            ("-dash", "dev", GOOD),
+            ("ok", "admin", GOOD),
+            ("ok", "dev", "short"),
+            ("ok", "dev", "p" * 257),
+        ):
             with self.subTest(username=username, role=role, password=len(password)):
                 with self.assertRaises(AccountError):
                     self.store.create(username, role, password)
@@ -111,14 +123,16 @@ class AccountStoreTests(unittest.TestCase):
 
     def test_the_web_can_never_leave_the_app_without_a_developer(self) -> None:
         owner = self.store.create("jeevan", "dev", GOOD)
-        for change in (lambda: self.store.set_role(owner.id, "personal", keep_developer=True),
-                       lambda: self.store.set_disabled(owner.id, True, keep_developer=True),
-                       lambda: self.store.delete(owner.id, keep_developer=True)):
+        for change in (
+            lambda: self.store.set_role(owner.id, "personal", keep_developer=True),
+            lambda: self.store.set_disabled(owner.id, True, keep_developer=True),
+            lambda: self.store.delete(owner.id, keep_developer=True),
+        ):
             with self.assertRaises(AccountError):
                 change()
         self.assertEqual((self.store.get(owner.id).role, self.store.get(owner.id).disabled), ("dev", False))
         second = self.store.create("sam", "dev", GOOD)
-        self.store.set_role(second.id, "personal", keep_developer=True)   # one developer is still left
+        self.store.set_role(second.id, "personal", keep_developer=True)  # one developer is still left
         with self.assertRaises(AccountError):
             self.store.set_role(owner.id, "personal", keep_developer=True)
 

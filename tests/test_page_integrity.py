@@ -100,7 +100,8 @@ class ScriptIntegrityTests(unittest.TestCase):
         cleaned = strip_js(script_blocks()[0])
         for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
             self.assertEqual(
-                cleaned.count(opener), cleaned.count(closer),
+                cleaned.count(opener),
+                cleaned.count(closer),
                 f"unbalanced {opener}{closer} in the page script",
             )
 
@@ -110,8 +111,7 @@ class ScriptIntegrityTests(unittest.TestCase):
         self.assertIn('<script nonce="{{NONCE}}">', PAGE)
 
     def test_every_placeholder_the_server_fills_is_present(self) -> None:
-        for placeholder in ("{{NONCE}}", "{{API_TOKEN}}", "{{PLANNER}}", "{{SMART}}",
-                            "{{ULTRA}}", "{{VISION}}"):
+        for placeholder in ("{{NONCE}}", "{{API_TOKEN}}", "{{PLANNER}}", "{{SMART}}", "{{ULTRA}}", "{{VISION}}"):
             self.assertIn(placeholder, PAGE, placeholder)
 
     def test_no_placeholder_is_left_unknown(self) -> None:
@@ -156,8 +156,17 @@ class RequiredHooksTests(unittest.TestCase):
     one is renamed, this fails in the default run rather than only under Playwright."""
 
     REQUIRED_IDS = (
-        "ta", "newChat", "chat", "sysDrawer", "nav", "mobileChats",
-        "rsContact", "rsCerts", "rsProfileSave", "pipeMsg", "schedMsg",
+        "ta",
+        "newChat",
+        "chat",
+        "sysDrawer",
+        "nav",
+        "mobileChats",
+        "rsContact",
+        "rsCerts",
+        "rsProfileSave",
+        "pipeMsg",
+        "schedMsg",
     )
 
     def test_required_ids_exist(self) -> None:
@@ -200,11 +209,15 @@ class TierGuessTests(unittest.TestCase):
     def test_the_page_has_the_servers_cues(self) -> None:
         from laptop_agent.agents.orchestrator import AgentOrchestrator
 
-        for name, server in (("ULTRA_CUES", AgentOrchestrator._ULTRA_CUES),
-                             ("SMART_CUES", AgentOrchestrator._SMART_CUES)):
+        for name, server in (
+            ("ULTRA_CUES", AgentOrchestrator._ULTRA_CUES),
+            ("SMART_CUES", AgentOrchestrator._SMART_CUES),
+        ):
             page = self.page_cues(name)
-            drift = {"missing from the page": sorted(set(server) - set(page)),
-                     "only on the page": sorted(set(page) - set(server))}
+            drift = {
+                "missing from the page": sorted(set(server) - set(page)),
+                "only on the page": sorted(set(page) - set(server)),
+            }
             self.assertEqual(drift, {"missing from the page": [], "only on the page": []}, name)
 
     def test_the_guess_uses_the_cues_and_the_servers_word_limits(self) -> None:
@@ -268,14 +281,11 @@ class SourceIntegrityTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             bad = sorted({ord(c) for c in text if ord(c) < 32 and c not in "\n\r\t"})
             if bad:
-                line = next(
-                    (i for i, l in enumerate(text.splitlines(), 1)
-                     if any(chr(b) in l for b in bad)), 0)
+                line = next((i for i, l in enumerate(text.splitlines(), 1) if any(chr(b) in l for b in bad)), 0)
             if bad:
                 offenders.append(f"{path.name}:{line} contains {bad}")
         self.assertEqual(offenders, [], "control characters in source: " + "; ".join(offenders))
 
     def test_no_replacement_characters_in_any_source_file(self) -> None:
-        offenders = [p.name for p in self.source_files()
-                     if "\ufffd" in p.read_text(encoding="utf-8")]
+        offenders = [p.name for p in self.source_files() if "\ufffd" in p.read_text(encoding="utf-8")]
         self.assertEqual(offenders, [], f"lost encoding in: {offenders}")

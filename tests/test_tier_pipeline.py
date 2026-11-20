@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import test_orchestrator
+
 from laptop_agent import config as config_module
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.app import _build_tier_decider, build_orchestrator
@@ -129,13 +130,19 @@ class TierDeciderWiringTests(unittest.TestCase):
 
     def test_a_laya_url_builds_a_decider_from_the_settings(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            config = replace(self.config(Path(raw)), laya_url="http://127.0.0.1:8000", laya_api_key="secret",
-                             laya_deadline_ms=400, laya_tier_context=True)
+            config = replace(
+                self.config(Path(raw)),
+                laya_url="http://127.0.0.1:8000",
+                laya_api_key="secret",
+                laya_deadline_ms=400,
+                laya_tier_context=True,
+            )
             decider = _build_tier_decider(config)
             self.assertIsInstance(decider, TierDecider)
             self.assertEqual(decider._api_key, "secret")
-            self.assertEqual(decider.status(), {"laya": True, "cooling_down": False, "deadline_ms": 400,
-                                                "use_context": True})
+            self.assertEqual(
+                decider.status(), {"laya": True, "cooling_down": False, "deadline_ms": 400, "use_context": True}
+            )
             self.assertIsInstance(build_orchestrator(lambda request: True, config=config).tier_decider, TierDecider)
 
     def test_only_a_loopback_http_url_builds_a_decider(self) -> None:
@@ -168,8 +175,14 @@ class LayaConfigTests(unittest.TestCase):
         self.assertFalse(loaded.laya_tier_context)
 
     def test_reads_the_laya_settings(self) -> None:
-        loaded = self.load({"LAYA_URL": " http://127.0.0.1:8000 ", "LAYA_API_KEY": "k",
-                            "LAYA_DEADLINE_MS": "400", "LAYA_TIER_CONTEXT": "Yes"})
+        loaded = self.load(
+            {
+                "LAYA_URL": " http://127.0.0.1:8000 ",
+                "LAYA_API_KEY": "k",
+                "LAYA_DEADLINE_MS": "400",
+                "LAYA_TIER_CONTEXT": "Yes",
+            }
+        )
         self.assertEqual(loaded.laya_url, "http://127.0.0.1:8000")
         self.assertEqual(loaded.laya_api_key, "k")
         self.assertEqual(loaded.laya_deadline_ms, 400)

@@ -5,8 +5,9 @@ import json
 import threading
 import unittest
 from urllib.parse import parse_qs, urlsplit
+
 from laptop_agent.failures import FAILURES
-from laptop_agent.google_oidc import GoogleError, GoogleFlows, identity, TTL
+from laptop_agent.google_oidc import TTL, GoogleError, GoogleFlows, identity
 
 
 def google_failures():
@@ -14,8 +15,16 @@ def google_failures():
 
 
 def jwt(expected_nonce, **changes):
-    claims = dict(iss="https://accounts.google.com", aud="client", exp=2000, iat=900,
-                  nonce=expected_nonce, sub="subject-a", email="a@example.test", email_verified=True)
+    claims = dict(
+        iss="https://accounts.google.com",
+        aud="client",
+        exp=2000,
+        iat=900,
+        nonce=expected_nonce,
+        sub="subject-a",
+        email="a@example.test",
+        email_verified=True,
+    )
     claims.update(changes)
     body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
     return "header." + body + ".signature"
@@ -25,15 +34,18 @@ class GoogleFlowsTests(unittest.TestCase):
     def setUp(self):
         self.now = 1000
         self.calls = []
-        self.flows = GoogleFlows("client", "secret", transport=self.exchange,
-                                 clock=lambda: self.now, wall=lambda: self.now)
+        self.flows = GoogleFlows(
+            "client", "secret", transport=self.exchange, clock=lambda: self.now, wall=lambda: self.now
+        )
 
     def exchange(self, fields):
         self.calls.append(fields)
         return {"id_token": jwt(self.query["nonce"][0]), "refresh_token": "must-not-be-stored"}
 
     def launched(self, account=None, purpose="signin"):
-        self.flow, self.proof = self.flows.start("http://127.0.0.1:8770/auth/google/callback", "session", account, purpose)
+        self.flow, self.proof = self.flows.start(
+            "http://127.0.0.1:8770/auth/google/callback", "session", account, purpose
+        )
         ticket = self.flow.launch
         url, self.binding = self.flows.launch(ticket)
         self.query = parse_qs(urlsplit(url).query)
@@ -43,8 +55,9 @@ class GoogleFlowsTests(unittest.TestCase):
         self.flows.callback(self.query["state"][0], self.binding, "code")
 
     def complete(self, **kwargs):
-        return self.flows.complete(self.flow.id, kwargs.get("proof", self.proof),
-                                   kwargs.get("session", "session"), kwargs.get("account"))
+        return self.flows.complete(
+            self.flow.id, kwargs.get("proof", self.proof), kwargs.get("session", "session"), kwargs.get("account")
+        )
 
     def test_pkce_nonce_scopes_and_one_time_completion(self):
         ticket = self.launched()
@@ -55,7 +68,11 @@ class GoogleFlowsTests(unittest.TestCase):
         with self.assertRaises(GoogleError):
             self.flows.launch(ticket)
         self.callback()
-        expected = base64.urlsafe_b64encode(__import__('hashlib').sha256(self.calls[0]["code_verifier"].encode()).digest()).decode().rstrip("=")
+        expected = (
+            base64.urlsafe_b64encode(__import__("hashlib").sha256(self.calls[0]["code_verifier"].encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
         self.assertEqual(self.query["code_challenge"], [expected])
         result = self.complete()
         self.assertEqual(result.result.sub, "subject-a")
@@ -87,11 +104,13 @@ class GoogleFlowsTests(unittest.TestCase):
     def test_callback_race_claims_state_before_exchange(self):
         self.launched()
         entered, release = threading.Event(), threading.Event()
+
         def delayed(fields):
             entered.set()
             if not release.wait(2):
                 raise RuntimeError("test did not release exchange")
             return self.exchange(fields)
+
         self.flows.transport = delayed
         worker = threading.Thread(target=self.callback, daemon=True)
         worker.start()
@@ -145,8 +164,10 @@ class GoogleFlowsTests(unittest.TestCase):
 
     def test_provider_failures_never_echo_secrets(self):
         self.launched()
+
         def broken(fields):
             raise RuntimeError("private-token-and-code")
+
         self.flows.transport = broken
         self.callback()
         with self.assertRaisesRegex(GoogleError, "Google sign-in failed") as error:
@@ -155,8 +176,10 @@ class GoogleFlowsTests(unittest.TestCase):
 
     def test_an_unexpected_provider_failure_is_recorded_by_type_only(self):
         self.launched()
+
         def broken(fields):
             raise RuntimeError("private-token-and-code")
+
         self.flows.transport = broken
         FAILURES.clear()
         self.callback()
@@ -166,8 +189,12 @@ class GoogleFlowsTests(unittest.TestCase):
         self.assertNotIn("private", json.dumps(recorded))
 
     def test_a_refused_identity_is_recorded_by_check_never_by_token(self):
-        for changes, check in ((dict(aud="other"), "aud"), (dict(iss="https://evil.test"), "iss"),
-                               (dict(nonce="different"), "nonce"), (dict(exp=1000), "time")):
+        for changes, check in (
+            (dict(aud="other"), "aud"),
+            (dict(iss="https://evil.test"), "iss"),
+            (dict(nonce="different"), "nonce"),
+            (dict(exp=1000), "time"),
+        ):
             with self.subTest(check=check):
                 FAILURES.clear()
                 token = jwt("nonce", **changes)
@@ -178,72 +205,102 @@ class GoogleFlowsTests(unittest.TestCase):
                 self.assertNotIn(token.split(".")[1], json.dumps(recorded))
 
     def test_claims_fail_closed(self):
-        cases = [dict(iss="https://evil.test"), dict(aud="other"), dict(aud=["client","other"]),
-                 dict(azp="other"), dict(exp=1000), dict(exp=True), dict(exp=float("inf")),
-                 dict(iat=1061), dict(iat=None), dict(nonce="different"), dict(sub=""), dict(sub=123)]
+        cases = [
+            dict(iss="https://evil.test"),
+            dict(aud="other"),
+            dict(aud=["client", "other"]),
+            dict(azp="other"),
+            dict(exp=1000),
+            dict(exp=True),
+            dict(exp=float("inf")),
+            dict(iat=1061),
+            dict(iat=None),
+            dict(nonce="different"),
+            dict(sub=""),
+            dict(sub=123),
+        ]
         for changes in cases:
             with self.subTest(changes=changes), self.assertRaises(GoogleError):
                 identity(jwt("nonce", **changes), "client", "nonce", 1000)
-        for token in (None, "broken", "h.W10.s", "h.e30.s", "a"*17000):
+        for token in (None, "broken", "h.W10.s", "h.e30.s", "a" * 17000):
             with self.subTest(token=str(token)[:20]), self.assertRaises(GoogleError):
-                identity(token,"client","nonce",1000)
-        valid = identity(jwt("nonce", aud=["client","other"], azp="client", email_verified=False), "client", "nonce", 1000)
+                identity(token, "client", "nonce", 1000)
+        valid = identity(
+            jwt("nonce", aud=["client", "other"], azp="client", email_verified=False), "client", "nonce", 1000
+        )
         self.assertEqual(valid.sub, "subject-a")
         self.assertIsNone(valid.email)
 
     def test_identity_expiring_before_completion_is_refused(self):
         self.launched()
-        self.flows.transport=lambda _: {"id_token": jwt(self.query["nonce"][0], exp=1010)}
+        self.flows.transport = lambda _: {"id_token": jwt(self.query["nonce"][0], exp=1010)}
         self.callback()
-        self.now=1011
-        with self.assertRaisesRegex(GoogleError,"expired"):
+        self.now = 1011
+        with self.assertRaisesRegex(GoogleError, "expired"):
             self.complete()
 
 
 class GoogleTransportTests(unittest.TestCase):
     def call(self, status=200, chunks=None, error=None):
         from unittest.mock import MagicMock, patch
+
         from laptop_agent.google_oidc import exchange
-        connection=MagicMock()
-        response=connection.getresponse.return_value
-        response.status=status
-        response.read1.side_effect=chunks or [b'{"id_token":"fixture"}',b'']
-        if error:connection.request.side_effect=error
-        with patch("laptop_agent.google_oidc.http.client.HTTPSConnection",return_value=connection) as factory:
+
+        connection = MagicMock()
+        response = connection.getresponse.return_value
+        response.status = status
+        response.read1.side_effect = chunks or [b'{"id_token":"fixture"}', b""]
+        if error:
+            connection.request.side_effect = error
+        with patch("laptop_agent.google_oidc.http.client.HTTPSConnection", return_value=connection) as factory:
             try:
-                return exchange({"code":"private-code","client_secret":"private-secret"})
+                return exchange({"code": "private-code", "client_secret": "private-secret"})
             finally:
                 connection.close.assert_called_once()
-                factory.assert_called_once_with("oauth2.googleapis.com",timeout=10)
-                self.assertEqual(connection.request.call_args.args[:2],("POST","/token"))
+                factory.assert_called_once_with("oauth2.googleapis.com", timeout=10)
+                self.assertEqual(connection.request.call_args.args[:2], ("POST", "/token"))
 
     def test_fixed_tls_endpoint_and_connection_closed(self):
-        self.assertEqual(self.call(),{"id_token":"fixture"})
+        self.assertEqual(self.call(), {"id_token": "fixture"})
 
     def test_redirect_bad_json_oversized_and_io_errors_are_sanitized(self):
-        for arguments in ({"status":302},{"chunks":[b'not json',b'']},
-                          {"chunks":[b'x'*8192]*9},{"error":OSError("private-code private-secret")}):
-            with self.subTest(arguments=list(arguments)),self.assertRaises(GoogleError) as error:
+        for arguments in (
+            {"status": 302},
+            {"chunks": [b"not json", b""]},
+            {"chunks": [b"x" * 8192] * 9},
+            {"error": OSError("private-code private-secret")},
+        ):
+            with self.subTest(arguments=list(arguments)), self.assertRaises(GoogleError) as error:
                 self.call(**arguments)
-            self.assertNotIn("private",str(error.exception))
+            self.assertNotIn("private", str(error.exception))
 
     def test_a_refused_client_names_the_settings_and_is_recorded(self):
-        cases = ((401, b'{"error":"invalid_client","error_description":"private-secret"}',
-                  "GOOGLE_CLIENT_SECRET", "HTTP 401 invalid_client"),
-                 (400, b'{"error":"invalid_grant"}', "Start again", "HTTP 400 invalid_grant"),
-                 (502, b'<html>private-code</html>', "Start again", "HTTP 502 without an error code"))
+        cases = (
+            (
+                401,
+                b'{"error":"invalid_client","error_description":"private-secret"}',
+                "GOOGLE_CLIENT_SECRET",
+                "HTTP 401 invalid_client",
+            ),
+            (400, b'{"error":"invalid_grant"}', "Start again", "HTTP 400 invalid_grant"),
+            (502, b"<html>private-code</html>", "Start again", "HTTP 502 without an error code"),
+        )
         for status, body, shown, recorded in cases:
             with self.subTest(status=status):
                 FAILURES.clear()
                 with self.assertRaisesRegex(GoogleError, shown):
-                    self.call(status=status, chunks=[body, b''])
+                    self.call(status=status, chunks=[body, b""])
                 self.assertEqual([entry["message"] for entry in google_failures()], [recorded])
                 self.assertNotIn("private", json.dumps(google_failures()))
 
     def test_every_transport_failure_is_recorded_without_the_request(self):
         from unittest.mock import patch
-        for arguments in ({"chunks":[b'not json',b'']}, {"chunks":[b'x'*8192]*9},
-                          {"error":OSError("private-code private-secret")}):
+
+        for arguments in (
+            {"chunks": [b"not json", b""]},
+            {"chunks": [b"x" * 8192] * 9},
+            {"error": OSError("private-code private-secret")},
+        ):
             with self.subTest(arguments=list(arguments)):
                 FAILURES.clear()
                 with self.assertRaises(GoogleError):
@@ -258,5 +315,9 @@ class GoogleTransportTests(unittest.TestCase):
 
     def test_trickling_body_stops_at_read_deadline(self):
         from unittest.mock import patch
-        with patch("laptop_agent.google_oidc.time.monotonic",side_effect=[0,21]), self.assertRaisesRegex(GoogleError,"time"):
+
+        with (
+            patch("laptop_agent.google_oidc.time.monotonic", side_effect=[0, 21]),
+            self.assertRaisesRegex(GoogleError, "time"),
+        ):
             self.call()

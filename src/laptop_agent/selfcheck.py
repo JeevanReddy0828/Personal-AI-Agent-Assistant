@@ -50,18 +50,30 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what reminders do i have tomorrow", "reminders on tomorrow", "a day must narrow the listing"),
     ("can you show me my reminders", "reminders", "politeness `strip_address` cannot remove"),
     ("remind me to call mom at 6pm", "reminder add", "a creation must beat a listing"),
-    ("remind me to pay the bill due friday", "reminder add",
-     "'due' in the sentence must not turn a creation into a listing"),
-    ("tell me at 3pm to join the call", "reminder add to join the call at 3pm",
-     "starts like a question; the chat model answered it and set nothing"),
-    ("every monday at 9 remind me to file my timesheet", "reminder add to file my timesheet every monday at 9",
-     "the time said first was dropped and the reminder refused"),
+    (
+        "remind me to pay the bill due friday",
+        "reminder add",
+        "'due' in the sentence must not turn a creation into a listing",
+    ),
+    (
+        "tell me at 3pm to join the call",
+        "reminder add to join the call at 3pm",
+        "starts like a question; the chat model answered it and set nothing",
+    ),
+    (
+        "every monday at 9 remind me to file my timesheet",
+        "reminder add to file my timesheet every monday at 9",
+        "the time said first was dropped and the reminder refused",
+    ),
     # Windows — #124. The tool always parsed these; the router never sent them.
     ("put whatsapp on the left and chrome on the right", "window", "the verb form"),
     ("whatsapp on the left and chrome on the right", "window", "no verb at all"),
     ("i want whatsapp on the left and chrome on the right", "window", "the reported phrasing"),
-    ("notepad on the top left and spotify on the bottom right", "window",
-     "compound positions the planner's hand-copied list had lost"),
+    (
+        "notepad on the top left and spotify on the bottom right",
+        "window",
+        "compound positions the planner's hand-copied list had lost",
+    ),
     ("left side whatsapp right side chrome", "window", "how it arrives by voice"),
     # The rest of the surface, one representative phrasing each.
     ("what time is it", "time", "clock"),
@@ -73,7 +85,11 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("tell me when there's news about nvidia", "watch news", "a watch, not today's headlines"),
     ("warn me when my battery is low", "watch health", "a watch, not a status"),
     ("draw me a picture of a fox", "image", "image generation"),
-    ("create a workspace folder and fill files with python basics", "workspace", "a folder with files, not one document"),
+    (
+        "create a workspace folder and fill files with python basics",
+        "workspace",
+        "a folder with files, not one document",
+    ),
     ("what do you remember about me", "memory", "stored profile"),
     ("summarize what i copied", "clipboard ask", "the clipboard, not a guess from nothing"),
     ("what did i copy", "clipboard", "the clipboard"),
@@ -110,7 +126,11 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("what's the word for library in german", "translate library to german", "same"),
     ("translate this into french: the meeting is at noon", "translate", "the language before a colon"),
     ("how to say i love you in korean", "translate i love you to korean", "how it is typed into a search box"),
-    ("say never again in french", "translate never again to french", "again is inside the phrase, not a repeat request"),
+    (
+        "say never again in french",
+        "translate never again to french",
+        "again is inside the phrase, not a repeat request",
+    ),
     ("how do you say again in french", "translate again to french", "the word itself can be translated"),
     ("say good night in hindi", "translate good night to hindi", "how it is said aloud"),
     ("in spanish, how do you say good luck", "translate good luck to spanish", "the language first"),
@@ -194,8 +214,11 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("hey jarvis, what's my name", "what's my name", "read back, never guessed"),
     ("remember what we talked about", "learn from chat", "the chat's facts, approved, not a note"),
     ("hey jarvis, flip a coin", "flip a coin", "a model cannot draw at random"),
-    ("set my briefing to weather, AI news and my reminders", "briefing set",
-     "was a briefing read out, by the route that takes any sentence with the word in it"),
+    (
+        "set my briefing to weather, AI news and my reminders",
+        "briefing set",
+        "was a briefing read out, by the route that takes any sentence with the word in it",
+    ),
     ("add the shopping list to my briefing", "briefing add", "same"),
     ("take the news out of my briefing", "briefing remove", "same"),
     ("what's in my briefing?", "briefing format", "same"),
@@ -228,7 +251,7 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("what facts do you have about mars", "knowledge, not what is stored about the user"),
     ("do you remember what we talked about", "a question about the chat, not a request to save it"),
     ("how do alarms work", "a question about alarms, not a listing"),
-    ("what are alarms?", "a definition; \"what\" lists only with my/the or a \"do i have\" (Codex, #255)"),
+    ("what are alarms?", 'a definition; "what" lists only with my/the or a "do i have" (Codex, #255)'),
     ("alarms are annoying", "a remark"),
     ("watch out for ice on the roads", "a warning, not a watch"),
     ("stop watching tv", "not a watch of ours"),
@@ -355,8 +378,10 @@ def check_routing(router: HeuristicPlannerProvider | None = None) -> list[Check]
         command = getattr(decision, "command", None) or ""
         elapsed = time.perf_counter() - started
         reached = command.startswith(expected)
-        detail = f"-> {command or 'no command'}" if reached else (
-            f"expected {expected!r}, got {command or 'no command'!r} ({why})"
+        detail = (
+            f"-> {command or 'no command'}"
+            if reached
+            else (f"expected {expected!r}, got {command or 'no command'!r} ({why})")
         )
         checks.append(Check(f"routes: {phrase}", reached, detail, elapsed))
     return checks
@@ -389,20 +414,35 @@ def check_plain_questions() -> list[Check]:
     kinds of question about the user's own data were answered by a model that can see
     none of them.
     """
-    owned = ("do i have any reminders", "do i have any drafts", "do i have any documents",
-             "do i have any tasks", "do i have any downloads", "do i have any screenshots",
-             "do i have any workflows", "do i have any emails")
-    knowledge = ("how does tcp congestion control work", "what is a bloom filter",
-                 "why do databases use write-ahead logging")
+    owned = (
+        "do i have any reminders",
+        "do i have any drafts",
+        "do i have any documents",
+        "do i have any tasks",
+        "do i have any downloads",
+        "do i have any screenshots",
+        "do i have any workflows",
+        "do i have any emails",
+    )
+    knowledge = (
+        "how does tcp congestion control work",
+        "what is a bloom filter",
+        "why do databases use write-ahead logging",
+    )
     checks = [
-        Check(f"not a plain question: {phrase}", not is_plain_question(phrase),
-              "goes to the router" if not is_plain_question(phrase)
-              else "answered by a model that cannot see it")
+        Check(
+            f"not a plain question: {phrase}",
+            not is_plain_question(phrase),
+            "goes to the router" if not is_plain_question(phrase) else "answered by a model that cannot see it",
+        )
         for phrase in owned
     ]
     checks += [
-        Check(f"plain question: {phrase}", is_plain_question(phrase),
-              "answered directly" if is_plain_question(phrase) else "pays for a routing call")
+        Check(
+            f"plain question: {phrase}",
+            is_plain_question(phrase),
+            "answered directly" if is_plain_question(phrase) else "pays for a routing call",
+        )
         for phrase in knowledge
     ]
     return checks

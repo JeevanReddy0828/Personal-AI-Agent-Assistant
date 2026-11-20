@@ -16,7 +16,11 @@ from pathlib import Path
 
 from laptop_agent.scheduler import ScheduleError, parse_schedule
 from laptop_agent.timeparse import (
-    DURATION_UNITS, TimeParseError, describe, parse_clock, parse_when,
+    DURATION_UNITS,
+    TimeParseError,
+    describe,
+    parse_clock,
+    parse_when,
 )
 
 EDT = timezone(timedelta(hours=-4), "EDT")
@@ -88,8 +92,8 @@ class GrammarTests(unittest.TestCase):
                 self.assertIsNotNone(found, f"no time found in {text!r}")
                 assert found is not None
                 self.assertEqual(
-                    found.at, expected,
-                    f"{text!r} -> {found.at:%a %d %b %H:%M}, expected {expected:%a %d %b %H:%M}")
+                    found.at, expected, f"{text!r} -> {found.at:%a %d %b %H:%M}, expected {expected:%a %d %b %H:%M}"
+                )
 
     def test_a_resolved_time_is_never_in_the_past(self) -> None:
         """Except where the user named a day explicitly — then it is their statement, not
@@ -103,7 +107,7 @@ class GrammarTests(unittest.TestCase):
                 self.assertGreater(found.at, NOW, f"{text!r} resolved into the past")
 
     def test_next_weekday_is_in_next_week_whatever_today_is(self) -> None:
-        """"next friday" is the Friday of the following Monday-Sunday week, said on any day
+        """ "next friday" is the Friday of the following Monday-Sunday week, said on any day
         (Jeevan, 2026-10-06). It was the coming Friday: tomorrow, said on a Thursday."""
         names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
         for offset in range(7):
@@ -130,8 +134,7 @@ class RefusalTests(unittest.TestCase):
     """A time that cannot exist is refused, never slid quietly to a neighbouring hour."""
 
     def test_impossible_times_are_refused(self) -> None:
-        for text in ("at 25:00", "at 13pm", "at 0pm", "meet at 12:75", "2026-02-30",
-                     "on 30 february at 9am"):
+        for text in ("at 25:00", "at 13pm", "at 0pm", "meet at 12:75", "2026-02-30", "on 30 february at 9am"):
             with self.subTest(text):
                 with self.assertRaises(TimeParseError, msg=f"{text!r} was accepted"):
                     parse_when(text, NOW)
@@ -139,29 +142,34 @@ class RefusalTests(unittest.TestCase):
     def test_text_with_no_time_finds_none(self) -> None:
         """A number in the message is not a time: this is what stops "buy 2 apples"
         becoming two in the morning."""
-        for text in ("buy 2 apples", "call the office", "email bob about the 3 servers",
-                     "stretch", "read chapter 4"):
+        for text in ("buy 2 apples", "call the office", "email bob about the 3 servers", "stretch", "read chapter 4"):
             with self.subTest(text):
                 self.assertIsNone(parse_when(text, NOW), f"{text!r} invented a time")
 
 
 class DayOfMonthTests(unittest.TestCase):
-    """"remind me on the 15th to pay rent" answered "I could not find a time in that"."""
+    """ "remind me on the 15th to pay rent" answered "I could not find a time in that"."""
 
     def test_the_next_time_that_day_comes_round(self) -> None:
-        for text, day in (("on the 20th at 9am", (2026, 9, 20)), ("on the 15th at 9am", (2026, 10, 15)),
-                          # September has no 31st: the next month that has one.
-                          ("on the 31st at 9am", (2026, 10, 31)), ("on 15th at 9am", (2026, 10, 15)),
-                          ("the 3rd of next month at 9", (2026, 10, 3)), ("on the 20th of this month at 9", (2026, 9, 20)),
-                          ("on the 15th of march at 9am", (2027, 3, 15)), ("15th of march at 9am", (2027, 3, 15))):
+        for text, day in (
+            ("on the 20th at 9am", (2026, 9, 20)),
+            ("on the 15th at 9am", (2026, 10, 15)),
+            # September has no 31st: the next month that has one.
+            ("on the 31st at 9am", (2026, 10, 31)),
+            ("on 15th at 9am", (2026, 10, 15)),
+            ("the 3rd of next month at 9", (2026, 10, 3)),
+            ("on the 20th of this month at 9", (2026, 9, 20)),
+            ("on the 15th of march at 9am", (2027, 3, 15)),
+            ("15th of march at 9am", (2027, 3, 15)),
+        ):
             with self.subTest(text):
                 self.assertEqual(parse_when(text, NOW).at.date(), datetime(*day).date())
 
     def test_a_month_named_outright_is_not_moved(self) -> None:
         with self.assertRaises(TimeParseError):
-            parse_when("on the 31st of next month at 9", at(2026, 10, 11, 12))     # November has 30
+            parse_when("on the 31st of next month at 9", at(2026, 10, 11, 12))  # November has 30
         # "this month" is named too: a day already gone is refused, not moved to October (Codex's review).
-        for text in ("on the 1st of this month at 9am", "on the 31st of this month at 9"):      # September has 30
+        for text in ("on the 1st of this month at 9am", "on the 31st of this month at 9"):  # September has 30
             with self.subTest(text), self.assertRaises(TimeParseError):
                 parse_when(text, NOW)
         self.assertEqual(parse_when("on the 20th of this month at 9", NOW).at.date(), datetime(2026, 9, 20).date())
@@ -179,6 +187,7 @@ class MessageSplitTests(unittest.TestCase):
         """The real extraction, not a reimplementation of it — a helper that rebuilds the
         logic under test would agree with a bug as readily as with a fix."""
         from laptop_agent.agents.common import _reminder_message
+
         found = parse_when(text, NOW)
         assert found is not None
         return _reminder_message(text, found.start, found.end)
@@ -196,29 +205,38 @@ class MessageSplitTests(unittest.TestCase):
         self.assertEqual(found.at, at(2026, 9, 17, 18))
 
     def test_a_time_in_the_middle_keeps_both_halves(self) -> None:
-        self.assertEqual(self.split("call mom at 6pm about the invoice"),
-                         "call mom about the invoice")
+        self.assertEqual(self.split("call mom at 6pm about the invoice"), "call mom about the invoice")
 
     def test_a_deadline_due_goes_with_its_day(self) -> None:
-        """"pay the bill due friday" was filed as "pay the bill due"; "the rent is due" is the
+        """ "pay the bill due friday" was filed as "pay the bill due"; "the rent is due" is the
         reminder itself."""
         cases = {
-            "pay the bill due friday": "pay the bill", "submit the report due at 5pm": "submit the report",
-            "pay the invoice that's due friday": "pay the invoice", "pay the bill due by friday": "pay the bill",
-            "the rent is due friday": "the rent is due", "my taxes are due on april 15": "my taxes are due",
-            "the essay's due friday": "the essay's due", "homework due at 9am": "homework due",
+            "pay the bill due friday": "pay the bill",
+            "submit the report due at 5pm": "submit the report",
+            "pay the invoice that's due friday": "pay the invoice",
+            "pay the bill due by friday": "pay the bill",
+            "the rent is due friday": "the rent is due",
+            "my taxes are due on april 15": "my taxes are due",
+            "the essay's due friday": "the essay's due",
+            "homework due at 9am": "homework due",
             "math homework due friday": "math homework due",
             # A short action lost nothing to a length rule (Codex's review): it is the verb that says.
-            "pay rent due friday": "pay rent", "send invoice due friday": "send invoice",
-            "submit report due friday": "submit report", "rent due friday": "rent due",
+            "pay rent due friday": "pay rent",
+            "send invoice due friday": "send invoice",
+            "submit report due friday": "submit report",
+            "rent due friday": "rent due",
             "the electric bill due friday": "the electric bill due",
             "check the essay is due friday": "check the essay is due",
             # A verb that is as often a noun is the action only with an object or particle after it.
-            "book report due friday": "book report due", "deposit due friday": "deposit due",
-            "book the hotel due friday": "book the hotel", "hand in homework due friday": "hand in homework",
-            "file the taxes due friday": "file the taxes", "return due friday": "return due",
+            "book report due friday": "book report due",
+            "deposit due friday": "deposit due",
+            "book the hotel due friday": "book the hotel",
+            "hand in homework due friday": "hand in homework",
+            "file the taxes due friday": "file the taxes",
+            "return due friday": "return due",
             # A "that is due" clause is the reminder unless an action leads (Codex's review).
-            "the rent that is due friday": "the rent that is due", "the bill which is due friday": "the bill which is due",
+            "the rent that is due friday": "the rent that is due",
+            "the bill which is due friday": "the bill which is due",
             "pay the bill which is due friday": "pay the bill",
         }
         for text, expected in cases.items():
@@ -228,9 +246,15 @@ class MessageSplitTests(unittest.TestCase):
 
 class ClockTests(unittest.TestCase):
     def test_parse_clock_reads_a_time_of_day(self) -> None:
-        for text, expected in (("6pm", (18, 0)), ("6 pm", (18, 0)), ("18:00", (18, 0)),
-                               ("08:30", (8, 30)), ("noon", (12, 0)), ("midnight", (0, 0)),
-                               ("at 9am", (9, 0))):
+        for text, expected in (
+            ("6pm", (18, 0)),
+            ("6 pm", (18, 0)),
+            ("18:00", (18, 0)),
+            ("08:30", (8, 30)),
+            ("noon", (12, 0)),
+            ("midnight", (0, 0)),
+            ("at 9am", (9, 0)),
+        ):
             with self.subTest(text):
                 self.assertEqual(parse_clock(text), expected)
 
@@ -245,8 +269,12 @@ class SharedWithSchedulerTests(unittest.TestCase):
     to undo; this asserts the reminder and the scheduler cannot drift apart."""
 
     def test_the_scheduler_reads_the_same_times_a_reminder_does(self) -> None:
-        for text, expected in (("daily at 6pm", (18, 0)), ("daily at 08:30", (8, 30)),
-                               ("every day at 9am", (9, 0)), ("at noon", (12, 0))):
+        for text, expected in (
+            ("daily at 6pm", (18, 0)),
+            ("daily at 08:30", (8, 30)),
+            ("every day at 9am", (9, 0)),
+            ("at noon", (12, 0)),
+        ):
             with self.subTest(text):
                 schedule = parse_schedule(text)
                 self.assertEqual((schedule.hour, schedule.minute), expected)
@@ -257,6 +285,7 @@ class SharedWithSchedulerTests(unittest.TestCase):
 
     def test_both_share_one_duration_table(self) -> None:
         from laptop_agent import scheduler
+
         self.assertIs(scheduler._UNIT_SECONDS, DURATION_UNITS)
         self.assertEqual(parse_schedule("every 2 weeks").seconds, 14 * 86400)
 
@@ -284,8 +313,10 @@ class ReminderCommandTests(unittest.TestCase):
 
     def orchestrator(self, root: Path):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_orchestrator import OrchestratorTests
+
         return OrchestratorTests("test_reminder_flow").build(root)
 
     def test_natural_phrasings_set_a_reminder(self) -> None:
@@ -308,10 +339,13 @@ class ReminderCommandTests(unittest.TestCase):
         6pm" fell through to the LLM router — a request with one right answer settled by a
         guess. Routing this costs no network call and cannot vary."""
         from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
         planner = HeuristicPlannerProvider()
-        for said in ("can you remind me to call mom at 6pm",
-                     "set a reminder to water the plants tomorrow at 8am",
-                     "hey, remind me in 20 minutes to check the oven"):
+        for said in (
+            "can you remind me to call mom at 6pm",
+            "set a reminder to water the plants tomorrow at 8am",
+            "hey, remind me in 20 minutes to check the oven",
+        ):
             with self.subTest(said):
                 decision = planner._reminder(said)
                 self.assertIsNotNone(decision, f"{said!r} did not route instantly")
@@ -320,10 +354,14 @@ class ReminderCommandTests(unittest.TestCase):
 
     def test_listing_reminders_is_not_turned_into_creating_one(self) -> None:
         from laptop_agent.planner.heuristic import HeuristicPlannerProvider
+
         planner = HeuristicPlannerProvider()
-        for said, expected in (("reminders", "reminders"), ("show reminders", "reminders"),
-                               ("reminders due", "reminders due"),
-                               ("complete reminder 3", "reminder done 3")):
+        for said, expected in (
+            ("reminders", "reminders"),
+            ("show reminders", "reminders"),
+            ("reminders due", "reminders due"),
+            ("complete reminder 3", "reminder done 3"),
+        ):
             with self.subTest(said):
                 decision = planner._reminder(said)
                 assert decision is not None

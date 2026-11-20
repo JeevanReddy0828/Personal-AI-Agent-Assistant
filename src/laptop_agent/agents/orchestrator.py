@@ -1,73 +1,73 @@
 from __future__ import annotations
-from __future__ import annotations
 
-from laptop_agent.cancellation import check_cancelled
 import errno
 import re
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
-from laptop_agent.advisor import ProblemSolver
-from laptop_agent.agents.control_room import AgentControlRoom
-from laptop_agent.autopilot import AutopilotPlanner
-from laptop_agent.context import register_summarizer
-from laptop_agent.copilot import JobCopilot
-from laptop_agent.decisions import TierDecider
-from laptop_agent.model_status import ModelStatus
-from laptop_agent.planner import HeuristicPlannerProvider, Planner
-from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import SMALL_TALK
-from laptop_agent.access import ensure_signed_in
-from laptop_agent.safety import ApprovalDenied
+
 from laptop_agent import supervisor as supervision
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.failures import FAILURES, record_failure
-from laptop_agent.tools.calculator import CalculatorTool
-from laptop_agent.tools import keys as keys_tools
-from laptop_agent.tools.clock import ClockTool
-from laptop_agent.tools.plugins import PluginTool
-from laptop_agent.tools.file_processor import FileProcessor
-from laptop_agent.tools.mcp import McpTool
-from laptop_agent.tools.codefix import CodeFixTool
-from laptop_agent.tools.travel import TravelTool
-from laptop_agent.tools import fileops
-from laptop_agent.config import load_config
-from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
-from laptop_agent.tools.document import DocumentTool
-from laptop_agent.tools.workspace import WorkspaceTool
-from laptop_agent.tools import clipboard as clipboard_tools
-from laptop_agent.tools.imagegen import ImageTool
-from laptop_agent.tools.news import NewsTool
-from laptop_agent.tools.watch import Watches
-from laptop_agent.tools.translate import TranslateTool
-from laptop_agent.tools import system as system_tools
-from laptop_agent.tools.weather import WeatherTool
-from laptop_agent.tools.learn import LearnTool
-from laptop_agent.tools.youtube import YouTubeTool
-from laptop_agent.tools.messaging import MessagingTool
+from laptop_agent.access import ensure_signed_in
+from laptop_agent.advisor import ProblemSolver
+from laptop_agent.agents.agent_mode import AgentMode
+from laptop_agent.agents.briefing_jobs import BriefingJobs
+from laptop_agent.agents.chat_tiers import ChatTiers
 from laptop_agent.agents.common import (
-    AgentContext,
-    MAX_COMMAND_CHARS,
     _DECLINED,
     _FILE_VERBS,
     _INVENTED,
     _NO_MODEL_REPLY,
     _UNUSABLE_PATH,
     _VERBATIM,
+    MAX_COMMAND_CHARS,
+    AgentContext,
     _clean_paths,
     _fold_apostrophes,
 )
-from laptop_agent.agents.chat_tiers import ChatTiers
-from laptop_agent.agents.routing import Routing
+from laptop_agent.agents.control_room import AgentControlRoom
 from laptop_agent.agents.dispatch_core import CoreDispatch
 from laptop_agent.agents.dispatch_outside import OutsideDispatch
 from laptop_agent.agents.everyday import Everyday
+from laptop_agent.agents.knowledge_actions import KnowledgeActions
 from laptop_agent.agents.presentation import Presentation
 from laptop_agent.agents.reminders import Reminders
-from laptop_agent.agents.briefing_jobs import BriefingJobs
-from laptop_agent.agents.agent_mode import AgentMode
+from laptop_agent.agents.routing import Routing
 from laptop_agent.agents.tool_access import ToolAccess
-from laptop_agent.agents.knowledge_actions import KnowledgeActions
+from laptop_agent.autopilot import AutopilotPlanner
+from laptop_agent.cancellation import check_cancelled
+from laptop_agent.config import load_config
+from laptop_agent.context import register_summarizer
+from laptop_agent.copilot import JobCopilot
+from laptop_agent.decisions import TierDecider
+from laptop_agent.failures import FAILURES, record_failure
+from laptop_agent.model_status import ModelStatus
+from laptop_agent.planner import HeuristicPlannerProvider, Planner
+from laptop_agent.planner.core import PlanDecision
+from laptop_agent.planner.heuristic import SMALL_TALK
+from laptop_agent.safety import ApprovalDenied
+from laptop_agent.tools import clipboard as clipboard_tools
+from laptop_agent.tools import fileops
+from laptop_agent.tools import keys as keys_tools
+from laptop_agent.tools import system as system_tools
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.calculator import CalculatorTool
+from laptop_agent.tools.clock import ClockTool
+from laptop_agent.tools.codefix import CodeFixTool
+from laptop_agent.tools.document import DocumentTool
+from laptop_agent.tools.file_processor import FileProcessor
+from laptop_agent.tools.imagegen import ImageTool
+from laptop_agent.tools.learn import LearnTool
+from laptop_agent.tools.mcp import McpTool
+from laptop_agent.tools.messaging import MessagingTool
+from laptop_agent.tools.news import NewsTool
+from laptop_agent.tools.plugins import PluginTool
+from laptop_agent.tools.translate import TranslateTool
+from laptop_agent.tools.travel import TravelTool
+from laptop_agent.tools.watch import Watches
+from laptop_agent.tools.weather import WeatherTool
+from laptop_agent.tools.workspace import WorkspaceTool
+from laptop_agent.tools.youtube import YouTubeTool
+from laptop_agent.tracing import TraceStore, TurnTrace, begin_trace, current_trace, end_trace
 
 
 class AgentOrchestrator(
@@ -200,7 +200,9 @@ class AgentOrchestrator(
         self._code_fix_cache: CodeFixTool | None = None
         # The rolling summary of older turns is written by the fast tier in the background
         # (see context.py); with no model configured it simply never appears.
-        register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
+        register_summarizer(
+            self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400)
+        )
 
     async def handle(
         self,
@@ -262,7 +264,8 @@ class AgentOrchestrator(
         record_failure("orchestrator.handle", exc, verb=verb if verb in self._command_verbs() else "")
         # The commonest cause by far: a path the operating system refuses outright.
         unusable = (isinstance(exc, ValueError) and "null" in str(exc)) or (
-            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206))
+            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206)
+        )
         if unusable:
             return ToolResult.failure(_UNUSABLE_PATH, error=type(exc).__name__)
         detail = " ".join(str(exc).split())[:200] or type(exc).__name__
@@ -284,7 +287,9 @@ class AgentOrchestrator(
         ensure_signed_in()
         # An `mcp` call's arguments are JSON data, not a sentence: folded and path-cleaned, a value
         # such as "C:/r.csv" lost its quotes and "it’s" changed (review of #293).
-        command = text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
+        command = (
+            text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
+        )
         lowered = command.lower()
         history_turns = history or []
         if not command:
@@ -365,8 +370,9 @@ class AgentOrchestrator(
                         continue
                     attempted.add(tier_label)
                     why: list[tuple[str, str]] = []
-                    reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
-                                             on_token, failures=why)
+                    reply = self._tier_reply(
+                        tier_planner.provider, command, profile, history_turns, on_token, failures=why
+                    )
                     self._record_tier(tier_label, reply, why)
                     if reply:
                         response, model_used, answered = reply, tier_label, True
@@ -390,8 +396,7 @@ class AgentOrchestrator(
                     deferred = real_fast and (not planned.response or canned) and planned.confidence > 0
                     if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         why = []
-                        reply = self._tier_reply(fast_provider, command, profile, history_turns,
-                                                 on_token, failures=why)
+                        reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token, failures=why)
                         if real_fast:
                             self._record_tier("fast", reply, why)
                         if reply:
@@ -411,24 +416,31 @@ class AgentOrchestrator(
                     for tier_planner, tier_label in self._recovery_chat_tiers(attempted):
                         attempted.add(tier_label)
                         why = []
-                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
-                                                 on_token, failures=why)
+                        reply = self._tier_reply(
+                            tier_planner.provider, command, profile, history_turns, on_token, failures=why
+                        )
                         self._record_tier(tier_label, reply, why)
                         if reply:
                             response, model_used, answered = reply, tier_label, True
                             break
-                if not answered and self.fallback_planner is not None and self.model_status.should_attempt("openrouter"):
+                if (
+                    not answered
+                    and self.fallback_planner is not None
+                    and self.model_status.should_attempt("openrouter")
+                ):
                     # Cross-provider safety net is also cooled down after an error.
                     why = []
-                    reply = self._tier_reply(self.fallback_planner.provider, command, profile,
-                                             history_turns, on_token, failures=why)
+                    reply = self._tier_reply(
+                        self.fallback_planner.provider, command, profile, history_turns, on_token, failures=why
+                    )
                     self._record_tier("openrouter", reply, why)
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
                 if not answered and not response:
                     response = (
                         "I couldn't reach any configured language model just now. Please try again in a minute."
-                        if self._has_language_model() else _NO_MODEL_REPLY
+                        if self._has_language_model()
+                        else _NO_MODEL_REPLY
                     )
                     model_used = "unavailable"
                 degraded = model_used != requested_label

@@ -191,7 +191,7 @@ class DocumentToolTests(unittest.TestCase):
 
 
 class PageLengthTests(unittest.TestCase):
-    """"write a one page pdf on how vaccines work" lost "one page" in routing, and nothing
+    """ "write a one page pdf on how vaccines work" lost "one page" in routing, and nothing
     downstream knew a length anyway: the PDF ran to two pages."""
 
     def setUp(self) -> None:
@@ -225,11 +225,17 @@ class PageLengthTests(unittest.TestCase):
 
     def test_the_length_is_read_for_what_to_write(self) -> None:
         cases = {
-            "a one page brief on rate limits": 1, "one-page summary of rust": 1, "a 2 page report on tcp": 2,
-            "three pages long essay on art": 3, "a one-pager about our API": 1, "a single page overview of git": 1,
-            "how vaccines work": None, "the 404 page explainer": None,
+            "a one page brief on rate limits": 1,
+            "one-page summary of rust": 1,
+            "a 2 page report on tcp": 2,
+            "three pages long essay on art": 3,
+            "a one-pager about our API": 1,
+            "a single page overview of git": 1,
+            "how vaccines work": None,
+            "the 404 page explainer": None,
             # A length after "the" or "my" describes the source, not the output.
-            "summary of the 10 page report": None, "summary of my 3 page essay in one page": 1,
+            "summary of the 10 page report": None,
+            "summary of my 3 page essay in one page": 1,
         }
         for text, pages in cases.items():
             self.assertEqual(page_target(text), pages, text)
@@ -304,9 +310,18 @@ class DeckOutlineTests(unittest.TestCase):
             "## Slide 5:\n- f\n## Slide 6 Pro tips\n- g\n"
         )
         # A label with nothing after it, or no separator, is left as written rather than guessed at.
-        self.assertEqual([head for head, _ in slides],
-                         ["What is Renewable Energy?", "Solar", "Wind", "Slide 4", "Slide rules for the slide deck",
-                          "Slide 5:", "Slide 6 Pro tips"])
+        self.assertEqual(
+            [head for head, _ in slides],
+            [
+                "What is Renewable Energy?",
+                "Solar",
+                "Wind",
+                "Slide 4",
+                "Slide rules for the slide deck",
+                "Slide 5:",
+                "Slide 6 Pro tips",
+            ],
+        )
 
     def test_prose_under_a_heading_still_becomes_a_line(self) -> None:
         """The model does sometimes forget the dash. A heading with a paragraph under it is
@@ -352,9 +367,7 @@ class PowerPointTests(unittest.TestCase):
         self.assertIn("88 Earth days", body)
 
     def test_a_deck_with_no_slides_writes_no_file(self) -> None:
-        result = self.tool(writer=lambda prompt: "Sorry, I cannot help with that.").create(
-            "a ppt for sun and planets"
-        )
+        result = self.tool(writer=lambda prompt: "Sorry, I cannot help with that.").create("a ppt for sun and planets")
         self.assertFalse(result.ok)
         self.assertEqual(list(self.data_dir.glob("documents/*.pptx")), [])
 

@@ -106,7 +106,7 @@ class ZoneTests(unittest.TestCase):
 
 
 class BetweenZonesTests(unittest.TestCase):
-    """"convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model,
+    """ "convert 9am pst to ist" and "how many hours ahead is tokyo" went to the chat model,
     which has one right answer to compute and daylight saving to get wrong. They are read
     from the zone database, on the fixed moment above (11 September, Eastern on EDT)."""
 
@@ -119,18 +119,24 @@ class BetweenZonesTests(unittest.TestCase):
         message = self.say("convert 9am pst to ist")
         self.assertIn("**9:00 AM PDT** in `America/Los_Angeles` is **9:30 PM IST** in `Asia/Kolkata`.", message)
         self.assertIn("You asked for PST, but that zone is on **PDT**", message)
-        self.assertIn("**3:00 PM BST** in `Europe/London` is **10:00 AM EDT** in `America/New_York`.",
-                      self.say("what's 3pm london time in new york?"))
+        self.assertIn(
+            "**3:00 PM BST** in `Europe/London` is **10:00 AM EDT** in `America/New_York`.",
+            self.say("what's 3pm london time in new york?"),
+        )
         # Sydney is on AEST until October: 11pm in London is 8am the next day there.
-        self.assertIn("**8:00 AM AEST** the next day in `Australia/Sydney`",
-                      self.say("what time is it in sydney when it's 11pm in london"))
-        self.assertIn("**9:30 PM EDT** here is **10:30 AM JST** the next day in `Asia/Tokyo`",
-                      self.say("what time will it be in tokyo at 9:30 pm my time"))
+        self.assertIn(
+            "**8:00 AM AEST** the next day in `Australia/Sydney`",
+            self.say("what time is it in sydney when it's 11pm in london"),
+        )
+        self.assertIn(
+            "**9:30 PM EDT** here is **10:30 AM JST** the next day in `Asia/Tokyo`",
+            self.say("what time will it be in tokyo at 9:30 pm my time"),
+        )
 
     def test_daylight_saving_is_read_for_the_day_not_assumed(self) -> None:
         january = datetime(2026, 1, 15, 12, 0, tzinfo=timezone(timedelta(hours=-5), "EST"))
         self.assertIn("is **2:00 PM UTC**", self.say("convert 9am est to utc", january))
-        self.assertIn("is **1:00 PM UTC**", self.say("convert 9am est to utc"))     # September: EDT
+        self.assertIn("is **1:00 PM UTC**", self.say("convert 9am est to utc"))  # September: EDT
 
     def test_a_time_the_clocks_skip_or_repeat(self) -> None:
         # Codex's review of #243: 2:30 AM never happens in New York on 8 March 2026 and was
@@ -147,30 +153,43 @@ class BetweenZonesTests(unittest.TestCase):
         self.assertIn("**1:30 AM EDT** is **5:30 AM UTC**", twice)
         self.assertIn("**1:30 AM EST** is **6:30 AM UTC**", twice)
         # Either side of the change, an ordinary hour is one answer.
-        self.assertIn("**3:30 AM EDT** in `America/New_York` is **7:30 AM UTC**",
-                      self.say("convert 3:30am new york to utc", spring))
-        self.assertIn("**3:30 AM EST** in `America/New_York` is **8:30 AM UTC**",
-                      self.say("convert 3:30am new york to utc", autumn))
+        self.assertIn(
+            "**3:30 AM EDT** in `America/New_York` is **7:30 AM UTC**",
+            self.say("convert 3:30am new york to utc", spring),
+        )
+        self.assertIn(
+            "**3:30 AM EST** in `America/New_York` is **8:30 AM UTC**",
+            self.say("convert 3:30am new york to utc", autumn),
+        )
 
     def test_how_far_apart_two_zones_are(self) -> None:
         self.assertIn("`Asia/Tokyo` is **13 hours ahead of** you right now", self.say("how many hours ahead is tokyo"))
         self.assertIn("`Asia/Kolkata` is **9 hours 30 minutes ahead of** you", self.say("how far ahead is india"))
         self.assertIn("`America/Los_Angeles` is **3 hours behind** you", self.say("how many hours behind is la"))
-        self.assertIn("`Europe/London` is **5 hours ahead of** `America/New_York`",
-                      self.say("what is the time difference between london and new york"))
+        self.assertIn(
+            "`Europe/London` is **5 hours ahead of** `America/New_York`",
+            self.say("what is the time difference between london and new york"),
+        )
 
     def test_only_these_shapes_with_known_zones(self) -> None:
         from laptop_agent.tools.clock import zone_question
 
-        for text in ("what is 5 in binary", "convert 9 pst to ist", "what's 3pm in my calendar",
-                     "convert 10:30 to minutes", "how far ahead is the project",
-                     "how many hours behind is the deadline", "convert 13pm pst to ist", "9am pst to pacific"):
+        for text in (
+            "what is 5 in binary",
+            "convert 9 pst to ist",
+            "what's 3pm in my calendar",
+            "convert 10:30 to minutes",
+            "how far ahead is the project",
+            "how many hours behind is the deadline",
+            "convert 13pm pst to ist",
+            "9am pst to pacific",
+        ):
             with self.subTest(text):
                 self.assertIsNone(zone_question(text))
 
 
 class TimeAheadAndClockChangeTests(unittest.TestCase):
-    """"what time will it be in 3 hours" and "when do the clocks change" reached the chat model,
+    """ "what time will it be in 3 hours" and "when do the clocks change" reached the chat model,
     which does not know the time and guesses the dates, which move every year."""
 
     NEW_YORK = ZoneInfo("America/New_York")
@@ -182,11 +201,13 @@ class TimeAheadAndClockChangeTests(unittest.TestCase):
         return result.message
 
     def test_a_time_ahead_is_read_on_the_clock(self) -> None:
-        for text, answer in (("what time will it be in 3 hours", "In 3 hours it will be **9:26 PM** on Friday"),
-                             ("what time will it be in three hours", "In 3 hours it will be **9:26 PM**"),
-                             ("what's the time 45 minutes from now", "In 45 minutes it will be **7:11 PM**"),
-                             ("what time is it going to be in half an hour", "In half an hour it will be **6:56 PM**"),
-                             ("what time would it be in 2 days", "In 2 days it will be **6:26 PM** on Sunday")):
+        for text, answer in (
+            ("what time will it be in 3 hours", "In 3 hours it will be **9:26 PM** on Friday"),
+            ("what time will it be in three hours", "In 3 hours it will be **9:26 PM**"),
+            ("what's the time 45 minutes from now", "In 45 minutes it will be **7:11 PM**"),
+            ("what time is it going to be in half an hour", "In half an hour it will be **6:56 PM**"),
+            ("what time would it be in 2 days", "In 2 days it will be **6:26 PM** on Sunday"),
+        ):
             with self.subTest(text):
                 self.assertTrue(asks_the_time(text))
                 self.assertIn(answer, self.say(text, MOMENT))
@@ -195,46 +216,73 @@ class TimeAheadAndClockChangeTests(unittest.TestCase):
         self.assertIn("**1:30 AM** on Sunday, 1 November 2026", self.say("what time will it be in 3 hours", night))
 
     def test_the_next_clock_change_comes_from_the_zone_rules(self) -> None:
-        october, december = (datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK), datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK))
-        self.assertEqual(self.say("when do the clocks change", october),
-                         "The clocks go **back an hour** on Sunday, 1 November 2026: at 2:00 AM it becomes 1:00 AM.")
-        self.assertEqual(self.say("when does daylight saving start", december),
-                         "The clocks go **forward an hour** on Sunday, 14 March 2027: at 2:00 AM it becomes 3:00 AM.")
+        october, december = (
+            datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK),
+            datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK),
+        )
+        self.assertEqual(
+            self.say("when do the clocks change", october),
+            "The clocks go **back an hour** on Sunday, 1 November 2026: at 2:00 AM it becomes 1:00 AM.",
+        )
+        self.assertEqual(
+            self.say("when does daylight saving start", december),
+            "The clocks go **forward an hour** on Sunday, 14 March 2027: at 2:00 AM it becomes 3:00 AM.",
+        )
         london = ZoneInfo("Europe/London")
-        self.assertIn("on Sunday, 25 October 2026", self.say("when is daylight saving time",
-                                                             datetime(2026, 10, 11, 12, tzinfo=london), london))
+        self.assertIn(
+            "on Sunday, 25 October 2026",
+            self.say("when is daylight saving time", datetime(2026, 10, 11, 12, tzinfo=london), london),
+        )
         howe = ZoneInfo("Australia/Lord_Howe")
-        self.assertIn("**back 30 minutes**", self.say("when do the clocks go back",
-                                                      datetime(2026, 10, 11, 12, tzinfo=howe), howe))
+        self.assertIn(
+            "**back 30 minutes**", self.say("when do the clocks go back", datetime(2026, 10, 11, 12, tzinfo=howe), howe)
+        )
         kolkata = ZoneInfo("Asia/Kolkata")
-        self.assertIn("no daylight saving", self.say("when is the time change",
-                                                     datetime(2026, 10, 11, 12, tzinfo=kolkata), kolkata))
+        self.assertIn(
+            "no daylight saving",
+            self.say("when is the time change", datetime(2026, 10, 11, 12, tzinfo=kolkata), kolkata),
+        )
 
     def test_the_direction_asked_for_is_the_one_answered(self) -> None:
-        """"when does daylight saving start" in October answered November's change back (Codex's review)."""
-        october, december = (datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK), datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK))
+        """ "when does daylight saving start" in October answered November's change back (Codex's review)."""
+        october, december = (
+            datetime(2026, 10, 11, 12, tzinfo=self.NEW_YORK),
+            datetime(2026, 12, 1, 12, tzinfo=self.NEW_YORK),
+        )
         for text, moment, answer in (
-                ("when does daylight saving start", october, "**forward an hour** on Sunday, 14 March 2027"),
-                ("when do we put the clocks forward", october, "**forward an hour** on Sunday, 14 March 2027"),
-                ("when does dst end", october, "**back an hour** on Sunday, 1 November 2026"),
-                ("when do the clocks go back", december, "**back an hour** on Sunday, 7 November 2027"),
-                # Unqualified: the next one, whichever way.
-                ("when do the clocks change", december, "**forward an hour** on Sunday, 14 March 2027")):
+            ("when does daylight saving start", october, "**forward an hour** on Sunday, 14 March 2027"),
+            ("when do we put the clocks forward", october, "**forward an hour** on Sunday, 14 March 2027"),
+            ("when does dst end", october, "**back an hour** on Sunday, 1 November 2026"),
+            ("when do the clocks go back", december, "**back an hour** on Sunday, 7 November 2027"),
+            # Unqualified: the next one, whichever way.
+            ("when do the clocks change", december, "**forward an hour** on Sunday, 14 March 2027"),
+        ):
             with self.subTest(text=text, on=moment.date()):
                 self.assertIn(answer, self.say(text, moment))
         # Daylight saving starts with the clocks going forward in the south too.
         sydney = ZoneInfo("Australia/Sydney")
-        self.assertIn("**forward an hour** on Sunday, 3 October 2027",
-                      self.say("when does daylight saving start", datetime(2026, 10, 11, 12, tzinfo=sydney), sydney))
+        self.assertIn(
+            "**forward an hour** on Sunday, 3 October 2027",
+            self.say("when does daylight saving start", datetime(2026, 10, 11, 12, tzinfo=sydney), sydney),
+        )
 
     def test_only_these_questions_are_taken(self) -> None:
         router = HeuristicPlannerProvider()
-        for text in ("when is daylight saving time", "when does dst end", "when do we change the clocks",
-                     "when do clocks spring forward", "what time will it be in 3 hours"):
+        for text in (
+            "when is daylight saving time",
+            "when does dst end",
+            "when do we change the clocks",
+            "when do clocks spring forward",
+            "what time will it be in 3 hours",
+        ):
             with self.subTest(text):
                 self.assertEqual(router.plan(text, "", {}).command, f"time {text}")
-        for text in ("when is the clock appointment", "when does the store close", "what time is the meeting in 3 hours",
-                     "what time is it in 99999999999 days"):
+        for text in (
+            "when is the clock appointment",
+            "when does the store close",
+            "what time is the meeting in 3 hours",
+            "what time is it in 99999999999 days",
+        ):
             with self.subTest(text):
                 self.assertFalse(asks_the_time(text))
 
@@ -274,12 +322,17 @@ class RoutingTests(unittest.TestCase):
     def test_a_sentence_that_only_starts_with_the_word_is_not_a_clock_question(self) -> None:
         # The pattern stopped at the time word, so these read the clock - and "time for a
         # break" failed with "I do not know the time zone 'a break'".
-        for text in ("time management tips", "date night ideas", "time for a break",
-                     "day trip ideas", "time flies"):
+        for text in ("time management tips", "date night ideas", "time for a break", "day trip ideas", "time flies"):
             self.assertFalse(asks_the_time(text), text)
-        for text in ("what's the time?", "what day is it today", "time in london right now",
-                     "whats the time please", "could you please tell me what time it is",
-                     "do you know what time it is", "wat time is it"):
+        for text in (
+            "what's the time?",
+            "what day is it today",
+            "time in london right now",
+            "whats the time please",
+            "could you please tell me what time it is",
+            "do you know what time it is",
+            "wat time is it",
+        ):
             self.assertTrue(asks_the_time(text), text)
 
 
@@ -296,7 +349,9 @@ class PromptStampTests(unittest.TestCase):
         from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 
         provider = OpenAICompatiblePlannerProvider(
-            "k", "m", base_url="https://example.invalid/v1",
+            "k",
+            "m",
+            base_url="https://example.invalid/v1",
             transport=lambda payload: captured.append(payload) or "ok",
         )
         provider.answer("hello", {})
@@ -378,6 +433,11 @@ class BackReferenceSubjectTests(unittest.TestCase):
     def test_a_request_that_only_points_is(self) -> None:
         from laptop_agent.agents.common import _has_own_subject
 
-        for text in ("create an image for this", "draw me a picture of this",
-                     "make another one", "image it", "same again please"):
+        for text in (
+            "create an image for this",
+            "draw me a picture of this",
+            "make another one",
+            "image it",
+            "same again please",
+        ):
             self.assertFalse(_has_own_subject(text), text)

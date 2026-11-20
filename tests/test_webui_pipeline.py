@@ -36,15 +36,17 @@ class PipelineApiTests(unittest.TestCase):
 
     def _post(self, payload: dict) -> dict:
         req = urllib.request.Request(
-            self.base + "/api/pipeline", data=json.dumps(payload).encode(),
+            self.base + "/api/pipeline",
+            data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
         )
         return json.loads(urllib.request.urlopen(req, timeout=15).read())
 
     def test_resume_set_and_live_scoring(self) -> None:
         # A lead with a description but no resume -> no ATS score.
-        self.tracker.add("Acme", role="ML Engineer", stage="lead",
-                         description="Python, Kubernetes and machine learning required.")
+        self.tracker.add(
+            "Acme", role="ML Engineer", stage="lead", description="Python, Kubernetes and machine learning required."
+        )
         snap = self._get()
         self.assertFalse(snap["resume"]["present"])
 

@@ -15,16 +15,30 @@ HttpJson = Callable[[str], dict]
 
 # OpenStreetMap category -> Overpass tag filter, for "find <X> near <place>".
 _CATEGORY_TAGS = {
-    "hotel": 'tourism=hotel', "hotels": 'tourism=hotel', "motel": 'tourism=motel',
-    "hostel": 'tourism=hostel', "stay": 'tourism=hotel', "lodging": 'tourism=hotel',
-    "restaurant": 'amenity=restaurant', "restaurants": 'amenity=restaurant', "food": 'amenity=restaurant',
-    "cafe": 'amenity=cafe', "coffee": 'amenity=cafe',
-    "bar": 'amenity=bar', "pub": 'amenity=pub',
-    "gas": 'amenity=fuel', "fuel": 'amenity=fuel', "petrol": 'amenity=fuel',
-    "pharmacy": 'amenity=pharmacy', "hospital": 'amenity=hospital',
-    "atm": 'amenity=atm', "bank": 'amenity=bank', "parking": 'amenity=parking',
-    "supermarket": 'shop=supermarket', "grocery": 'shop=supermarket',
-    "gym": 'leisure=fitness_centre',
+    "hotel": "tourism=hotel",
+    "hotels": "tourism=hotel",
+    "motel": "tourism=motel",
+    "hostel": "tourism=hostel",
+    "stay": "tourism=hotel",
+    "lodging": "tourism=hotel",
+    "restaurant": "amenity=restaurant",
+    "restaurants": "amenity=restaurant",
+    "food": "amenity=restaurant",
+    "cafe": "amenity=cafe",
+    "coffee": "amenity=cafe",
+    "bar": "amenity=bar",
+    "pub": "amenity=pub",
+    "gas": "amenity=fuel",
+    "fuel": "amenity=fuel",
+    "petrol": "amenity=fuel",
+    "pharmacy": "amenity=pharmacy",
+    "hospital": "amenity=hospital",
+    "atm": "amenity=atm",
+    "bank": "amenity=bank",
+    "parking": "amenity=parking",
+    "supermarket": "shop=supermarket",
+    "grocery": "shop=supermarket",
+    "gym": "leisure=fitness_centre",
 }
 
 # A start that means the user's own location rather than a place to look up.
@@ -70,7 +84,9 @@ class TravelTool:
     def _guard(self, action: str) -> None:
         if self._gate is not None:
             self._gate.require(
-                ApprovalRequest(action=action, risk=RiskLevel.MEDIUM, reason="Travel lookups call external map services.")
+                ApprovalRequest(
+                    action=action, risk=RiskLevel.MEDIUM, reason="Travel lookups call external map services."
+                )
             )
 
     def _geocode(self, place: str) -> dict | None:
@@ -109,7 +125,10 @@ class TravelTool:
         if a is None:
             return ToolResult.failure(
                 "I couldn't tell where you are from your IP address. Say where you're starting from: "
-                "\"distance <from> to <to>\"." if here else f"I couldn't find '{origin}'.")
+                '"distance <from> to <to>".'
+                if here
+                else f"I couldn't find '{origin}'."
+            )
         if b is None:
             return ToolResult.failure(f"I couldn't find '{destination}'.")
         straight = _haversine_mi(a["latitude"], a["longitude"], b["latitude"], b["longitude"])
@@ -126,9 +145,12 @@ class TravelTool:
             message = f"**{a['label']} → {b['label']}** — straight-line {round(straight)} mi (no driving route found, e.g. over water)."
         return ToolResult.success(
             message,
-            origin=a["label"], destination=b["label"],
-            origin_lat=a["latitude"], origin_lon=a["longitude"],
-            destination_lat=b["latitude"], destination_lon=b["longitude"],
+            origin=a["label"],
+            destination=b["label"],
+            origin_lat=a["latitude"],
+            origin_lon=a["longitude"],
+            destination_lat=b["latitude"],
+            destination_lon=b["longitude"],
             straight_line_mi=round(straight, 1),
             driving_mi=round(drive_mi, 1) if drive_mi is not None else None,
             driving_seconds=round(drive_dur) if drive_dur is not None else None,
@@ -163,9 +185,8 @@ class TravelTool:
         labels = [s["label"] for s in spots]
         points = [{"label": s["label"], "latitude": s["latitude"], "longitude": s["longitude"]} for s in spots]
         box = _bbox([(s["latitude"], s["longitude"]) for s in spots])
-        directions = (
-            "https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route="
-            + "%3B".join(f"{s['latitude']}%2C{s['longitude']}" for s in spots)
+        directions = "https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=" + "%3B".join(
+            f"{s['latitude']}%2C{s['longitude']}" for s in spots
         )
         lines = ["**Trip plan:** " + " → ".join(labels)]
         legs_data: list[dict] = []
@@ -174,25 +195,43 @@ class TravelTool:
             for i, leg in enumerate(route["legs"]):
                 mi, dur = leg["distance"] / 1609.34, leg["duration"]
                 lines.append(f"- {labels[i]} → {labels[i + 1]}: {round(mi)} mi, ~{_human_duration(dur)}")
-                legs_data.append({"from": labels[i], "to": labels[i + 1],
-                                  "miles": round(mi, 1), "seconds": round(dur)})
+                legs_data.append({"from": labels[i], "to": labels[i + 1], "miles": round(mi, 1), "seconds": round(dur)})
             total_mi, total_dur = route["distance"] / 1609.34, route["duration"]
-            lines.append(f"**Total: {round(total_mi)} mi, ~{_human_duration(total_dur)}** over {len(route['legs'])} legs")
+            lines.append(
+                f"**Total: {round(total_mi)} mi, ~{_human_duration(total_dur)}** over {len(route['legs'])} legs"
+            )
             geometry = _downsample(((route.get("geometry") or {}).get("coordinates") or []), 240)
-            return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data, points=points,
-                                      bbox=box, geometry=geometry, directions=directions,
-                                      total_mi=round(total_mi, 1), total_seconds=round(total_dur))
+            return ToolResult.success(
+                "\n".join(lines),
+                stops=labels,
+                legs=legs_data,
+                points=points,
+                bbox=box,
+                geometry=geometry,
+                directions=directions,
+                total_mi=round(total_mi, 1),
+                total_seconds=round(total_dur),
+            )
         total = 0.0
         for i in range(len(spots) - 1):
-            mi = _haversine_mi(spots[i]["latitude"], spots[i]["longitude"],
-                               spots[i + 1]["latitude"], spots[i + 1]["longitude"])
+            mi = _haversine_mi(
+                spots[i]["latitude"], spots[i]["longitude"], spots[i + 1]["latitude"], spots[i + 1]["longitude"]
+            )
             total += mi
             lines.append(f"- {labels[i]} → {labels[i + 1]}: {round(mi)} mi straight-line")
             legs_data.append({"from": labels[i], "to": labels[i + 1], "miles": round(mi, 1), "seconds": None})
         lines.append(f"**Total: {round(total)} mi straight-line** (no driving route found)")
-        return ToolResult.success("\n".join(lines), stops=labels, legs=legs_data, points=points,
-                                  bbox=box, geometry=[], directions=directions,
-                                  total_mi=round(total, 1), total_seconds=None)
+        return ToolResult.success(
+            "\n".join(lines),
+            stops=labels,
+            legs=legs_data,
+            points=points,
+            bbox=box,
+            geometry=[],
+            directions=directions,
+            total_mi=round(total, 1),
+            total_seconds=None,
+        )
 
     def nearby(self, category: str, near: str, limit: int = 8, radius_m: int = 8000) -> ToolResult:
         tag = _CATEGORY_TAGS.get(category.strip().lower())
@@ -212,7 +251,9 @@ class TravelTool:
             return ToolResult.failure("I couldn't determine your location from your IP address.")
         return ToolResult.success(
             f"You appear to be near **{spot['label']}** (approximate, by IP).",
-            label=spot["label"], latitude=spot["latitude"], longitude=spot["longitude"],
+            label=spot["label"],
+            latitude=spot["latitude"],
+            longitude=spot["longitude"],
         )
 
     def around(self, category: str, limit: int = 8, radius_m: int = 8000) -> ToolResult:
@@ -253,7 +294,9 @@ class TravelTool:
             if drive_mi is not None:
                 message += f" — {round(drive_mi)} mi, ~{_human_duration(drive_dur)} by car"
             return ToolResult.success(
-                message, points=points, bbox=box,
+                message,
+                points=points,
+                bbox=box,
                 embed=_embed_url(box, b["latitude"], b["longitude"]),
                 directions=(
                     "https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route="
@@ -268,8 +311,11 @@ class TravelTool:
         point = {"label": spot["label"], "latitude": spot["latitude"], "longitude": spot["longitude"], "role": "place"}
         box = _bbox([(spot["latitude"], spot["longitude"])])
         return ToolResult.success(
-            f"Map: {spot['label']}", points=[point], bbox=box,
-            embed=_embed_url(box, spot["latitude"], spot["longitude"]), directions=None,
+            f"Map: {spot['label']}",
+            points=[point],
+            bbox=box,
+            embed=_embed_url(box, spot["latitude"], spot["longitude"]),
+            directions=None,
         )
 
     @staticmethod
@@ -292,13 +338,12 @@ class TravelTool:
         lat, lon = data.get("lat"), data.get("lon")
         if lat is None or lon is None:
             return None
-        label = ", ".join(
-            str(part) for part in (data.get("city"), data.get("regionName"), data.get("country")) if part
-        )
+        label = ", ".join(str(part) for part in (data.get("city"), data.get("regionName"), data.get("country")) if part)
         return {"latitude": lat, "longitude": lon, "label": label or "your location"}
 
-    def _nearby_at(self, category: str, tag: str, lat: float, lon: float,
-                   label: str, limit: int, radius_m: int) -> ToolResult:
+    def _nearby_at(
+        self, category: str, tag: str, lat: float, lon: float, label: str, limit: int, radius_m: int
+    ) -> ToolResult:
         key, value = tag.split("=", 1)
         query = (
             f"[out:json][timeout:20];("
@@ -319,8 +364,9 @@ class TravelTool:
             elat = el.get("lat") or (el.get("center") or {}).get("lat")
             elon = el.get("lon") or (el.get("center") or {}).get("lon")
             dist = _haversine_mi(lat, lon, elat, elon) if elat and elon else None
-            found.append({"name": name, "miles": round(dist, 1) if dist is not None else None,
-                          "address": _osm_address(tags)})
+            found.append(
+                {"name": name, "miles": round(dist, 1) if dist is not None else None, "address": _osm_address(tags)}
+            )
         found = [f for f in found if f["miles"] is not None]
         found.sort(key=lambda f: f["miles"])
         found = found[:limit]
@@ -363,8 +409,7 @@ def _bbox(points: list[tuple[float, float]], pad: float = 0.08) -> list[float]:
     if max_lon - min_lon < pad:
         min_lon, max_lon = min_lon - pad, max_lon + pad
     dlat, dlon = (max_lat - min_lat) * 0.15, (max_lon - min_lon) * 0.15
-    return [round(min_lon - dlon, 5), round(min_lat - dlat, 5),
-            round(max_lon + dlon, 5), round(max_lat + dlat, 5)]
+    return [round(min_lon - dlon, 5), round(min_lat - dlat, 5), round(max_lon + dlon, 5), round(max_lat + dlat, 5)]
 
 
 def _downsample(coords: list, max_points: int) -> list:

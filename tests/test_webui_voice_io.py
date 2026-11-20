@@ -40,7 +40,9 @@ class VoiceIoApiTests(unittest.TestCase):
 
     def _post(self, path: str, payload: dict):
         req = urllib.request.Request(
-            self.base + path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN}
+            self.base + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": webui._API_TOKEN},
         )
         return urllib.request.urlopen(req, timeout=15)
 
@@ -62,6 +64,7 @@ class VoiceIoApiTests(unittest.TestCase):
     def test_transcribe_tells_a_broken_engine_from_silence(self) -> None:
         """Both come back `ok: false`, so the page could not tell "nothing was said" from
         "there is no speech engine" - and only the second is worth putting on screen."""
+
         def answer_with(backend) -> dict:
             object.__setattr__(webui._orchestrator.context, "transcribe", TranscribeTool(asr_backend=backend))
             audio = base64.b64encode(b"RIFF\x00\x00\x00\x00WAVEfake").decode()
@@ -70,8 +73,9 @@ class VoiceIoApiTests(unittest.TestCase):
         def no_engine(path):
             raise MissingDependencyError("Speech-to-text needs an engine: pip install laptop-agent[stt]")
 
-        self.addCleanup(object.__setattr__, webui._orchestrator.context, "transcribe",
-                        webui._orchestrator.context.transcribe)
+        self.addCleanup(
+            object.__setattr__, webui._orchestrator.context, "transcribe", webui._orchestrator.context.transcribe
+        )
         silence = answer_with(lambda path: {"text": "", "engine": "fake", "segments": []})
         broken = answer_with(no_engine)
         heard = answer_with(lambda path: {"text": "turn on the lights", "engine": "fake", "segments": []})

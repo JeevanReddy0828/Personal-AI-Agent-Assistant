@@ -23,6 +23,8 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
+from test_everyday_requests import CONTRACT, MUST_STAY_CHAT, Everyday, reached
+
 from laptop_agent import access
 from laptop_agent.access import EVERYDAY_EXACT, EVERYDAY_PREFIX, acting_as, everyday_form, is_personal, refused_command
 from laptop_agent.accounts import AccountStore, Principal
@@ -32,7 +34,6 @@ from laptop_agent.planner.core import Planner
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import SessionStore
 from laptop_agent.tools.base import ToolResult
-from test_everyday_requests import CONTRACT, MUST_STAY_CHAT, Everyday, reached
 
 PERSONAL = Principal("p1", "family", "personal")
 OTHER = Principal("p2", "guest", "personal")
@@ -80,24 +81,46 @@ class GateTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     def test_developer_commands_are_refused_to_a_personal_account(self) -> None:
         with acting_as(PERSONAL):
-            for command, form in (("latency", "latency"), ("  Latency ", "latency"), ("traces", "traces"),
-                                  ("agent run tidy my files", "agent"), ("autopilot workflow x", "autopilot"),
-                                  ("schedule list", "schedule list"), ("email unread", "email"),
-                                  ("summarize my inbox", "summarize my inbox"), ("knowledge prune", "knowledge prune"),
-                                  ("jobright pull", "jobright pull"), ("audit notes", "audit notes"),
-                                  ("read file C:\\Users\\me\\.env", "read file"), ("process file notes.txt", "process file"),
-                                  ("what's on my screen", "what's on my screen"), ("take a photo", "take a photo"),
-                                  ("run command dir", "run command"), ("play music lofi", "play music"),
-                                  ("ask knowledge what is this", "ask knowledge"), ("read note Plans", "read note")):
+            for command, form in (
+                ("latency", "latency"),
+                ("  Latency ", "latency"),
+                ("traces", "traces"),
+                ("agent run tidy my files", "agent"),
+                ("autopilot workflow x", "autopilot"),
+                ("schedule list", "schedule list"),
+                ("email unread", "email"),
+                ("summarize my inbox", "summarize my inbox"),
+                ("knowledge prune", "knowledge prune"),
+                ("jobright pull", "jobright pull"),
+                ("audit notes", "audit notes"),
+                ("read file C:\\Users\\me\\.env", "read file"),
+                ("process file notes.txt", "process file"),
+                ("what's on my screen", "what's on my screen"),
+                ("take a photo", "take a photo"),
+                ("run command dir", "run command"),
+                ("play music lofi", "play music"),
+                ("ask knowledge what is this", "ask knowledge"),
+                ("read note Plans", "read note"),
+            ):
                 with self.subTest(command):
                     self.assertEqual(refused_command(command), form)
 
     def test_everyday_words_that_start_like_a_developer_command_are_not(self) -> None:
         with acting_as(PERSONAL):
-            for command in ("speed of light in km/s", "errors in my essay", "agentic ai explained",
-                            "what time is it", "remind me at 5pm to call mom", "tasks for today are fun",
-                            "diagnose why my plant is wilting", "knowledge is power", "emails are annoying",
-                            "notes about the meeting", "list shopping", "convert 5 miles to km"):
+            for command in (
+                "speed of light in km/s",
+                "errors in my essay",
+                "agentic ai explained",
+                "what time is it",
+                "remind me at 5pm to call mom",
+                "tasks for today are fun",
+                "diagnose why my plant is wilting",
+                "knowledge is power",
+                "emails are annoying",
+                "notes about the meeting",
+                "list shopping",
+                "convert 5 miles to km",
+            ):
                 with self.subTest(command):
                     self.assertIsNone(refused_command(command))
 
@@ -123,11 +146,19 @@ def _on_lowered(node: ast.AST) -> bool:
 def _names_a_form(test: ast.AST) -> bool:
     """Whether a branch is chosen by a literal form of `lowered` (possibly among others)."""
     for node in ast.walk(test):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "startswith" and _on_lowered(node.func.value)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and _on_lowered(node.func.value)
+        ):
             return True
-        if (isinstance(node, ast.Compare) and _on_lowered(node.left)
-                and isinstance(node.ops[0], (ast.Eq, ast.In)) and _strings(node.comparators[0])):
+        if (
+            isinstance(node, ast.Compare)
+            and _on_lowered(node.left)
+            and isinstance(node.ops[0], (ast.Eq, ast.In))
+            and _strings(node.comparators[0])
+        ):
             return True
     return False
 
@@ -137,8 +168,11 @@ def _only_forms(test: ast.AST) -> bool:
     (`lowered == "record" or re.fullmatch(r"record \\d+", lowered)`) is a branch chosen by a
     pattern too, and was counted as neither."""
     return _names_a_form(test) and all(
-        _names_a_form(value) for node in ast.walk(test)
-        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) for value in node.values)
+        _names_a_form(value)
+        for node in ast.walk(test)
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
+        for value in node.values
+    )
 
 
 def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
@@ -150,21 +184,30 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
     for group in AgentOrchestrator._DISPATCH:
         function = ast.parse(textwrap.dedent(inspect.getsource(group))).body[0]
         for node in ast.walk(function):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "startswith" and _on_lowered(node.func.value)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "startswith"
+                and _on_lowered(node.func.value)
+            ):
                 prefixes |= _strings(node.args[0])
-            elif (isinstance(node, ast.Compare) and _on_lowered(node.left)
-                  and isinstance(node.ops[0], (ast.Eq, ast.In))):
+            elif isinstance(node, ast.Compare) and _on_lowered(node.left) and isinstance(node.ops[0], (ast.Eq, ast.In)):
                 exact |= _strings(node.comparators[0])
             elif isinstance(node, ast.For) and isinstance(node.target, ast.Name) and _strings(node.iter):
                 # `for verb in ("solve ", "advise ", ...): if lowered.startswith(verb)`
-                if any(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-                       and call.func.attr == "startswith" and _on_lowered(call.func.value)
-                       and isinstance(call.args[0], ast.Name) and call.args[0].id == node.target.id
-                       for call in ast.walk(node)):
+                if any(
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "startswith"
+                    and _on_lowered(call.func.value)
+                    and isinstance(call.args[0], ast.Name)
+                    and call.args[0].id == node.target.id
+                    for call in ast.walk(node)
+                ):
                     prefixes |= _strings(node.iter)
-        count = sum(1 for statement in function.body
-                    if isinstance(statement, ast.If) and not _only_forms(statement.test))
+        count = sum(
+            1 for statement in function.body if isinstance(statement, ast.If) and not _only_forms(statement.test)
+        )
         if count:
             other[group.__name__] = count
     return exact, prefixes, other
@@ -177,8 +220,12 @@ def dispatch_forms() -> tuple[set[str], set[str], dict[str, int]]:
 # <file.csv>`, ANALYTICS-03) and the table diagnostics (`what drives` / `anomalies in` a
 # <file.csv>, ANALYTICS-04) and a breakdown ("total revenue by region in sales.csv") - each
 # reads a file - by default-deny, which refuses any dispatched command that is not marked everyday.
-OTHER_BRANCHES = {"_dispatch_automation": 1, "_dispatch_desktop": 1, "_dispatch_file_intelligence": 4,
-                  "_dispatch_personal": 7}
+OTHER_BRANCHES = {
+    "_dispatch_automation": 1,
+    "_dispatch_desktop": 1,
+    "_dispatch_file_intelligence": 4,
+    "_dispatch_personal": 7,
+}
 
 
 class DispatchMirrorTests(unittest.TestCase):
@@ -218,14 +265,18 @@ class DispatchMirrorTests(unittest.TestCase):
                     undecided.append(form)
                 else:
                     self.assertTrue(everyday_form(sample), form)
-        self.assertEqual(undecided, [], "forms nobody decided on: refuse them in access._DEV_* or "
-                                        "mark them in access.EVERYDAY_*")
+        self.assertEqual(
+            undecided, [], "forms nobody decided on: refuse them in access._DEV_* or mark them in access.EVERYDAY_*"
+        )
 
     def test_no_branch_escapes_the_scan(self) -> None:
-        self.assertEqual(self.other, OTHER_BRANCHES,
-                         "a dispatcher branch is chosen by a pattern or a parser: decide whether a "
-                         "personal account may run it, refuse its forms in access if not, then "
-                         "update OTHER_BRANCHES")
+        self.assertEqual(
+            self.other,
+            OTHER_BRANCHES,
+            "a dispatcher branch is chosen by a pattern or a parser: decide whether a "
+            "personal account may run it, refuse its forms in access if not, then "
+            "update OTHER_BRANCHES",
+        )
 
 
 class SignedOutTests(unittest.TestCase):
@@ -247,7 +298,7 @@ class SignedOutTests(unittest.TestCase):
         self.assertNotIn("colour", self.facts())
 
     def test_nothing_changes_without_a_principal_or_while_the_session_stands(self) -> None:
-        with acting_as(None, lambda: False):     # the CLI and the ticker: no session to end
+        with acting_as(None, lambda: False):  # the CLI and the ticker: no session to end
             self.assertTrue(self.everyday.say("remember colour = blue")[0].ok)
         with acting_as(DEV, lambda: True):
             self.assertTrue(self.everyday.say("remember shape = round")[0].ok)
@@ -262,10 +313,11 @@ class SignedOutTests(unittest.TestCase):
             def answer(self, text, memory_profile, model=None, history=None, **kwargs):
                 Brain.calls += 1
                 if Brain.calls == 2:
-                    ended.append(True)   # the owner disables the account while it thinks
-                return {1: "THOUGHT: one\nACTION: remember first_step = done",
-                        2: "THOUGHT: two\nACTION: remember second_step = done"}.get(
-                    Brain.calls, "THOUGHT: done\nFINAL: finished")
+                    ended.append(True)  # the owner disables the account while it thinks
+                return {
+                    1: "THOUGHT: one\nACTION: remember first_step = done",
+                    2: "THOUGHT: two\nACTION: remember second_step = done",
+                }.get(Brain.calls, "THOUGHT: done\nFINAL: finished")
 
         self.everyday.orchestrator.smart_planner = Planner(Brain())
         with acting_as(DEV, lambda: not ended):
@@ -292,7 +344,7 @@ class SignedOutTests(unittest.TestCase):
         save = memory.set_profile_value
 
         def save_then_end(*args, **kwargs):
-            ended.append(True)   # the owner disables the account while the batch runs
+            ended.append(True)  # the owner disables the account while the batch runs
             return save(*args, **kwargs)
 
         with patch.object(memory, "set_profile_value", side_effect=save_then_end):
@@ -322,7 +374,10 @@ class SignedOutTests(unittest.TestCase):
                     ended.append(True)
                     return result
 
-                with patch.object(memory, "set_profile_value", side_effect=save_then_end),                         patch.object(orchestrator.autopilot_planner, "is_safe_command", return_value=True):
+                with (
+                    patch.object(memory, "set_profile_value", side_effect=save_then_end),
+                    patch.object(orchestrator.autopilot_planner, "is_safe_command", return_value=True),
+                ):
                     with acting_as(DEV, lambda: not ended):
                         with self.assertRaises(access.SignedOut):
                             run()
@@ -369,8 +424,9 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertEqual(self.say(PERSONAL, "run command dir")[0].data.get("refused"), "run command")
         self.assertEqual(self.everyday.approvals, [], "a personal account was offered the approval card")
         self.say(DEV, "run command dir")
-        self.assertEqual([risk for risk, _ in self.everyday.approvals], ["critical"],
-                         "a developer is still asked, as before")
+        self.assertEqual(
+            [risk for risk, _ in self.everyday.approvals], ["critical"], "a developer is still asked, as before"
+        )
 
     def test_a_risky_tool_reached_some_other_way_still_stops_at_the_gate(self) -> None:
         # The command check comes first, so this is the backstop: a path to a tool that no
@@ -387,8 +443,10 @@ class ThroughTheAssistantTests(unittest.TestCase):
         # The history comes from the client. Answering "our" question with a time made the
         # command "email unread 5pm" out of a user turn nobody checked, and reading the
         # inbox is MEDIUM, which the gate lets through.
-        history = [{"role": "user", "text": "email unread"},
-                   {"role": "assistant", "text": "I could not find a time in that."}]
+        history = [
+            {"role": "user", "text": "email unread"},
+            {"role": "assistant", "text": "I could not find a time in that."},
+        ]
         result, _ran = self.say(PERSONAL, "5pm", history=history)
         self.assertEqual(result.data.get("refused"), "email", result.message)
         self.assertEqual(self.everyday.approvals, [])
@@ -422,20 +480,37 @@ class ThroughTheAssistantTests(unittest.TestCase):
     def test_each_everyday_branch_chosen_by_a_pattern_runs_directly(self) -> None:
         # One phrase per pattern in `_everyday`: the routing contract names none of these
         # shapes, so dropping one there went unnoticed until this test.
-        for setup in ("add milk to my shopping list", "remind me in 30 minutes to stretch",
-                      "set a timer for 10 minutes"):
+        for setup in (
+            "add milk to my shopping list",
+            "remind me in 30 minutes to stretch",
+            "set a timer for 10 minutes",
+        ):
             self.say(None, setup)
-        for text in ("shopping list", "what's on my list", "how much longer", "what's my name",
-                     "add eggs to the list", "how many days until christmas", "roll a die",
-                     "reminder delete 1"):
+        for text in (
+            "shopping list",
+            "what's on my list",
+            "how much longer",
+            "what's my name",
+            "add eggs to the list",
+            "how many days until christmas",
+            "roll a die",
+            "reminder delete 1",
+        ):
             with self.subTest(text):
                 result, ran = self.say(PERSONAL, text)
                 self.assertEqual(ran, text, f"{text!r} was not dispatched for a personal account")
                 self.assertNotIn("refused", result.data)
 
     def test_everyday_requests_still_work(self) -> None:
-        for text in ("remind me in 10 minutes to stretch", "what's 17 times 23", "set a timer for 5 minutes",
-                     "what time is it", "show my reminders", "weather in Paris", "flip a coin"):
+        for text in (
+            "remind me in 10 minutes to stretch",
+            "what's 17 times 23",
+            "set a timer for 5 minutes",
+            "what time is it",
+            "show my reminders",
+            "weather in Paris",
+            "flip a coin",
+        ):
             with self.subTest(text):
                 result, _ran = self.say(PERSONAL, text)
                 self.assertIsNotNone(result, text)
@@ -445,8 +520,9 @@ class ThroughTheAssistantTests(unittest.TestCase):
         for text in ("remind me in 10 minutes to stretch", "remind me in 20 minutes to drink water"):
             self.say(PERSONAL, text)
         self.say(PERSONAL, "cancel all reminders")
-        self.assertEqual([risk for risk, _ in self.everyday.approvals], ["high"],
-                         "bulk cancelling is everyday: asked, as for anyone")
+        self.assertEqual(
+            [risk for risk, _ in self.everyday.approvals], ["high"], "bulk cancelling is everyday: asked, as for anyone"
+        )
 
 
 class PersonalContractTests(unittest.TestCase):
@@ -551,7 +627,7 @@ class ApprovalScopeTests(unittest.TestCase):
         heard: list[dict] = []
         with acting_as(DEV):
             self.broker.add_listener(heard.append)
-            self.broker.remove_listener(heard.append)   # a new bound method, equal but not identical
+            self.broker.remove_listener(heard.append)  # a new bound method, equal but not identical
         thread, outcome = self.ask(DEV)
         thread.join(2)
         self.assertEqual((heard, outcome), ([], [False]))
@@ -580,7 +656,7 @@ class OverTheWebTests(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2**10, 8, 1))
         sessions = SessionStore(Path(tmp.name) / "sessions.json")
         for name, value in (("ACCOUNTS", accounts), ("SESSIONS", sessions), ("_APPROVALS", ApprovalBroker(timeout=5))):
             patcher = patch.object(self.webui, name, value)
@@ -597,8 +673,9 @@ class OverTheWebTests(unittest.TestCase):
         if body is not None:
             headers.update({"Content-Type": "application/json", "X-Jarvis-Token": self.webui._API_TOKEN})
             data = json.dumps(body).encode()
-        request = urllib.request.Request(self.base + path, data=data, headers=headers,
-                                         method="POST" if body is not None else "GET")
+        request = urllib.request.Request(
+            self.base + path, data=data, headers=headers, method="POST" if body is not None else "GET"
+        )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 raw, status, got = response.read(), response.status, dict(response.headers)
@@ -611,7 +688,9 @@ class OverTheWebTests(unittest.TestCase):
         return status, payload, got
 
     def test_a_personal_session_is_refused_what_a_developer_is_not(self) -> None:
-        self.assertIn("needs a developer account", self.call("personal", "/api/command", {"command": "latency"})[1]["message"])
+        self.assertIn(
+            "needs a developer account", self.call("personal", "/api/command", {"command": "latency"})[1]["message"]
+        )
         self.assertNotIn("developer account", self.call("dev", "/api/command", {"command": "latency"})[1]["message"])
 
     def test_a_personal_session_cannot_run_a_risky_command(self) -> None:

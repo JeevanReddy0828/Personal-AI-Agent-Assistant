@@ -8,6 +8,7 @@ Every call asks: CRITICAL when the tool says it destroys, HIGH otherwise - a ser
 is its own claim, so it never lowers the card. A server inherits only a safe slice of our
 environment, never the .env secrets. A server's text is data shown to the user, never instructions.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -18,8 +19,9 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
@@ -34,9 +36,31 @@ Spawn = Callable[[list[str], dict[str, str]], subprocess.Popen]
 # What a server inherits from us, and nothing else: the whole environment carried the .env secrets
 # (the NVIDIA key, the mail password) into every third-party program (review of #293). The same
 # allowlist the MCP SDK uses; a server that needs a key gets it from its own "env" in mcp.json.
-_INHERITED = ("APPDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE",
-              "PROGRAMFILES", "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "TMP", "USERNAME", "USERPROFILE", "WINDIR",
-              "HOME", "LOGNAME", "SHELL", "TERM", "USER", "LANG", "LC_ALL", "TMPDIR")
+_INHERITED = (
+    "APPDATA",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "PROCESSOR_ARCHITECTURE",
+    "PROGRAMFILES",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "USERPROFILE",
+    "WINDIR",
+    "HOME",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+)
 _FAILURES = (OSError, TimeoutError, ConnectionError, RuntimeError, ValueError)
 
 
@@ -47,9 +71,18 @@ def server_env(extra: dict[str, str]) -> dict[str, str]:
 def _spawn(argv: list[str], env: dict[str, str]) -> subprocess.Popen:
     # Windows does not resolve "npx" to npx.cmd for Popen, which is how Claude Desktop configs say it.
     program = shutil.which(argv[0], path=env.get("PATH")) or argv[0]
-    return subprocess.Popen([program, *argv[1:]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", bufsize=1,
-                            env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return subprocess.Popen(
+        [program, *argv[1:]],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=env,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
 
 
 class McpServer:
@@ -63,11 +96,13 @@ class McpServer:
         self._noted_noise = False
         threading.Thread(target=self._read, name=f"mcp-{name}", daemon=True).start()
         try:
-            self.request("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
-                                        "clientInfo": {"name": "jarvis", "version": "1"}})
+            self.request(
+                "initialize",
+                {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "jarvis", "version": "1"}},
+            )
             self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         except BaseException:
-            self.close()          # it never joins the running set, so nothing else would end it
+            self.close()  # it never joins the running set, so nothing else would end it
             raise
 
     @property
@@ -88,10 +123,17 @@ class McpServer:
         if message.get("method") == "ping":
             self._send({"jsonrpc": "2.0", "id": message["id"], "result": {}})
         else:
-            self._send({"jsonrpc": "2.0", "id": message["id"],
-                        "error": {"code": -32601, "message": "not supported by this client"}})
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "error": {"code": -32601, "message": "not supported by this client"},
+                }
+            )
 
-    def request(self, method: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> dict[str, Any]:
+    def request(
+        self, method: str, params: dict[str, Any] | None = None, timeout: float | None = None
+    ) -> dict[str, Any]:
         """Our request's response. The deadline is for the whole wait, not per line - a server that
         logs or sends progress forever used to hold the request, and its lock, for good - and Stop
         ends it."""
@@ -115,13 +157,13 @@ class McpServer:
                 try:
                     message = json.loads(line)
                 except ValueError as exc:
-                    if not self._noted_noise:   # one record per server, not one per log line
+                    if not self._noted_noise:  # one record per server, not one per log line
                         self._noted_noise = True
                         record_failure("mcp/stdout", exc, server=self.name)
                     continue
                 if not isinstance(message, dict):
                     continue
-                if "method" in message:          # the server's own request or notification, never our answer
+                if "method" in message:  # the server's own request or notification, never our answer
                     if "id" in message:
                         self._answer(message)
                     continue
@@ -178,8 +220,8 @@ class McpTool:
         self._spawn = spawn
         self._running: dict[str, McpServer] = {}
         self._tools: dict[str, list[dict[str, Any]]] = {}
-        self._starting = threading.Lock()   # two requests at once would start two of the same server
-        atexit.register(self.close)   # a server is a child process, which Windows leaves running
+        self._starting = threading.Lock()  # two requests at once would start two of the same server
+        atexit.register(self.close)  # a server is a child process, which Windows leaves running
 
     def _servers(self) -> dict[str, tuple[list[str], dict[str, str]]] | ToolResult:
         try:
@@ -187,8 +229,10 @@ class McpTool:
         except ValueError as exc:
             return ToolResult.failure(f"{self._config} isn't valid JSON: {exc}")
         if not servers:
-            return ToolResult.failure(f"No MCP servers are set up. Add them to {self._config} as "
-                                      "{\"mcpServers\": {\"name\": {\"command\": \"...\", \"args\": [...]}}}.")
+            return ToolResult.failure(
+                f"No MCP servers are set up. Add them to {self._config} as "
+                '{"mcpServers": {"name": {"command": "...", "args": [...]}}}.'
+            )
         return servers
 
     def _server(self, name: str, argv: list[str], env: dict[str, str]) -> McpServer:
@@ -204,9 +248,14 @@ class McpTool:
                 running.close()
                 del self._running[name]
                 self._tools.pop(name, None)
-            self._gate.require(ApprovalRequest(action=f"Start MCP server {name}", risk=RiskLevel.HIGH,
-                                               reason="This runs the program configured for it in mcp.json.",
-                                               preview=" ".join(argv)))
+            self._gate.require(
+                ApprovalRequest(
+                    action=f"Start MCP server {name}",
+                    risk=RiskLevel.HIGH,
+                    reason="This runs the program configured for it in mcp.json.",
+                    preview=" ".join(argv),
+                )
+            )
             started = McpServer(name, argv, env, self._spawn)
             try:
                 tools = started.tools()
@@ -225,7 +274,7 @@ class McpTool:
             try:
                 self._server(name, argv, env)
             except ApprovalDenied:
-                raise                    # a refusal is the user's answer, not a server that failed
+                raise  # a refusal is the user's answer, not a server that failed
             except _FAILURES as exc:
                 record_failure("mcp/start", exc, server=name)
                 lines.append(f"- **{name}**: not started ({exc})")
@@ -240,11 +289,11 @@ class McpTool:
             return servers
         server = server.strip().lower()
         if server not in servers:
-            return ToolResult.failure(f"There's no MCP server called {server!r}. Say \"mcp\" to see them.")
+            return ToolResult.failure(f'There\'s no MCP server called {server!r}. Say "mcp" to see them.')
         try:
             args = json.loads(arguments) if arguments.strip() else {}
         except ValueError:
-            return ToolResult.failure("The arguments must be JSON, for example {\"query\": \"cube\"}.")
+            return ToolResult.failure('The arguments must be JSON, for example {"query": "cube"}.')
         if not isinstance(args, dict):
             return ToolResult.failure("The arguments must be a JSON object.")
         try:
@@ -256,23 +305,38 @@ class McpTool:
             return ToolResult.failure(f"{server} wouldn't start: {exc}")
         found = next((item for item in self._tools[server] if item.get("name") == tool), None)
         if found is None:
-            return ToolResult.failure(f"{server} has no tool {tool!r}. It has: "
-                                      + (", ".join(str(item.get("name", "?")) for item in self._tools[server])
-                                         or "none") + ".")
+            return ToolResult.failure(
+                f"{server} has no tool {tool!r}. It has: "
+                + (", ".join(str(item.get("name", "?")) for item in self._tools[server]) or "none")
+                + "."
+            )
         preview = json.dumps(args, indent=2)
-        if len(preview) > MAX_PREVIEW:   # never cut silently: the part that matters may be the tail
-            preview = (preview[:MAX_PREVIEW] + f"\n… CUT: {len(preview) - MAX_PREVIEW:,} more characters of "
-                       "arguments are not shown. Deny unless you know what they are.")
-        self._gate.require(ApprovalRequest(action=f"Use {server}'s tool {tool}", risk=_risk(found),
-                                           reason=str(found.get("description") or "An MCP server's tool.")[:300],
-                                           preview=preview))
+        if len(preview) > MAX_PREVIEW:  # never cut silently: the part that matters may be the tail
+            preview = (
+                preview[:MAX_PREVIEW] + f"\n… CUT: {len(preview) - MAX_PREVIEW:,} more characters of "
+                "arguments are not shown. Deny unless you know what they are."
+            )
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Use {server}'s tool {tool}",
+                risk=_risk(found),
+                reason=str(found.get("description") or "An MCP server's tool.")[:300],
+                preview=preview,
+            )
+        )
         try:
             result = running.request("tools/call", {"name": tool, "arguments": args})
         except _FAILURES as exc:
             record_failure("mcp/call", exc, server=server, tool=tool)
             return ToolResult.failure(f"{server}'s {tool} failed: {exc}")
-        text = "\n".join(str(part.get("text", "")) for part in result.get("content") or []
-                         if isinstance(part, dict) and part.get("type") == "text").strip() or "(no text in the reply)"
+        text = (
+            "\n".join(
+                str(part.get("text", ""))
+                for part in result.get("content") or []
+                if isinstance(part, dict) and part.get("type") == "text"
+            ).strip()
+            or "(no text in the reply)"
+        )
         if len(text) > MAX_TEXT:
             text = text[:MAX_TEXT] + f"\n\n… ({len(text):,} characters in all)"
         if result.get("isError"):

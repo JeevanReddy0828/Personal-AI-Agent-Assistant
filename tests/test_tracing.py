@@ -17,11 +17,19 @@ class TraceRollupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             store = TraceStore(Path(raw) / "traces.json", max_traces=2)
             store.add(TurnTrace(at="2026-10-01T05:10:00+00:00", model="smart", total_ms=900, ttft_ms=400))
-            store.add(TurnTrace(at="2026-10-01T05:40:00+00:00", model="fast", requested_model="smart",
-                                degraded=True, total_ms=3000, ttft_ms=1500))
+            store.add(
+                TurnTrace(
+                    at="2026-10-01T05:40:00+00:00",
+                    model="fast",
+                    requested_model="smart",
+                    degraded=True,
+                    total_ms=3000,
+                    ttft_ms=1500,
+                )
+            )
             store.add(TurnTrace(at="2026-10-01T05:50:00+00:00", model="smart", ok=False, total_ms=40000))
             store.add(TurnTrace(at="2026-10-01T06:01:00+00:00", kind="command", total_ms=250))
-            rows = TraceStore(Path(raw) / "traces.json").hourly()   # outlives the ring and a reload
+            rows = TraceStore(Path(raw) / "traces.json").hourly()  # outlives the ring and a reload
         self.assertEqual(len(rows), 2)
         smart, command = rows
         self.assertEqual((smart["hour"], smart["kind"], smart["tier"]), ("2026-10-01T05", "chat", "smart"))
@@ -35,9 +43,9 @@ class TraceRollupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             store = TraceStore(Path(raw) / "traces.json")
             store.add(TurnTrace(at="2026-07-01T05:00:00+00:00", total_ms=100))
-            store.add(TurnTrace(at="2026-09-28T05:00:00+00:00", total_ms=100))   # 89 days on
+            store.add(TurnTrace(at="2026-09-28T05:00:00+00:00", total_ms=100))  # 89 days on
             self.assertEqual(len(store.hourly()), 2)
-            store.add(TurnTrace(at="2026-09-30T06:00:00+00:00", total_ms=100))   # 91 days on
+            store.add(TurnTrace(at="2026-09-30T06:00:00+00:00", total_ms=100))  # 91 days on
             self.assertEqual([row["hour"] for row in store.hourly()], ["2026-09-28T05", "2026-09-30T06"])
             self.assertNotIn("2026-07-01", store.timings_path.read_text(encoding="utf-8"))
 
@@ -48,8 +56,9 @@ class TraceRollupTests(unittest.TestCase):
             store.add(TurnTrace(at="2026-10-01T05:00:00+00:00", kind="command", verb="image"))
             line = json.loads(store.timings_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(set(line), {"at", "kind", "tier", "ok", "degraded", "total_ms", "ttft_ms"})
-            self.assertEqual(set(store.hourly()[0]),
-                             {"hour", "kind", "tier", "turns", "failed", "degraded", "total_ms", "ttft_ms"})
+            self.assertEqual(
+                set(store.hourly()[0]), {"hour", "kind", "tier", "turns", "failed", "degraded", "total_ms", "ttft_ms"}
+            )
 
     def test_a_line_that_cannot_be_read_is_skipped_rather_than_failing_a_turn(self) -> None:
         # A torn last write or a hand edit; the caller guards only OSError, so anything this
@@ -59,7 +68,9 @@ class TraceRollupTests(unittest.TestCase):
             path.with_name("traces_timings.jsonl").write_text(
                 '{"at": "2026-10-01T05:01:00+00:00", "kind": "chat", "tier": "", "ok": true, "degr\n'
                 '{"at": "2026-10-01T05:02:00+00:00", "kind": "chat", "tier": "", "ok": "yes", '
-                '"degraded": false, "total_ms": 5, "ttft_ms": null}\n', encoding="utf-8")
+                '"degraded": false, "total_ms": 5, "ttft_ms": null}\n',
+                encoding="utf-8",
+            )
             store = TraceStore(path)
             store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
             self.assertEqual(store.hourly()[0]["turns"], 1)
@@ -72,8 +83,9 @@ class TraceRollupTests(unittest.TestCase):
             path = Path(raw) / "traces.json"
             fields = '"kind": "chat", "tier": "", "ok": true, "degraded": false, "total_ms": 5, "ttft_ms": null'
             path.with_name("traces_timings.jsonl").write_text(
-                '{"at": "9999-12-31T23:59:59-05:00", ' + fields + '}\n'
-                '{"at": "1969-06-01T00:00:00", ' + fields + '}\n', encoding="utf-8")
+                '{"at": "9999-12-31T23:59:59-05:00", ' + fields + '}\n{"at": "1969-06-01T00:00:00", ' + fields + "}\n",
+                encoding="utf-8",
+            )
             store = TraceStore(path)
             store.add(TurnTrace(at="2026-10-01T05:30:00+00:00", total_ms=40000))
             self.assertEqual([row["turns"] for row in store.hourly()], [1])
@@ -142,8 +154,22 @@ class TurnTraceTests(unittest.TestCase):
         record = trace.record()
         self.assertEqual(
             set(record),
-            {"kind", "verb", "route_source", "route_ms", "tool_ms", "ttft_ms", "total_ms",
-             "model", "requested_model", "degraded", "ok", "at", "tier_source", "tier_ms"},
+            {
+                "kind",
+                "verb",
+                "route_source",
+                "route_ms",
+                "tool_ms",
+                "ttft_ms",
+                "total_ms",
+                "model",
+                "requested_model",
+                "degraded",
+                "ok",
+                "at",
+                "tier_source",
+                "tier_ms",
+            },
         )
 
     def test_the_current_trace_is_scoped(self) -> None:

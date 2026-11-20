@@ -42,6 +42,8 @@ _MONEY = r"(?:\s+(?:dollars?|bucks|euros?|pounds?|rupees?))?"
 def _mean(listed: str) -> str:
     numbers = re.findall(r"\d+(?:\.\d+)?", listed)
     return f"(({'+'.join(numbers)})/{len(numbers)})"
+
+
 _PERCENT = r"\s*(?:%|percent|per\s+cent)"
 _PHRASES = (
     # "increase 80 by 15%", "80 plus 15 percent", "decrease 80 by 15%", "80 minus 15%": a change
@@ -56,26 +58,37 @@ _PHRASES = (
     # "the remainder of 17 divided by 5", "remainder when 17 is divided by 5"
     (rf"\b(?:the\s+)?remainder\s+(?:of|when)\s+{_NUMBER}\s+(?:is\s+)?divided\s+by\s+{_NUMBER}", r"(\1%\2)"),
     # "sum of 1 to 100", "the sum of the numbers from 1 to 100", "add up 1 to 100"
-    (rf"\b(?:(?:the\s+)?sum\s+of|add\s+up)\s+(?:(?:all\s+)?the\s+(?:whole\s+)?numbers\s+)?(?:from\s+)?{_NUMBER}\s+"
-     rf"(?:to|through|thru)\s+{_NUMBER}", lambda m: _range_sum(m.group(1), m.group(2))),
+    (
+        rf"\b(?:(?:the\s+)?sum\s+of|add\s+up)\s+(?:(?:all\s+)?the\s+(?:whole\s+)?numbers\s+)?(?:from\s+)?{_NUMBER}\s+"
+        rf"(?:to|through|thru)\s+{_NUMBER}",
+        lambda m: _range_sum(m.group(1), m.group(2)),
+    ),
     # "1/3 as a decimal"
     (rf"{_NUMBER}\s*/\s*{_NUMBER}\s+(?:as|in|to)\s+(?:a\s+)?decimals?", r"(\1/\2)"),
     # "cube root of 27"
     (rf"\b(?:the\s+)?cube\s+root\s+of\s+{_NUMBER}", r"cbrt(\1)"),
     # "15% of 80", "15 percent of 80", "a 20% tip on 45", "20% tip for 45", "7% sales tax on 49.99"
-    (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+|(?:sales\s+)?tax\s+)?(?:of|on|for)\s+{_NUMBER}",
-     r"(\1/100*\2)"),
+    (
+        rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*(?:tip\s+|(?:sales\s+)?tax\s+)?(?:of|on|for)\s+{_NUMBER}",
+        r"(\1/100*\2)",
+    ),
     # "the tip on 64 dollars at 20 percent", "tax on a 50 bill at 8%": the amount said first.
-    (rf"\b(?:the\s+)?(?:tip|(?:sales\s+)?tax)\s+(?:on|for)\s+(?:an?\s+)?{_NUMBER}{_MONEY}(?:\s+bill)?\s+"
-     rf"(?:at|with)\s+(?:an?\s+)?{_NUMBER}{_PERCENT}", r"(\2/100*\1)"),
+    (
+        rf"\b(?:the\s+)?(?:tip|(?:sales\s+)?tax)\s+(?:on|for)\s+(?:an?\s+)?{_NUMBER}{_MONEY}(?:\s+bill)?\s+"
+        rf"(?:at|with)\s+(?:an?\s+)?{_NUMBER}{_PERCENT}",
+        r"(\2/100*\1)",
+    ),
     # "25% off 80" -> the discounted price
     (rf"{_NUMBER}\s*(?:%|percent|per\s+cent)\s*off\s+{_NUMBER}", r"(\2*(1-\1/100))"),
     # "square root of 144", "the square root of 2", "sqrt 2", "sqrt of 2"
     (rf"\b(?:the\s+)?square\s+root\s+of\s+{_NUMBER}", r"sqrt(\1)"),
     (rf"\bsqrt\s+(?:of\s+)?{_NUMBER}", r"sqrt(\1)"),
     # "split 120 between 4 people", "divide 90 among 3", "120 split 4 ways"
-    (rf"\b(?:split|divide|share)\s+{_NUMBER}{_MONEY}\s+(?:between|among|amongst|by|into|with)\s+{_NUMBER}"
-     r"(?:\s+(?:people|persons|friends|ways|of us))?", r"(\1/\2)"),
+    (
+        rf"\b(?:split|divide|share)\s+{_NUMBER}{_MONEY}\s+(?:between|among|amongst|by|into|with)\s+{_NUMBER}"
+        r"(?:\s+(?:people|persons|friends|ways|of us))?",
+        r"(\1/\2)",
+    ),
     (rf"{_NUMBER}\s+split\s+{_NUMBER}\s+ways", r"(\1/\2)"),
     # "split 90 dollars three ways" - a currency word, and ways with no "between".
     (rf"\b(?:split|divide|share)\s+{_NUMBER}{_MONEY}\s+{_NUMBER}\s+ways", r"(\1/\2)"),
@@ -91,15 +104,24 @@ _PHRASES = (
     (rf"\b(?:double|twice)\s+{_NUMBER}", r"(2*\1)"),
     (rf"\b(?:triple|thrice)\s+{_NUMBER}", r"(3*\1)"),
     # "the average of 4, 8 and 15", "mean of 3 and 5" - kept exact, so 10/3 stays 10/3.
-    (rf"\b(?:the\s+)?(?:average|mean)\s+of\s+({_NUMBER[1:-1]}(?:\s*,\s*(?:and\s+)?{_NUMBER[1:-1]}|\s+and\s+{_NUMBER[1:-1]})+)",
-     lambda m: _mean(m.group(1))),
+    (
+        rf"\b(?:the\s+)?(?:average|mean)\s+of\s+({_NUMBER[1:-1]}(?:\s*,\s*(?:and\s+)?{_NUMBER[1:-1]}|\s+and\s+{_NUMBER[1:-1]})+)",
+        lambda m: _mean(m.group(1)),
+    ),
     # "round 3.14159 to 2 decimals", "round 7.5 to the nearest whole number"
-    (rf"\bround\s+(?:off\s+)?{_NUMBER}\s+to\s+(\d+)\s+(?:decimal\s+places?|decimals?|places?|dp|digits?)",
-     r"round(\1, \2)"),
-    (rf"\bround\s+(?:off\s+)?{_NUMBER}(?:\s+to\s+the\s+nearest\s+(?:whole\s+number|integer|one))?(?=\s*$)", r"round(\1)"),
+    (
+        rf"\bround\s+(?:off\s+)?{_NUMBER}\s+to\s+(\d+)\s+(?:decimal\s+places?|decimals?|places?|dp|digits?)",
+        r"round(\1, \2)",
+    ),
+    (
+        rf"\bround\s+(?:off\s+)?{_NUMBER}(?:\s+to\s+the\s+nearest\s+(?:whole\s+number|integer|one))?(?=\s*$)",
+        r"round(\1)",
+    ),
     # "5 factorial", "the factorial of 10"
-    (rf"\b(?:the\s+)?factorial\s+of\s+{_NUMBER}|{_NUMBER}\s+factorial\b",
-     lambda m: f"factorial({m.group(1) or m.group(2)})"),
+    (
+        rf"\b(?:the\s+)?factorial\s+of\s+{_NUMBER}|{_NUMBER}\s+factorial\b",
+        lambda m: f"factorial({m.group(1) or m.group(2)})",
+    ),
 )
 
 
@@ -135,17 +157,41 @@ def _round(value, places=0):
 def _factorial(n):
     if not float(n).is_integer() or n < 0:
         raise ValueError("factorial needs a whole number that is not negative")
-    if n > 3000:                         # 3000! has 9,131 digits; past that it only costs time
+    if n > 3000:  # 3000! has 9,131 digits; past that it only costs time
         raise ValueError("that factorial is too large to compute safely")
     return math.factorial(int(n))
 
+
 # Dictated numbers: "five plus five", "twelve times twelve", "one hundred and twenty".
 _UNITS = {
-    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
-    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
-    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
-    "seventy": 70, "eighty": 80, "ninety": 90,
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
 }
 _SCALES = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
 _ANY_NUMBER_WORD = "|".join(sorted(list(_UNITS) + list(_SCALES), key=len, reverse=True))
@@ -173,6 +219,7 @@ def _words_to_number(words: str) -> str:
             current = 0
     return str(total + current)
 
+
 _TOKEN = re.compile(
     r"\s*(?:(?P<number>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
     r"|(?P<name>[A-Za-z_][A-Za-z_0-9]*)"
@@ -180,11 +227,25 @@ _TOKEN = re.compile(
 )
 
 _FUNCTIONS = {
-    "sqrt": math.sqrt, "abs": abs, "round": _round, "floor": math.floor, "ceil": math.ceil,
-    "log": math.log, "log10": math.log10, "log2": math.log2, "exp": math.exp,
-    "sin": math.sin, "cos": math.cos, "tan": math.tan,
-    "asin": math.asin, "acos": math.acos, "atan": math.atan,
-    "min": min, "max": max, "factorial": _factorial, "cbrt": _cbrt,
+    "sqrt": math.sqrt,
+    "abs": abs,
+    "round": _round,
+    "floor": math.floor,
+    "ceil": math.ceil,
+    "log": math.log,
+    "log10": math.log10,
+    "log2": math.log2,
+    "exp": math.exp,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "asin": math.asin,
+    "acos": math.acos,
+    "atan": math.atan,
+    "min": min,
+    "max": max,
+    "factorial": _factorial,
+    "cbrt": _cbrt,
 }
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 # About 300,000 digits: computes in milliseconds, prints in scientific form.
@@ -310,11 +371,14 @@ class _Parser:
             # small exponent at each step and ran for over 100 seconds, holding a worker
             # thread and a CPU. Estimate the size of the answer before building it.
             if isinstance(exponent, int) and isinstance(base, (int, Fraction)):
-                size = (base.numerator.bit_length() + base.denominator.bit_length()
-                        if isinstance(base, Fraction) else base.bit_length())
+                size = (
+                    base.numerator.bit_length() + base.denominator.bit_length()
+                    if isinstance(base, Fraction)
+                    else base.bit_length()
+                )
                 if abs(exponent) * size > _MAX_RESULT_BITS:
                     raise CalculatorError("That result is too large to compute safely.")
-            return base ** exponent
+            return base**exponent
         return base
 
     def atom(self):
@@ -335,8 +399,7 @@ class _Parser:
                     args.append(self.expression())
                 self.expect(")")
                 try:
-                    return _FUNCTIONS[lowered](*(float(a) if isinstance(a, Fraction) else a
-                                                 for a in args))
+                    return _FUNCTIONS[lowered](*(float(a) if isinstance(a, Fraction) else a for a in args))
                 except (ValueError, TypeError, OverflowError) as exc:
                     raise CalculatorError(f"{lowered}() could not be computed: {exc}") from exc
             raise CalculatorError(f"I do not know what {value!r} means in a sum.")
@@ -355,12 +418,18 @@ def normalize(text: str) -> str:
     if len(cleaned) > _MAX_EXPRESSION_CHARS:
         return cleaned
     # Asked inside another sentence the verb comes last: "(tell me) what 15% of 80 is".
-    cleaned = re.sub(r"^\s*(?:what|how\s+much)\s+(?P<sum>.+?)\s+(?:is|equals|comes\s+to|would\s+be)$", r"\g<sum>",
-                     cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"^\s*(?:what|how\s+much)\s+(?P<sum>.+?)\s+(?:is|equals|comes\s+to|would\s+be)$",
+        r"\g<sum>",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(
         r"^\s*(?:what(?:'s| is)|whats|how much is|calculate|compute|work out|evaluate|solve)\s+"
         r"(?:(?:a|an|the)\s+(?=\d|[$€£₹]))?",
-        "", cleaned, flags=re.IGNORECASE,
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
     )
     # Money is arithmetic too: "$45", "120 dollars".
     cleaned = re.sub(r"[$€£₹]\s*(?=\d)", "", cleaned)
@@ -376,7 +445,7 @@ def normalize(text: str) -> str:
     for pattern, replacement in _WORDS:
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("−", "-")
-    cleaned = re.sub(r"(?<=\d)\s*[xX]\s*(?=\d)", "*", cleaned)   # "12 x 13"
+    cleaned = re.sub(r"(?<=\d)\s*[xX]\s*(?=\d)", "*", cleaned)  # "12 x 13"
     return cleaned.strip()
 
 
@@ -426,7 +495,7 @@ def _present(value) -> str:
         exact = f"{_int_text(value.numerator)}/{_int_text(value.denominator)}"
         approx = _as_float(value)
         if approx is not None and Fraction(f"{approx:.10g}") == value:
-            return f"{approx:.10g}"   # 63/5 is 12.6: "12.6 (exactly 63/5)" said it twice
+            return f"{approx:.10g}"  # 63/5 is 12.6: "12.6 (exactly 63/5)" said it twice
         return f"{approx:.10g} (exactly {exact})" if approx is not None else exact
     if isinstance(value, int):
         return _int_text(value)
@@ -457,15 +526,17 @@ def evaluate(expression: str):
 # "is 97 a prime number": yes or no, with the factors when it is no. Not a sum, so it is
 # asked as a whole sentence of its own; checked by trial division up to a trillion.
 # "(tell me) if 97 is prime" too; the "if"/"whether" is required, since "97 is prime" is a statement.
-_PRIME_ASK = re.compile(r"^\s*(?:is\s+(?P<n>\d+)|(?:if|whether)\s+(?P<n2>\d+)\s+is)\s+(?:a\s+)?prime(?:\s+number)?\s*$",
-                        re.IGNORECASE)
+_PRIME_ASK = re.compile(
+    r"^\s*(?:is\s+(?P<n>\d+)|(?:if|whether)\s+(?P<n2>\d+)\s+is)\s+(?:a\s+)?prime(?:\s+number)?\s*$", re.IGNORECASE
+)
 _PRIME_LIMIT = 10**12
 
 
 _FRACTION_DIGITS = 40
 # "0.75 as a fraction" reached the chat model; a decimal as written is an exact fraction.
-_FRACTION_ASK = re.compile(r"^\s*(?:what(?:'s|s|\s+is)\s+)?(?P<n>\d*\.\d+|\d+)\s+(?:as|in|to)\s+(?:a\s+)?fraction\s*[?.!]*$",
-                           re.IGNORECASE)
+_FRACTION_ASK = re.compile(
+    r"^\s*(?:what(?:'s|s|\s+is)\s+)?(?P<n>\d*\.\d+|\d+)\s+(?:as|in|to)\s+(?:a\s+)?fraction\s*[?.!]*$", re.IGNORECASE
+)
 
 
 def fraction_question(text: str) -> Fraction | None:
@@ -508,9 +579,12 @@ class CalculatorTool:
         fraction = fraction_question(expression)
         if fraction is not None:
             said = _FRACTION_ASK.match(expression).group("n")
-            return ToolResult.success(f"{said} = **{_int_text(fraction.numerator)}/{_int_text(fraction.denominator)}**"
-                                      if fraction.denominator != 1 else f"{said} = **{_int_text(fraction.numerator)}**",
-                                      result=f"{fraction.numerator}/{fraction.denominator}")
+            return ToolResult.success(
+                f"{said} = **{_int_text(fraction.numerator)}/{_int_text(fraction.denominator)}**"
+                if fraction.denominator != 1
+                else f"{said} = **{_int_text(fraction.numerator)}**",
+                result=f"{fraction.numerator}/{fraction.denominator}",
+            )
         try:
             value = evaluate(expression)
         except CalculatorError as exc:
@@ -529,12 +603,15 @@ class CalculatorTool:
     def _prime(number: int) -> ToolResult:
         shown = _int_text(number)
         if number < 2:
-            return ToolResult.success(f"No — **{shown} is not prime**: a prime is a whole number above 1 "
-                                      f"divisible only by 1 and itself.", prime=False)
+            return ToolResult.success(
+                f"No — **{shown} is not prime**: a prime is a whole number above 1 divisible only by 1 and itself.",
+                prime=False,
+            )
         if number > _PRIME_LIMIT:
             return ToolResult.failure("That is too large to check here; I check numbers up to a trillion.")
         factors = _factors(number)
         if factors == [number]:
             return ToolResult.success(f"Yes — **{shown} is prime**.", prime=True)
-        return ToolResult.success(f"No — **{shown} is not prime**: {' × '.join(_int_text(f) for f in factors)}.",
-                                  prime=False, factors=factors)
+        return ToolResult.success(
+            f"No — **{shown} is not prime**: {' × '.join(_int_text(f) for f in factors)}.", prime=False, factors=factors
+        )

@@ -1,6 +1,7 @@
 """Translation through NVIDIA's hosted Riva model (riva-translate-1.6b), over the same gRPC
 host as Parakeet speech recognition. Stdlib-only at import, so the planner can read the
 language list without the `riva` extra installed."""
+
 from __future__ import annotations
 
 import os
@@ -21,29 +22,96 @@ RIVA_NMT_NAME = "ai-riva-translate-1_6b"
 # Every language the model reports in its own config, by the names people say. There is no
 # source detection on the service: an empty or "auto" source is refused.
 LANGUAGES: dict[str, str] = {
-    "arabic": "ar", "bulgarian": "bg", "czech": "cs", "danish": "da", "german": "de",
-    "greek": "el", "english": "en", "spanish": "es-US", "latin american spanish": "es-US",
-    "mexican spanish": "es-US", "castilian": "es-ES", "castilian spanish": "es-ES",
-    "european spanish": "es-ES", "spanish from spain": "es-ES", "estonian": "et",
-    "finnish": "fi", "french": "fr", "hindi": "hi", "croatian": "hr", "hungarian": "hu",
-    "indonesian": "id", "italian": "it", "japanese": "ja", "korean": "ko", "lithuanian": "lt",
-    "latvian": "lv", "dutch": "nl", "norwegian": "no", "polish": "pl", "portuguese": "pt-BR",
-    "brazilian portuguese": "pt-BR", "european portuguese": "pt-PT", "romanian": "ro",
-    "russian": "ru", "slovak": "sk", "slovenian": "sl", "swedish": "sv", "thai": "th",
-    "turkish": "tr", "ukrainian": "uk", "vietnamese": "vi", "chinese": "zh-CN",
-    "mandarin": "zh-CN", "simplified chinese": "zh-CN", "traditional chinese": "zh-TW",
+    "arabic": "ar",
+    "bulgarian": "bg",
+    "czech": "cs",
+    "danish": "da",
+    "german": "de",
+    "greek": "el",
+    "english": "en",
+    "spanish": "es-US",
+    "latin american spanish": "es-US",
+    "mexican spanish": "es-US",
+    "castilian": "es-ES",
+    "castilian spanish": "es-ES",
+    "european spanish": "es-ES",
+    "spanish from spain": "es-ES",
+    "estonian": "et",
+    "finnish": "fi",
+    "french": "fr",
+    "hindi": "hi",
+    "croatian": "hr",
+    "hungarian": "hu",
+    "indonesian": "id",
+    "italian": "it",
+    "japanese": "ja",
+    "korean": "ko",
+    "lithuanian": "lt",
+    "latvian": "lv",
+    "dutch": "nl",
+    "norwegian": "no",
+    "polish": "pl",
+    "portuguese": "pt-BR",
+    "brazilian portuguese": "pt-BR",
+    "european portuguese": "pt-PT",
+    "romanian": "ro",
+    "russian": "ru",
+    "slovak": "sk",
+    "slovenian": "sl",
+    "swedish": "sv",
+    "thai": "th",
+    "turkish": "tr",
+    "ukrainian": "uk",
+    "vietnamese": "vi",
+    "chinese": "zh-CN",
+    "mandarin": "zh-CN",
+    "simplified chinese": "zh-CN",
+    "traditional chinese": "zh-TW",
     "taiwanese": "zh-TW",
 }
-_NAMES = {"es-US": "Spanish", "es-ES": "Spanish (Spain)", "pt-BR": "Portuguese",
-          "pt-PT": "Portuguese (Portugal)", "zh-CN": "Chinese", "zh-TW": "Traditional Chinese"}
+_NAMES = {
+    "es-US": "Spanish",
+    "es-ES": "Spanish (Spain)",
+    "pt-BR": "Portuguese",
+    "pt-PT": "Portuguese (Portugal)",
+    "zh-CN": "Chinese",
+    "zh-TW": "Traditional Chinese",
+}
 
 # Named so a request for one gets a straight answer instead of reaching the router as prose.
-UNSUPPORTED = frozenset({
-    "telugu", "tamil", "kannada", "malayalam", "bengali", "bangla", "marathi", "gujarati",
-    "punjabi", "urdu", "nepali", "hebrew", "persian", "farsi", "swahili", "tagalog", "filipino",
-    "malay", "catalan", "irish", "welsh", "icelandic", "serbian", "bosnian", "albanian",
-    "armenian", "georgian", "latin", "cantonese",
-})
+UNSUPPORTED = frozenset(
+    {
+        "telugu",
+        "tamil",
+        "kannada",
+        "malayalam",
+        "bengali",
+        "bangla",
+        "marathi",
+        "gujarati",
+        "punjabi",
+        "urdu",
+        "nepali",
+        "hebrew",
+        "persian",
+        "farsi",
+        "swahili",
+        "tagalog",
+        "filipino",
+        "malay",
+        "catalan",
+        "irish",
+        "welsh",
+        "icelandic",
+        "serbian",
+        "bosnian",
+        "albanian",
+        "armenian",
+        "georgian",
+        "latin",
+        "cantonese",
+    }
+)
 
 _LANGUAGE = "|".join(sorted((re.escape(name) for name in (*LANGUAGES, *UNSUPPORTED)), key=len, reverse=True))
 _REQUEST = re.compile(
@@ -63,14 +131,25 @@ _QUOTES = "\"'“”‘’"
 # Scripts that name their language, so a translation into English needs no model to guess
 # the source. Kana before Han: Japanese is written with both.
 _SCRIPTS: tuple[tuple[str, str], ...] = (
-    ("[぀-ヿ]", "ja"), ("[가-힯ᄀ-ᇿ]", "ko"), ("[一-鿿]", "zh-CN"),
-    ("[ऀ-ॿ]", "hi"), ("[฀-๿]", "th"), ("[؀-ۿ]", "ar"),
-    ("[Ͱ-Ͽ]", "el"), ("[іїєґ]", "uk"), ("[Ѐ-ӿ]", "ru"),
+    ("[぀-ヿ]", "ja"),
+    ("[가-힯ᄀ-ᇿ]", "ko"),
+    ("[一-鿿]", "zh-CN"),
+    ("[ऀ-ॿ]", "hi"),
+    ("[฀-๿]", "th"),
+    ("[؀-ۿ]", "ar"),
+    ("[Ͱ-Ͽ]", "el"),
+    ("[іїєґ]", "uk"),
+    ("[Ѐ-ӿ]", "ru"),
 )
 _UNSUPPORTED_SCRIPTS: tuple[tuple[str, str], ...] = (
-    ("[ఀ-౿]", "Telugu"), ("[஀-௿]", "Tamil"), ("[ಀ-೿]", "Kannada"),
-    ("[ഀ-ൿ]", "Malayalam"), ("[ঀ-৿]", "Bengali"), ("[઀-૿]", "Gujarati"),
-    ("[਀-੿]", "Punjabi"), ("[֐-׿]", "Hebrew"),
+    ("[ఀ-౿]", "Telugu"),
+    ("[஀-௿]", "Tamil"),
+    ("[ಀ-೿]", "Kannada"),
+    ("[ഀ-ൿ]", "Malayalam"),
+    ("[ঀ-৿]", "Bengali"),
+    ("[઀-૿]", "Gujarati"),
+    ("[਀-੿]", "Punjabi"),
+    ("[֐-׿]", "Hebrew"),
 )
 
 _MAX_CHARS = 5000
@@ -146,7 +225,7 @@ def _pieces(text: str) -> list[list[tuple[str, str]]]:
                 cut = sentence.rfind(" ", 0, _PIECE + 1)
                 if cut > 0:
                     pieces.append((separator, sentence[:cut]))
-                    sentence = sentence[cut + 1:]
+                    sentence = sentence[cut + 1 :]
                     separator = " "
                 else:
                     pieces.append((separator, sentence[:_PIECE]))
@@ -175,8 +254,7 @@ def _riva_translate(texts: list[str], source: str, target: str) -> list[str]:
         )
         pending = None
         try:
-            pending = riva.client.NeuralMachineTranslationClient(auth).translate(
-                texts, "", source, target, future=True)
+            pending = riva.client.NeuralMachineTranslationClient(auth).translate(texts, "", source, target, future=True)
             try:
                 response = pending.result(timeout=_TIMEOUT)
             except grpc.FutureTimeoutError as exc:
@@ -195,8 +273,12 @@ def _riva_translate(texts: list[str], source: str, target: str) -> list[str]:
 class TranslateTool:
     """`translate <text> to <language> [from <language>]`, by NVIDIA's hosted model."""
 
-    def __init__(self, backend: Translator | None = None, approval_gate: ApprovalGate | None = None,
-                 detect: Callable[[str], str | None] | None = None) -> None:
+    def __init__(
+        self,
+        backend: Translator | None = None,
+        approval_gate: ApprovalGate | None = None,
+        detect: Callable[[str], str | None] | None = None,
+    ) -> None:
         self._translate = backend or _riva_translate
         self._gate = approval_gate
         # Names the language of Latin-script text bound for English; the orchestrator backs
@@ -227,39 +309,48 @@ class TranslateTool:
             source_code = "en" if target_code != "en" else self._guess(text)
         if source_code is None:
             return ToolResult.failure(
-                f"Which language is that in? Say it like: translate {text[:60]} from French to English.")
+                f"Which language is that in? Say it like: translate {text[:60]} from French to English."
+            )
         if source_code == target_code:
-            return ToolResult.success(f"That is already {language_name(target_code)}: {text}",
-                                      translation=text, source=source_code, target=target_code)
+            return ToolResult.success(
+                f"That is already {language_name(target_code)}: {text}",
+                translation=text,
+                source=source_code,
+                target=target_code,
+            )
         if self._gate is not None:  # it leaves the laptop -> MEDIUM, like the other network reads
-            self._gate.require(ApprovalRequest(
-                action=f"Translate text into {language_name(target_code)}",
-                risk=RiskLevel.MEDIUM,
-                reason="Translation sends the text to NVIDIA's hosted model.",
-            ))
+            self._gate.require(
+                ApprovalRequest(
+                    action=f"Translate text into {language_name(target_code)}",
+                    risk=RiskLevel.MEDIUM,
+                    reason="Translation sends the text to NVIDIA's hosted model.",
+                )
+            )
         lines = _pieces(text)
         flat = [piece for line in lines for _, piece in line]
         try:
             out = self._translate(flat, source_code, target_code)
         except ImportError:
-            return ToolResult.failure("Translation needs: pip install nvidia-riva-client "
-                                      "(or install this app's 'riva' extra).")
+            return ToolResult.failure(
+                "Translation needs: pip install nvidia-riva-client (or install this app's 'riva' extra)."
+            )
         except Exception as exc:
             record_failure("translate", exc)
-            return ToolResult.failure(nvcf.describe(exc, "NVIDIA's translation service")
-                                      or f"The translation service failed: {exc}")
+            return ToolResult.failure(
+                nvcf.describe(exc, "NVIDIA's translation service") or f"The translation service failed: {exc}"
+            )
         if len(out) != len(flat):
             error = RuntimeError(f"expected {len(flat)} translations, got {len(out)}")
             record_failure("translate/shape", error)
             return ToolResult.failure("The translation service returned an incomplete answer.")
         answers = iter(out)
-        result = "\n".join("".join(separator + next(answers).strip() for separator, _ in line)
-                           for line in lines).strip()
+        result = "\n".join(
+            "".join(separator + next(answers).strip() for separator, _ in line) for line in lines
+        ).strip()
         if not result:
             return ToolResult.failure("The translation came back empty.")
         heading = f"{language_name(source_code)} → {language_name(target_code)}"
-        return ToolResult.success(f"{heading}:\n\n{result}", translation=result, source=source_code,
-                                  target=target_code)
+        return ToolResult.success(f"{heading}:\n\n{result}", translation=result, source=source_code, target=target_code)
 
     def _guess(self, text: str) -> str | None:
         if self._detect is None:
@@ -273,8 +364,9 @@ class TranslateTool:
 
     @staticmethod
     def _unsupported(name: str) -> ToolResult:
-        return ToolResult.failure(f"{name} isn't one of the languages the translation model knows. "
-                                  + TranslateTool._known())
+        return ToolResult.failure(
+            f"{name} isn't one of the languages the translation model knows. " + TranslateTool._known()
+        )
 
     @staticmethod
     def _known() -> str:

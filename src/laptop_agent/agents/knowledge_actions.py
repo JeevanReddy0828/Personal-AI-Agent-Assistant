@@ -2,28 +2,29 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import re
 import tempfile
 from pathlib import Path
-from laptop_agent.context import ADVISOR_BUDGET, build_context, normalize_history, refers_back, resolve_reference
-from laptop_agent.briefing import PROFILE_KEY
+
 from laptop_agent.access import is_personal
+from laptop_agent.agents.common import NL
+from laptop_agent.briefing import PROFILE_KEY
+from laptop_agent.context import ADVISOR_BUDGET, build_context, normalize_history, refers_back, resolve_reference
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.windows import parse_placements
 from laptop_agent.tools.calculator import looks_like_arithmetic
-from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.email import EmailDraft
+from laptop_agent.tools.learn import LearnTool
+from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS
 from laptop_agent.tools.video import prepare_clip
-from laptop_agent.tools.learn import LearnTool
-from laptop_agent.agents.common import NL
+from laptop_agent.tools.windows import parse_placements
 
 
 class KnowledgeActions:
-
     def _advice_research(self, query: str) -> tuple[str, list]:
         """Best-effort web grounding for the advisor: returns (context_text, sources).
         Empty when research is unavailable or the approval gate blocks the lookup."""
@@ -40,7 +41,9 @@ class KnowledgeActions:
     def _solve(self, problem: str, history: list[dict[str, str]] | None = None) -> ToolResult:
         cleaned = problem.strip().strip("'\"").lstrip("-").strip()
         if not cleaned:
-            return ToolResult.failure("Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')")
+            return ToolResult.failure(
+                "Use: solve <problem or decision>  (e.g. 'solve should I rewrite the auth layer now or later')"
+            )
         # A sum is not a dilemma. `solve - 67458363*37834872` spent 40s producing framing,
         # options and a recommendation, and never reached 2,552,278,529,434,536.
         if looks_like_arithmetic(cleaned):
@@ -185,9 +188,7 @@ class KnowledgeActions:
         cleaned = question.strip().strip("'\"?")
         if not cleaned:
             return ToolResult.failure("Use: ask knowledge <question>")
-        answer = self.context.knowledge.answer(
-            cleaned, retrieval_query=self._standalone_question(cleaned, history)
-        )
+        answer = self.context.knowledge.answer(cleaned, retrieval_query=self._standalone_question(cleaned, history))
         if not answer.get("ok"):
             return ToolResult.failure(
                 f"I could not answer from indexed knowledge: {answer.get('reason', 'no relevant text')}.",
@@ -312,7 +313,8 @@ class KnowledgeActions:
         if ocr.ok and ocr.data.get("char_count"):
             return ToolResult.success(
                 f"I captured a webcam frame and read {ocr.data.get('char_count', 0)} character(s) of text from it.",
-                webcam=path, text=ocr.data.get("text", ""),
+                webcam=path,
+                text=ocr.data.get("text", ""),
             )
         return ToolResult.failure(
             "I captured a webcam frame but can't interpret it: no vision model is configured. "
@@ -332,7 +334,9 @@ class KnowledgeActions:
         if ocr.ok:
             return ToolResult.success(
                 f"Read {ocr.data.get('char_count', 0)} character(s) of text from the image.",
-                path=target, text=ocr.data.get("text", ""), char_count=ocr.data.get("char_count", 0),
+                path=target,
+                text=ocr.data.get("text", ""),
+                char_count=ocr.data.get("char_count", 0),
             )
         return ToolResult.failure(
             "I couldn't read that image: no vision model is configured and OCR is unavailable. " + ocr.message,
@@ -350,23 +354,28 @@ class KnowledgeActions:
             return ToolResult.failure(f"That isn't a video file I know ({', '.join(sorted(VIDEO_EXTENSIONS))}).")
         describe = getattr(getattr(self.video_planner, "provider", None), "describe_video", None)
         if describe is None:
-            return ToolResult.failure("I can't watch video yet: set OPENAI_VIDEO_MODEL to a model that takes a clip "
-                                      "(for example nvidia/nemotron-3.5-super-vl-120b-a12b) and restart.")
+            return ToolResult.failure(
+                "I can't watch video yet: set OPENAI_VIDEO_MODEL to a model that takes a clip "
+                "(for example nvidia/nemotron-3.5-super-vl-120b-a12b) and restart."
+            )
         with tempfile.TemporaryDirectory(prefix="jarvis_video_") as scratch:
             clip, why = prepare_clip(source, Path(scratch))
             if clip is None:
                 return ToolResult.failure(why, path=str(source))
             # The clip leaves this computer for the hosted model, so it is asked about first.
-            self.context.web.approval_gate.require(ApprovalRequest(
-                action=f"Send a video to the hosted model: {source.name}",
-                risk=RiskLevel.MEDIUM,
-                reason="describe video uploads the clip to the video model's provider.",
-                preview=f"{source.name} ({clip.stat().st_size // 1024} KB)",
-            ))
+            self.context.web.approval_gate.require(
+                ApprovalRequest(
+                    action=f"Send a video to the hosted model: {source.name}",
+                    risk=RiskLevel.MEDIUM,
+                    reason="describe video uploads the clip to the video model's provider.",
+                    preview=f"{source.name} ({clip.stat().st_size // 1024} KB)",
+                )
+            )
             described = describe(str(clip), question.strip() or "Describe what happens in this video, in order.")
         if described is None:
-            return ToolResult.failure("The video model did not answer. It may be busy; try again in a minute.",
-                                      path=str(source))
+            return ToolResult.failure(
+                "The video model did not answer. It may be busy; try again in a minute.", path=str(source)
+            )
         return ToolResult.success(described, path=str(source), vision=True, video=True)
 
     def _describe_with_vision(self, path: str, prompt: str) -> str | None:
@@ -396,12 +405,18 @@ class KnowledgeActions:
             lines = [f"- **{k.replace('_', ' ')}** — {v}" for k, v in sorted(profile.items())]
             parts.append("Here's what I remember about you:\n" + "\n".join(lines))
         elif profile:
-            parts.append("Here's what I remember: " + ", ".join(
-                f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items())) + ".")
+            parts.append(
+                "Here's what I remember: "
+                + ", ".join(f"your {k.replace('_', ' ')} is {v}" for k, v in sorted(profile.items()))
+                + "."
+            )
         if notes:
             shown = notes[-12:]
-            parts.append("Things you asked me to remember:\n" + "\n".join(f"- {note}" for note in shown)
-                         + (f"\n…and {len(notes) - len(shown)} older." if len(notes) > len(shown) else ""))
+            parts.append(
+                "Things you asked me to remember:\n"
+                + "\n".join(f"- {note}" for note in shown)
+                + (f"\n…and {len(notes) - len(shown)} older." if len(notes) > len(shown) else "")
+            )
         return "\n\n".join(parts)
 
     def _facts(self) -> dict[str, object]:
@@ -426,6 +441,7 @@ class KnowledgeActions:
 
     def _learn(self) -> LearnTool:
         if self._learn_cache is None:
+
             def save(facts: dict[str, str]) -> None:
                 self.context.memory.set_profile_values(facts)
                 self._mirror_to_vault("\n".join(f"{key.replace('_', ' ')}: {value}" for key, value in facts.items()))
@@ -433,9 +449,12 @@ class KnowledgeActions:
             # A short JSON extraction: the tier ladder (smart, fast, OpenRouter) and a small budget,
             # not the document writer's smart-only 6,000 thinking tokens.
             # A personal account cannot set the briefing's format here either: it is `briefing set`'s.
-            self._learn_cache = LearnTool(self._build_agent_brain(answer_max_tokens=1200),
-                                          self.context.web.approval_gate, save,
-                                          allowed=lambda key: self._briefing_by_remember(key) is None)
+            self._learn_cache = LearnTool(
+                self._build_agent_brain(answer_max_tokens=1200),
+                self.context.web.approval_gate,
+                save,
+                allowed=lambda key: self._briefing_by_remember(key) is None,
+            )
         return self._learn_cache
 
     def _remember(self, expression: str) -> ToolResult:
@@ -445,8 +464,9 @@ class KnowledgeActions:
             # The key may carry an apostrophe: "my wife's birthday is june 5" missed this and
             # became an anonymous note, so "when is my wife's birthday" had no fact to find.
             natural = re.match(r"(?:my\s+|the\s+)?([\w' -]{1,40}?)\s+(?:is|are)\s+(.+)$", text, re.IGNORECASE)
-            if natural and not re.match(r"(?:i|we|you|he|she|they|it|there|this|that)\b",
-                                        natural.group(1), re.IGNORECASE):
+            if natural and not re.match(
+                r"(?:i|we|you|he|she|they|it|there|this|that)\b", natural.group(1), re.IGNORECASE
+            ):
                 key = re.sub(r"\s+", "_", natural.group(1).strip().lower())
                 value = natural.group(2).strip()
                 if refused := self._briefing_by_remember(key):
@@ -478,11 +498,17 @@ class KnowledgeActions:
         if not key:
             return ToolResult.failure("Use: forget <key>  (for example: forget favourite editor)")
         # "forget my last note", "delete the last thing i told you".
-        if re.fullmatch(r"(?:last|latest|newest|most\s+recent)\s+(?:note|thing(?:\s+i\s+(?:told|said)(?:\s+you)?)?)",
-                        key, re.IGNORECASE):
+        if re.fullmatch(
+            r"(?:last|latest|newest|most\s+recent)\s+(?:note|thing(?:\s+i\s+(?:told|said)(?:\s+you)?)?)",
+            key,
+            re.IGNORECASE,
+        ):
             last = self.context.memory.forget_last_note()
-            return (ToolResult.success(f"Forgotten: {last}", forgot=[last]) if last is not None
-                    else ToolResult.failure("There are no notes to forget."))
+            return (
+                ToolResult.success(f"Forgotten: {last}", forgot=[last])
+                if last is not None
+                else ToolResult.failure("There are no notes to forget.")
+            )
         removed = self.context.memory.forget_profile_value(key)
         if removed is not None:
             return ToolResult.success(f"Forgotten: {removed}", forgot=removed)
@@ -501,7 +527,7 @@ class KnowledgeActions:
         )
 
     def _arrange_windows(self, command: str) -> ToolResult:
-        """"put WhatsApp on the left and Chrome on the right" -> two placements.
+        """ "put WhatsApp on the left and Chrome on the right" -> two placements.
 
         The phrasing is parsed here rather than by the router because it arrives by voice:
         said out loud it came out as "left side WhatsApp right side Chrome", with the
@@ -544,10 +570,13 @@ class KnowledgeActions:
         if not answer:  # no LLM configured — hand back the linked context itself
             return ToolResult.success(
                 f"From {len(notes)} linked note(s) ({', '.join(notes)}):\n\n{context}",
-                question=question, notes=notes, answered=False,
+                question=question,
+                notes=notes,
+                answered=False,
             )
-        return ToolResult.success(answer, question=question, notes=notes,
-                                  primary=bundle.data.get("primary"), answered=True)
+        return ToolResult.success(
+            answer, question=question, notes=notes, primary=bundle.data.get("primary"), answered=True
+        )
 
     def _email_digest(self, query: str = "UNSEEN") -> ToolResult:
         """Read the inbox and summarize it into a short, grouped digest."""

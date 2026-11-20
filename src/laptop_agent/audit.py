@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from laptop_agent.failures import record_failure
-from laptop_agent.storage import synchronized
-
 import json
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import synchronized
 
 
 @dataclass(frozen=True)

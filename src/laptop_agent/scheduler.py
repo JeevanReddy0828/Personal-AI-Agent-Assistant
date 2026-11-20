@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, on_laptop_clock, parse_clock
-
 import json
 import re
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, positive_int, read_json, synchronized
+from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, on_laptop_clock, parse_clock
 
 
 class ScheduleError(ValueError):
@@ -45,7 +45,7 @@ class Schedule:
         return data
 
     @staticmethod
-    def from_dict(data: dict) -> "Schedule":
+    def from_dict(data: dict) -> Schedule:
         kind = str(data.get("kind", "interval"))
         if kind == "daily":
             days = tuple(sorted({int(day) for day in data.get("days") or () if 0 <= int(day) <= 6}))
@@ -86,14 +86,20 @@ _DAY_SET = rf"(?:weekdays?|weekends?|{_DAY_NAME}(?:\s*(?:,|and|&)\s*{_DAY_NAME})
 
 
 def parse_days(text: str) -> tuple[int, ...]:
-    """"weekdays" -> (0..4), "mondays and thursdays" -> (0, 3). Empty when it names none."""
+    """ "weekdays" -> (0..4), "mondays and thursdays" -> (0, 3). Empty when it names none."""
     lowered = text.strip().lower()
     if re.fullmatch(r"weekdays?", lowered):
         return (0, 1, 2, 3, 4)
     if re.fullmatch(r"weekends?", lowered):
         return (5, 6)
-    return tuple(sorted({_WEEKDAYS.index(name) for name in re.findall(
-        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday", lowered)}))
+    return tuple(
+        sorted(
+            {
+                _WEEKDAYS.index(name)
+                for name in re.findall(r"monday|tuesday|wednesday|thursday|friday|saturday|sunday", lowered)
+            }
+        )
+    )
 
 
 def _describe_days(days: tuple[int, ...]) -> str:
@@ -195,7 +201,7 @@ class ScheduledJob:
         }
 
     @staticmethod
-    def from_dict(data: dict) -> "ScheduledJob":
+    def from_dict(data: dict) -> ScheduledJob:
         return ScheduledJob(
             id=int(data["id"]),
             kind=str(data.get("kind", "command")),
@@ -330,7 +336,9 @@ class SchedulerStore:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_id': self._next_id, 'jobs': [job.to_dict() for job in self._jobs]}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_id": self._next_id, "jobs": [job.to_dict() for job in self._jobs]}, indent=2)
+        )
 
 
 def _parse_iso(value: str | None) -> datetime | None:

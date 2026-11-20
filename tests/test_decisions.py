@@ -131,8 +131,15 @@ class LayaTests(unittest.TestCase):
             self.assertFalse(decider.status()["cooling_down"])
 
     def test_malformed_response_falls_back(self) -> None:
-        for response in ({"model": "english"}, scored("1.2"), scored(None), {"answers": {}},
-                         scored(float("nan")), scored(float("inf")), scored(True)):
+        for response in (
+            {"model": "english"},
+            scored("1.2"),
+            scored(None),
+            {"answers": {}},
+            scored(float("nan")),
+            scored(float("inf")),
+            scored(True),
+        ):
             with self.subTest(response=response):
                 with mock.patch("laptop_agent.decisions.record_failure") as record:
                     decision = TierDecider(heuristic, backend=FakeBackend(response)).decide("explain monads")

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import html as _html
-from html.parser import HTMLParser
-from urllib.parse import urlsplit
 import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 # Logic ported from the Agentic-AI-JOB-CoPilot project (ATS scoring, keyword/claims
 # extraction, grounding) — all stdlib — reused here against this app's own LLM
@@ -15,8 +15,31 @@ from dataclasses import dataclass, field
 Decide = Callable[[str], str]
 
 _STOPWORDS = {
-    "the", "and", "with", "for", "you", "our", "are", "will", "have", "this", "that",
-    "from", "to", "in", "on", "of", "as", "by", "or", "we", "is", "be", "at", "an", "a",
+    "the",
+    "and",
+    "with",
+    "for",
+    "you",
+    "our",
+    "are",
+    "will",
+    "have",
+    "this",
+    "that",
+    "from",
+    "to",
+    "in",
+    "on",
+    "of",
+    "as",
+    "by",
+    "or",
+    "we",
+    "is",
+    "be",
+    "at",
+    "an",
+    "a",
 }
 
 
@@ -111,11 +134,13 @@ def check_resume_grounding(data: dict, resume_text: str, repos: list[dict] | Non
         return ["Resume content must be an object."]
     base = _normalize(resume_text)
     flags: list[str] = []
+
     def excerpt(value, label):
         if not isinstance(value, str):
             flags.append(f"Invalid {label}: expected text")
         elif value.strip() and _normalize(value) not in base:
             flags.append(f"Unsupported {label}: {value[:120]}")
+
     excerpt(data.get("summary", ""), "summary")
     schema = {
         "skills": ("category", "items"),
@@ -144,7 +169,9 @@ def check_resume_grounding(data: dict, resume_text: str, repos: list[dict] | Non
                         for bullet in value:
                             excerpt(bullet, label)
                 elif field == "repo_url":
-                    if not isinstance(value, str) or (value and (value not in urls or not value.startswith("https://"))):
+                    if not isinstance(value, str) or (
+                        value and (value not in urls or not value.startswith("https://"))
+                    ):
                         flags.append(f"Unsupported repository URL: {value}")
                 elif field in {"items", "stack"} and isinstance(value, str):
                     for skill in re.split(r"[,;|]", value):
@@ -172,7 +199,7 @@ RESUME_RULES = (
     "- skills: use ONLY the categories and skills present in the base resume; reorder and lightly trim to "
     "emphasize what the JD wants, but NEVER add a category or a skill the resume does not list.\n"
     "- projects: the 4 most relevant to the JD; set repo_url ONLY from the provided repository list (exact match) "
-    "or \"\" if none matches. Never invent a URL.\n"
+    'or "" if none matches. Never invent a URL.\n'
     "- education: each degree with school, degree, dates. NEVER include GPA.\n"
     "- Select and reorder EXACT source excerpts for summary and bullets. Do not rewrite achievements or add metrics.\n"
     "- Copy factual fields exactly; preserve punctuation, dates, names and technology names.\n"
@@ -252,6 +279,7 @@ def _safe_profile_html(value: str) -> str:
             super().__init__(convert_charrefs=True)
             self.parts = []
             self.links = []
+
         def handle_starttag(self, tag, attrs):
             if tag != "a":
                 return
@@ -260,11 +288,14 @@ def _safe_profile_html(value: str) -> str:
             self.links.append(allowed)
             if allowed:
                 self.parts.append('<a rel="noopener noreferrer" href="' + _html.escape(href, quote=True) + '">')
+
         def handle_endtag(self, tag):
             if tag == "a" and self.links and self.links.pop():
                 self.parts.append("</a>")
+
         def handle_data(self, data):
             self.parts.append(_html.escape(data))
+
     parser = ProfileHTML()
     parser.feed(str(value or ""))
     parser.close()
@@ -275,6 +306,7 @@ def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
     """Render grounded resume CONTENT (the model's JSON) into the fixed one-page template.
     Contact and certification markup retains only safe links; all model content is escaped.
     Malformed entries (wrong types) are skipped rather than crashing the render."""
+
     def esc(value: object) -> str:
         return _html.escape(str(value or "").strip())
 
@@ -283,7 +315,8 @@ def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
     contact, certs = _safe_profile_html(contact), _safe_profile_html(certs)
     skills = "".join(
         f'<div class="skill"><b>{esc(s.get("category"))}:</b> {esc(s.get("items"))}</div>'
-        for s in _dict_items(data.get("skills")) if s.get("category")
+        for s in _dict_items(data.get("skills"))
+        if s.get("category")
     )
     experience = ""
     for e in _dict_items(data.get("experiences")):
@@ -292,7 +325,7 @@ def render_resume_html(name: str, contact: str, certs: str, data: dict) -> str:
             f'<div class="row"><span class="l">{esc(e.get("company"))}</span>'
             f'<span class="r">{esc(e.get("dates"))}</span></div>'
             f'<div class="subrow"><span>{esc(e.get("title"))}</span>'
-            f'<span>{esc(e.get("location"))}</span></div><ul>{bullets}</ul>'
+            f"<span>{esc(e.get('location'))}</span></div><ul>{bullets}</ul>"
         )
     projects = ""
     for p in _dict_items(data.get("projects")):
@@ -350,8 +383,9 @@ class JobCopilot:
         resume_text = (resume_text or "").strip()
         job_text = (job_text or "").strip()
         if not resume_text or not job_text:
-            return TailorResult(company, role, ats={}, ok=False,
-                                package="Provide both your resume text and the job description.")
+            return TailorResult(
+                company, role, ats={}, ok=False, package="Provide both your resume text and the job description."
+            )
         keywords = extract_keywords(job_text)
         claims = extract_resume_claims(resume_text)
         ats = ats_score(keywords, resume_text)
@@ -361,21 +395,48 @@ class JobCopilot:
             + (f"**Missing keywords to weave in:** {', '.join(missing)}\n" if missing else "Great keyword coverage.\n")
         )
         if self._decide is None:
-            return TailorResult(company, role, ats, keywords[:40], missing,
-                                package=header + "\n_Connect a language model for tailored bullets, a cover letter, and an interview pack._",
-                                used_llm=False)
+            return TailorResult(
+                company,
+                role,
+                ats,
+                keywords[:40],
+                missing,
+                package=header
+                + "\n_Connect a language model for tailored bullets, a cover letter, and an interview pack._",
+                used_llm=False,
+            )
         try:
-            reply = (self._decide(self._build_prompt(resume_text, job_text, company, role, keywords, missing, claims)) or "").strip()
+            reply = (
+                self._decide(self._build_prompt(resume_text, job_text, company, role, keywords, missing, claims)) or ""
+            ).strip()
         except Exception as exc:  # injected brain — surface, don't crash
-            return TailorResult(company, role, ats, keywords[:40], missing,
-                                package=header + f"\n_Model error: {exc}_", used_llm=False)
+            return TailorResult(
+                company, role, ats, keywords[:40], missing, package=header + f"\n_Model error: {exc}_", used_llm=False
+            )
         if not reply:
-            return TailorResult(company, role, ats, keywords[:40], missing,
-                                package=header + "\n_No language model available for the written sections._", used_llm=False)
+            return TailorResult(
+                company,
+                role,
+                ats,
+                keywords[:40],
+                missing,
+                package=header + "\n_No language model available for the written sections._",
+                used_llm=False,
+            )
         bullets = [ln.strip() for ln in reply.splitlines() if ln.strip()[:1] in {"-", "*", "•"}]
         grounding = check_grounding(bullets, claims)
-        return TailorResult(company, role, ats, keywords[:40], missing,
-                            package=header + "\n_Review this generated draft against your resume before using it; overlap checks do not verify factual accuracy._\n\n" + reply, grounding={**grounding, "review_required": True}, used_llm=True)
+        return TailorResult(
+            company,
+            role,
+            ats,
+            keywords[:40],
+            missing,
+            package=header
+            + "\n_Review this generated draft against your resume before using it; overlap checks do not verify factual accuracy._\n\n"
+            + reply,
+            grounding={**grounding, "review_required": True},
+            used_llm=True,
+        )
 
     def _build_prompt(self, resume_text, job_text, company, role, keywords, missing, claims) -> str:
         target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
@@ -411,37 +472,49 @@ class JobCopilot:
         resume_text = (resume_text or "").strip()
         job_text = (job_text or "").strip()
         if not resume_text or not job_text:
-            return TailorResult(company, role, ats={}, ok=False,
-                                package="Provide both the base resume and the job description.")
+            return TailorResult(
+                company, role, ats={}, ok=False, package="Provide both the base resume and the job description."
+            )
         keywords = extract_keywords(job_text)
         ats = ats_score(keywords, resume_text)
         if self._decide is None:
-            return TailorResult(company, role, ats, ok=False,
-                                package="A language model is required to generate a tailored resume.")
+            return TailorResult(
+                company, role, ats, ok=False, package="A language model is required to generate a tailored resume."
+            )
         try:
             raw = self._decide(self._build_resume_prompt(resume_text, job_text, company, role, repos or [])) or ""
         except Exception as exc:
             return TailorResult(company, role, ats, ok=False, package=f"Model error: {exc}")
         data = _extract_json_object(raw)
         if not data or not _dict_items(data.get("experiences")):
-            return TailorResult(company, role, ats, ok=False,
-                                package="The model did not return valid resume content. Try again.")
+            return TailorResult(
+                company, role, ats, ok=False, package="The model did not return valid resume content. Try again."
+            )
         if not name:
             name = next((ln.strip() for ln in resume_text.splitlines() if ln.strip()), "")
         flags = check_resume_grounding(data, resume_text, repos)
-        grounding = {"flagged": flags, "fabrications": flags,
-                     "method": "source excerpts", "review_required": True}
+        grounding = {"flagged": flags, "fabrications": flags, "method": "source excerpts", "review_required": True}
         if flags:
-            return TailorResult(company, role, ats, ok=False, used_llm=True,
-                                grounding=grounding,
-                                package="Resume rejected: content must trace to the base resume. " + "; ".join(flags))
+            return TailorResult(
+                company,
+                role,
+                ats,
+                ok=False,
+                used_llm=True,
+                grounding=grounding,
+                package="Resume rejected: content must trace to the base resume. " + "; ".join(flags),
+            )
         html = render_resume_html(name, contact, certs, data)
-        return TailorResult(company, role, ats, keywords[:40], ats["misses"][:20],
-                            package=html, grounding=grounding, used_llm=True)
+        return TailorResult(
+            company, role, ats, keywords[:40], ats["misses"][:20], package=html, grounding=grounding, used_llm=True
+        )
 
     def _build_resume_prompt(self, resume_text, job_text, company, role, repos) -> str:
         target = " ".join(p for p in [role, ("at " + company) if company else ""] if p).strip() or "this role"
-        repo_lines = "\n".join(f"  {r.get('name','')}: {r.get('url','')}" for r in repos if r.get("url")) or "  (none provided)"
+        repo_lines = (
+            "\n".join(f"  {r.get('name', '')}: {r.get('url', '')}" for r in repos if r.get("url"))
+            or "  (none provided)"
+        )
         return (
             f"{RESUME_RULES}\n\n"
             f"TARGET ROLE: {target}\n\n"

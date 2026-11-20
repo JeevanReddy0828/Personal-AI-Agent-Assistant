@@ -39,8 +39,7 @@ class AssemblyTests(unittest.TestCase):
         """webui._rendered_page() substitutes these on the assembled page, so they have to
         survive assembly wherever they live."""
         page = webui_page.build_page()
-        tokens = ("{{NONCE}}", "{{API_TOKEN}}", "{{PLANNER}}", "{{SMART}}",
-                  "{{ULTRA}}", "{{VISION}}")
+        tokens = ("{{NONCE}}", "{{API_TOKEN}}", "{{PLANNER}}", "{{SMART}}", "{{ULTRA}}", "{{VISION}}")
         lost = [token for token in tokens if token not in page]
         self.assertEqual(lost, [], f"lost in the split: {lost}")
 
@@ -48,9 +47,18 @@ class AssemblyTests(unittest.TestCase):
         """CLAUDE.md names these as load-bearing for the Chromium suite. Checked as a set
         so a failure lists what went missing instead of printing all 183KB of the page."""
         page = webui_page.build_page()
-        markers = ("data-view", "#nav", 'id="ta"', 'id="newChat"', 'id="mobileChats"',
-                   'id="sysDrawer"', 'id="rsContact"', 'id="rsCerts"', 'id="rsProfileSave"',
-                   'id="pipeMsg"')
+        markers = (
+            "data-view",
+            "#nav",
+            'id="ta"',
+            'id="newChat"',
+            'id="mobileChats"',
+            'id="sysDrawer"',
+            'id="rsContact"',
+            'id="rsCerts"',
+            'id="rsProfileSave"',
+            'id="pipeMsg"',
+        )
         missing = [marker for marker in markers if marker not in page]
         self.assertEqual(missing, [], f"lost from the page: {missing}")
 

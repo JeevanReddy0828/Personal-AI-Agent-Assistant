@@ -15,12 +15,16 @@ def provider(content: str) -> OpenAICompatiblePlannerProvider:
 
 class LlmPlannerParsingTests(unittest.TestCase):
     def test_plain_json_command(self) -> None:
-        decision = provider('{"action":"command","command":"scan files .","confidence":0.9}').plan("look at files", "help", {})
+        decision = provider('{"action":"command","command":"scan files .","confidence":0.9}').plan(
+            "look at files", "help", {}
+        )
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "scan files .")
 
     def test_chat_response(self) -> None:
-        decision = provider('{"action":"chat","response":"Hello! How can I help?","confidence":0.8}').plan("hi", "help", {})
+        decision = provider('{"action":"chat","response":"Hello! How can I help?","confidence":0.8}').plan(
+            "hi", "help", {}
+        )
         self.assertTrue(decision.is_chat)
         self.assertEqual(decision.response, "Hello! How can I help?")
 
@@ -36,7 +40,9 @@ class LlmPlannerParsingTests(unittest.TestCase):
         self.assertEqual(decision.response, "Sure, I can help you with that!")
 
     def test_json_embedded_in_text(self) -> None:
-        decision = provider('Here you go: {"action":"command","command":"tasks"} hope that helps').plan("show tasks", "help", {})
+        decision = provider('Here you go: {"action":"command","command":"tasks"} hope that helps').plan(
+            "show tasks", "help", {}
+        )
         self.assertTrue(decision.is_command)
         self.assertEqual(decision.command, "tasks")
 
@@ -45,6 +51,7 @@ class LlmPlannerParsingTests(unittest.TestCase):
         saying so is right. A *timeout* is deliberately different now — see
         RoutingDeadlineTests, where it falls through and lets the chat tier answer rather
         than reporting a working model as unreachable."""
+
         def boom(payload: dict) -> str:
             raise urllib.error.URLError("connection refused")
 
@@ -84,8 +91,12 @@ class LlmPlannerParsingTests(unittest.TestCase):
             return "the answer"
 
         prov = OpenAICompatiblePlannerProvider(
-            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
-            transport=capture, reasoning=True, reasoning_budget=16384,
+            "k",
+            "m",
+            base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture,
+            reasoning=True,
+            reasoning_budget=16384,
         )
         out = prov.answer("explain transformers", {})
         self.assertEqual(out, "the answer")
@@ -105,8 +116,12 @@ class LlmPlannerParsingTests(unittest.TestCase):
             return "the answer"
 
         provider = OpenAICompatiblePlannerProvider(
-            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
-            transport=capture, reasoning=True, reasoning_budget=16384,
+            "k",
+            "m",
+            base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture,
+            reasoning=True,
+            reasoning_budget=16384,
         )
         provider.answer("explain transformers", {})
         self.assertNotIn("reasoning_budget", captured)
@@ -121,8 +136,11 @@ class LlmPlannerParsingTests(unittest.TestCase):
             return '{"action":"chat","response":"ok"}'
 
         OpenAICompatiblePlannerProvider(
-            "k", "m", base_url="https://integrate.api.nvidia.com/v1",
-            transport=capture, reasoning=True,
+            "k",
+            "m",
+            base_url="https://integrate.api.nvidia.com/v1",
+            transport=capture,
+            reasoning=True,
         ).plan("hi", "help", {})
         self.assertEqual(captured.get("chat_template_kwargs"), {"enable_thinking": False})
         self.assertNotIn("reasoning_budget", captured)
@@ -169,7 +187,9 @@ class LlmPlannerParsingTests(unittest.TestCase):
 
         schema = "## Action plan\n" + "\n".join(f"{i}. Create `table_{i}` with id UUID PK." for i in range(1, 30))
         OpenAICompatiblePlannerProvider("k", "m", transport=capture).plan(
-            "build an ERD for this", "help", {},
+            "build an ERD for this",
+            "help",
+            {},
             [{"role": "user", "text": "design a marketplace schema"}, {"role": "assistant", "text": schema}],
         )
         system = captured["messages"][0]["content"]
@@ -189,7 +209,9 @@ class LlmPlannerParsingTests(unittest.TestCase):
 
         history = [{"role": "user", "text": "hi"}, {"role": "assistant", "text": "Hello, Jeevan."}]
         prompt = "Answer the user's question using the web search results below. Prefer this live information. QUESTION: did the war end?"
-        OpenAICompatiblePlannerProvider("k", "m", transport=capture).answer(prompt, {}, history=history, context_query="did the war end?")
+        OpenAICompatiblePlannerProvider("k", "m", transport=capture).answer(
+            prompt, {}, history=history, context_query="did the war end?"
+        )
         self.assertNotIn("most likely means", captured["messages"][0]["content"])
         OpenAICompatiblePlannerProvider("k", "m", transport=capture).answer("shorter", {}, history=history)
         self.assertIn("most likely means", captured["messages"][0]["content"])
@@ -209,7 +231,6 @@ class LlmPlannerParsingTests(unittest.TestCase):
         decision = Planner(LegacyProvider()).plan("hello", "help", {}, [{"role": "user", "text": "old"}])
         self.assertTrue(decision.is_chat)
         self.assertEqual(decision.response, "hello")
-
 
 
 class ChatGuardTests(unittest.TestCase):
@@ -331,8 +352,7 @@ class ChatPromptActionClaimsTests(unittest.TestCase):
         from laptop_agent.planner.openai_compatible import _NO_TOOL_CLAIMS
 
         lowered = _NO_TOOL_CLAIMS.lower()
-        for phrase in ("never ask", "permission", "arranging windows",
-                       "done, started or initiated", "approval card"):
+        for phrase in ("never ask", "permission", "arranging windows", "done, started or initiated", "approval card"):
             self.assertIn(phrase, lowered, f"the chat prompt no longer covers: {phrase}")
 
     def test_the_rule_is_stated_without_quoting_the_failure(self) -> None:
@@ -353,7 +373,6 @@ class ChatPromptActionClaimsTests(unittest.TestCase):
         self.assertIn("record voice notes", _CAPABILITIES)
         self.assertIn("recording from the microphone", _NO_TOOL_CLAIMS)
         self.assertIn("'record my voice for 20 seconds'", _NO_TOOL_CLAIMS)
-
 
 
 class RoutingDeadlineTests(unittest.TestCase):
@@ -377,31 +396,30 @@ class RoutingDeadlineTests(unittest.TestCase):
         finally:
             urllib.request.urlopen = real
         self.assertEqual(seen.get("timeout"), provider.route_timeout)
-        self.assertLess(
-            provider.route_timeout, provider.timeout,
-            "routing waits as long as a full answer")
+        self.assertLess(provider.route_timeout, provider.timeout, "routing waits as long as a full answer")
 
     def test_a_slow_router_still_lets_the_answer_happen(self) -> None:
         """A timeout means slow, not unreachable. Returning the canned "I could not reach
         my language model" here would replace a working answer with an error, because only
         the classify call ran out of time."""
-        for raising in (lambda payload: (_ for _ in ()).throw(TimeoutError("timed out")),
-                        lambda payload: (_ for _ in ()).throw(
-                            urllib.error.URLError(TimeoutError("timed out")))):
+        for raising in (
+            lambda payload: (_ for _ in ()).throw(TimeoutError("timed out")),
+            lambda payload: (_ for _ in ()).throw(urllib.error.URLError(TimeoutError("timed out"))),
+        ):
             with self.subTest(raising):
-                decision = OpenAICompatiblePlannerProvider(
-                    "k", "m", transport=raising).plan("what is a b-tree", "help", {})
+                decision = OpenAICompatiblePlannerProvider("k", "m", transport=raising).plan(
+                    "what is a b-tree", "help", {}
+                )
                 self.assertEqual(decision.action, "chat")
                 self.assertFalse(
-                    decision.response,
-                    "a slow router answered for the chat tier instead of letting it answer")
+                    decision.response, "a slow router answered for the chat tier instead of letting it answer"
+                )
 
     def test_an_unreachable_model_still_says_so(self) -> None:
         def refused(payload):
             raise urllib.error.URLError("connection refused")
 
-        decision = OpenAICompatiblePlannerProvider(
-            "k", "m", transport=refused).plan("what is a b-tree", "help", {})
+        decision = OpenAICompatiblePlannerProvider("k", "m", transport=refused).plan("what is a b-tree", "help", {})
         self.assertEqual(decision.action, "chat")
         self.assertIn("could not reach", (decision.response or "").lower())
 
@@ -421,7 +439,8 @@ class RoutingDeadlineTests(unittest.TestCase):
         """Tests inject `lambda payload: ...`; the deadline must not change that contract."""
         calls = []
         provider = OpenAICompatiblePlannerProvider(
-            "k", "m", transport=lambda payload: calls.append(payload) or '{"action":"chat"}')
+            "k", "m", transport=lambda payload: calls.append(payload) or '{"action":"chat"}'
+        )
         provider.plan("hello", "help", {})
         self.assertEqual(len(calls), 1)
 
@@ -455,7 +474,9 @@ class CutOffMarkerTests(unittest.TestCase):
 
         class Response:
             def __init__(self) -> None:
-                self.body = json.dumps({"choices": [{"message": {"content": content}, "finish_reason": finish}]}).encode()
+                self.body = json.dumps(
+                    {"choices": [{"message": {"content": content}, "finish_reason": finish}]}
+                ).encode()
 
             def __enter__(self):
                 return self
@@ -539,7 +560,14 @@ class OutputLimitTests(unittest.TestCase):
 
     def test_a_reply_cut_inside_a_code_block_closes_it_before_the_note(self) -> None:
         provider = OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=16384)
-        text, _ = self.stream(provider, finish="length", pieces=("Here it is:\n``", "`python\nprint(1)",))
+        text, _ = self.stream(
+            provider,
+            finish="length",
+            pieces=(
+                "Here it is:\n``",
+                "`python\nprint(1)",
+            ),
+        )
         before, note = text.split("\n\n_(", 1)
         self.assertEqual(before.count("```") % 2, 0, before)
         self.assertIn("reached the length limit", note)
@@ -585,7 +613,9 @@ class OutputLimitTests(unittest.TestCase):
             urllib.request.urlopen = spy
             try:
                 for cap, expected in ((16384, 2048), (None, 700)):
-                    OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=cap).describe_image(str(image), "what is this")
+                    OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=cap).describe_image(
+                        str(image), "what is this"
+                    )
                     self.assertEqual(sent["payload"]["max_tokens"], expected)
             finally:
                 urllib.request.urlopen = real
@@ -593,8 +623,10 @@ class OutputLimitTests(unittest.TestCase):
     def test_the_cap_is_configured_and_bounded(self) -> None:
         from laptop_agent.config import _output_tokens
 
-        self.assertEqual([_output_tokens(raw) for raw in ("8000", "", None, "lots", "10", "999999")],
-                         [8000, None, None, None, 256, 65536])
+        self.assertEqual(
+            [_output_tokens(raw) for raw in ("8000", "", None, "lots", "10", "999999")],
+            [8000, None, None, None, 256, 65536],
+        )
 
     def test_only_the_measured_host_gets_the_default(self) -> None:
         from dataclasses import replace
@@ -606,14 +638,23 @@ class OutputLimitTests(unittest.TestCase):
         nvidia = replace(config, llm_base_url="https://integrate.api.nvidia.com/v1", llm_max_output_tokens=None)
         self.assertEqual(_output_tokens(nvidia), 16384)
         self.assertIsNone(_output_tokens(replace(nvidia, llm_base_url="https://api.openai.com/v1")))
-        self.assertEqual(_output_tokens(replace(nvidia, llm_base_url="https://api.openai.com/v1",
-                                                llm_max_output_tokens=12000)), 12000)
+        self.assertEqual(
+            _output_tokens(replace(nvidia, llm_base_url="https://api.openai.com/v1", llm_max_output_tokens=12000)),
+            12000,
+        )
         router = _build_openrouter_planner(replace(nvidia, openrouter_api_key="k", openrouter_model="m"))
         self.assertIsNone(router.provider.max_output_tokens)
         from laptop_agent.app import _build_planner, _build_smart_planner, _build_ultra_planner, _build_vision_planner
 
-        tiers = replace(nvidia, llm_provider="openai-compatible", llm_api_key="k", llm_model="fast",
-                        llm_smart_model="smart", llm_ultra_model="ultra", llm_vision_model="vision")
+        tiers = replace(
+            nvidia,
+            llm_provider="openai-compatible",
+            llm_api_key="k",
+            llm_model="fast",
+            llm_smart_model="smart",
+            llm_ultra_model="ultra",
+            llm_vision_model="vision",
+        )
         for build in (_build_planner, _build_smart_planner, _build_ultra_planner, _build_vision_planner):
             self.assertEqual(build(tiers).provider.max_output_tokens, 16384, build.__name__)
 

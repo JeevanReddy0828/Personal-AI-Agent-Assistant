@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate
+from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.terminal import TerminalTool
 
 
@@ -32,7 +32,7 @@ class TerminalToolTests(unittest.TestCase):
             runner=lambda command, cwd, timeout: calls.append(command) or subprocess.CompletedProcess(command, 0),
         )
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(ApprovalDenied):
             tool.run("echo nope")
 
         self.assertEqual(calls, [])
