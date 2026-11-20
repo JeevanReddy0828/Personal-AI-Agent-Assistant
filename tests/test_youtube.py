@@ -39,6 +39,7 @@ class TranscriptTests(unittest.TestCase):
     def test_missing_dependency_hint(self) -> None:
         def raise_missing(_vid):
             raise MissingTranscriptError("install: pip install youtube-transcript-api")
+
         result = YouTubeTool(transcript_backend=raise_missing).transcript("dQw4w9WgXcQ")
         self.assertFalse(result.ok)
         self.assertIn("youtube-transcript-api", result.message)

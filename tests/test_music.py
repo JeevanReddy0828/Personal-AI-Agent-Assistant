@@ -136,10 +136,7 @@ class ResolverParsingTests(unittest.TestCase):
         self.assertEqual(got[0]["title"], "First")
 
     def test_an_escaped_title_is_decoded(self) -> None:
-        body = (
-            '"videoRenderer":{"videoId":"ccccccccccc","title":{"runs":'
-            '[{"text":"He said \\"hi\\" \\u2014 loudly"}]}}'
-        )
+        body = '"videoRenderer":{"videoId":"ccccccccccc","title":{"runs":[{"text":"He said \\"hi\\" \\u2014 loudly"}]}}'
         self.assertEqual(self.parse(body)[0]["title"], 'He said "hi" — loudly')
 
     def test_a_page_with_no_results_yields_nothing(self) -> None:

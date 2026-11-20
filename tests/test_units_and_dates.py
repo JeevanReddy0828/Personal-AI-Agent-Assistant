@@ -8,23 +8,31 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from laptop_agent.planner import HeuristicPlannerProvider
-from laptop_agent.tools.dates import (answerable, calendar_fact, date_question, next_holiday, resolve, span_text,
-                                      until_moment)
-from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
 from agent_patches import patch_agents
 from test_everyday_requests import Everyday
+
+from laptop_agent.planner import HeuristicPlannerProvider
+from laptop_agent.tools.dates import (
+    answerable,
+    calendar_fact,
+    date_question,
+    next_holiday,
+    resolve,
+    span_text,
+    until_moment,
+)
+from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone(timedelta(hours=-5)))
 
 try:
     _NEW_YORK: ZoneInfo | None = ZoneInfo("America/New_York")
-except ZoneInfoNotFoundError:   # Windows without the tzdata package; CI installs it
+except ZoneInfoNotFoundError:  # Windows without the tzdata package; CI installs it
     _NEW_YORK = None
 
 
@@ -66,10 +74,16 @@ class UnitTests(unittest.TestCase):
         # Only where an amount stands, just before a unit: the rest of a sentence is not rewritten.
         from laptop_agent.tools.units import _fraction_amounts
 
-        self.assertEqual(_fraction_amounts("half the cups and a quarter of them"), "half the cups and a quarter of them")
+        self.assertEqual(
+            _fraction_amounts("half the cups and a quarter of them"), "half the cups and a quarter of them"
+        )
         self.assertEqual(_fraction_amounts("half a cup"), "0.5 cup")
-        for text in ("half the cups are broken", "a quarter pounder with cheese",
-                     "how many calories in half a cup of rice", "how many tablespoons in 1/0 cup"):
+        for text in (
+            "half the cups are broken",
+            "a quarter pounder with cheese",
+            "how many calories in half a cup of rice",
+            "how many tablespoons in 1/0 cup",
+        ):
             with self.subTest(text):
                 self.assertFalse(looks_like_conversion(text))
 
@@ -94,9 +108,15 @@ class UnitTests(unittest.TestCase):
         self.assertIn("length", result.message)
 
     def test_only_conversions_are_conversions(self) -> None:
-        for text in ("convert this pdf to word", "i am 5 feet away", "how many people in a room",
-                     "run 5 miles in an hour", "convert file a.txt to b.md", "10 to 3",
-                     "how many minutes in the meeting"):
+        for text in (
+            "convert this pdf to word",
+            "i am 5 feet away",
+            "how many people in a room",
+            "run 5 miles in an hour",
+            "convert file a.txt to b.md",
+            "10 to 3",
+            "how many minutes in the meeting",
+        ):
             self.assertFalse(looks_like_conversion(text), text)
         self.assertEqual(parse("convert how many ounces in a pound"), (1.0, "pound", "ounce"))
         self.assertAlmostEqual(convert(212, "fahrenheit", "celsius"), 100)
@@ -124,18 +144,24 @@ class UnitTests(unittest.TestCase):
                 self.assertTrue(looks_like_conversion(text))
                 self.assertEqual(tool.convert(text).message, expected)
         # Two units that are not one amount stay out: no unit says what 10 is here.
-        for text in ("i am 5 feet 10 away", "remind me in 2 hours 30 minutes", "what is 2 hours 30 minutes from now",
-                     "convert 5 feet 10 pounds to cm"):
+        for text in (
+            "i am 5 feet 10 away",
+            "remind me in 2 hours 30 minutes",
+            "what is 2 hours 30 minutes from now",
+            "convert 5 feet 10 pounds to cm",
+        ):
             with self.subTest(text):
                 self.assertFalse(looks_like_conversion(text))
 
     def test_how_long_or_far_is_an_amount(self) -> None:
-        """"how long is 90 minutes in hours" reached the chat model: only "how tall/heavy is" led in."""
+        """ "how long is 90 minutes in hours" reached the chat model: only "how tall/heavy is" led in."""
         tool, router = UnitTool(), HeuristicPlannerProvider()
-        for text, answer in (("how long is 90 minutes in hours", "90 minutes = **1.5 hours**"),
-                             ("how far is 10 km in miles", "10 kilometres = **6.21 miles**"),
-                             ("how hot is 30 c in f", "30°C = **86°F**"),
-                             ("how fast is 100 kph in mph", "100 kilometres per hour = **62.14 miles per hour**")):
+        for text, answer in (
+            ("how long is 90 minutes in hours", "90 minutes = **1.5 hours**"),
+            ("how far is 10 km in miles", "10 kilometres = **6.21 miles**"),
+            ("how hot is 30 c in f", "30°C = **86°F**"),
+            ("how fast is 100 kph in mph", "100 kilometres per hour = **62.14 miles per hour**"),
+        ):
             with self.subTest(text):
                 self.assertEqual(tool.convert(text).message, answer)
                 self.assertEqual(router.plan(text, "", {}).command, f"convert {text}")
@@ -154,8 +180,11 @@ class UnitTests(unittest.TestCase):
         for text in ("convert " + "9" * 400 + " miles to km", "convert 1" + "0" * 307 + " miles to km"):
             with self.subTest(text[:12]):
                 self.assertEqual(tool.convert(text).message, "That number is too large to convert.")
-        for text in ("convert " + "9" * 5000 + " feet 2 inches to cm", "how tall is " + "9" * 5000 + "'2 in cm",
-                     "convert " + "9" * 5000 + " hours 30 minutes to minutes"):
+        for text in (
+            "convert " + "9" * 5000 + " feet 2 inches to cm",
+            "how tall is " + "9" * 5000 + "'2 in cm",
+            "convert " + "9" * 5000 + " hours 30 minutes to minutes",
+        ):
             with self.subTest(text[:12]):
                 self.assertFalse(tool.convert(text).ok)
                 router.plan(text, "", {})
@@ -165,23 +194,32 @@ class DateTests(unittest.TestCase):
     def test_holidays_fixed_and_floating(self) -> None:
         today = NOW.date()
         self.assertEqual(next_holiday("christmas", today), date(2026, 12, 25))
-        self.assertEqual(next_holiday("thanksgiving", today), date(2026, 11, 26))    # 4th Thursday
-        self.assertEqual(next_holiday("easter", today), date(2027, 3, 28))           # computus
-        self.assertEqual(next_holiday("mother's day", today), date(2027, 5, 9))      # 2nd Sunday of May
-        self.assertEqual(next_holiday("labor day", today), date(2027, 9, 6))         # 2026's has passed
+        self.assertEqual(next_holiday("thanksgiving", today), date(2026, 11, 26))  # 4th Thursday
+        self.assertEqual(next_holiday("easter", today), date(2027, 3, 28))  # computus
+        self.assertEqual(next_holiday("mother's day", today), date(2027, 5, 9))  # 2nd Sunday of May
+        self.assertEqual(next_holiday("labor day", today), date(2027, 9, 6))  # 2026's has passed
         self.assertEqual(next_holiday("memorial day", date(2026, 1, 1)), date(2026, 5, 25))  # last Monday
 
     def test_a_holiday_is_found_however_it_is_spelled(self) -> None:
         """One spelling of each name was listed: "new year's" and "new years day" reached the chat
         model while "new years" and "new year's day" were answered."""
-        for text, expected in (("new year's", date(2027, 1, 1)), ("new years day", date(2027, 1, 1)),
-                               ("new year’s day", date(2027, 1, 1)), ("st patricks day", date(2027, 3, 17)),
-                               ("st. patrick's day", date(2027, 3, 17)), ("saint patrick's day", date(2027, 3, 17)),
-                               ("veteran's day", date(2026, 11, 11)), ("president's day", date(2027, 2, 15)),
-                               ("next new year's", date(2027, 1, 1)), ("new year's 2028", date(2028, 1, 1)),
-                               # Computed from the holidays they follow.
-                               ("good friday", date(2027, 3, 26)), ("black friday", date(2026, 11, 27)),
-                               ("cyber monday", date(2026, 11, 30)), ("xmas", date(2026, 12, 25))):
+        for text, expected in (
+            ("new year's", date(2027, 1, 1)),
+            ("new years day", date(2027, 1, 1)),
+            ("new year’s day", date(2027, 1, 1)),
+            ("st patricks day", date(2027, 3, 17)),
+            ("st. patrick's day", date(2027, 3, 17)),
+            ("saint patrick's day", date(2027, 3, 17)),
+            ("veteran's day", date(2026, 11, 11)),
+            ("president's day", date(2027, 2, 15)),
+            ("next new year's", date(2027, 1, 1)),
+            ("new year's 2028", date(2028, 1, 1)),
+            # Computed from the holidays they follow.
+            ("good friday", date(2027, 3, 26)),
+            ("black friday", date(2026, 11, 27)),
+            ("cyber monday", date(2026, 11, 30)),
+            ("xmas", date(2026, 12, 25)),
+        ):
             with self.subTest(text):
                 self.assertEqual(resolve(text, NOW)[0], expected)
                 self.assertTrue(answerable(f"when is {text}", NOW))
@@ -191,11 +229,18 @@ class DateTests(unittest.TestCase):
 
     def test_a_stated_year_is_the_year(self) -> None:
         # Each of these got the next time the date came round, whatever year was said.
-        for text, expected in (("july 4th this year", date(2026, 7, 4)), ("easter this year", date(2026, 4, 5)),
-                               ("this year's easter", date(2026, 4, 5)), ("christmas next year", date(2027, 12, 25)),
-                               ("thanksgiving next year", date(2027, 11, 25)), ("july 4th 2030", date(2030, 7, 4)),
-                               ("christmas 2030", date(2030, 12, 25)), ("the 4th of july 2028", date(2028, 7, 4)),
-                               ("june 5 this year", date(2026, 6, 5)), ("june 5, 2027", date(2027, 6, 5))):
+        for text, expected in (
+            ("july 4th this year", date(2026, 7, 4)),
+            ("easter this year", date(2026, 4, 5)),
+            ("this year's easter", date(2026, 4, 5)),
+            ("christmas next year", date(2027, 12, 25)),
+            ("thanksgiving next year", date(2027, 11, 25)),
+            ("july 4th 2030", date(2030, 7, 4)),
+            ("christmas 2030", date(2030, 12, 25)),
+            ("the 4th of july 2028", date(2028, 7, 4)),
+            ("june 5 this year", date(2026, 6, 5)),
+            ("june 5, 2027", date(2027, 6, 5)),
+        ):
             with self.subTest(text):
                 self.assertEqual(resolve(text, NOW)[0], expected)
         # Unchanged: no year said is the next one, and "end of this year" keeps its own reading.
@@ -208,10 +253,16 @@ class DateTests(unittest.TestCase):
 
     def test_a_count_of_days_weeks_months_or_years_from_today(self) -> None:
         # "what was the date 2 weeks ago", "what day will it be in 3 months" went to the model.
-        for text, expected in (("2 weeks ago", date(2026, 9, 12)), ("a month ago", date(2026, 8, 26)),
-                               ("in 3 months", date(2026, 12, 26)), ("10 days from now", date(2026, 10, 6)),
-                               ("in two years", date(2028, 9, 26)), ("christmas last year", date(2025, 12, 25)),
-                               ("last year's easter", date(2025, 4, 20)), ("july 4 1776", date(1776, 7, 4))):
+        for text, expected in (
+            ("2 weeks ago", date(2026, 9, 12)),
+            ("a month ago", date(2026, 8, 26)),
+            ("in 3 months", date(2026, 12, 26)),
+            ("10 days from now", date(2026, 10, 6)),
+            ("in two years", date(2028, 9, 26)),
+            ("christmas last year", date(2025, 12, 25)),
+            ("last year's easter", date(2025, 4, 20)),
+            ("july 4 1776", date(1776, 7, 4)),
+        ):
             with self.subTest(text):
                 self.assertEqual(resolve(text, NOW)[0], expected)
         # A month back from 31 March is the end of February, not 3 March.
@@ -219,14 +270,16 @@ class DateTests(unittest.TestCase):
         self.assertIsNone(resolve("a few weeks ago", NOW))
 
     def test_since_left_and_the_past_tense_are_date_questions(self) -> None:
-        for text, expected in (("how many days since march 1", ("between", "march 1", "today")),
-                               ("how long has it been since christmas", ("between", "christmas", "today")),
-                               ("how many days left in the year", ("until", "end of the year", "")),
-                               ("how many weeks are left in this month", ("until", "end of the month", "weeks")),
-                               ("what day of the week was july 4 1776", ("when", "july 4 1776", "")),
-                               ("what day will it be in 10 days", ("when", "in 10 days", "")),
-                               ("what was the date 2 weeks ago", ("when", "2 weeks ago", "")),
-                               ("when was christmas last year", ("when", "christmas last year", ""))):
+        for text, expected in (
+            ("how many days since march 1", ("between", "march 1", "today")),
+            ("how long has it been since christmas", ("between", "christmas", "today")),
+            ("how many days left in the year", ("until", "end of the year", "")),
+            ("how many weeks are left in this month", ("until", "end of the month", "weeks")),
+            ("what day of the week was july 4 1776", ("when", "july 4 1776", "")),
+            ("what day will it be in 10 days", ("when", "in 10 days", "")),
+            ("what was the date 2 weeks ago", ("when", "2 weeks ago", "")),
+            ("when was christmas last year", ("when", "christmas last year", "")),
+        ):
             with self.subTest(text):
                 self.assertEqual(date_question(text), expected)
         self.assertFalse(answerable("how many days since the update", NOW))
@@ -239,10 +292,11 @@ class DateTests(unittest.TestCase):
 
     def test_what_is_and_is_not_a_date_question(self) -> None:
         self.assertEqual(date_question("how many days until christmas?"), ("until", "christmas", ""))
-        self.assertEqual(date_question("how many days between march 1 and april 15"),
-                         ("between", "march 1", "april 15"))
+        self.assertEqual(
+            date_question("how many days between march 1 and april 15"), ("between", "march 1", "april 15")
+        )
         self.assertTrue(answerable("when is thanksgiving", NOW))
-        self.assertTrue(answerable("when is my birthday", NOW))           # the user's own, looked up later
+        self.assertTrue(answerable("when is my birthday", NOW))  # the user's own, looked up later
         self.assertFalse(answerable("when is the next train", NOW))
         self.assertFalse(answerable("how long until the movie starts", NOW))
 
@@ -287,8 +341,9 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.say("remember my wife's birthday is june 5")
         self.assertIn("5 June", self.say("when is my wife's birthday")[0].message)
         self.say("add dentist appointment to my calendar next tuesday at 9")
-        self.assertIn("You have a reminder for that: dentist appointment",
-                      self.say("when is my dentist appointment")[0].message)
+        self.assertIn(
+            "You have a reminder for that: dentist appointment", self.say("when is my dentist appointment")[0].message
+        )
         self.assertIn("haven't told me", self.say("when is my anniversary")[0].message)
         self.assertIn("I don't know when your birthday is", self.say("how many days until my birthday")[0].message)
 
@@ -304,43 +359,61 @@ class ThroughTheAssistantTests(unittest.TestCase):
         # "since christmas" to this December. Looking ahead ("between today and march 1") keeps
         # the next one. On the stopped clock, Saturday 26 September 2026.
         with patch_agents(datetime, StoppedClock):
-            for text, days in (("how many days between march 1 and today", 209), ("how many days since march 1", 209),
-                               ("how long has it been since christmas", 275),
-                               ("how many days between today and march 1", 156),
-                               ("how many days between march 1 2027 and today", 156),   # a year said is kept
-                               ("how many days left in the year", 96)):
+            for text, days in (
+                ("how many days between march 1 and today", 209),
+                ("how many days since march 1", 209),
+                ("how long has it been since christmas", 275),
+                ("how many days between today and march 1", 156),
+                ("how many days between march 1 2027 and today", 156),  # a year said is kept
+                ("how many days left in the year", 96),
+            ):
                 with self.subTest(text):
                     self.assertTrue(self.say(text)[0].message.startswith(f"**{days} days**"), self.say(text)[0].message)
             # A weekday has no year to step back to (Codex's review of #244): on this Saturday,
             # "since friday" is yesterday, not the coming Friday six days ahead.
-            for text, start in (("how many days since friday", "**1 day** between friday (Friday 25 September 2026)"),
-                                ("how many days between friday and today", "**1 day** between friday (Friday 25"),
-                                ("how many days since monday", "**5 days** between monday (Monday 21 September 2026)")):
+            for text, start in (
+                ("how many days since friday", "**1 day** between friday (Friday 25 September 2026)"),
+                ("how many days between friday and today", "**1 day** between friday (Friday 25"),
+                ("how many days since monday", "**5 days** between monday (Monday 21 September 2026)"),
+            ):
                 with self.subTest(text):
                     self.assertTrue(self.say(text)[0].message.startswith(start), self.say(text)[0].message)
-            self.assertEqual(self.say("what day of the week was july 4 1776")[0].message.split(" — ")[0],
-                             "July 4 was on Thursday, 4 July 1776")
-            self.assertEqual(self.say("what was the date 2 weeks ago")[0].message,
-                             "2 weeks ago was on Saturday, 12 September 2026 — 14 days ago.")
+            self.assertEqual(
+                self.say("what day of the week was july 4 1776")[0].message.split(" — ")[0],
+                "July 4 was on Thursday, 4 July 1776",
+            )
+            self.assertEqual(
+                self.say("what was the date 2 weeks ago")[0].message,
+                "2 weeks ago was on Saturday, 12 September 2026 — 14 days ago.",
+            )
 
     def test_a_date_already_past_is_said_in_the_past(self) -> None:
         # With a stated year a date can be behind us: "until" said "-84 days" and "is on" a past day.
         with patch_agents(datetime, StoppedClock):
-            self.assertEqual(self.say("how many days until july 4th this year")[0].message,
-                             "July 4th was **84 days ago** (Saturday 4 July 2026).")
-            self.assertEqual(self.say("what day is july 4th this year")[0].message,
-                             "July 4th was on Saturday, 4 July 2026 — 84 days ago.")
-            self.assertEqual(self.say("what day is christmas next year")[0].message,
-                             "Christmas is on Saturday, 25 December 2027 — 455 days from today.")
+            self.assertEqual(
+                self.say("how many days until july 4th this year")[0].message,
+                "July 4th was **84 days ago** (Saturday 4 July 2026).",
+            )
+            self.assertEqual(
+                self.say("what day is july 4th this year")[0].message,
+                "July 4th was on Saturday, 4 July 2026 — 84 days ago.",
+            )
+            self.assertEqual(
+                self.say("what day is christmas next year")[0].message,
+                "Christmas is on Saturday, 25 December 2027 — 455 days from today.",
+            )
 
     def test_today_and_tomorrow_by_name(self) -> None:
         # "what's today" went to a web search for the sentence; "what day is tomorrow" said
         # "Tomorrow is on Sunday ... — tomorrow".
         today = StoppedClock.now().date()
         with patch_agents(datetime, StoppedClock):
-            for text, day in (("what's today", today), ("what's the date tomorrow", today + timedelta(days=1)),
-                              ("what's tomorrow's date", today + timedelta(days=1)),
-                              ("what day was yesterday", today - timedelta(days=1))):
+            for text, day in (
+                ("what's today", today),
+                ("what's the date tomorrow", today + timedelta(days=1)),
+                ("what's tomorrow's date", today + timedelta(days=1)),
+                ("what day was yesterday", today - timedelta(days=1)),
+            ):
                 message = self.say(text)[0].message
                 self.assertIn(f"**{day:%A}, {day.day} {day:%B %Y}**", message, text)
                 self.assertNotIn("— tomorrow", message)
@@ -374,41 +447,49 @@ class CalendarFactTests(unittest.TestCase):
     sentence: "what week of the year is it", "is 2028 a leap year", "is today a holiday"."""
 
     def test_each_is_computed(self) -> None:
-        today = date(2026, 9, 26)    # a Saturday
+        today = date(2026, 9, 26)  # a Saturday
         for text, expected in (
-                ("what week of the year is it", "week **39** of 2026"),
-                ("what day of the year is it", "day **269** of 2026, with 96 days left"),
-                ("is 2028 a leap year", "**Yes** — 2028 is a leap year"),
-                ("is this year a leap year", "**No** — 2026 is not a leap year"),
-                ("when is the next leap year", "**2028**"),
-                ("how many days in february 2028", "February 2028 has **29 days**"),
-                ("how many days are in this month", "September 2026 has **30 days**"),
-                ("how many days in next month", "October 2026 has **31 days**"),
-                ("what quarter are we in", "**Q3** of 2026"),
-                ("what's 30 days from today", "**Monday, 26 October 2026**"),
-                ("how many days until the weekend", "It's the weekend now."),
-                ("is today a holiday", "**No**"),
-                ("when is the next holiday", "**Columbus Day**, Monday, 12 October 2026"),
-                ("how old am i if i was born in 1995", "**30** or **31**"),
-                ("how old am i if i was born on june 5 1995", "You're **31**."),
-                ("how many days old am i if i was born on june 5 1995", "**11,436 days**")):
+            ("what week of the year is it", "week **39** of 2026"),
+            ("what day of the year is it", "day **269** of 2026, with 96 days left"),
+            ("is 2028 a leap year", "**Yes** — 2028 is a leap year"),
+            ("is this year a leap year", "**No** — 2026 is not a leap year"),
+            ("when is the next leap year", "**2028**"),
+            ("how many days in february 2028", "February 2028 has **29 days**"),
+            ("how many days are in this month", "September 2026 has **30 days**"),
+            ("how many days in next month", "October 2026 has **31 days**"),
+            ("what quarter are we in", "**Q3** of 2026"),
+            ("what's 30 days from today", "**Monday, 26 October 2026**"),
+            ("how many days until the weekend", "It's the weekend now."),
+            ("is today a holiday", "**No**"),
+            ("when is the next holiday", "**Columbus Day**, Monday, 12 October 2026"),
+            ("how old am i if i was born in 1995", "**30** or **31**"),
+            ("how old am i if i was born on june 5 1995", "You're **31**."),
+            ("how many days old am i if i was born on june 5 1995", "**11,436 days**"),
+        ):
             with self.subTest(text):
                 self.assertIn(expected, calendar_fact(text, today))
                 self.assertEqual(date_question(text)[0], "fact")
-        self.assertIn("**3 days** until the weekend", calendar_fact("how many days until the weekend", date(2026, 9, 23)))
-        self.assertTrue(answerable("is 2028 a leap year", NOW))     # so the instant router claims it
+        self.assertIn(
+            "**3 days** until the weekend", calendar_fact("how many days until the weekend", date(2026, 9, 23))
+        )
+        self.assertTrue(answerable("is 2028 a leap year", NOW))  # so the instant router claims it
         self.assertIn("**Yes** — today is Christmas", calendar_fact("is today a holiday", date(2026, 12, 25)))
         # Asked for by kind, only federal holidays count, on their day off (Codex's review).
         for text, day, expected in (
-                ("is today a federal holiday", date(2026, 2, 14), "**No** — today isn't a federal holiday."),
-                ("is today a holiday", date(2026, 2, 14), "**Yes** — today is Valentine's Day."),
-                ("when is the next federal holiday", date(2026, 2, 1), "**Presidents Day**, Monday, 16 February 2026"),
-                ("is today a federal holiday", date(2026, 7, 3), "the day off for Independence Day"),
-                ("is today a public holiday", date(2027, 12, 31), "the day off for New Year's Day")):
+            ("is today a federal holiday", date(2026, 2, 14), "**No** — today isn't a federal holiday."),
+            ("is today a holiday", date(2026, 2, 14), "**Yes** — today is Valentine's Day."),
+            ("when is the next federal holiday", date(2026, 2, 1), "**Presidents Day**, Monday, 16 February 2026"),
+            ("is today a federal holiday", date(2026, 7, 3), "the day off for Independence Day"),
+            ("is today a public holiday", date(2027, 12, 31), "the day off for New Year's Day"),
+        ):
             with self.subTest(text=text, day=day):
                 self.assertIn(expected, calendar_fact(text, day))
-        for text in ("what week is it in the series", "how old am i", "how old am i if i was born on december 25 2030",
-                     "how old am i if i was born in 2030"):
+        for text in (
+            "what week is it in the series",
+            "how old am i",
+            "how old am i if i was born on december 25 2030",
+            "how old am i if i was born in 2030",
+        ):
             with self.subTest(text):
                 self.assertIsNone(calendar_fact(text, today))
                 self.assertFalse(answerable(text, NOW))
@@ -416,8 +497,11 @@ class CalendarFactTests(unittest.TestCase):
     def test_through_the_assistant(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch_agents(datetime, StoppedClock):
             everyday = Everyday(Path(tmp))
-            for text, expected in (("is 2028 a leap year", "**Yes**"), ("what quarter are we in", "**Q3**"),
-                                   ("how many days in february", "February 2026 has **28 days**")):
+            for text, expected in (
+                ("is 2028 a leap year", "**Yes**"),
+                ("what quarter are we in", "**Q3**"),
+                ("how many days in february", "February 2026 has **28 days**"),
+            ):
                 with self.subTest(text):
                     self.assertIn(expected, everyday.say(text, stream=False)[0].message)
 
@@ -432,16 +516,21 @@ class EveningClock(datetime):
 
 
 class TimeUntilTests(unittest.TestCase):
-    """"how long until midnight" counted the days to the date of the next midnight and said
+    """ "how long until midnight" counted the days to the date of the next midnight and said
     "1 day", four and a half hours before it; "how many minutes until midnight" reached a model."""
 
     def test_the_unit_asked_for_is_kept(self) -> None:
         self.assertEqual(date_question("how many minutes until midnight"), ("until", "midnight", "minutes"))
         self.assertEqual(date_question("how many hours till 5pm?"), ("until", "5pm", "hours"))
         self.assertEqual(date_question("how much time until 6:15"), ("until", "6:15", ""))
-        for minutes, unit, expected in ((265, "", "4 hours 25 minutes"), (265, "minutes", "265 minutes"),
-                                        (1500, "", "1 day 1 hour"), (1500, "hours", "25 hours"),
-                                        (60, "", "1 hour"), (0, "", "less than a minute")):
+        for minutes, unit, expected in (
+            (265, "", "4 hours 25 minutes"),
+            (265, "minutes", "265 minutes"),
+            (1500, "", "1 day 1 hour"),
+            (1500, "hours", "25 hours"),
+            (60, "", "1 hour"),
+            (0, "", "less than a minute"),
+        ):
             self.assertEqual(span_text(minutes, unit), expected)
 
     def test_a_time_of_day_is_counted_to_that_moment(self) -> None:
@@ -451,7 +540,7 @@ class TimeUntilTests(unittest.TestCase):
             # At 10am "9:30" is tonight's, not tomorrow morning's.
             self.assertEqual(until_moment("9:30", "", NOW), datetime(2026, 9, 26, 21, 30, tzinfo=offset))
             self.assertEqual(until_moment("christmas", "hours", NOW), datetime(2026, 12, 25, 0, 0, tzinfo=offset))
-            self.assertIsNone(until_moment("friday", "", NOW))              # still counted in days
+            self.assertIsNone(until_moment("friday", "", NOW))  # still counted in days
             self.assertIsNone(until_moment("christmas", "weeks", NOW))
             self.assertIsNone(until_moment("the pasta is done", "minutes", NOW))
 
@@ -461,7 +550,7 @@ class TimeUntilTests(unittest.TestCase):
         with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
             moment = until_moment("christmas", "hours", evening)
         # 25 December starts at 05:00 UTC in New York; the hour the clocks go back is counted.
-        self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=timezone.utc))
+        self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=UTC))
         self.assertEqual(span_text(round((moment - evening).total_seconds() / 60), "hours"), "2,141 hours 25 minutes")
 
     @unittest.skipIf(_NEW_YORK is None, "no zone data here; CI installs tzdata")
@@ -469,20 +558,22 @@ class TimeUntilTests(unittest.TestCase):
         """Codex's review: at the first 1:45 on the night the clocks go back, "until 1:30am" said
         "1 day 45 minutes"; the second 1:30 is 45 minutes away."""
         edt, est = timezone(timedelta(hours=-4)), timezone(timedelta(hours=-5))
-        cases = ((datetime(2026, 11, 1, 0, 30, tzinfo=edt), "1:30am", 60),     # the first reading
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am", 45),     # the second, still today
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am", 1425),   # both gone: tomorrow's
-                 (datetime(2026, 11, 1, 3, 0, tzinfo=est), "1:30am", 1350),    # after the change
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30", 45),       # no am/pm said
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am today", 45),
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "sunday at 1:30am", 45),
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "this sunday at 1:30am", 45),
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "next sunday at 1:30am", 10125),   # never today
-                 (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am today", -15),   # the later one went
-                 (datetime(2026, 10, 31, 1, 45, tzinfo=edt), "sunday at 1:30am", 1425),
-                 (datetime(2026, 10, 2, 18, 0, tzinfo=edt), "friday at 5pm", 10020),  # a week, not today
-                 (datetime(2026, 9, 26, 10, 0, tzinfo=edt), "tomorrow at 5pm", 1860),  # not today's 5pm
-                 (datetime(2027, 3, 14, 1, 0, tzinfo=est), "2:30am", 90))      # skipped in spring: 3:30
+        cases = (
+            (datetime(2026, 11, 1, 0, 30, tzinfo=edt), "1:30am", 60),  # the first reading
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am", 45),  # the second, still today
+            (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am", 1425),  # both gone: tomorrow's
+            (datetime(2026, 11, 1, 3, 0, tzinfo=est), "1:30am", 1350),  # after the change
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30", 45),  # no am/pm said
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "1:30am today", 45),
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "sunday at 1:30am", 45),
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "this sunday at 1:30am", 45),
+            (datetime(2026, 11, 1, 1, 45, tzinfo=edt), "next sunday at 1:30am", 10125),  # never today
+            (datetime(2026, 11, 1, 1, 45, tzinfo=est), "1:30am today", -15),  # the later one went
+            (datetime(2026, 10, 31, 1, 45, tzinfo=edt), "sunday at 1:30am", 1425),
+            (datetime(2026, 10, 2, 18, 0, tzinfo=edt), "friday at 5pm", 10020),  # a week, not today
+            (datetime(2026, 9, 26, 10, 0, tzinfo=edt), "tomorrow at 5pm", 1860),  # not today's 5pm
+            (datetime(2027, 3, 14, 1, 0, tzinfo=est), "2:30am", 90),
+        )  # skipped in spring: 3:30
         with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
             for now, what, minutes in cases:
                 with self.subTest(now=now.isoformat(), what=what):
@@ -500,12 +591,14 @@ class TimeUntilTests(unittest.TestCase):
             def now(cls, tz=None):
                 if tz is not None:
                     return first.astimezone(tz)
-                naive = first.astimezone().replace(tzinfo=None)    # read as this machine reads its clock
+                naive = first.astimezone().replace(tzinfo=None)  # read as this machine reads its clock
                 return naive if naive.astimezone() == first else naive.replace(fold=1)
 
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch_agents(datetime, FirstQuarterToTwo), \
-                patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch_agents(datetime, FirstQuarterToTwo),
+            patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK),
+        ):
             everyday = Everyday(Path(tmp))
             for text in ("how long until 1:30am", "how long until 1:30am today", "how long until sunday at 1:30am"):
                 with self.subTest(text):
@@ -514,14 +607,16 @@ class TimeUntilTests(unittest.TestCase):
     def test_through_the_assistant(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch_agents(datetime, EveningClock):
             everyday = Everyday(Path(tmp))
-            for text, expected in (("how long until midnight", "**4 hours 25 minutes** until midnight"),
-                                   ("how many minutes until midnight", "**265 minutes**"),
-                                   ("how long until 5pm", "**21 hours 25 minutes** until 5pm (tomorrow at 5:00 PM)"),
-                                   ("how much time until 9:30", "**1 hour 55 minutes** until 9:30 (today at 9:30 PM)"),
-                                   ("how long until 5pm today", "5pm today was **2 hours 35 minutes ago**"),
-                                   ("how long until friday", "**6 days** until friday"),
-                                   ("how long until friday at 5pm", "**5 days 21 hours 25 minutes**"),
-                                   ("how long until my timer goes off", "no timers")):
+            for text, expected in (
+                ("how long until midnight", "**4 hours 25 minutes** until midnight"),
+                ("how many minutes until midnight", "**265 minutes**"),
+                ("how long until 5pm", "**21 hours 25 minutes** until 5pm (tomorrow at 5:00 PM)"),
+                ("how much time until 9:30", "**1 hour 55 minutes** until 9:30 (today at 9:30 PM)"),
+                ("how long until 5pm today", "5pm today was **2 hours 35 minutes ago**"),
+                ("how long until friday", "**6 days** until friday"),
+                ("how long until friday at 5pm", "**5 days 21 hours 25 minutes**"),
+                ("how long until my timer goes off", "no timers"),
+            ):
                 with self.subTest(text):
                     result, ran = everyday.say(text, stream=False)
                     self.assertIn(expected, result.message)

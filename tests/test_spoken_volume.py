@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from laptop_agent.tools.base import ToolResult
 from test_everyday_requests import Everyday
+
+from laptop_agent.tools.base import ToolResult
 
 
 class SpokenVolumeTests(unittest.TestCase):
@@ -22,10 +23,12 @@ class SpokenVolumeTests(unittest.TestCase):
                 return ToolResult.success(f"Volume set to about {level}%.", level=level)
 
             with patch.object(everyday.orchestrator.context.music, "set_volume", side_effect=set_volume):
-                for said, level in (("set the volume to fifty", 50),
-                                    ("um set the volume to fifty percent", 50),
-                                    ("turn the volume to twenty five", 25),
-                                    ("volume one hundred", 100)):
+                for said, level in (
+                    ("set the volume to fifty", 50),
+                    ("um set the volume to fifty percent", 50),
+                    ("turn the volume to twenty five", 25),
+                    ("volume one hundred", 100),
+                ):
                     with self.subTest(said=said):
                         result, ran = everyday.say(said, stream=False)
                         self.assertEqual(ran, f"media volume {level}")

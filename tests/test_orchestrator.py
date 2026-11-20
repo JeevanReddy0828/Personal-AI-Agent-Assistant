@@ -4,23 +4,23 @@ import asyncio
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from dataclasses import replace
+from desktop_guard import make_desktop_inert
 
-from laptop_agent.app import build_context
 from laptop_agent.agents.orchestrator import AgentOrchestrator
+from laptop_agent.app import build_context
 from laptop_agent.config import AppConfig
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
 from laptop_agent.tools.desktop import DesktopTool
-from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
-from desktop_guard import make_desktop_inert
+from laptop_agent.tools.windows import WindowTool
 
 # Importing this builder switches off the browser, app launches and media keys, whoever imports
 # it: probes that imported it outside run_tests.py opened YouTube and pressed the volume keys.
@@ -116,8 +116,7 @@ class OrchestratorTests(unittest.TestCase):
         gate = context.web.approval_gate
         # bytes([0x89]) rather than an escape: this line was mangled twice by the
         # escaping layers between here and the file, which ERRORS.md warns about.
-        desktop = DesktopTool(
-            gate, screenshot_backend=lambda path: path.write_bytes(bytes([0x89]) + b"PNG"))
+        desktop = DesktopTool(gate, screenshot_backend=lambda path: path.write_bytes(bytes([0x89]) + b"PNG"))
         context = replace(
             context,
             desktop=desktop,
@@ -159,7 +158,9 @@ class OrchestratorTests(unittest.TestCase):
                 ocr_backend=lambda path: f"ocr-text::{path.name}",
                 asr_backend=lambda path: {"text": f"transcript::{path.name}", "engine": "fake", "segments": []},
             ),
-            webcam=WebcamTool(capture_backend=lambda device, dest: (dest.write_bytes(bytes([0x89]) + b"PNG-fake"), dest)[1]),
+            webcam=WebcamTool(
+                capture_backend=lambda device, dest: (dest.write_bytes(bytes([0x89]) + b"PNG-fake"), dest)[1]
+            ),
         )
         return AgentOrchestrator(
             context,
@@ -210,7 +211,8 @@ class OrchestratorTests(unittest.TestCase):
 
             escaped = listing() - before
             self.assertEqual(
-                escaped, set(),
+                escaped,
+                set(),
                 "these were written outside the orchestrator's own data_dir: "
                 + repr(sorted(str(path) for path in escaped)),
             )
@@ -273,12 +275,16 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(orchestrator.context.knowledge.list_documents(), [])
 
     def test_many_remembered_facts_are_listed_not_run_together(self) -> None:
-        """"Here's what I remember: a = 1, b = 2, …" stopped being readable past a few
+        """ "Here's what I remember: a = 1, b = 2, …" stopped being readable past a few
         facts, and it is read aloud in voice mode too."""
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
-            for key, value in (("name", "Ada"), ("favorite_color", "teal"),
-                               ("favorite_language", "Python"), ("favourite editor", "neovim")):
+            for key, value in (
+                ("name", "Ada"),
+                ("favorite_color", "teal"),
+                ("favorite_language", "Python"),
+                ("favourite editor", "neovim"),
+            ):
                 asyncio.run(orchestrator.handle(f"remember {key} = {value}"))
             message = orchestrator._humanize(asyncio.run(orchestrator.handle("memory")))
             self.assertIn("favorite color", message, "the underscore should not be read aloud")
@@ -560,8 +566,7 @@ class OrchestratorTests(unittest.TestCase):
             root = Path(raw)
             doc = root / "runbook.txt"
             doc.write_text(
-                "Payment retries use idempotency keys. "
-                "Daily reconciliation compares ledger entries with bank feeds.",
+                "Payment retries use idempotency keys. Daily reconciliation compares ledger entries with bank feeds.",
                 encoding="utf-8",
             )
             orchestrator = self.build(root / "data")
@@ -574,8 +579,7 @@ class OrchestratorTests(unittest.TestCase):
             root = Path(raw)
             doc = root / "runbook.txt"
             doc.write_text(
-                "Payment retries use idempotency keys. "
-                "Daily reconciliation compares ledger entries with bank feeds.",
+                "Payment retries use idempotency keys. Daily reconciliation compares ledger entries with bank feeds.",
                 encoding="utf-8",
             )
             orchestrator = self.build(root / "data")
@@ -848,7 +852,10 @@ class OrchestratorTests(unittest.TestCase):
                 self.prompts.append(text)
                 return "## Recommendation\nOption B."
 
-        history = [{"role": "user", "text": "pick a DB"}, {"role": "assistant", "text": "Option A Postgres, Option B MySQL"}]
+        history = [
+            {"role": "user", "text": "pick a DB"},
+            {"role": "assistant", "text": "Option A Postgres, Option B MySQL"},
+        ]
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
             brain = Brain()
@@ -904,8 +911,13 @@ class OrchestratorTests(unittest.TestCase):
                 "20 pounds in rupees",
             ]:
                 self.assertTrue(o._needs_fresh_info(q), q)
-            for q in ["what is 2 + 2", "write a poem about the sea", "define entropy",
-                      "convert 5 pounds to kg", "i saved 20 dollars"]:
+            for q in [
+                "what is 2 + 2",
+                "write a poem about the sea",
+                "define entropy",
+                "convert 5 pounds to kg",
+                "i saved 20 dollars",
+            ]:
                 self.assertFalse(o._needs_fresh_info(q), q)
 
     def test_fresh_question_answers_from_web(self) -> None:
@@ -1074,7 +1086,11 @@ class OrchestratorTests(unittest.TestCase):
         result = ToolResult.success(
             "Found 2 email message(s).",
             messages=[
-                {"from": "LinkedIn <jobs@linkedin.com>", "subject": "Software Developer at IBM", "snippet": "Jobs that match you"},
+                {
+                    "from": "LinkedIn <jobs@linkedin.com>",
+                    "subject": "Software Developer at IBM",
+                    "snippet": "Jobs that match you",
+                },
                 {"from": "Google <no-reply@google.com>", "subject": "Security alert", "snippet": "New sign-in"},
             ],
         )
@@ -1088,7 +1104,9 @@ class OrchestratorTests(unittest.TestCase):
 
         class LoopingProvider:
             def plan(self, text, available_commands, memory_profile):
-                return PlanDecision(action="command", command="totally unknown command", confidence=0.9, explanation="loop")
+                return PlanDecision(
+                    action="command", command="totally unknown command", confidence=0.9, explanation="loop"
+                )
 
         with tempfile.TemporaryDirectory() as raw:
             orchestrator = self.build(Path(raw))
@@ -1233,7 +1251,9 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="",
+                action="command",
+                confidence=0.8,
+                explanation="",
                 command="open url http://localhost:3000",
             )
             fixed = o._repair_target_command("how do I start the app in a browser tab", invented, [])
@@ -1249,15 +1269,15 @@ class OrchestratorTests(unittest.TestCase):
                 ("analyze sales.csv", "analyze spreadsheet sales.csv"),
             ):
                 planned = PlanDecision(action="command", confidence=0.8, explanation="", command=command)
-                self.assertTrue(
-                    o._repair_target_command(text, planned, []).is_command, command
-                )
+                self.assertTrue(o._repair_target_command(text, planned, []).is_command, command)
 
     def test_a_target_named_earlier_in_the_conversation_still_runs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             planned = PlanDecision(
-                action="command", confidence=0.8, explanation="",
+                action="command",
+                confidence=0.8,
+                explanation="",
                 command="summarize youtube https://youtu.be/abc123",
             )
             history = [{"role": "user", "text": "watch https://youtu.be/abc123"}]
@@ -1268,7 +1288,10 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             planned = PlanDecision(
-                action="command", confidence=0.8, explanation="", command="process file data.csv",
+                action="command",
+                confidence=0.8,
+                explanation="",
+                command="process file data.csv",
             )
             self.assertTrue(o._repair_target_command("what is a csv file", planned, []).is_chat)
 
@@ -1285,7 +1308,9 @@ class OrchestratorTests(unittest.TestCase):
                 "show me a flowchart of TCP slow start",
             ):
                 planned = PlanDecision(
-                    action="command", confidence=0.8, explanation="",
+                    action="command",
+                    confidence=0.8,
+                    explanation="",
                     command=f"document {text}",
                 )
                 self.assertTrue(o._repair_diagram_command(text, planned, []).is_chat, text)
@@ -1299,7 +1324,10 @@ class OrchestratorTests(unittest.TestCase):
                 "export the flowchart notes as markdown",
             ):
                 planned = PlanDecision(
-                    action="command", confidence=0.8, explanation="", command=f"document {text}",
+                    action="command",
+                    confidence=0.8,
+                    explanation="",
+                    command=f"document {text}",
                 )
                 self.assertTrue(o._repair_diagram_command(text, planned, []).is_command, text)
 
@@ -1314,12 +1342,15 @@ class OrchestratorTests(unittest.TestCase):
                 return o._repair_document_length(text, planned, []).command
 
             self.assertEqual(
-                repaired("i need a one-page summary of the french revolution, pdf please",
-                         "document the french revolution as pdf"),
+                repaired(
+                    "i need a one-page summary of the french revolution, pdf please",
+                    "document the french revolution as pdf",
+                ),
                 "document one page: the french revolution as pdf",
             )
-            self.assertEqual(repaired("a 3 page report on tcp as word", "document tcp as word"),
-                             "document 3 pages: tcp as word")
+            self.assertEqual(
+                repaired("a 3 page report on tcp as word", "document tcp as word"), "document 3 pages: tcp as word"
+            )
             for text, command in (
                 ("a one page brief on rust as pdf", "document a one page brief on rust as pdf"),
                 ("write a report on rust as pdf", "document rust as pdf"),
@@ -1331,8 +1362,9 @@ class OrchestratorTests(unittest.TestCase):
     def test_routing_puts_a_dropped_length_back(self) -> None:
         class DroppingRouter:
             def plan(self, text, available_commands, memory_profile, history=None):
-                return PlanDecision(action="command", confidence=0.8, explanation="",
-                                    command="document the french revolution as pdf")
+                return PlanDecision(
+                    action="command", confidence=0.8, explanation="", command="document the french revolution as pdf"
+                )
 
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
@@ -1344,7 +1376,9 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             planned = PlanDecision(
-                action="command", confidence=0.8, explanation="",
+                action="command",
+                confidence=0.8,
+                explanation="",
                 command="document a one page summary of TCP congestion control",
             )
             self.assertTrue(
@@ -1360,7 +1394,9 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="",
+                action="command",
+                confidence=0.8,
+                explanation="",
                 command="image an entity-relationship diagram of users and orders",
             )
             history = [{"role": "assistant", "text": "Here is a state diagram: SlowStart --> CongestionAvoidance"}]
@@ -1372,7 +1408,9 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="",
+                action="command",
+                confidence=0.8,
+                explanation="",
                 command="image an entity-relationship diagram of users and orders",
             )
             history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat for hunting in snow."}]
@@ -1385,7 +1423,9 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             asked = PlanDecision(
-                action="command", confidence=0.9, explanation="",
+                action="command",
+                confidence=0.9,
+                explanation="",
                 command="image a brass compass on a weathered desk",
             )
             fixed = o._repair_image_command("image a brass compass on a weathered desk", asked, [])
@@ -1395,7 +1435,10 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="", command="image something imagined",
+                action="command",
+                confidence=0.8,
+                explanation="",
+                command="image something imagined",
             )
             self.assertTrue(o._repair_image_command("create an image for this", invented, []).is_chat)
 
@@ -1410,7 +1453,10 @@ class OrchestratorTests(unittest.TestCase):
             o = self.build(Path(raw))
             o.planner = Planner(Refuses())
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="", command="image a serene mountain lake",
+                action="command",
+                confidence=0.8,
+                explanation="",
+                command="image a serene mountain lake",
             )
             history = [{"role": "assistant", "text": "TCP congestion control prevents network overload."}]
             fixed = o._repair_image_command("create an image for this", invented, history)
@@ -1465,7 +1511,10 @@ class OrchestratorTests(unittest.TestCase):
             o = self.build(Path(raw))
             o.planner = Planner(Rewrites())
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="", command="image something invented",
+                action="command",
+                confidence=0.8,
+                explanation="",
+                command="image something invented",
             )
             history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat for hunting in snow."}]
             fixed = o._repair_image_command("create an image for this", invented, history)
@@ -1482,7 +1531,10 @@ class OrchestratorTests(unittest.TestCase):
             o = self.build(Path(raw))
             o.planner = Planner(Broken())
             invented = PlanDecision(
-                action="command", confidence=0.8, explanation="", command="image something invented",
+                action="command",
+                confidence=0.8,
+                explanation="",
+                command="image something invented",
             )
             history = [{"role": "assistant", "text": "Red foxes grow a dense winter coat."}]
             fixed = o._repair_image_command("create an image for this", invented, history)
@@ -1767,8 +1819,10 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             o = self.build(Path(raw))  # heuristic planner -> no LLM, deterministic ATS only
             res = o.tailor_application(
-                "- Built a Python FastAPI service with Redis.", "Need Python, FastAPI, and AWS.",
-                company="Acme", role="Backend",
+                "- Built a Python FastAPI service with Redis.",
+                "Need Python, FastAPI, and AWS.",
+                company="Acme",
+                role="Backend",
             )
             self.assertTrue(res.ok)
             self.assertIn("ATS match", res.message)
@@ -1836,8 +1890,14 @@ class OrchestratorTests(unittest.TestCase):
 
         def transport(url: str):
             if "ip-api" in url:
-                return {"status": "success", "lat": 30.27, "lon": -97.74,
-                        "city": "Austin", "regionName": "Texas", "country": "US"}
+                return {
+                    "status": "success",
+                    "lat": 30.27,
+                    "lon": -97.74,
+                    "city": "Austin",
+                    "regionName": "Texas",
+                    "country": "US",
+                }
             if "overpass" in url:
                 return {"elements": [{"tags": {"name": "Cafe X"}, "lat": 30.28, "lon": -97.74}]}
             return {}
@@ -1853,12 +1913,12 @@ class OrchestratorTests(unittest.TestCase):
             miss = asyncio.run(orchestrator.handle("around 3pm and remind me to call mom"))
             self.assertFalse(miss.message.startswith("I can find:"))
 
-
     def test_pipeline_snapshot_scores_leads_with_resume(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
-            orch.context.jobs.add("Acme", role="ML Engineer", stage="lead",
-                                  description="We need Python, Kubernetes and machine learning.")
+            orch.context.jobs.add(
+                "Acme", role="ML Engineer", stage="lead", description="We need Python, Kubernetes and machine learning."
+            )
             # No resume yet -> no ATS score.
             snap = orch.pipeline_snapshot()
             self.assertFalse(snap["resume"]["present"])
@@ -1885,19 +1945,34 @@ class OrchestratorTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             orch = self.build(Path(raw))
-            orch.set_resume_text("Candidate\nData engineer.\nLanguages: Python\nAcme 2024 DE Remote\n- Built Python pipelines", source="paste")
+            orch.set_resume_text(
+                "Candidate\nData engineer.\nLanguages: Python\nAcme 2024 DE Remote\n- Built Python pipelines",
+                source="paste",
+            )
             # Inject the resume copilot with a deterministic JSON-returning brain (no network).
             import json as _json
-            content = _json.dumps({
-                "summary": "Data engineer.",
-                "skills": [{"category": "Languages", "items": "Python"}],
-                "experiences": [{"company": "Acme", "dates": "2024", "title": "DE",
-                                 "location": "Remote", "bullets": ["Built Python pipelines"]}],
-                "projects": [], "education": [],
-            })
+
+            content = _json.dumps(
+                {
+                    "summary": "Data engineer.",
+                    "skills": [{"category": "Languages", "items": "Python"}],
+                    "experiences": [
+                        {
+                            "company": "Acme",
+                            "dates": "2024",
+                            "title": "DE",
+                            "location": "Remote",
+                            "bullets": ["Built Python pipelines"],
+                        }
+                    ],
+                    "projects": [],
+                    "education": [],
+                }
+            )
             orch._resume_copilot_cache = JobCopilot(decide=lambda prompt: content)
-            job = orch.context.jobs.add("Acme", role="Data Engineer", stage="lead",
-                                        description="Python data pipelines and SQL.")
+            job = orch.context.jobs.add(
+                "Acme", role="Data Engineer", stage="lead", description="Python data pipelines and SQL."
+            )
             result = orch.tailor_job(job["id"])
             self.assertTrue(result.ok)
             stored = orch.context.jobs.get(job["id"])
@@ -1926,7 +2001,7 @@ class HumanizedResultTests(unittest.TestCase):
         self.assertIn("20 file(s) in /tmp", out)
         self.assertIn("file0.txt", out)
         self.assertIn("1.0 KB", out)
-        self.assertIn("and 8 more", out)          # 12 shown, 8 elided
+        self.assertIn("and 8 more", out)  # 12 shown, 8 elided
 
     def test_an_empty_folder_says_so(self) -> None:
         self.assertIn("no files", self.humanize({"files": [], "root": "/tmp"}))
@@ -2032,7 +2107,7 @@ class AgentBrainCutOffTests(unittest.TestCase):
 
 
 class LargestFilesScanTests(unittest.TestCase):
-    """"What are the largest files in my downloads" listed the first 200 of 1214 in name
+    """ "What are the largest files in my downloads" listed the first 200 of 1214 in name
     order, and the agent, shown only a count, spent six steps without finding one size."""
 
     config = OrchestratorTests.config

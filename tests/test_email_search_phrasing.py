@@ -6,9 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.email import EmailTool
-from test_everyday_requests import Everyday
 
 
 class _Mailbox:
@@ -18,8 +19,11 @@ class _Mailbox:
 
     def search_inbox(self, query: str = "UNSEEN", limit: int = 10) -> ToolResult:
         self.queries.append(query)
-        messages = ([{"from": "Alex", "subject": "Budget", "snippet": "The numbers are ready."}]
-                    if query.startswith('from:"Alex"') else [])
+        messages = (
+            [{"from": "Alex", "subject": "Budget", "snippet": "The numbers are ready."}]
+            if query.startswith('from:"Alex"')
+            else []
+        )
         return ToolResult.success(f"Search result for {query}", messages=messages)
 
     def search_oauth_mail(self, provider: str, query: str, limit: int = 10) -> ToolResult:
@@ -33,10 +37,12 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
             mailbox = _Mailbox()
             object.__setattr__(everyday.orchestrator.context, "email", mailbox)
-            for said in ("show me emails from the last 3 days",
-                         "show me emails from yesterday",
-                         "show me emails from this week",
-                         "show me emails from today"):
+            for said in (
+                "show me emails from the last 3 days",
+                "show me emails from yesterday",
+                "show me emails from this week",
+                "show me emails from today",
+            ):
                 with self.subTest(said=said):
                     result, ran = everyday.say(said, stream=False)
                     self.assertEqual(ran, "email digest")
@@ -48,8 +54,7 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
             mailbox = _Mailbox()
             object.__setattr__(everyday.orchestrator.context, "email", mailbox)
-            for said in ("is there a new email standard for spam",
-                         "i got a new email address remember it"):
+            for said in ("is there a new email standard for spam", "i got a new email address remember it"):
                 with self.subTest(said=said):
                     result, ran = everyday.say(said, stream=False)
                     self.assertNotEqual(ran, "email unread")
@@ -74,9 +79,11 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
             mailbox = _Mailbox()
             object.__setattr__(everyday.orchestrator.context, "email", mailbox)
-            for said in ("search my email for the budget",
-                         "um search my email for the budget",
-                         "search my email for the budget and then tell me what you find"):
+            for said in (
+                "search my email for the budget",
+                "um search my email for the budget",
+                "search my email for the budget and then tell me what you find",
+            ):
                 with self.subTest(said=said):
                     result, ran = everyday.say(said, stream=False)
                     self.assertEqual(ran, "email search the budget")
@@ -88,8 +95,7 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
             mailbox = _Mailbox()
             object.__setattr__(everyday.orchestrator.context, "email", mailbox)
-            for said in ("find the email from Alex about the budget",
-                         "um find emails from Alex about the budget"):
+            for said in ("find the email from Alex about the budget", "um find emails from Alex about the budget"):
                 with self.subTest(said=said):
                     result, ran = everyday.say(said, stream=False)
                     self.assertEqual(ran, 'email search from:"Alex" budget')
@@ -111,10 +117,8 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             self.assertIn("caught up", digest.message)
 
     def test_imap_combines_sender_and_topic_without_losing_either(self) -> None:
-        self.assertEqual(EmailTool._imap_criteria('from:"Alex" budget'),
-                         ["FROM", '"Alex"', "TEXT", '"budget"'])
-        self.assertEqual(EmailTool._imap_criteria('from:"Alex Smith"'),
-                         ["FROM", '"Alex Smith"'])
+        self.assertEqual(EmailTool._imap_criteria('from:"Alex" budget'), ["FROM", '"Alex"', "TEXT", '"budget"'])
+        self.assertEqual(EmailTool._imap_criteria('from:"Alex Smith"'), ["FROM", '"Alex Smith"'])
         self.assertEqual(EmailTool._imap_criteria("invoice"), ["TEXT", '"invoice"'])
 
     def test_provider_suffix_is_not_part_of_the_sender_or_topic(self) -> None:
@@ -122,9 +126,10 @@ class EmailSearchPhrasingTests(unittest.TestCase):
             everyday = Everyday(Path(raw))
             mailbox = _Mailbox()
             object.__setattr__(everyday.orchestrator.context, "email", mailbox)
-            for said, query in (("find the email from Alex about the budget in Gmail",
-                                 'from:"Alex" budget'),
-                                ("find emails from Alex in Outlook", 'from:"Alex"')):
+            for said, query in (
+                ("find the email from Alex about the budget in Gmail", 'from:"Alex" budget'),
+                ("find emails from Alex in Outlook", 'from:"Alex"'),
+            ):
                 with self.subTest(said=said):
                     result, ran = everyday.say(said, stream=False)
                     self.assertEqual(ran, f"email api search {'gmail' if 'Gmail' in said else 'outlook'} {query}")

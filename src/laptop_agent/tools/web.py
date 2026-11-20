@@ -13,7 +13,6 @@ from typing import BinaryIO
 from urllib.parse import urlparse
 
 from laptop_agent.failures import record_failure
-
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
@@ -59,8 +58,7 @@ class WebTool:
         found = self._extract_url(url)
         if found is None:
             return ToolResult.failure(
-                f"That is not an address I can open: {url!r}. Give me a link, "
-                "for example: open url https://example.com"
+                f"That is not an address I can open: {url!r}. Give me a link, for example: open url https://example.com"
             )
         normalized = self._normalize_url(found)
         self.approval_gate.require(
@@ -131,9 +129,9 @@ class WebTool:
                     if written > MAX_DOWNLOAD_BYTES:
                         raise OSError(f"it is over {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
                     handle.write(chunk)
-        except (OSError, ValueError) as exc:   # URLError and a timeout are OSErrors
+        except (OSError, ValueError) as exc:  # URLError and a timeout are OSErrors
             record_failure("web/download", exc, url=normalized)
-            target.unlink(missing_ok=True)     # the claimed name, half written, is not the file
+            target.unlink(missing_ok=True)  # the claimed name, half written, is not the file
             return ToolResult.failure(f"Couldn't download {normalized}: {exc}", url=normalized)
         return ToolResult.success(f"Downloaded to: {target}", path=str(target), url=normalized)
 

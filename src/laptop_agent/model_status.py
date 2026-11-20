@@ -18,10 +18,10 @@ TIERS = ("fast", "smart", "ultra", "openrouter")
 # a retired model id, a wrong key, a model this account cannot call - will not, no matter
 # how long it is given, and retrying it just adds a failing round trip to every message.
 DEGRADED = "degraded"  # 429/503/timeouts/network: transient, retry soon.
-                       # The value keeps its old spelling on purpose: health, the web
-                       # status pill and the existing tests all read it, and "broken"
-                       # is the new information, not a rename of the old.
-BROKEN = "broken"      # 400/401/403/404/410: the request itself is wrong, needs a human
+# The value keeps its old spelling on purpose: health, the web
+# status pill and the existing tests all read it, and "broken"
+# is the new information, not a rename of the old.
+BROKEN = "broken"  # 400/401/403/404/410: the request itself is wrong, needs a human
 OK = "ok"
 
 DEGRADED_COOLDOWN = 60.0
@@ -49,9 +49,9 @@ class ModelStatus:
     def __init__(self, path: Path | None = None) -> None:
         self._lock = threading.Lock()
         self._state: dict[str, str] = {}  # tier -> "ok" | "degraded" | "broken"
-        self._updated_at: dict[str, float] = {}   # monotonic, for cooldowns
+        self._updated_at: dict[str, float] = {}  # monotonic, for cooldowns
         self._detail: dict[str, str] = {}
-        self._broken_at: dict[str, float] = {}    # wall clock, for the file
+        self._broken_at: dict[str, float] = {}  # wall clock, for the file
         # Without a path this is purely in-memory, exactly as before.
         self.path = path
         if path is not None:
@@ -98,9 +98,9 @@ class ModelStatus:
             return
         payload = {
             "broken": {
-                tier: {"at": self._broken_at.get(tier, time.time()),
-                       "reason": self._detail.get(tier, "")}
-                for tier, state in self._state.items() if state == BROKEN
+                tier: {"at": self._broken_at.get(tier, time.time()), "reason": self._detail.get(tier, "")}
+                for tier, state in self._state.items()
+                if state == BROKEN
             }
         }
         try:
@@ -135,8 +135,9 @@ class ModelStatus:
 
     def _broken_signature(self) -> tuple[tuple[str, str], ...]:
         """What is worth writing: which tiers are broken, and why."""
-        return tuple(sorted((tier, self._detail.get(tier, ""))
-                            for tier, state in self._state.items() if state == BROKEN))
+        return tuple(
+            sorted((tier, self._detail.get(tier, "")) for tier, state in self._state.items() if state == BROKEN)
+        )
 
     def should_attempt(self, tier: str, cooldown_seconds: float | None = None) -> bool:
         """Whether a provider should receive another request now.

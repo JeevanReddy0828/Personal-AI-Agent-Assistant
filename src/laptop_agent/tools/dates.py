@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import calendar
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from laptop_agent.timeparse import MONTHS, TimeParseError, _find_day, _find_time, on_laptop_clock, parse_when
 
@@ -42,27 +42,46 @@ def _easter(year: int) -> date:
 # name -> how to find it in a given year. US-leaning where a holiday is national; the
 # answer always states the date, so a wrong assumption is visible at once.
 _HOLIDAYS = {
-    "christmas": lambda y: date(y, 12, 25), "christmas day": lambda y: date(y, 12, 25),
-    "christmas eve": lambda y: date(y, 12, 24), "new year's day": lambda y: date(y, 1, 1),
-    "new year": lambda y: date(y, 1, 1), "new years": lambda y: date(y, 1, 1),
-    "new year's eve": lambda y: date(y, 12, 31), "new years eve": lambda y: date(y, 12, 31),
-    "valentine's day": lambda y: date(y, 2, 14), "valentines day": lambda y: date(y, 2, 14),
-    "valentines": lambda y: date(y, 2, 14), "st patrick's day": lambda y: date(y, 3, 17),
-    "halloween": lambda y: date(y, 10, 31), "independence day": lambda y: date(y, 7, 4),
-    "fourth of july": lambda y: date(y, 7, 4), "4th of july": lambda y: date(y, 7, 4),
-    "july 4th": lambda y: date(y, 7, 4), "thanksgiving": lambda y: _nth_weekday(y, 11, 3, 4),
-    "mother's day": lambda y: _nth_weekday(y, 5, 6, 2), "mothers day": lambda y: _nth_weekday(y, 5, 6, 2),
-    "father's day": lambda y: _nth_weekday(y, 6, 6, 3), "fathers day": lambda y: _nth_weekday(y, 6, 6, 3),
-    "memorial day": lambda y: _nth_weekday(y, 5, 0, -1), "labor day": lambda y: _nth_weekday(y, 9, 0, 1),
-    "labour day": lambda y: _nth_weekday(y, 9, 0, 1), "easter": _easter, "easter sunday": _easter,
-    "martin luther king day": lambda y: _nth_weekday(y, 1, 0, 3), "mlk day": lambda y: _nth_weekday(y, 1, 0, 3),
-    "presidents day": lambda y: _nth_weekday(y, 2, 0, 3), "presidents' day": lambda y: _nth_weekday(y, 2, 0, 3),
-    "veterans day": lambda y: date(y, 11, 11), "boxing day": lambda y: date(y, 12, 26),
+    "christmas": lambda y: date(y, 12, 25),
+    "christmas day": lambda y: date(y, 12, 25),
+    "christmas eve": lambda y: date(y, 12, 24),
+    "new year's day": lambda y: date(y, 1, 1),
+    "new year": lambda y: date(y, 1, 1),
+    "new years": lambda y: date(y, 1, 1),
+    "new year's eve": lambda y: date(y, 12, 31),
+    "new years eve": lambda y: date(y, 12, 31),
+    "valentine's day": lambda y: date(y, 2, 14),
+    "valentines day": lambda y: date(y, 2, 14),
+    "valentines": lambda y: date(y, 2, 14),
+    "st patrick's day": lambda y: date(y, 3, 17),
+    "halloween": lambda y: date(y, 10, 31),
+    "independence day": lambda y: date(y, 7, 4),
+    "fourth of july": lambda y: date(y, 7, 4),
+    "4th of july": lambda y: date(y, 7, 4),
+    "july 4th": lambda y: date(y, 7, 4),
+    "thanksgiving": lambda y: _nth_weekday(y, 11, 3, 4),
+    "mother's day": lambda y: _nth_weekday(y, 5, 6, 2),
+    "mothers day": lambda y: _nth_weekday(y, 5, 6, 2),
+    "father's day": lambda y: _nth_weekday(y, 6, 6, 3),
+    "fathers day": lambda y: _nth_weekday(y, 6, 6, 3),
+    "memorial day": lambda y: _nth_weekday(y, 5, 0, -1),
+    "labor day": lambda y: _nth_weekday(y, 9, 0, 1),
+    "labour day": lambda y: _nth_weekday(y, 9, 0, 1),
+    "easter": _easter,
+    "easter sunday": _easter,
+    "martin luther king day": lambda y: _nth_weekday(y, 1, 0, 3),
+    "mlk day": lambda y: _nth_weekday(y, 1, 0, 3),
+    "presidents day": lambda y: _nth_weekday(y, 2, 0, 3),
+    "presidents' day": lambda y: _nth_weekday(y, 2, 0, 3),
+    "veterans day": lambda y: date(y, 11, 11),
+    "boxing day": lambda y: date(y, 12, 26),
     # Federal holidays "the next holiday" skipped without them.
-    "juneteenth": lambda y: date(y, 6, 19), "columbus day": lambda y: _nth_weekday(y, 10, 0, 2),
+    "juneteenth": lambda y: date(y, 6, 19),
+    "columbus day": lambda y: _nth_weekday(y, 10, 0, 2),
     "indigenous peoples' day": lambda y: _nth_weekday(y, 10, 0, 2),
     "indigenous peoples day": lambda y: _nth_weekday(y, 10, 0, 2),
-    "good friday": lambda y: _easter(y) - timedelta(days=2), "xmas": lambda y: date(y, 12, 25),
+    "good friday": lambda y: _easter(y) - timedelta(days=2),
+    "xmas": lambda y: date(y, 12, 25),
     "black friday": lambda y: _nth_weekday(y, 11, 3, 4) + timedelta(days=1),
     "cyber monday": lambda y: _nth_weekday(y, 11, 3, 4) + timedelta(days=4),
 }
@@ -76,6 +95,8 @@ _HOLIDAY = "(?:" + "|".join(re.escape(name) for name in sorted(_HOLIDAYS, key=le
 def _plain_name(text: str) -> str:
     """A holiday name as the table's plain spelling: no apostrophes (a phone types ’), "st"."""
     return re.sub(r"\b(?:st\.|saint)\s+", "st ", re.sub(r"['’]", "", text), flags=re.IGNORECASE)
+
+
 _OFFSETS = {"today": 0, "tomorrow": 1, "yesterday": -1, "day after tomorrow": 2, "day before yesterday": -2}
 RELATIVE_DAYS = frozenset(_OFFSETS)
 
@@ -98,7 +119,9 @@ def _pinned_year(text: str, today: date) -> tuple[str, int | None]:
     if leading:
         return leading.group(2), today.year + step[leading.group(1).lower()]
     # Any year from 1000: "what day of the week was july 4 1776" is a fair question.
-    trailing = re.fullmatch(r"(.+?),?\s+(?:(?:of\s+)?(this|next|last)\s+year|(?:in\s+)?([12]\d{3}))", text, re.IGNORECASE)
+    trailing = re.fullmatch(
+        r"(.+?),?\s+(?:(?:of\s+)?(this|next|last)\s+year|(?:in\s+)?([12]\d{3}))", text, re.IGNORECASE
+    )
     if trailing:
         year = int(trailing.group(3)) if trailing.group(3) else today.year + step[trailing.group(2).lower()]
         return trailing.group(1), year
@@ -111,8 +134,21 @@ def says_a_year(text: str, today: date) -> bool:
     return _pinned_year(cleaned, today)[1] is not None
 
 
-_COUNT = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-          "eight": 8, "nine": 9, "ten": 10, "twelve": 12}
+_COUNT = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "twelve": 12,
+}
 # "2 weeks ago", "in 3 months", "10 days from now": counted from today on the calendar, so a
 # month back from 31 March is the end of February, not 3 March.
 _SHIFTED = re.compile(
@@ -140,15 +176,19 @@ def _shifted(text: str, today: date) -> date | None:
 
     try:
         return date(year, month, min(today.day, monthrange(year, month)[1]))
-    except ValueError:      # out of range for a calendar
+    except ValueError:  # out of range for a calendar
         return None
 
 
 def _month_day(text: str, today: date, year: int | None = None) -> date | None:
-    """"june 5", "5th of june", "12/25": the next time that date comes round, or in `year`."""
+    """ "june 5", "5th of june", "12/25": the next time that date comes round, or in `year`."""
     months = "|".join(sorted(MONTHS, key=len, reverse=True))
-    written = re.search(rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<m1>{months})"
-                        rf"|(?P<m2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b", text, re.IGNORECASE)
+    written = re.search(
+        rf"\b(?:(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<m1>{months})"
+        rf"|(?P<m2>{months})\s+(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?)\b",
+        text,
+        re.IGNORECASE,
+    )
     if not written:
         return None
     groups = written.groupdict()
@@ -169,8 +209,9 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     cleaned = re.sub(r"^\s*(?:the\s+)?", "", (text or "").strip().rstrip("?.!")).strip()
     # Only the holiday and calendar-date readings take a stated year: "end of this year" has its own.
     base, year = _pinned_year(cleaned, today)
-    holiday = (re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", base, re.IGNORECASE)
-               or re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", _plain_name(base), re.IGNORECASE))
+    holiday = re.fullmatch(rf"(?:next\s+)?({_HOLIDAY})", base, re.IGNORECASE) or re.fullmatch(
+        rf"(?:next\s+)?({_HOLIDAY})", _plain_name(base), re.IGNORECASE
+    )
     if holiday:
         name = holiday.group(1).lower()
         found = _HOLIDAYS[name](year) if year is not None else next_holiday(name, today)
@@ -185,7 +226,9 @@ def resolve(text: str, now: datetime, profile: dict[str, object] | None = None) 
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+year", cleaned, re.IGNORECASE):
         return date(today.year, 12, 31), "the end of the year"
     if re.fullmatch(r"end\s+of\s+(?:the|this)\s+month", cleaned, re.IGNORECASE):
-        return date(today.year + (today.month == 12), today.month % 12 + 1, 1) - timedelta(days=1), "the end of the month"
+        return date(today.year + (today.month == 12), today.month % 12 + 1, 1) - timedelta(
+            days=1
+        ), "the end of the month"
     # "my birthday", "my wife's birthday", "our anniversary": a date the user told us.
     personal = re.fullmatch(r"(?:my|our)\s+(.+)", base, re.IGNORECASE)
     if personal and profile:
@@ -257,8 +300,9 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
         # date stays on its day, and "friday at 5pm" is never given the Thursday. A reading counts
         # only if it is that wall time, so a time the spring change skips keeps its rule.
         # "next sunday" is never today, so it does not look back (Codex's third review).
-        if (re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE)
-                and not re.search(r"\bnext\b", cleaned, re.IGNORECASE)):
+        if re.search(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", cleaned, re.IGNORECASE) and not re.search(
+            r"\bnext\b", cleaned, re.IGNORECASE
+        ):
             backs: tuple[int, ...] = (0, 7)
         else:
             backs = (0,) if _find_day(cleaned.lower(), now) is not None else (0, 1)
@@ -269,7 +313,7 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
                     guess = (wall - timedelta(days=back)).replace(fold=fold)
                     moment = on_laptop_clock(guess, now.tzinfo)
                     # Read back through UTC: a zone converted to itself is returned unchanged.
-                    shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
+                    shown = on_laptop_clock(moment.astimezone(UTC), now.tzinfo)
                     if shown.replace(tzinfo=None) == guess:
                         readings.append(moment)
         # The next one to come; for a time already gone today, the latest that went.
@@ -283,15 +327,20 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
 
 
 def span_text(minutes: int, unit: str = "") -> str:
-    """"4 hours 25 minutes", or all in the unit asked for: "265 minutes"."""
+    """ "4 hours 25 minutes", or all in the unit asked for: "265 minutes"."""
     if minutes <= 0:
         return "less than a minute"
     if unit == "minutes":
         return f"{minutes:,} minute{'s' if minutes != 1 else ''}"
     days, rest = (0, minutes) if unit == "hours" else divmod(minutes, 1440)
     hours, spare = divmod(rest, 60)
-    return " ".join(f"{count:,} {word}{'s' if count != 1 else ''}"
-                    for count, word in ((days, "day"), (hours, "hour"), (spare, "minute")) if count)
+    return " ".join(
+        f"{count:,} {word}{'s' if count != 1 else ''}"
+        for count, word in ((days, "day"), (hours, "hour"), (spare, "minute"))
+        if count
+    )
+
+
 # "when is thanksgiving", "what day is christmas", "what date is easter this year"
 # Past and future tense too: "what day was july 4 1776", "what day will it be in 10 days",
 # "what was the date 2 weeks ago" went to the chat model.
@@ -350,16 +399,44 @@ _FACT = re.compile(
     re.IGNORECASE,
 )
 # One name for each holiday, as the answers say it.
-_NAMED_HOLIDAYS = ("new year's day", "martin luther king day", "presidents day", "valentine's day", "st patrick's day",
-                   "easter", "mother's day", "memorial day", "father's day", "juneteenth", "independence day",
-                   "labor day", "columbus day", "halloween", "veterans day", "thanksgiving", "christmas eve", "christmas",
-                   "new year's eve")
+_NAMED_HOLIDAYS = (
+    "new year's day",
+    "martin luther king day",
+    "presidents day",
+    "valentine's day",
+    "st patrick's day",
+    "easter",
+    "mother's day",
+    "memorial day",
+    "father's day",
+    "juneteenth",
+    "independence day",
+    "labor day",
+    "columbus day",
+    "halloween",
+    "veterans day",
+    "thanksgiving",
+    "christmas eve",
+    "christmas",
+    "new year's eve",
+)
 
 
 # Asked for by kind ("federal", "public", "bank"), only these count, taken off on the weekday
 # nearest a weekend date: "is today a federal holiday" on 14 February said Valentine's Day (Codex's review).
-_FEDERAL = ("new year's day", "martin luther king day", "presidents day", "memorial day", "juneteenth",
-            "independence day", "labor day", "columbus day", "veterans day", "thanksgiving", "christmas")
+_FEDERAL = (
+    "new year's day",
+    "martin luther king day",
+    "presidents day",
+    "memorial day",
+    "juneteenth",
+    "independence day",
+    "labor day",
+    "columbus day",
+    "veterans day",
+    "thanksgiving",
+    "christmas",
+)
 
 
 def _observed(day: date) -> date:
@@ -369,8 +446,11 @@ def _observed(day: date) -> date:
 
 def _federal_days(around: date) -> list[tuple[date, date, str]]:
     """(observed, actual, name) for each federal holiday in the year either side of `around`."""
-    return sorted((_observed(_HOLIDAYS[name](year)), _HOLIDAYS[name](year), name)
-                  for name in _FEDERAL for year in (around.year - 1, around.year, around.year + 1))
+    return sorted(
+        (_observed(_HOLIDAYS[name](year)), _HOLIDAYS[name](year), name)
+        for name in _FEDERAL
+        for year in (around.year - 1, around.year, around.year + 1)
+    )
 
 
 def _stamp(day: date) -> str:
@@ -399,9 +479,14 @@ def calendar_fact(text: str, today: date) -> str | None:
         return f"Today is day **{day}** of {today.year}, with {left} day{'s' if left != 1 else ''} left."
     if match.group("leap"):
         if match.group("leap_year") or re.search(r"\b(?:this|next)\s+year\b", match.group("leap"), re.IGNORECASE):
-            year = int(match.group("leap_year")) if match.group("leap_year") else (
-                today.year + (1 if "next" in match.group("leap").lower() else 0))
-            return f"**{'Yes' if _is_leap(year) else 'No'}** — {year} {'is' if _is_leap(year) else 'is not'} a leap year."
+            year = (
+                int(match.group("leap_year"))
+                if match.group("leap_year")
+                else (today.year + (1 if "next" in match.group("leap").lower() else 0))
+            )
+            return (
+                f"**{'Yes' if _is_leap(year) else 'No'}** — {year} {'is' if _is_leap(year) else 'is not'} a leap year."
+            )
         year = today.year + 1
         while not _is_leap(year):
             year += 1
@@ -451,14 +536,18 @@ def calendar_fact(text: str, today: date) -> str | None:
         dated = sorted((next_holiday(name, today), name) for name in _NAMED_HOLIDAYS)
         if match.group("next"):
             day, name = next((pair for pair in dated if pair[0] > today), dated[0])
-            return (f"The next holiday is **{_title(name)}**, {day:%A, %d %B %Y}.".replace(" 0", " ")
-                    + " (US-leaning; I don't have a regional holiday calendar.)")
+            return (
+                f"The next holiday is **{_title(name)}**, {day:%A, %d %B %Y}.".replace(" 0", " ")
+                + " (US-leaning; I don't have a regional holiday calendar.)"
+            )
         asked = today + timedelta(days=1 if match.group("which_day").lower() == "tomorrow" else 0)
         on = [name for name in _NAMED_HOLIDAYS if next_holiday(name, asked) == asked]
         if on:
             return f"**Yes** — {match.group('which_day').lower()} is {_title(on[0])}."
-        return (f"**No** — {match.group('which_day').lower()} isn't one of the holidays I know "
-                "(US-leaning; I don't have a regional holiday calendar).")
+        return (
+            f"**No** — {match.group('which_day').lower()} isn't one of the holidays I know "
+            "(US-leaning; I don't have a regional holiday calendar)."
+        )
     if match.group("age"):
         born_text = match.group("born").strip()
         if re.fullmatch(r"\d{4}", born_text):
@@ -468,7 +557,11 @@ def calendar_fact(text: str, today: date) -> str | None:
             older = today.year - year
             return f"You're **{older - 1}** or **{older}** — {older} once your birthday has passed this year."
         born_year = re.search(r"\b(\d{4})\b", born_text)
-        born = _month_day(re.sub(r"\b\d{4}\b", "", born_text).strip(" ,"), today, int(born_year.group(1))) if born_year else None
+        born = (
+            _month_day(re.sub(r"\b\d{4}\b", "", born_text).strip(" ,"), today, int(born_year.group(1)))
+            if born_year
+            else None
+        )
         if born is None or born > today:
             return None
         if match.group("days_old"):
@@ -488,7 +581,11 @@ def date_question(text: str) -> tuple[str, str, str] | None:
         return "when", relative.group("what").lower(), ""
     left = _LEFT_IN.match(text or "")
     if left:
-        return "until", f"end of the {left.group('span').lower()}", "weeks" if left.group("unit").lower() == "weeks" else ""
+        return (
+            "until",
+            f"end of the {left.group('span').lower()}",
+            "weeks" if left.group("unit").lower() == "weeks" else "",
+        )
     since = _SINCE.match(text or "")
     if since:
         return "between", since.group("a"), "today"

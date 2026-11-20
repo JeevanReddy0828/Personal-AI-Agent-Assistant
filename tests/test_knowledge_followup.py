@@ -109,7 +109,8 @@ class AnswerFollowsTheRankingTests(unittest.TestCase):
 
             answer = kb.answer(query)
             self.assertEqual(
-                answer["sources"], ["README.md"],
+                answer["sources"],
+                ["README.md"],
                 "the answer was quoted from a document the ranking did not choose",
             )
 

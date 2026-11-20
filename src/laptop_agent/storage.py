@@ -1,15 +1,16 @@
 """Atomic local storage with recovery copies and serialized read/modify/write operations."""
+
 from __future__ import annotations
 
-from contextlib import contextmanager
-from copy import deepcopy
-from functools import wraps
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
 import threading
+from contextlib import contextmanager
+from copy import deepcopy
+from functools import wraps
+from pathlib import Path
 
 _locks: dict[str, threading.RLock] = {}
 _registry_lock = threading.Lock()
@@ -36,9 +37,11 @@ def file_lock(path: Path):
             handle.seek(0)
             if os.name == "nt":
                 import msvcrt
+
                 msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(handle, fcntl.LOCK_EX)
             _held.paths = held | {key}
             try:
@@ -55,7 +58,21 @@ def file_lock(path: Path):
 _REFRESH = {
     "SchedulerStore": {"add", "remove", "set_enabled", "list_jobs", "due_jobs", "claim_due_jobs", "mark_ran"},
     "MemoryStore": {"set_profile_value", "add_note", "get_profile", "dump"},
-    "JobTracker": {"add", "import_leads", "update", "set_resume", "set_resume_profile", "set_tailoring", "set_tailored_pdf", "clear_leads", "remove", "list", "get", "get_resume", "stats"},
+    "JobTracker": {
+        "add",
+        "import_leads",
+        "update",
+        "set_resume",
+        "set_resume_profile",
+        "set_tailoring",
+        "set_tailored_pdf",
+        "clear_leads",
+        "remove",
+        "list",
+        "get",
+        "get_resume",
+        "stats",
+    },
     "TaskTracker": {"record_run", "latest", "all_runs"},
     "AutopilotTracker": {"record_run", "latest", "all_runs"},
     "WorkflowTracker": {"record_run", "latest", "all_runs"},
@@ -82,6 +99,7 @@ def synchronized(method):
                 return method(self, *args, **kwargs)
             finally:
                 _held.operations = active
+
     return wrapped
 
 
@@ -133,7 +151,9 @@ def _preserve_corrupt(path: Path) -> None:
     if not backup.exists():
         backup.write_bytes(raw)
     with _registry_lock:
-        _warnings[str(path)] = f"Recovered {path.name}; original bytes preserved in {backup.name}. Review the recovery copy."
+        _warnings[str(path)] = (
+            f"Recovered {path.name}; original bytes preserved in {backup.name}. Review the recovery copy."
+        )
 
 
 def read_json(path: Path, default):

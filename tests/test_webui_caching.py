@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 from laptop_agent.config import load_config
@@ -30,8 +30,9 @@ class CacheHeaderTests(unittest.TestCase):
         import laptop_agent.webui as webui
 
         cls.webui = webui
-        cls.metrics = patch.object(webui, "system_metrics",
-                                   return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []})
+        cls.metrics = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []}
+        )
         cls.metrics.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -109,15 +110,13 @@ class CacheHeaderTests(unittest.TestCase):
         chosen = re.findall(r'_cache\("([^"]+)"\)', source)
         self.assertGreaterEqual(len(chosen), 4, "the cache call sites moved; revisit this")
         for value in chosen:
-            self.assertIn("private", value,
-                          f"a route opts out of no-store as {value!r}, which shared caches may hold")
+            self.assertIn("private", value, f"a route opts out of no-store as {value!r}, which shared caches may hold")
 
     def test_every_route_answers_with_at_most_one_cache_control(self) -> None:
         for path in ("/", "/api/metrics", "/api/health", "/api/traces", "/nope"):
             with self.subTest(path=path):
                 _status, _body, headers = self.request(path)
-                self.assertLessEqual(len(self.cache_values(headers)), 1,
-                                     f"{path} sent duplicate Cache-Control headers")
+                self.assertLessEqual(len(self.cache_values(headers)), 1, f"{path} sent duplicate Cache-Control headers")
 
 
 if __name__ == "__main__":

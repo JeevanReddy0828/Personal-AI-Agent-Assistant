@@ -25,8 +25,14 @@ def _orchestrator(provider_name, vault_available, smart=False, vision=False):
 
 def _config(**kw):
     base = dict(
-        llm_model="m", llm_smart_model=None, llm_ultra_model=None, llm_vision_model=None,
-        obsidian_vault="C:/vault", imap_host=None, imap_username=None, imap_password=None,
+        llm_model="m",
+        llm_smart_model=None,
+        llm_ultra_model=None,
+        llm_vision_model=None,
+        obsidian_vault="C:/vault",
+        imap_host=None,
+        imap_username=None,
+        imap_password=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)

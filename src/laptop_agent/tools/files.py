@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
-from laptop_agent.terms import collapse_acronyms, sentences as prose_sentences
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.terms import collapse_acronyms
+from laptop_agent.terms import sentences as prose_sentences
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)
@@ -47,13 +48,28 @@ def read_rows(path: Path, max_rows: int) -> list[list[str]]:
     name and stop it from matching."""
     with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle, delimiter="\t" if Path(path).suffix.lower() == ".tsv" else ",")
-        return [row for _, row in zip(range(max_rows + 1), reader)]
+        return [row for _, row in zip(range(max_rows + 1), reader, strict=False)]
+
 
 # `read file` shows what it read: the tool's message used to name the file and nothing else.
 PREVIEW_LINES, PREVIEW_CHARS = 60, 3000
-_FENCE_LANGUAGE = {".py": "python", ".js": "javascript", ".ts": "typescript", ".json": "json", ".md": "markdown",
-                   ".html": "html", ".css": "css", ".sh": "bash", ".ps1": "powershell", ".yml": "yaml",
-                   ".yaml": "yaml", ".toml": "toml", ".sql": "sql", ".xml": "xml", ".ini": "ini"}
+_FENCE_LANGUAGE = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".json": "json",
+    ".md": "markdown",
+    ".html": "html",
+    ".css": "css",
+    ".sh": "bash",
+    ".ps1": "powershell",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".toml": "toml",
+    ".sql": "sql",
+    ".xml": "xml",
+    ".ini": "ini",
+}
 
 
 def _preview(text: str, suffix: str) -> str:
@@ -103,13 +119,88 @@ CATEGORY_BY_EXTENSION = {
 }
 
 STOPWORDS = {
-    "the", "and", "for", "are", "but", "not", "you", "all", "any", "can", "had", "her", "was",
-    "one", "our", "out", "day", "get", "has", "him", "his", "how", "man", "new", "now", "old",
-    "see", "two", "way", "who", "boy", "did", "its", "let", "put", "say", "she", "too", "use",
-    "that", "this", "with", "have", "from", "they", "will", "would", "there", "their", "what",
-    "about", "which", "when", "make", "like", "time", "just", "into", "than", "them", "then",
-    "your", "some", "could", "other", "been", "were", "also", "more", "very", "such", "only",
-    "over", "most", "after", "where", "these", "those", "being", "while", "should", "shall",
+    "the",
+    "and",
+    "for",
+    "are",
+    "but",
+    "not",
+    "you",
+    "all",
+    "any",
+    "can",
+    "had",
+    "her",
+    "was",
+    "one",
+    "our",
+    "out",
+    "day",
+    "get",
+    "has",
+    "him",
+    "his",
+    "how",
+    "man",
+    "new",
+    "now",
+    "old",
+    "see",
+    "two",
+    "way",
+    "who",
+    "boy",
+    "did",
+    "its",
+    "let",
+    "put",
+    "say",
+    "she",
+    "too",
+    "use",
+    "that",
+    "this",
+    "with",
+    "have",
+    "from",
+    "they",
+    "will",
+    "would",
+    "there",
+    "their",
+    "what",
+    "about",
+    "which",
+    "when",
+    "make",
+    "like",
+    "time",
+    "just",
+    "into",
+    "than",
+    "them",
+    "then",
+    "your",
+    "some",
+    "could",
+    "other",
+    "been",
+    "were",
+    "also",
+    "more",
+    "very",
+    "such",
+    "only",
+    "over",
+    "most",
+    "after",
+    "where",
+    "these",
+    "those",
+    "being",
+    "while",
+    "should",
+    "shall",
 }
 
 
@@ -123,8 +214,6 @@ class FileSummary:
 # Counting a tree is cheap; counting an unbounded one is not. Past this many entries the
 # scan reports that it stopped rather than pretending the number is the total.
 _SCAN_WALK_CEILING = 50_000
-
-
 
 
 def _readable_size(size: int) -> str:
@@ -208,14 +297,21 @@ class FileTool:
                 files.append(self._summarize(path).__dict__)
         if by_size:
             files = [
-                FileSummary(path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__
+                FileSummary(
+                    path=name, size_bytes=size, mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream"
+                ).__dict__
                 for size, name in heapq.nlargest(limit, sized)
             ]
         if by_date:
             files = [
-                {**FileSummary(path=name, size_bytes=size,
-                               mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream").__dict__,
-                 "modified": datetime.fromtimestamp(modified).astimezone().isoformat()}
+                {
+                    **FileSummary(
+                        path=name,
+                        size_bytes=size,
+                        mime_type=mimetypes.guess_type(name)[0] or "application/octet-stream",
+                    ).__dict__,
+                    "modified": datetime.fromtimestamp(modified).astimezone().isoformat(),
+                }
                 for modified, name, size in heapq.nlargest(limit, dated)
             ]
         shown = len(files)
@@ -225,7 +321,9 @@ class FileTool:
             message = f"Scanned {counted}, newest first: {top}." if top else f"Scanned {counted}."
         elif by_size:
             # The agent reads only this message, so it names the largest rather than counting them.
-            top = ", ".join(f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5])
+            top = ", ".join(
+                f"{Path(str(entry['path'])).name} ({_readable_size(int(entry['size_bytes']))})" for entry in files[:5]
+            )
             counted = f"stopped counting at {total} (the tree is very large)" if not walked_all else f"{total} files"
             message = f"Scanned {counted}, largest first: {top}." if top else f"Scanned {counted}."
         elif not walked_all:
@@ -418,8 +516,7 @@ class FileTool:
         ]
         if "line_count" in info:
             described.append(
-                f"- {info['line_count']:,} lines · {info['word_count']:,} words · "
-                f"{info['char_count']:,} characters"
+                f"- {info['line_count']:,} lines · {info['word_count']:,} words · {info['char_count']:,} characters"
             )
         if info.get("read_error"):
             described.append(f"- could not read it: {info['read_error']}")
@@ -471,7 +568,9 @@ class FileTool:
         header = rows[0]
         body = rows[1:]
         truncated = len(body) >= max_rows
-        columns = [self._column_stats(header[index] or f"column_{index + 1}", index, body) for index in range(len(header))]
+        columns = [
+            self._column_stats(header[index] or f"column_{index + 1}", index, body) for index in range(len(header))
+        ]
         return ToolResult.success(
             f"Analyzed {len(body)} row(s) across {len(header)} column(s) in {target.name}.",
             path=str(target),
@@ -554,9 +653,7 @@ class FileTool:
                 risk=RiskLevel.HIGH,
                 reason="This writes a file to disk and can overwrite an existing file.",
                 preview=(
-                    f"Destination: {dst}\n"
-                    f"Overwrite existing: {'yes' if overwrite else 'no'}\n"
-                    f"Characters: {len(text)}"
+                    f"Destination: {dst}\nOverwrite existing: {'yes' if overwrite else 'no'}\nCharacters: {len(text)}"
                 ),
             )
         )
@@ -730,7 +827,7 @@ class FileTool:
         try:
             with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
                 reader = csv.reader(handle, delimiter=delimiter)
-                rows = [row for _, row in zip(range(max_rows + 1), reader)]
+                rows = [row for _, row in zip(range(max_rows + 1), reader, strict=False)]
         except OSError:
             return []
         if not rows:
@@ -754,7 +851,9 @@ class FileTool:
         while index < len(lines) - 1:
             line = lines[index].strip()
             separator = lines[index + 1].strip()
-            is_table = "|" in line and bool(re.match(r"^\|?\s*:?-{1,}.*\|", separator)) and set(separator) <= set("|-: ")
+            is_table = (
+                "|" in line and bool(re.match(r"^\|?\s*:?-{1,}.*\|", separator)) and set(separator) <= set("|-: ")
+            )
             if is_table:
                 header = cells(line)
                 body: list[list[str]] = []
@@ -771,4 +870,6 @@ class FileTool:
     @staticmethod
     def _summarize(path: Path) -> FileSummary:
         mime_type, _ = mimetypes.guess_type(path.name)
-        return FileSummary(path=str(path), size_bytes=path.stat().st_size, mime_type=mime_type or "application/octet-stream")
+        return FileSummary(
+            path=str(path), size_bytes=path.stat().st_size, mime_type=mime_type or "application/octet-stream"
+        )

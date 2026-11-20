@@ -1,4 +1,5 @@
 """Google identity from a direct TLS code exchange; no mailbox tokens are retained."""
+
 from __future__ import annotations
 
 import base64
@@ -51,8 +52,7 @@ def exchange(fields: dict) -> dict:
     connection = http.client.HTTPSConnection("oauth2.googleapis.com", timeout=10)
     try:
         deadline = time.monotonic() + 20
-        connection.request("POST", "/token", urlencode(fields),
-                           {"Content-Type": "application/x-www-form-urlencoded"})
+        connection.request("POST", "/token", urlencode(fields), {"Content-Type": "application/x-www-form-urlencoded"})
         response = connection.getresponse()
         chunks, length = [], 0
         while True:
@@ -75,8 +75,10 @@ def exchange(fields: dict) -> dict:
             record_failure("google/token", f"HTTP {response.status} {code or 'without an error code'}")
             if code in _CLIENT_ERRORS:
                 # "Start again" would be advice to retry something that cannot work.
-                raise GoogleError("Google refused this app's client settings. Check GOOGLE_CLIENT_ID "
-                                  "and GOOGLE_CLIENT_SECRET (a Desktop client).")
+                raise GoogleError(
+                    "Google refused this app's client settings. Check GOOGLE_CLIENT_ID "
+                    "and GOOGLE_CLIENT_SECRET (a Desktop client)."
+                )
             raise GoogleError("Google could not finish sign-in. Start again.")
         result = json.loads(b"".join(chunks))
         if not isinstance(result, dict):
@@ -162,8 +164,16 @@ class Flow:
 
 
 class GoogleFlows:
-    def __init__(self, client_id: str = "", client_secret: str = "", *, transport=exchange,
-                 clock=time.monotonic, wall=time.time, capacity=32):
+    def __init__(
+        self,
+        client_id: str = "",
+        client_secret: str = "",
+        *,
+        transport=exchange,
+        clock=time.monotonic,
+        wall=time.time,
+        capacity=32,
+    ):
         self.client_id, self.client_secret = client_id, client_secret
         self.transport, self.clock, self.wall, self.capacity = transport, clock, wall, capacity
         self._lock = threading.Lock()
@@ -179,21 +189,38 @@ class GoogleFlows:
 
     def start(self, redirect: str, session: str, account, purpose: str):
         if not self.configured:
-            raise GoogleError("Google sign-in is not configured. Ask the owner to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for a Desktop client.")
+            raise GoogleError(
+                "Google sign-in is not configured. Ask the owner to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for a Desktop client."
+            )
         proof = secrets.token_urlsafe(32)
         with self._lock:
             self._prune()
             if len(self._flows) >= self.capacity:
                 raise GoogleError("Too many Google sign-ins are pending. Try again later.")
-            flow = Flow(secrets.token_urlsafe(32), digest(proof), secrets.token_urlsafe(32),
-                        redirect, digest(session), account, self.clock(), purpose)
+            flow = Flow(
+                secrets.token_urlsafe(32),
+                digest(proof),
+                secrets.token_urlsafe(32),
+                redirect,
+                digest(session),
+                account,
+                self.clock(),
+                purpose,
+            )
             self._flows[flow.id] = flow
             return flow, proof
 
     def launch(self, ticket: str):
         with self._lock:
             self._prune()
-            flow = next((f for f in self._flows.values() if f.launch and secrets.compare_digest(f.launch.encode(), ticket.encode())), None)
+            flow = next(
+                (
+                    f
+                    for f in self._flows.values()
+                    if f.launch and secrets.compare_digest(f.launch.encode(), ticket.encode())
+                ),
+                None,
+            )
             if flow is None:
                 raise GoogleError("This Google sign-in link expired or was already opened. Start again.")
             flow.launch = ""
@@ -201,16 +228,32 @@ class GoogleFlows:
             flow.binding = digest(binding)
             flow.state, flow.verifier, flow.nonce = (secrets.token_urlsafe(32) for _ in range(3))
             challenge = base64.urlsafe_b64encode(hashlib.sha256(flow.verifier.encode()).digest()).decode().rstrip("=")
-            url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
-                "client_id": self.client_id, "redirect_uri": flow.redirect, "response_type": "code",
-                "scope": "openid email profile", "state": flow.state, "nonce": flow.nonce,
-                "code_challenge": challenge, "code_challenge_method": "S256", "prompt": "select_account"})
+            url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
+                {
+                    "client_id": self.client_id,
+                    "redirect_uri": flow.redirect,
+                    "response_type": "code",
+                    "scope": "openid email profile",
+                    "state": flow.state,
+                    "nonce": flow.nonce,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "prompt": "select_account",
+                }
+            )
             return url, binding
 
     def callback(self, state: str, binding: str, code: str, denied: bool = False):
         with self._lock:
             self._prune()
-            flow = next((f for f in self._flows.values() if f.state and secrets.compare_digest(f.state.encode(), state.encode())), None)
+            flow = next(
+                (
+                    f
+                    for f in self._flows.values()
+                    if f.state and secrets.compare_digest(f.state.encode(), state.encode())
+                ),
+                None,
+            )
             if flow is None or not binding or not secrets.compare_digest(flow.binding, digest(binding)):
                 raise GoogleError("This Google sign-in could not be matched to this browser. Start again.")
             flow.state = ""  # claim before exchanging: a racing callback cannot reuse the code
@@ -221,9 +264,16 @@ class GoogleFlows:
             if not self._exchanges.acquire(blocking=False):
                 raise GoogleError("Google sign-in is busy. Please start again.")
             try:
-                reply = self.transport({"code": code, "client_id": self.client_id,
-                                        "client_secret": self.client_secret, "redirect_uri": flow.redirect,
-                                        "grant_type": "authorization_code", "code_verifier": flow.verifier})
+                reply = self.transport(
+                    {
+                        "code": code,
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
+                        "redirect_uri": flow.redirect,
+                        "grant_type": "authorization_code",
+                        "code_verifier": flow.verifier,
+                    }
+                )
                 result = identity(reply.get("id_token"), self.client_id, flow.nonce, self.wall())
             finally:
                 self._exchanges.release()

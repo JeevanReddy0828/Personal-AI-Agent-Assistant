@@ -24,10 +24,10 @@ def patch_agents(original: object, new: object) -> Iterator[list[str]]:
     Yields the patched `module.name` pairs. Patching nothing raises, so a test cannot quietly
     stop freezing the clock when the last module using it is renamed.
     """
-    modules = [importlib.import_module(f"{agents.__name__}.{info.name}")
-               for info in pkgutil.iter_modules(agents.__path__)]
-    targets = [(module, name) for module in modules
-               for name, value in list(vars(module).items()) if value is original]
+    modules = [
+        importlib.import_module(f"{agents.__name__}.{info.name}") for info in pkgutil.iter_modules(agents.__path__)
+    ]
+    targets = [(module, name) for module in modules for name, value in list(vars(module).items()) if value is original]
     if not targets:
         raise AssertionError(f"no module in {agents.__name__} holds {original!r}")
     with contextlib.ExitStack() as stack:

@@ -81,10 +81,13 @@ class FailureLog:
         run once landed in the live `.agent_data`.
         """
         try:
-            loaded = [Failure(**dict(row, context=dict(row.get("context") or {})))
-                      for row in (read_json(path, []) or []) if isinstance(row, dict)]
+            loaded = [
+                Failure(**dict(row, context=dict(row.get("context") or {})))
+                for row in (read_json(path, []) or [])
+                if isinstance(row, dict)
+            ]
         except Exception:
-            loaded = []          # a corrupt or half-written file must not cost the log
+            loaded = []  # a corrupt or half-written file must not cost the log
         with self._lock:
             self._path = path
             # Anything recorded before the path was known (imports, early startup) keeps
@@ -104,7 +107,7 @@ class FailureLog:
                     continue
                 seen.add(key)
                 merged.append(entry)
-            merged = merged[-(self._records.maxlen or 1):]
+            merged = merged[-(self._records.maxlen or 1) :]
             self._records.clear()
             self._counts.clear()
             for entry in merged:
@@ -119,9 +122,17 @@ class FailureLog:
         if self._path is None:
             return
         try:
-            rows = [{"where": r.where, "kind": r.kind, "message": r.message,
-                     "when": r.when, "context": dict(r.context), "trace_tail": r.trace_tail}
-                    for r in self._records]
+            rows = [
+                {
+                    "where": r.where,
+                    "kind": r.kind,
+                    "message": r.message,
+                    "when": r.when,
+                    "context": dict(r.context),
+                    "trace_tail": r.trace_tail,
+                }
+                for r in self._records
+            ]
             atomic_write_text(self._path, json.dumps(rows, indent=2))
         except Exception:
             pass
@@ -135,9 +146,7 @@ class FailureLog:
                 except Exception:
                     message = kind
                 try:
-                    tail = "".join(
-                        traceback.format_exception(type(error), error, error.__traceback__)
-                    )[-700:]
+                    tail = "".join(traceback.format_exception(type(error), error, error.__traceback__))[-700:]
                 except Exception:
                     tail = ""
             else:
@@ -162,7 +171,7 @@ class FailureLog:
 
     def recent(self, limit: int = 40) -> list[dict[str, object]]:
         with self._lock:
-            records = list(self._records)[-max(1, limit):]
+            records = list(self._records)[-max(1, limit) :]
         return [record.as_dict() for record in reversed(records)]
 
     def summary(self) -> dict[str, object]:

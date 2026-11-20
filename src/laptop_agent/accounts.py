@@ -23,10 +23,10 @@ import re
 import secrets
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 
@@ -37,7 +37,7 @@ MIN_PASSWORD, MAX_PASSWORD = 8, 256
 # OWASP's minimum for scrypt: N=2^17, r=8, p=1 needs 128 MiB per hash. Measured at 0.6s on
 # this laptop, paid once per sign-in, never per request. hashlib's default `maxmem` is
 # 32 MiB, which refuses these parameters outright.
-SCRYPT_COST = (2 ** 17, 8, 1)
+SCRYPT_COST = (2**17, 8, 1)
 _KEY_BYTES = 64
 
 
@@ -71,9 +71,15 @@ class Account:
 
     def public(self) -> dict[str, object]:
         """What may leave the process: never the hash."""
-        return {"id": self.id, "username": self.username, "role": self.role,
-                "google_email": self.google_email, "disabled": self.disabled,
-                "has_password": bool(self.password_hash), "created_at": self.created_at}
+        return {
+            "id": self.id,
+            "username": self.username,
+            "role": self.role,
+            "google_email": self.google_email,
+            "disabled": self.disabled,
+            "has_password": bool(self.password_hash),
+            "created_at": self.created_at,
+        }
 
 
 def _keep_a_developer(accounts: list[Account]) -> None:
@@ -85,10 +91,17 @@ def _keep_a_developer(accounts: list[Account]) -> None:
 
 def _valid(account: Account) -> bool:
     text_or_none = (account.password_hash, account.google_sub, account.google_email)
-    return (isinstance(account.id, str) and bool(account.id) and account.role in ROLES
-            and isinstance(account.username, str) and bool(_USERNAME.fullmatch(account.username))
-            and isinstance(account.disabled, bool) and all(v is None or isinstance(v, str) for v in text_or_none)
-            and type(account.epoch) is int and account.epoch >= 0)
+    return (
+        isinstance(account.id, str)
+        and bool(account.id)
+        and account.role in ROLES
+        and isinstance(account.username, str)
+        and bool(_USERNAME.fullmatch(account.username))
+        and isinstance(account.disabled, bool)
+        and all(v is None or isinstance(v, str) for v in text_or_none)
+        and type(account.epoch) is int
+        and account.epoch >= 0
+    )
 
 
 def _b64(raw: bytes) -> str:
@@ -118,8 +131,9 @@ def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
     if not _hashing.acquire(timeout=HASH_WAIT):
         raise HashingBusy("Too many sign-ins at once. Try again in a moment.")
     try:
-        return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
-                              maxmem=256 * n * r * p, dklen=_KEY_BYTES)
+        return hashlib.scrypt(
+            password.encode("utf-8"), salt=salt, n=n, r=r, p=p, maxmem=256 * n * r * p, dklen=_KEY_BYTES
+        )
     finally:
         _hashing.release()
 
@@ -149,8 +163,9 @@ def check_password(password: str) -> None:
 def normalise_username(username: str) -> str:
     name = (username or "").strip().lower()
     if not _USERNAME.fullmatch(name):
-        raise AccountError("A username is 1-32 letters, digits, dots, dashes or underscores, "
-                           "starting with a letter or digit.")
+        raise AccountError(
+            "A username is 1-32 letters, digits, dots, dashes or underscores, starting with a letter or digit."
+        )
     return name
 
 
@@ -209,8 +224,14 @@ class AccountStore:
             return None
         return next((account for account in self._read() if account.google_sub == sub), None)
 
-    def create(self, username: str, role: str, password: str | None = None,
-               now: Callable[[], datetime] = lambda: datetime.now(UTC), first: bool = False) -> Account:
+    def create(
+        self,
+        username: str,
+        role: str,
+        password: str | None = None,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        first: bool = False,
+    ) -> Account:
         """A new account. `first` refuses unless there are none yet, decided under the same
         lock as the write, so two set-up requests racing cannot both create an owner."""
         name = normalise_username(username)
@@ -220,9 +241,13 @@ class AccountStore:
             check_password(password)
         # Hashed before the lock is taken: every request reads this file, and a 0.6s hash
         # under the lock would stall them all for as long as a sign-in takes.
-        account = Account(id=secrets.token_hex(8), username=name, role=role,
-                          password_hash=hash_password(password, self.cost) if password is not None else None,
-                          created_at=now().isoformat(timespec="seconds"))
+        account = Account(
+            id=secrets.token_hex(8),
+            username=name,
+            role=role,
+            password_hash=hash_password(password, self.cost) if password is not None else None,
+            created_at=now().isoformat(timespec="seconds"),
+        )
         self._insert(account, first)
         return account
 
@@ -287,7 +312,7 @@ class AccountStore:
     def set_disabled(self, account_id: str, disabled: bool, keep_developer: bool = False) -> Account:
         def change(account: Account) -> None:
             if disabled:
-                account.epoch += 1   # so enabling it again brings back no session, however late
+                account.epoch += 1  # so enabling it again brings back no session, however late
             account.disabled = disabled
 
         return self._update(account_id, change, keep_developer)
@@ -329,19 +354,28 @@ def _json(data: object) -> str:
     return json.dumps(data, indent=2)
 
 
-def main(argv: list[str] | None = None, store: AccountStore | None = None,
-         sessions: object | None = None, ask: Callable[[str], str] = getpass.getpass,
-         out=sys.stdout) -> int:
+def main(
+    argv: list[str] | None = None,
+    store: AccountStore | None = None,
+    sessions: object | None = None,
+    ask: Callable[[str], str] = getpass.getpass,
+    out=sys.stdout,
+) -> int:
     """Manage accounts from the terminal, which is how a locked-out owner gets back in."""
-    parser = argparse.ArgumentParser(prog="python -m laptop_agent.accounts",
-                                     description="Manage J.A.R.V.I.S sign-in accounts.")
+    parser = argparse.ArgumentParser(
+        prog="python -m laptop_agent.accounts", description="Manage J.A.R.V.I.S sign-in accounts."
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create", help="create an account")
     create.add_argument("username")
     create.add_argument("--role", choices=ROLES, required=True)
     commands.add_parser("list", help="list accounts")
-    for name, text in (("password", "set a new password"), ("disable", "stop an account signing in"),
-                       ("enable", "let a disabled account sign in"), ("delete", "delete an account")):
+    for name, text in (
+        ("password", "set a new password"),
+        ("disable", "stop an account signing in"),
+        ("enable", "let a disabled account sign in"),
+        ("delete", "delete an account"),
+    ):
         commands.add_parser(name, help=text).add_argument("username")
     role = commands.add_parser("role", help="change an account's role")
     role.add_argument("username")
@@ -365,9 +399,12 @@ def main(argv: list[str] | None = None, store: AccountStore | None = None,
     try:
         return _run(args, store, sessions, new_password, out)
     except StorageDamaged as exc:
-        print(f"{exc} Nobody can sign in to the web app until it is repaired. Fix the file, or move "
-              "it aside and create the first account again: python -m laptop_agent.accounts create "
-              "<name> --role dev", file=out)
+        print(
+            f"{exc} Nobody can sign in to the web app until it is repaired. Fix the file, or move "
+            "it aside and create the first account again: python -m laptop_agent.accounts create "
+            "<name> --role dev",
+            file=out,
+        )
         return 1
 
 
@@ -391,19 +428,19 @@ def _run(args, store: AccountStore, sessions, new_password: Callable[[], str], o
             raise AccountError(f"No account called {normalise_username(args.username)}.")
         if args.command == "password":
             store.set_password(account.id, new_password())
-            sessions.revoke_account(account.id)          # type: ignore[attr-defined]
+            sessions.revoke_account(account.id)  # type: ignore[attr-defined]
             print(f"Password changed for {account.username}; its sessions were signed out.", file=out)
         elif args.command in ("disable", "enable"):
             store.set_disabled(account.id, args.command == "disable")
             if args.command == "disable":
-                sessions.revoke_account(account.id)      # type: ignore[attr-defined]
+                sessions.revoke_account(account.id)  # type: ignore[attr-defined]
             print(f"{account.username} {args.command}d.", file=out)
         elif args.command == "role":
             store.set_role(account.id, args.role)
             print(f"{account.username} is now {args.role}.", file=out)
         elif args.command == "delete":
             store.delete(account.id)
-            sessions.revoke_account(account.id)          # type: ignore[attr-defined]
+            sessions.revoke_account(account.id)  # type: ignore[attr-defined]
             left = "" if store.exists() else " No accounts are left, so the web app no longer asks for a sign-in."
             print(f"Deleted {account.username}.{left}", file=out)
         return 0

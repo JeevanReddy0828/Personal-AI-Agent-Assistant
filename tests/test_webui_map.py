@@ -9,10 +9,16 @@ from http.server import ThreadingHTTPServer
 import laptop_agent.webui as webui
 from laptop_agent.tools.travel import TravelTool
 
-AUSTIN = {"results": [{"name": "Austin", "admin1": "Texas", "country": "United States",
-                       "latitude": 30.27, "longitude": -97.74}]}
-DALLAS = {"results": [{"name": "Dallas", "admin1": "Texas", "country": "United States",
-                       "latitude": 32.78, "longitude": -96.80}]}
+AUSTIN = {
+    "results": [
+        {"name": "Austin", "admin1": "Texas", "country": "United States", "latitude": 30.27, "longitude": -97.74}
+    ]
+}
+DALLAS = {
+    "results": [
+        {"name": "Dallas", "admin1": "Texas", "country": "United States", "latitude": 32.78, "longitude": -96.80}
+    ]
+}
 OSRM = {"routes": [{"distance": 312000.0, "duration": 17400.0}]}
 
 
@@ -31,8 +37,7 @@ class MapApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         # Inject a stubbed travel tool into the orchestrator's lazy cache (no gate).
-        object.__setattr__(webui._orchestrator, "_travel_tool_cache",
-                           TravelTool(transport=_transport))
+        object.__setattr__(webui._orchestrator, "_travel_tool_cache", TravelTool(transport=_transport))
         cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()

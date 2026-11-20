@@ -19,9 +19,7 @@ def dispatch_source() -> str:
     The chain used to live in one 500-line `_handle`; it is now grouped methods, and the
     order that matters is the order of the table, not the order of the file.
     """
-    return "\n".join(
-        inspect.getsource(group) for group in AgentOrchestrator._DISPATCH
-    )
+    return "\n".join(inspect.getsource(group) for group in AgentOrchestrator._DISPATCH)
 
 
 def dispatch_prefixes() -> list[tuple[int, str]]:
@@ -95,16 +93,14 @@ class DispatchShapeTests(unittest.TestCase):
             if self.group_length(group) > 120
         }
         self.assertEqual(
-            oversized, {},
+            oversized,
+            {},
             f"these dispatch groups need splitting: {oversized}",
         )
 
     def test_every_group_is_reachable_from_the_table(self) -> None:
         # A group defined but left out of _DISPATCH is dead code that looks alive.
-        defined = {
-            name for name in dir(AgentOrchestrator)
-            if name.startswith("_dispatch_")
-        }
+        defined = {name for name in dir(AgentOrchestrator) if name.startswith("_dispatch_")}
         wired = {group.__name__ for group in AgentOrchestrator._DISPATCH}
         self.assertEqual(defined - wired, set(), "a dispatch group is not in the table")
 

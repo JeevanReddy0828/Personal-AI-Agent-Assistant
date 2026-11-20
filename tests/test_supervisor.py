@@ -8,16 +8,26 @@ import unittest
 from pathlib import Path
 
 import test_orchestrator as base
+
 from laptop_agent import supervisor
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.planner import Planner
 from laptop_agent.safety import RiskLevel
 from laptop_agent.supervisor import Supervisor, Verdict, group_of
 
-
 # Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
 # only to a team run, and the rest start a run, which a step never may.
-NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot", "terminal", "shell", "agents off", "agents on"}
+NOT_AGENT_COMMANDS = {
+    "delegate",
+    "agent run",
+    "agent team",
+    "schedule agent",
+    "autopilot",
+    "terminal",
+    "shell",
+    "agents off",
+    "agents on",
+}
 
 
 def head(entry: str) -> str:
@@ -37,10 +47,13 @@ class GroupsTests(unittest.TestCase):
         forms = [form for _name, group in supervisor._GROUPS for form in group]
         self.assertEqual(len(forms), len(set(forms)))
         heads = {head(entry) for entry in AgentOrchestrator._AGENT_COMMANDS}
-        heads |= {"average", "count"}       # "total|average|count <column> ..."
+        heads |= {"average", "count"}  # "total|average|count <column> ..."
         heads |= NOT_AGENT_COMMANDS
-        stale = [form for form in forms if not any(h == form or h.startswith(form + " ") or form.startswith(h + " ")
-                                                   for h in heads)]
+        stale = [
+            form
+            for form in forms
+            if not any(h == form or h.startswith(form + " ") or form.startswith(h + " ") for h in heads)
+        ]
         self.assertEqual(stale, [])
 
     def test_the_longest_form_decides(self) -> None:
@@ -50,7 +63,7 @@ class GroupsTests(unittest.TestCase):
         self.assertEqual(group_of("window chrome left")[0], "guarded")
         self.assertEqual(group_of("convert 3 km to miles")[0], "safe")
         self.assertEqual(group_of("convert file a.md to a.pdf")[0], "carded")
-        self.assertEqual(group_of("newsletter ideas")[0], "unknown")   # a word that starts with one is not it
+        self.assertEqual(group_of("newsletter ideas")[0], "unknown")  # a word that starts with one is not it
 
 
 class RulesTests(unittest.TestCase):
@@ -69,7 +82,13 @@ class RulesTests(unittest.TestCase):
 
     def test_reading_and_safe_steps_never_ask(self) -> None:
         run = Supervisor()
-        for command in ("read file a.txt", "web search dogs", "weather Paris", "timer 5 minutes", "download https://x.com/a"):
+        for command in (
+            "read file a.txt",
+            "web search dogs",
+            "weather Paris",
+            "timer 5 minutes",
+            "download https://x.com/a",
+        ):
             self.assertIs(run.check(command).verdict, Verdict.ALLOW, command)
 
     def test_an_unlisted_command_asks_once_tainted(self) -> None:
@@ -226,12 +245,28 @@ class TreeTests(unittest.TestCase):
 
     def test_a_helper_only_looks_up_and_computes(self) -> None:
         """Live, helpers saved notes and wrote three documents nobody asked for instead of answering."""
-        for command in ("research sql exercises", "read file a.txt", "convert 3 km to miles", "weather Paris",
-                        "total sales by region in a.csv", "file info a.txt"):
+        for command in (
+            "research sql exercises",
+            "read file a.txt",
+            "convert 3 km to miles",
+            "weather Paris",
+            "total sales by region in a.csv",
+            "file info a.txt",
+        ):
             self.assertIs(Supervisor(depth=1, tier="smart").check(command, "smart").verdict, Verdict.ALLOW, command)
-        for command in ('document "SQL plan" as markdown', "save note plan : text", "reminder add 2026-12-01 x",
-                        "list groceries add milk", "image a cat", "scan files C:/", "timer 5 minutes", "open url https://example.com",
-                        "download https://example.com/a.bin", "frobnicate", "convert|document a plan"):
+        for command in (
+            'document "SQL plan" as markdown',
+            "save note plan : text",
+            "reminder add 2026-12-01 x",
+            "list groceries add milk",
+            "image a cat",
+            "scan files C:/",
+            "timer 5 minutes",
+            "open url https://example.com",
+            "download https://example.com/a.bin",
+            "frobnicate",
+            "convert|document a plan",
+        ):
             refused = Supervisor(depth=1, tier="smart").check(command, "smart")
             self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"), command)
             self.assertIn("answer in FINAL", refused.reason)
@@ -239,7 +274,7 @@ class TreeTests(unittest.TestCase):
         self.assertIs(Supervisor(depth=1, tier="smart").check("delegate fast part", "smart").verdict, Verdict.ALLOW)
 
     def test_a_helper_refusal_does_not_count_toward_the_stop(self) -> None:
-        for _ in range(2):     # a third identical step is the repeat rule's, not this one's
+        for _ in range(2):  # a third identical step is the repeat rule's, not this one's
             self.child.check("(no command needed)", "fast")
             self.child.check('document "plan" as markdown', "fast")
         self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
@@ -316,8 +351,12 @@ class TreeTests(unittest.TestCase):
 
     def test_a_run_cannot_start_another_run(self) -> None:
         """On main these were unknown commands: run, they built a fresh supervisor with no taint."""
-        for command in ("agent run tidy up", "agent team tidy up", "schedule agent daily at 08:00 :: tidy",
-                        "autopilot morning"):
+        for command in (
+            "agent run tidy up",
+            "agent team tidy up",
+            "schedule agent daily at 08:00 :: tidy",
+            "autopilot morning",
+        ):
             refused = Supervisor().check(command)
             self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "direct"), command)
 
@@ -394,21 +433,27 @@ class SupervisedRunTests(unittest.TestCase):
         result, brain = self.run_agent(*[step("knowledge stats")] * 5)
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
-        self.assertEqual(len(brain.prompts), 4)      # not a fourth step: only what it found
+        self.assertEqual(len(brain.prompts), 4)  # not a fourth step: only what it found
         self.assertIn("Do not choose another command", brain.prompts[3])
 
     def test_a_run_refused_twice_is_stopped(self) -> None:
         self.answers["Download file"] = False
-        result, _brain = self.run_agent(step("download https://example.com/a.bin"), step("download https://example.com/b.bin"),
-                                        step("weather Paris"))
+        result, _brain = self.run_agent(
+            step("download https://example.com/a.bin"),
+            step("download https://example.com/b.bin"),
+            step("weather Paris"),
+        )
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertIn("refused", result.message)
-        self.assertIn("you did not approve it", result.message)   # the cause, not only the count
+        self.assertIn("you did not approve it", result.message)  # the cause, not only the count
 
     def test_a_stop_says_which_rule_refused_the_steps(self) -> None:
         """Seen live: "2 of its steps were refused" said nothing of the model not being trusted."""
-        brain = Script(step("download https://example.com/a.bin"), step("download https://example.com/b.bin"),
-                       step("knowledge stats"))
+        brain = Script(
+            step("download https://example.com/a.bin"),
+            step("download https://example.com/b.bin"),
+            step("knowledge stats"),
+        )
         self.orchestrator.fallback_planner = Planner(brain)
         result = asyncio.run(self.orchestrator.run_agent("look into cats"))
         self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
@@ -421,8 +466,10 @@ class SupervisedRunTests(unittest.TestCase):
         self.assertEqual(self.opened, [])
         self.assertEqual([s["status"] for s in result.data["steps"]], ["failed", "ok"])
         self.assertIn("fallback model", result.data["steps"][0]["message"])
-        self.assertEqual([(e["tier"], e["verdict"], e["rule"]) for e in self.audit()],
-                         [("fallback", "refuse", "trust"), ("fallback", "allow", "safe")])
+        self.assertEqual(
+            [(e["tier"], e["verdict"], e["rule"]) for e in self.audit()],
+            [("fallback", "refuse", "trust"), ("fallback", "allow", "safe")],
+        )
 
     def test_a_command_the_router_model_picks_is_recorded_and_held_to_its_trust(self) -> None:
         from unittest.mock import patch
@@ -436,8 +483,9 @@ class SupervisedRunTests(unittest.TestCase):
                 self.colour = "teal"
 
             def plan(self, text, available_commands, memory_profile, history=None):
-                return PlanDecision(action="command", confidence=0.9, explanation="model",
-                                    command=f"remember colour = {self.colour}")
+                return PlanDecision(
+                    action="command", confidence=0.9, explanation="model", command=f"remember colour = {self.colour}"
+                )
 
         def colour() -> object:
             return self.orchestrator.context.memory.get_profile().get("colour")
@@ -449,13 +497,15 @@ class SupervisedRunTests(unittest.TestCase):
         router.colour = "mauve"
         with patch.dict("os.environ", {supervisor.UNTRUSTED: "fast"}):
             asyncio.run(self.orchestrator.handle("mauve is the shade I always end up choosing, keep hold of that"))
-        self.assertEqual(colour(), "teal")     # picked by a model not trusted to act: not remembered
+        self.assertEqual(colour(), "teal")  # picked by a model not trusted to act: not remembered
         self.assertEqual([e["verdict"] for e in self.audit()], ["allow", "refuse"])
 
     def test_every_verdict_is_in_the_audit_log(self) -> None:
         self.run_agent(step("web search cats"), step("open url https://example.com/cats"), step("run command whoami"))
-        self.assertEqual([(event["verdict"], event["rule"]) for event in self.audit()],
-                         [("allow", "reads"), ("ask", "taint"), ("refuse", "direct")])
+        self.assertEqual(
+            [(event["verdict"], event["rule"]) for event in self.audit()],
+            [("allow", "reads"), ("ask", "taint"), ("refuse", "direct")],
+        )
 
 
 if __name__ == "__main__":

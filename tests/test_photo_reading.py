@@ -14,13 +14,13 @@ import urllib.error
 from dataclasses import replace
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.model_status import BROKEN
 from laptop_agent.planner import Planner
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 from laptop_agent.tools.transcribe import MissingDependencyError, TranscribeTool
-
-import test_orchestrator
 
 RECEIPT = "TOTAL 12.40\nTHANK YOU"
 

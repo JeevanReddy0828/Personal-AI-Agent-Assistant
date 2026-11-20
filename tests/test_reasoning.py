@@ -43,8 +43,10 @@ class ParseTests(unittest.TestCase):
 
     def test_an_action_saying_no_command_is_needed_is_not_a_step(self) -> None:
         """Live, a helper's reply: the parenthesis ran as a command, and its answer was lost."""
-        d = parse_agent_decision("THOUGHT: I know this\nACTION: (no command needed - I'll generate it directly)\n"
-                                 "THOUGHT: writing it\nFINAL: Day 1: SELECT")
+        d = parse_agent_decision(
+            "THOUGHT: I know this\nACTION: (no command needed - I'll generate it directly)\n"
+            "THOUGHT: writing it\nFINAL: Day 1: SELECT"
+        )
         self.assertTrue(d.is_final)
         self.assertEqual(d.final_answer, "Day 1: SELECT")
 
@@ -75,7 +77,9 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(d.command, "read file E:/project/README.md")
 
     def test_a_prose_next_line_before_a_final_is_not_a_step(self) -> None:
-        d = parse_agent_decision("THOUGHT: easy\n## Setup\n- Install it\nNext: run the installer\nFINAL: The steps are above.")
+        d = parse_agent_decision(
+            "THOUGHT: easy\n## Setup\n- Install it\nNext: run the installer\nFINAL: The steps are above."
+        )
         self.assertTrue(d.is_final)
         self.assertIn("## Setup", d.final_answer)
         self.assertFalse(parse_agent_decision("THOUGHT: go\nNEXT: scan files .").is_final)
@@ -215,8 +219,15 @@ class AutonomousAgentTests(unittest.TestCase):
     def test_a_delegate_result_or_a_read_is_observed_at_length(self) -> None:
         """Another agent's answer is what the planner combines from, and a read is what the step was for:
         live, 320 characters cut a short notes file before its end, and the agent read it three times."""
-        brain = _ScriptedBrain(["ACTION: delegate fast count the files", "ACTION: read file a.txt",
-                                "ACTION: inspect page https://example.com", "ACTION: weather Paris", "FINAL: done"])
+        brain = _ScriptedBrain(
+            [
+                "ACTION: delegate fast count the files",
+                "ACTION: read file a.txt",
+                "ACTION: inspect page https://example.com",
+                "ACTION: weather Paris",
+                "FINAL: done",
+            ]
+        )
         long = "word " * 200
 
         agent = AutonomousAgent(brain, _executor(lambda command: ToolResult.success(long)))
@@ -311,8 +322,9 @@ class AutonomousAgentTests(unittest.TestCase):
     def test_a_command_cut_inside_its_argument_never_runs(self) -> None:
         from laptop_agent.planner.core import CutOff
 
-        brain = _ScriptedBrain([CutOff("THOUGHT: send it\nACTION: send email to bob@exa"),
-                                "THOUGHT: stop\nFINAL: Nothing was sent."])
+        brain = _ScriptedBrain(
+            [CutOff("THOUGHT: send it\nACTION: send email to bob@exa"), "THOUGHT: stop\nFINAL: Nothing was sent."]
+        )
         seen: list[str] = []
         agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
         result = asyncio.run(agent.run("email bob"))
@@ -323,9 +335,13 @@ class AutonomousAgentTests(unittest.TestCase):
     def test_a_complete_action_in_a_cut_reply_never_runs(self) -> None:
         from laptop_agent.planner.core import CutOff
 
-        brain = _ScriptedBrain([CutOff("THOUGHT: read it\nACTION: delete file notes.txt\nFINAL: Deleted, and the"),
-                                "THOUGHT: read it\nACTION: read file notes.txt",
-                                "FINAL: done"])
+        brain = _ScriptedBrain(
+            [
+                CutOff("THOUGHT: read it\nACTION: delete file notes.txt\nFINAL: Deleted, and the"),
+                "THOUGHT: read it\nACTION: read file notes.txt",
+                "FINAL: done",
+            ]
+        )
         seen: list[str] = []
         agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")))
         asyncio.run(agent.run("tidy my notes"))
@@ -399,8 +415,11 @@ class AutonomousAgentTests(unittest.TestCase):
         """Live, a helper ran "weather <location>" copied from its command list."""
         brain = _ScriptedBrain(["ACTION: weather <location>", "ACTION: weather Paris", "FINAL: mild"])
         seen: list[str] = []
-        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
-                                command_reference="- weather <location>\n- run command <command>")
+        agent = AutonomousAgent(
+            brain,
+            _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
+            command_reference="- weather <location>\n- run command <command>",
+        )
         result = asyncio.run(agent.run("weather in Paris"))
         self.assertEqual(seen, ["weather Paris"])
         self.assertEqual(result.steps[0].status, "failed")
@@ -410,8 +429,11 @@ class AutonomousAgentTests(unittest.TestCase):
     def test_angle_brackets_the_command_list_does_not_hold_still_run(self) -> None:
         seen: list[str] = []
         brain = _ScriptedBrain(["ACTION: translate <b>bold</b> to French", "FINAL: done"])
-        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
-                                command_reference="- translate <text> to <language>")
+        agent = AutonomousAgent(
+            brain,
+            _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
+            command_reference="- translate <text> to <language>",
+        )
         asyncio.run(agent.run("translate it"))
         self.assertEqual(seen, ["translate <b>bold</b> to French"])
 
@@ -420,8 +442,13 @@ class AutonomousAgentTests(unittest.TestCase):
         run had read what the user asked about."""
         from laptop_agent.supervisor import RunStopped
 
-        brain = _ScriptedBrain(["ACTION: read file notes.txt", "ACTION: read file notes.txt",
-                                "THOUGHT: wrap up\nFINAL: Budget 12,400 of 20,000 spent."])
+        brain = _ScriptedBrain(
+            [
+                "ACTION: read file notes.txt",
+                "ACTION: read file notes.txt",
+                "THOUGHT: wrap up\nFINAL: Budget 12,400 of 20,000 spent.",
+            ]
+        )
 
         async def execute(command: str) -> ToolResult:
             if len(brain.prompts) > 1:
@@ -497,11 +524,13 @@ class AutonomousAgentTests(unittest.TestCase):
 
     def test_conversation_context_reaches_the_model(self) -> None:
         brain = _ScriptedBrain(["FINAL: erDiagram\n  USERS ||--o{ ORDERS : places"])
-        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success("ok")), command_reference="- scan files <path>")
+        agent = AutonomousAgent(
+            brain, _executor(lambda c: ToolResult.success("ok")), command_reference="- scan files <path>"
+        )
         context = "Recent conversation:\nUser: design a schema\nJ.A.R.V.I.S: users, orders, order_items tables"
         result = asyncio.run(agent.run("build an ERD for this", context=context))
         self.assertEqual(result.status, "ok")
-        self.assertEqual(result.steps, [])                       # answered from context, no file hunting
+        self.assertEqual(result.steps, [])  # answered from context, no file hunting
         self.assertIn("order_items tables", brain.prompts[0])
         self.assertIn("CONVERSATION CONTEXT", brain.prompts[0])
         self.assertIn("reply FINAL: immediately", brain.prompts[0])

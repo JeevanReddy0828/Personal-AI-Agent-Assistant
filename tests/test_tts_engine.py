@@ -60,11 +60,12 @@ class MagpieTests(unittest.TestCase):
         parent.client = client
         grpc = types.ModuleType("grpc")
         grpc.FutureTimeoutError = WaitExpired
-        environ = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("RIVA_", "LAPTOP_AGENT_TTS"))}
+        environ = {key: value for key, value in os.environ.items() if not key.startswith(("RIVA_", "LAPTOP_AGENT_TTS"))}
         environ["RIVA_API_KEY"] = "fixture-not-a-key"
-        for fixture in (patch.dict(sys.modules, {"riva": parent, "riva.client": client, "grpc": grpc}),
-                        patch.dict(os.environ, environ, clear=True)):
+        for fixture in (
+            patch.dict(sys.modules, {"riva": parent, "riva.client": client, "grpc": grpc}),
+            patch.dict(os.environ, environ, clear=True),
+        ):
             fixture.start()
             self.addCleanup(fixture.stop)
 
@@ -75,8 +76,9 @@ class MagpieTests(unittest.TestCase):
             self.assertEqual(wav.readframes(wav.getnframes()), self.pending.audio)
         text, kwargs = self.requests[0]
         self.assertEqual(text, "Good evening.")
-        self.assertEqual((kwargs["voice_name"], kwargs["language_code"], kwargs["sample_rate_hz"]),
-                         (None, "en-US", 22050))
+        self.assertEqual(
+            (kwargs["voice_name"], kwargs["language_code"], kwargs["sample_rate_hz"]), (None, "en-US", 22050)
+        )
         metadata = dict(self.auth_args[0]["metadata_args"])
         self.assertEqual(metadata["function-id"], voice.RIVA_TTS_FUNCTION_ID)
         self.assertEqual(metadata["authorization"], "Bearer fixture-not-a-key")
@@ -128,8 +130,13 @@ class MagpieTests(unittest.TestCase):
         self.assertEqual(self.channel.close.call_count, 2)
 
     def test_the_model_voice_and_language_can_be_chosen(self):
-        os.environ.update({"RIVA_TTS_FUNCTION_ID": "other-function", "RIVA_TTS_VOICE": "Magpie-Multilingual.EN-US.Aria",
-                           "RIVA_TTS_LANGUAGE": "es-US"})
+        os.environ.update(
+            {
+                "RIVA_TTS_FUNCTION_ID": "other-function",
+                "RIVA_TTS_VOICE": "Magpie-Multilingual.EN-US.Aria",
+                "RIVA_TTS_LANGUAGE": "es-US",
+            }
+        )
         voice._magpie_wav("Hola.")
         _, kwargs = self.requests[0]
         self.assertEqual((kwargs["voice_name"], kwargs["language_code"]), ("Magpie-Multilingual.EN-US.Aria", "es-US"))

@@ -7,7 +7,6 @@ from pathlib import Path
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.transcribe import MissingDependencyError
 
-
 # A capture backend writes one webcam frame to ``dest`` and returns the path it wrote.
 CaptureBackend = Callable[[int, Path], Path]
 
@@ -41,9 +40,7 @@ class WebcamTool:
 
         path = Path(written)
         if not path.exists() or path.stat().st_size == 0:
-            return ToolResult.failure(
-                "Webcam returned no image — is a camera connected and not in use by another app?"
-            )
+            return ToolResult.failure("Webcam returned no image — is a camera connected and not in use by another app?")
         return ToolResult.success(
             f"Captured a webcam frame to {path.name}.",
             path=str(path),

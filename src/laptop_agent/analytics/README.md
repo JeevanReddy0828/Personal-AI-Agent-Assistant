@@ -37,7 +37,7 @@ from laptop_agent.analytics.diagnostics import anomalies, drivers
 result = forecast([112, 118, 132, 129, 121, 135, 148, 148, 136, 119, 104, 118] * 3, horizon=3)
 print(result.enough_data, result.method)
 
-print(anomalies([10, 11, 10, 12, 50, 11]).scores)          # signed modified z-scores
+print(anomalies([10, 11, 10, 12, 50, 11]).scores)  # signed modified z-scores
 
 # One row per observation, one value per feature.
 rows = [[1, 5], [2, 3], [3, 6], [4, 2], [5, 7], [6, 1], [7, 8], [8, 4], [9, 9], [10, 2]]

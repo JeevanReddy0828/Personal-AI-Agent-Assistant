@@ -83,9 +83,7 @@ def render_card(lines: list[str], destination: Path, footer: str = "") -> ToolRe
     # A panel inset from the edge, with one accent rule - the same restraint the app's
     # own surfaces use, so this does not look like a stock template.
     margin = 56
-    draw.rounded_rectangle(
-        [margin, margin, WIDTH - margin, HEIGHT - margin], radius=28, fill=PANEL
-    )
+    draw.rounded_rectangle([margin, margin, WIDTH - margin, HEIGHT - margin], radius=28, fill=PANEL)
     draw.rectangle([margin, margin + 26, margin + 5, HEIGHT - margin - 26], fill=ACCENT)
 
     headline = _load_font(118)

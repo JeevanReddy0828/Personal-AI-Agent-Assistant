@@ -2,30 +2,15 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import difflib
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from laptop_agent.memory import list_name
-from laptop_agent.metrics import battery_status, system_metrics
-from laptop_agent.planner.heuristic import fact_question, nameless_list_edit
+
 from laptop_agent.access import developer_only, everyday_form, is_personal, refused_command
-from laptop_agent.timeparse import describe
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.failures import record_failure
-from laptop_agent.tools import keys as keys_tools
-from laptop_agent.tools.units import UnitTool, looks_like_conversion
-from laptop_agent.tools.chance import draw
-from laptop_agent.tools.dates import (
-    RELATIVE_DAYS,
-    date_question,
-    describe_day,
-    resolve as resolve_date,
-    says_a_year,
-)
-from laptop_agent.tools.dates import calendar_fact, span_text, until_moment
 from laptop_agent.agents.common import (
     _BARE_LIST,
     _HOW_LONG_LEFT,
@@ -34,10 +19,30 @@ from laptop_agent.agents.common import (
     _WHICH_LIST,
     _reminder_line,
 )
+from laptop_agent.failures import record_failure
+from laptop_agent.memory import list_name
+from laptop_agent.metrics import battery_status, system_metrics
+from laptop_agent.planner.heuristic import fact_question, nameless_list_edit
+from laptop_agent.timeparse import describe
+from laptop_agent.tools import keys as keys_tools
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.chance import draw
+from laptop_agent.tools.dates import (
+    RELATIVE_DAYS,
+    calendar_fact,
+    date_question,
+    describe_day,
+    says_a_year,
+    span_text,
+    until_moment,
+)
+from laptop_agent.tools.dates import (
+    resolve as resolve_date,
+)
+from laptop_agent.tools.units import UnitTool, looks_like_conversion
 
 
 class Everyday:
-
     async def _dispatch_personal(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for lists, the calendar stand-in and this machine's own state.
 
@@ -92,7 +97,9 @@ class Everyday:
             return UnitTool().convert(command)
 
         # "how much longer" means the timer, when one is running.
-        if _HOW_LONG_LEFT.fullmatch(lowered) and any(due > datetime.now().astimezone() for due, _ in self._dated("timer")):
+        if _HOW_LONG_LEFT.fullmatch(lowered) and any(
+            due > datetime.now().astimezone() for due, _ in self._dated("timer")
+        ):
             return self._timers()
 
         edit = nameless_list_edit(command)
@@ -105,13 +112,16 @@ class Everyday:
         return None
 
     def _nameless_list_edit(self, verb: str, items: str) -> ToolResult:
-        """"delete milk from my list" / "add eggs to the list", with no list named: the one
+        """ "delete milk from my list" / "add eggs to the list", with no list named: the one
         list it can only mean, or a question naming the choices."""
         lists = self.context.memory.lists()
         if verb == "remove":
             wanted = items.strip().lower()
-            holding = [name for name, entries in lists.items()
-                       if any(wanted == entry.lower() or wanted in entry.lower() for entry in entries)]
+            holding = [
+                name
+                for name, entries in lists.items()
+                if any(wanted == entry.lower() or wanted in entry.lower() for entry in entries)
+            ]
             if len(holding) == 1:
                 return self._list_command(f"{holding[0]} remove {items}")
             if not holding:
@@ -120,9 +130,12 @@ class Everyday:
         if len(lists) == 1:
             return self._list_command(f"{next(iter(lists))} add {items}")
         if not lists:
-            return ToolResult.failure(f"Which list should {items} go on? For example \"add {items} to my shopping list\".")
-        return ToolResult.failure(f"Which list — {', '.join(sorted(lists))}? For example \"add {items} to my "
-                                  f"{sorted(lists)[0]} list\".")
+            return ToolResult.failure(
+                f'Which list should {items} go on? For example "add {items} to my shopping list".'
+            )
+        return ToolResult.failure(
+            f'Which list — {", ".join(sorted(lists))}? For example "add {items} to my {sorted(lists)[0]} list".'
+        )
 
     def _date_answer(self, kind: str, what: str, other: str = "") -> ToolResult | None:
         """How many days until something, what day it falls on, or the days between two.
@@ -153,16 +166,23 @@ class Everyday:
                         break
                 # A weekday has no year to go back to: "since friday" on a Saturday is yesterday,
                 # and it answered 6 days, to the coming Friday (Codex's review of #244).
-                if first[0] > today and re.fullmatch(r"\s*(?:last\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day\s*",
-                                                     what, re.IGNORECASE):
+                if first[0] > today and re.fullmatch(
+                    r"\s*(?:last\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day\s*", what, re.IGNORECASE
+                ):
                     while first[0] > today:
                         first = (first[0] - timedelta(days=7), first[1])
             days = abs((second[0] - first[0]).days)
             return ToolResult.success(
                 f"**{days} day{'s' if days != 1 else ''}** between {first[1]} ({first[0]:%A %d %B %Y}) and {second[1]} "
-                f"({second[0]:%A %d %B %Y}).".replace(" 0", " "), days=days)
-        upcoming = re.fullmatch(r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?"
-                                r"(?:\s+(?:goes|go)\s+off|\s+rings?|\s+(?:is|are)\s+(?:up|done)|\s+ends?)?\s*", what, re.IGNORECASE)
+                f"({second[0]:%A %d %B %Y}).".replace(" 0", " "),
+                days=days,
+            )
+        upcoming = re.fullmatch(
+            r"\s*(?:my\s+|the\s+)?(?:next\s+)?(reminder|alarm|timer)s?"
+            r"(?:\s+(?:goes|go)\s+off|\s+rings?|\s+(?:is|are)\s+(?:up|done)|\s+ends?)?\s*",
+            what,
+            re.IGNORECASE,
+        )
         if kind != "between" and upcoming:
             # "when is my next reminder" is not a date anyone told us.
             return self._next_reminder("" if upcoming.group(1).lower() == "reminder" else upcoming.group(1).lower())
@@ -171,55 +191,76 @@ class Everyday:
             minutes = round((moment - now).total_seconds() / 60)
             when, name = describe(moment, now, local=True), what.strip()
             if minutes < 0:
-                return ToolResult.success(f"{name[:1].upper() + name[1:]} was **{span_text(-minutes, other)} ago** "
-                                          f"({when}).", minutes=minutes, at=moment.isoformat())
-            return ToolResult.success(f"**{span_text(minutes, other)}** until {name} ({when}).",
-                                      minutes=minutes, at=moment.isoformat())
+                return ToolResult.success(
+                    f"{name[:1].upper() + name[1:]} was **{span_text(-minutes, other)} ago** ({when}).",
+                    minutes=minutes,
+                    at=moment.isoformat(),
+                )
+            return ToolResult.success(
+                f"**{span_text(minutes, other)}** until {name} ({when}).", minutes=minutes, at=moment.isoformat()
+            )
         found = resolve_date(what, now, profile)
         if found is None:
             # "when is my dentist appointment" - a reminder may say.
             words = [w for w in re.findall(r"[a-z0-9']+", what.lower()) if w not in {"my", "our", "the", "a", "an"}]
-            reminder = next((item for item in self.context.reminders.list()
-                             if words and all(w in str(item.get("message", "")).lower() for w in words)), None)
+            reminder = next(
+                (
+                    item
+                    for item in self.context.reminders.list()
+                    if words and all(w in str(item.get("message", "")).lower() for w in words)
+                ),
+                None,
+            )
             if reminder is not None:
                 due = datetime.fromisoformat(str(reminder["due_at"]))
-                return ToolResult.success(f"You have a reminder for that: {reminder['message']} — "
-                                          f"{describe(due, now, local=True)}.", reminder=reminder)
+                return ToolResult.success(
+                    f"You have a reminder for that: {reminder['message']} — {describe(due, now, local=True)}.",
+                    reminder=reminder,
+                )
             if re.match(r"\s*(?:my|our)\s+", what, re.IGNORECASE):
                 yours = re.sub(r"^(?:my|our)\b", "your", what.strip(), flags=re.IGNORECASE)
                 return ToolResult.success(
                     f"I don't know when {yours} is — you haven't told me, and no reminder mentions it. "
-                    f"Tell me with \"remember {what.strip()} is <date>\".")
+                    f'Tell me with "remember {what.strip()} is <date>".'
+                )
             return None
         day, name = found
         if kind == "until":
             days = (day - today).days
-            if days < 0:    # a stated year can be behind us: "until july 4th this year" said "-95 days"
-                return ToolResult.success(f"{name[:1].upper() + name[1:]} was **{-days} day{'s' if days != -1 else ''} "
-                                          f"ago** ({day:%A %d %B %Y}).".replace(" 0", " "), days=days,
-                                          date=day.isoformat())
+            if days < 0:  # a stated year can be behind us: "until july 4th this year" said "-95 days"
+                return ToolResult.success(
+                    f"{name[:1].upper() + name[1:]} was **{-days} day{'s' if days != -1 else ''} "
+                    f"ago** ({day:%A %d %B %Y}).".replace(" 0", " "),
+                    days=days,
+                    date=day.isoformat(),
+                )
             count = f"{days} day{'s' if days != 1 else ''}"
             if other == "weeks" and days >= 7:
                 weeks, spare = divmod(days, 7)
                 count = f"{weeks} week{'s' if weeks != 1 else ''}" + (
-                    f" and {spare} day{'s' if spare != 1 else ''}" if spare else "")
-            return ToolResult.success(f"**{count}** until {name} ({day:%A %d %B %Y}).".replace(" 0", " "),
-                                      days=days, date=day.isoformat())
+                    f" and {spare} day{'s' if spare != 1 else ''}" if spare else ""
+                )
+            return ToolResult.success(
+                f"**{count}** until {name} ({day:%A %d %B %Y}).".replace(" 0", " "), days=days, date=day.isoformat()
+            )
         if name.lower() in RELATIVE_DAYS:
             # "Tomorrow is on Sunday, 27 September — tomorrow" said it twice.
             stamp = day.strftime("%A, %d %B %Y").replace(" 0", " ")
             verb = "was" if day < today else "is"
             return ToolResult.success(f"{name[:1].upper() + name[1:]} {verb} **{stamp}**.", date=day.isoformat())
         verb = "was" if day < today else "is"
-        return ToolResult.success(f"{name[:1].upper() + name[1:]} {verb} on {describe_day(day, today)}.",
-                                  date=day.isoformat())
+        return ToolResult.success(
+            f"{name[:1].upper() + name[1:]} {verb} on {describe_day(day, today)}.", date=day.isoformat()
+        )
 
     def _lists(self) -> ToolResult:
         lists = self.context.memory.lists()
         if not lists:
-            return ToolResult.success("You have no lists yet. Try \"add milk to my shopping list\".", lists={})
-        lines = [f"- **{name}** ({len(items)}): " + ", ".join(items[:6]) + ("…" if len(items) > 6 else "")
-                 for name, items in sorted(lists.items())]
+            return ToolResult.success('You have no lists yet. Try "add milk to my shopping list".', lists={})
+        lines = [
+            f"- **{name}** ({len(items)}): " + ", ".join(items[:6]) + ("…" if len(items) > 6 else "")
+            for name, items in sorted(lists.items())
+        ]
         return ToolResult.success("Your lists:\n" + "\n".join(lines), lists=lists)
 
     def _known_list(self, name: str) -> str:
@@ -235,6 +276,7 @@ class Everyday:
     def _recall_fact(self, key: str, personal: bool) -> ToolResult | None:
         """A fact the user told me, read back - or, for a plainly personal one, the plain
         truth that they never did. None otherwise, so the question goes on elsewhere."""
+
         def shape(text: object) -> str:
             return re.sub(r"[\s_]+", " ", str(text).lower().replace("favourite", "favorite")).strip()
 
@@ -249,10 +291,12 @@ class Everyday:
         if not personal:
             return None
         if key == "where i live":
-            return ToolResult.success("You haven't told me where you live yet. Say \"I live in <city>\" and I'll "
-                                      "remember it.", fact=None)
-        return ToolResult.success(f"You haven't told me your {shape(key)} yet. Say \"my {shape(key)} is …\" and "
-                                  f"I'll remember it.", fact=None)
+            return ToolResult.success(
+                "You haven't told me where you live yet. Say \"I live in <city>\" and I'll remember it.", fact=None
+            )
+        return ToolResult.success(
+            f"You haven't told me your {shape(key)} yet. Say \"my {shape(key)} is …\" and I'll remember it.", fact=None
+        )
 
     def _list_command(self, rest: str) -> ToolResult | None:
         """`list <name> show|add <items>|remove <item>|clear|has <item>`, or `list <existing name>`.
@@ -267,26 +311,32 @@ class Everyday:
         if not match and name not in self.context.memory.lists():
             return None
         if not name:
-            return ToolResult.failure("Which list? Try \"what's on my shopping list\".")
+            return ToolResult.failure('Which list? Try "what\'s on my shopping list".')
         label = f"your {list_name(name)} list"
         if not match or match.group("verb").lower() == "show":
             items = self.context.memory.list_items(name)
             if not items:
                 return ToolResult.success(f"{label.capitalize()} is empty.", items=[])
-            return ToolResult.success(f"{label.capitalize()} ({len(items)}):\n" + "\n".join(f"- {item}" for item in items),
-                                      items=items)
+            return ToolResult.success(
+                f"{label.capitalize()} ({len(items)}):\n" + "\n".join(f"- {item}" for item in items), items=items
+            )
         verb, raw_items = match.group("verb").lower(), match.group("items").strip()
         if verb == "clear":
             removed = self.context.memory.clear_list(name)
-            return ToolResult.success(f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed)
+            return ToolResult.success(
+                f"Cleared {label} ({removed} item{'s' if removed != 1 else ''}).", removed=removed
+            )
         if verb == "has":
             # "is milk on my shopping list" reached the chat model, which cannot see the list.
             wanted = " ".join(raw_items.strip(" ?.!").lower().split())
             if name not in self.context.memory.lists():
                 return ToolResult.success(f"You don't have a {list_name(name)} list.", items=[])
             # An item, not a substring: "almond milk" is not "milk" (Codex's review). A plural is.
-            found = [item for item in self.context.memory.list_items(name)
-                     if wanted and " ".join(item.lower().split()) in {wanted, wanted + "s", wanted.removesuffix("s")}]
+            found = [
+                item
+                for item in self.context.memory.list_items(name)
+                if wanted and " ".join(item.lower().split()) in {wanted, wanted + "s", wanted.removesuffix("s")}
+            ]
             if found:
                 return ToolResult.success(f"Yes — {label} has {', '.join(found)}.", items=found)
             return ToolResult.success(f"No — {label} doesn't have {raw_items.strip(' ?.!')}.", items=[])
@@ -306,7 +356,8 @@ class Everyday:
             return ToolResult.success(
                 f"Add {', '.join(split[:-1])} and {split[-1]} to {label} as {len(split)} items? Say yes, no to "
                 f'add "{raw_items}" as you said it, or say them again with "and" between.',
-                items=self.context.memory.list_items(name))
+                items=self.context.memory.list_items(name),
+            )
         added = self.context.memory.add_to_list(name, items)
         total = len(self.context.memory.list_items(name))
 
@@ -314,11 +365,16 @@ class Everyday:
             return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
         if not added:
-            return ToolResult.success(f"{said(items).capitalize()} {'is' if len(items) == 1 else 'are'} already on {label}.",
-                                      items=self.context.memory.list_items(name))
+            return ToolResult.success(
+                f"{said(items).capitalize()} {'is' if len(items) == 1 else 'are'} already on {label}.",
+                items=self.context.memory.list_items(name),
+            )
         spoken = said(added)
-        return ToolResult.success(f"Added {spoken} to {label} ({total} item{'s' if total != 1 else ''}).",
-                                  added=added, items=self.context.memory.list_items(name))
+        return ToolResult.success(
+            f"Added {spoken} to {label} ({total} item{'s' if total != 1 else ''}).",
+            added=added,
+            items=self.context.memory.list_items(name),
+        )
 
     def _calendar(self) -> ToolResult:
         """No calendar is connected, and the answer says so instead of guessing.
@@ -334,15 +390,18 @@ class Everyday:
         if lines:
             text += " Here's what you've asked me to remind you about:\n" + "\n".join(lines)
         else:
-            text += " You have no reminders set either; say \"remind me to … at …\" and I'll keep track."
+            text += ' You have no reminders set either; say "remind me to … at …" and I\'ll keep track.'
         return ToolResult.success(text, reminders=upcoming, calendar_connected=False)
 
     def _calendar_add(self, text: str) -> ToolResult:
-        """"add the dentist to my calendar next tuesday at 9": a reminder, said as one."""
+        """ "add the dentist to my calendar next tuesday at 9": a reminder, said as one."""
         result = self._reminder_add(text)
         prefix = "I can't write to your calendar yet (none is connected), so "
-        result.message = prefix + ("I set a reminder instead. " if result.ok
-                                   else "I tried to set a reminder instead, but: ") + result.message
+        result.message = (
+            prefix
+            + ("I set a reminder instead. " if result.ok else "I tried to set a reminder instead, but: ")
+            + result.message
+        )
         return result
 
     def _keys(self) -> keys_tools.KeysTool:
@@ -397,15 +456,21 @@ class Everyday:
             return None, True
         if planner:
             return None, False
-        return ToolResult.failure("That isn't available to a personal account.",
-                                  refused=lowered.split(" ", 1)[0]), False
+        return ToolResult.failure(
+            "That isn't available to a personal account.", refused=lowered.split(" ", 1)[0]
+        ), False
 
     def _everyday(self, command: str, lowered: str) -> bool:
         """Whether a personal account may have `command` dispatched: a form marked everyday,
         or one of the everyday branches chosen by a pattern, which `test_access` counts."""
         return bool(
-            everyday_form(lowered) or _BARE_LIST.fullmatch(lowered) or _WHICH_LIST.fullmatch(lowered)
-            or _HOW_LONG_LEFT.fullmatch(lowered) or _REMINDER_REMOVE.match(lowered)
-            or fact_question(command) is not None or nameless_list_edit(command) is not None
-            or date_question(command) is not None or draw(command) is not None   # a throwaway draw
+            everyday_form(lowered)
+            or _BARE_LIST.fullmatch(lowered)
+            or _WHICH_LIST.fullmatch(lowered)
+            or _HOW_LONG_LEFT.fullmatch(lowered)
+            or _REMINDER_REMOVE.match(lowered)
+            or fact_question(command) is not None
+            or nameless_list_edit(command) is not None
+            or date_question(command) is not None
+            or draw(command) is not None  # a throwaway draw
         )

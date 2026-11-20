@@ -6,13 +6,14 @@ Nothing could create a folder or write several files. Here the folder's name and
 from the words themselves, the model only plans the files (as JSON), every path it returns is
 checked, and one approval card lists the folder and every file before anything is written.
 """
+
 from __future__ import annotations
 
 import json
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.failures import record_failure
 from laptop_agent.planner.core import CutOff
@@ -30,29 +31,68 @@ MAX_TOTAL_CHARS = 20_000
 PREVIEW_CHARS = 3_000
 
 _HOME_PLACES = {"desktop": "Desktop", "documents": "Documents", "downloads": "Downloads", "home": ""}
-_NAMED = re.compile(r"\b(?:called|named|with\s+the\s+name)\s+"
-                    r"[\"']?(?P<name>[\w][\w .-]{0,39}?)[\"']?"
-                    r"(?=\s+(?:on|in|at|under)\b|\s*[,.!?]|\s*$)", re.IGNORECASE)
-_KIND = re.compile(r"\b(?:a|an|my|the)\s+(?:new\s+)?(?P<name>[a-z][\w-]{0,30}(?:\s+[a-z][\w-]{0,30})?)\s+(?:folder|directory)\b",
-                   re.IGNORECASE)
+_NAMED = re.compile(
+    r"\b(?:called|named|with\s+the\s+name)\s+"
+    r"[\"']?(?P<name>[\w][\w .-]{0,39}?)[\"']?"
+    r"(?=\s+(?:on|in|at|under)\b|\s*[,.!?]|\s*$)",
+    re.IGNORECASE,
+)
+_KIND = re.compile(
+    r"\b(?:a|an|my|the)\s+(?:new\s+)?(?P<name>[a-z][\w-]{0,30}(?:\s+[a-z][\w-]{0,30})?)\s+(?:folder|directory)\b",
+    re.IGNORECASE,
+)
 # Words that describe a folder rather than name it: "an empty folder" is not called "empty".
 _NOT_NAMES = {"new", "empty", "blank", "fresh", "project", "folder", "directory", "workspace"}
-_PLACE = re.compile(r"\b(?:on|in|at|under|inside)\s+(?:my\s+|the\s+)?(?P<home>desktop|documents|downloads|home)"
-                    r"(?:\s+folder)?\b", re.IGNORECASE)
+_PLACE = re.compile(
+    r"\b(?:on|in|at|under|inside)\s+(?:my\s+|the\s+)?(?P<home>desktop|documents|downloads|home)"
+    r"(?:\s+folder)?\b",
+    re.IGNORECASE,
+)
 # A path: quoted (spaces allowed) or bare up to whitespace, with sentence punctuation left off.
-_PATH = re.compile(r"\b(?:in|at|under|inside)\s+(?:\"(?P<quoted>[^\"]+)\"|(?P<path>[A-Za-z]:[\\/][^\s,]*|~[\\/][^\s,]*|/[^\s,]+))",
-                   re.IGNORECASE)
+_PATH = re.compile(
+    r"\b(?:in|at|under|inside)\s+(?:\"(?P<quoted>[^\"]+)\"|(?P<path>[A-Za-z]:[\\/][^\s,]*|~[\\/][^\s,]*|/[^\s,]+))",
+    re.IGNORECASE,
+)
 # What the folder should hold, when anything: "and fill files with python basics", "with notes on rust".
-_CONTENTS = re.compile(r"\b(?:with(?!\s+the\s+name\b)|and\s+(?:fill|put|add|write|create)|fill(?:ed)?\s+(?:it|with)"
-                       r"|containing|full\s+of|for\s+(?:learning|practising|practicing|studying))\b", re.IGNORECASE)
+_CONTENTS = re.compile(
+    r"\b(?:with(?!\s+the\s+name\b)|and\s+(?:fill|put|add|write|create)|fill(?:ed)?\s+(?:it|with)"
+    r"|containing|full\s+of|for\s+(?:learning|practising|practicing|studying))\b",
+    re.IGNORECASE,
+)
 # One plain name per part: no drive, no "..", no leading dot, nothing a shell or Windows treats specially.
 _PART = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_. -]{0,62}[A-Za-z0-9_])?")
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)), *(f"lpt{n}" for n in range(1, 10))}
 # Files Windows acts on by being opened or merely shown in Explorer - a .url or .scf can send the
 # user's login hash to a server named in it - or that run on a double-click. The model's plan comes
 # from a prompt that can carry web text, so none of these is ever written (review of #282).
-_ACTING = {"url", "lnk", "scf", "library-ms", "searchconnector-ms", "desktop", "hta", "vbs", "vbe", "wsf", "wsh",
-           "bat", "cmd", "ps1", "psm1", "reg", "exe", "dll", "msi", "com", "scr", "pif", "jar", "cpl", "inf", "appref-ms"}
+_ACTING = {
+    "url",
+    "lnk",
+    "scf",
+    "library-ms",
+    "searchconnector-ms",
+    "desktop",
+    "hta",
+    "vbs",
+    "vbe",
+    "wsf",
+    "wsh",
+    "bat",
+    "cmd",
+    "ps1",
+    "psm1",
+    "reg",
+    "exe",
+    "dll",
+    "msi",
+    "com",
+    "scr",
+    "pif",
+    "jar",
+    "cpl",
+    "inf",
+    "appref-ms",
+}
 
 _PROMPT = """You are setting up a folder of files for this request:
 
@@ -75,14 +115,14 @@ def _head(request: str) -> str:
     """The words before what the folder should hold: a place or a name in the contents ("notes on
     home loans", "a script that cleans files in my downloads") is not where the folder goes."""
     contents = _CONTENTS.search(request)
-    return request[:contents.start()] if contents else request
+    return request[: contents.start()] if contents else request
 
 
 def folder_and_place(request: str, home: Path) -> tuple[str, Path]:
     """The folder's name and the place it goes, read from the words before the contents: "a folder
     called notes on my desktop" -> ("notes", ~/Desktop). Defaults: "workspace", in ~/Documents."""
     head = _head(request)
-    named = _NAMED.search(head)             # "notes on a book called dune" names no folder
+    named = _NAMED.search(head)  # "notes on a book called dune" names no folder
     if named is None:
         kind = _KIND.search(head)
         name = kind.group("name").strip() if kind else ""
@@ -102,7 +142,7 @@ def folder_and_place(request: str, home: Path) -> tuple[str, Path]:
 def safe_relative(path: object) -> str | None:
     """A model-given path as a plain relative path, or None when it is anything else."""
     if not isinstance(path, str):
-        return None                         # a JSON null became a file called "None"
+        return None  # a JSON null became a file called "None"
     cleaned = path.strip().replace("\\", "/")
     if not cleaned or cleaned.startswith("/") or re.match(r"^[A-Za-z]:", cleaned):
         return None
@@ -182,7 +222,7 @@ def _preview(folder: str, plan: list[tuple[str, str]]) -> str:
     budget = PREVIEW_CHARS
     for path, content in plan:
         lines.append(f"- {path} ({len(content):,} characters)")
-        shown = content[:max(0, min(300, budget))]
+        shown = content[: max(0, min(300, budget))]
         budget -= len(shown)
         if shown:
             lines.append("    " + shown.replace("\n", "\n    ") + ("…" if len(shown) < len(content) else ""))
@@ -200,34 +240,47 @@ class WorkspaceTool:
     def create(self, request: str) -> ToolResult:
         request = (request or "").strip()
         if not request:
-            return ToolResult.failure("What folder should I make? Try \"create a folder called notes on my desktop\".")
+            return ToolResult.failure('What folder should I make? Try "create a folder called notes on my desktop".')
         name, place = folder_and_place(request, self._home)
         standard = place in {self._home / sub for sub in _HOME_PLACES.values() if sub} and self._home.is_dir()
         if not place.is_dir() and not standard:
             # Never made: "in C:\My Projects" without quotes read as C:\My, which was created.
-            return ToolResult.failure(f"There's no folder {place}. Put a path with spaces in quotes, "
-                                      "or make the folder first.")
+            return ToolResult.failure(
+                f"There's no folder {place}. Put a path with spaces in quotes, or make the folder first."
+            )
         plan: list[tuple[str, str]] = []
         if _CONTENTS.search(request):
             if self._writer is None:
                 return ToolResult.failure("Filling a folder needs a language model, and none is configured.")
             try:
-                reply = self._writer(_PROMPT.format(request=request, max_files=MAX_FILES, max_file=MAX_FILE_CHARS,
-                                                    max_total=MAX_TOTAL_CHARS, max_depth=MAX_DEPTH))
+                reply = self._writer(
+                    _PROMPT.format(
+                        request=request,
+                        max_files=MAX_FILES,
+                        max_file=MAX_FILE_CHARS,
+                        max_total=MAX_TOTAL_CHARS,
+                        max_depth=MAX_DEPTH,
+                    )
+                )
             except Exception as exc:  # a model outage must not raise out of a tool
                 record_failure("workspace/writer", exc)
                 return ToolResult.failure(f"The model could not plan those files: {exc}")
             if not str(reply or "").strip():
-                return ToolResult.failure("No language model answered just now, so nothing was written. Try again "
-                                          "in a moment.")
+                return ToolResult.failure(
+                    "No language model answered just now, so nothing was written. Try again in a moment."
+                )
             if isinstance(reply, CutOff):
-                return ToolResult.failure("The model's plan ran past its length limit, so nothing was written. "
-                                          "Ask for fewer or shorter files.")
+                return ToolResult.failure(
+                    "The model's plan ran past its length limit, so nothing was written. "
+                    "Ask for fewer or shorter files."
+                )
             planned = file_plan(reply)
             if planned is None:
-                return ToolResult.failure("The model did not return a usable list of files (a name it may not use, "
-                                          "a file type I don't write, or a file too long), so nothing was written. "
-                                          "Try again, or say what the files should be.")
+                return ToolResult.failure(
+                    "The model did not return a usable list of files (a name it may not use, "
+                    "a file type I don't write, or a file too long), so nothing was written. "
+                    "Try again, or say what the files should be."
+                )
             plan = planned
         self._gate.require(
             ApprovalRequest(
@@ -254,10 +307,14 @@ class WorkspaceTool:
             record_failure("workspace/write", exc, folder=str(folder))
             shutil.rmtree(folder, ignore_errors=True)
             if folder.exists():
-                return ToolResult.failure(f"Writing the files failed ({type(exc).__name__}), and I couldn't remove "
-                                          f"the folder again: what was written is still at {folder}.")
-            return ToolResult.failure(f"Writing the files failed ({type(exc).__name__}), so I removed the folder "
-                                      "again; nothing was left half-written.")
+                return ToolResult.failure(
+                    f"Writing the files failed ({type(exc).__name__}), and I couldn't remove "
+                    f"the folder again: what was written is still at {folder}."
+                )
+            return ToolResult.failure(
+                f"Writing the files failed ({type(exc).__name__}), so I removed the folder "
+                "again; nothing was left half-written."
+            )
         files = "\n".join(f"- `{path}`" for path, _ in plan)
         return ToolResult.success(
             f"Created **{folder.name}** at {folder}" + (f" with {len(plan)} file(s):\n{files}" if plan else ", empty."),
