@@ -76,6 +76,7 @@ data.
 | `planner/` | The instant router and the language-model client. See its README. |
 | `context.py` | Turns the chat transcript into the context block every model call sees; resolves "this" in follow-ups. |
 | `model_status.py` | Which model tier is healthy, busy or misconfigured; survives restarts for broken tiers. |
+| `decisions.py` | Picks the starting chat tier in a fixed pipeline: context, explicit cues, an optional Laya difficulty score under a 250 ms deadline, then the heuristic. |
 | `advisor.py` | `solve <problem>`: a researched, structured recommendation. |
 | `reasoning.py` | The autonomous agent loop (plan, act, observe, re-plan) behind agent mode. |
 | `autopilot.py` | A fixed plan limited to safe read-only commands. |

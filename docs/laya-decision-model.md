@@ -1,7 +1,7 @@
 # Proposal: a Laya decision model in the tier choice
 
-**Status: proposal, plus its phase 0 measurement on the CPU and the GPU.** Nothing in the app has been wired
-up or installed; the measurement ran in a throwaway environment outside the repository. Written 2026-11-09 against
+**Status: proposal, plus its phase 0 measurement on the CPU and the GPU. Phase 1 is built on branch
+`claude/laya-tier-pipeline`.** The text below describes the state before it; the measurement ran in a throwaway environment outside the repository. Written 2026-11-09 against
 `main` at `e251f50`. It answers one question: can the Laya typed-decision model
 ([`JeevanReddy0828/laya-mlx`](https://github.com/JeevanReddy0828/laya-mlx), a fork of
 `mizorewww/laya-mlx`) help the brain choose between the fast, smart and ultra tiers? The model and
@@ -85,11 +85,11 @@ The same preset also has a `domain` choice and two `noul` questions, `needs_tool
 
 This is how a tier is chosen today, on `main` at `e251f50`:
 
-- `AgentOrchestrator._complexity` (`src/laptop_agent/agents/orchestrator.py:617`) returns 0, 1 or 2
+- `AgentOrchestrator._complexity` (`src/laptop_agent/agents/orchestrator.py:641`) returns 0, 1 or 2
   from the word count (over 35, over 70) and two substring lists. "explain", "why" and "debug" go
   to smart; "step by step", "prove", "puzzle" and "use the big model" go to ultra.
-- `_pick_chat_model` and `_higher_chat_tiers` (`:642`, `:652`) turn that level into a ladder.
-  `_handle` calls it at `:2950`, after routing has already decided the turn is chat.
+- `_pick_chat_model` and `_higher_chat_tiers` (`:651`, `:661`) turn that level into a ladder.
+  `_handle` calls it at `:2970`, after routing has already decided the turn is chat.
 - Falling down the ladder when a tier is busy or broken does not depend on how the level was
   chosen, and it stays as it is.
 
@@ -212,7 +212,7 @@ The change is small and reversible: one new module and one call site.
   with `failures.record_failure`.
 - **Config.** `LAYA_URL`: unset means off, which is exactly today's behaviour. `LAYA_DEADLINE_MS`
   defaults to 250.
-- **`orchestrator.py`.** The one line at `:2950` becomes `level = self._chat_level(command)`, which
+- **`orchestrator.py`.** The one line at `:2970` becomes `level = self._chat_level(command)`, which
   applies the order above.
 - **Traces.** Record which source chose the level and how long it took: timings and labels only.
 - **Health and Setup.** Show the decision model as on, off or unreachable, and on which device.

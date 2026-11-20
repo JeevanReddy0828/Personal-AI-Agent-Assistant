@@ -80,6 +80,54 @@ short "_my smart model was busy_" note, and records the outcome in
 `health.system_health` surfaces this as `llm.tiers` + `llm.degraded_tier`, and the
 web pill shows "smart/ultra model busy" while the fast tier stays healthy.
 
+### Choosing the tier: a fixed pipeline
+
+`decisions.TierDecider` picks the starting tier in four steps, always in this order:
+`context`, `explicit_cue`, `laya`, `heuristic`. `context` finds the previous user request and
+marks a short reply (six words or fewer) as a follow-up. `explicit_cue` sends a message that
+asks for depth ("think hard", "step by step", "in depth") straight to ultra. `laya` asks a
+Laya server how hard the request is. `heuristic` is `_complexity`, today's rule, and the
+answer whenever Laya is absent, slow or wrong. With `LAYA_URL` unset the `laya` step is
+skipped and chat behaves exactly as it did before.
+
+- **Laya's answer is a score, not a tier.** The server scores a preset difficulty question
+  from 0 to 3, and the thresholds (1.55, 2.05) turn it into fast, smart or ultra. The
+  confirmation run chose them on 120 fresh requests: 62.5% of tiers right against 50.8% for
+  the heuristic (`docs/evals/tier_choice_confirm.md`; the proposal is
+  `docs/laya-decision-model.md`).
+- **The deadline is 250 ms.** A call that fails, answers without a score or runs past the
+  deadline is recorded in `failures` and starts a 60 s cooldown, during which the `laya` step
+  is skipped and the heuristic answers. One success clears it.
+- **The context step is computed but not used for the decision** unless `LAYA_TIER_CONTEXT`
+  is on, which prepends the previous request to a follow-up before it is scored. That effect
+  is not measured yet, so it stays off.
+- **Why plain Python in LangGraph's shape.** Each step takes the state and returns updates,
+  and an edge table names the next step, so the graph is data and `TierDecider.mermaid()`
+  draws it. LangGraph itself would add 39 packages against the zero-dependency rule and
+  leave two pipelines to keep in step. UTCP and MCP choose tools, not a model tier at run
+  time, and an MCP call asks for approval every time. LangGraph is worth reconsidering only
+  for agent mode.
+- **The trace records which step decided** (`tier_source`: cue, laya or heuristic, plus the
+  time spent) and `/api/health` shows `tier_decider`.
+
+Running the server (in its own virtual environment, `pip install "laya[serve]"`):
+
+```powershell
+$env:LAYA_HOST="127.0.0.1"; $env:LAYA_MODELS="english"; $env:LAYA_DEVICE="cuda"; laya-serve
+```
+
+Then put `LAYA_URL=http://127.0.0.1:8000` in the app's `.env`. `laya-serve` binds `0.0.0.0` by
+default, so `LAYA_HOST=127.0.0.1` is required to keep it off the network. With the GPU off
+(Armoury Crate Eco mode) the model runs at CPU speeds, the 250 ms deadline is missed on most
+turns and the heuristic decides them.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `LAYA_URL` | unset | Base URL of the Laya server. Unset keeps today's heuristic. |
+| `LAYA_API_KEY` | unset | Sent as a Bearer token when the server asks for one. |
+| `LAYA_DEADLINE_MS` | 250 | How long the `laya` step may take before the heuristic answers. |
+| `LAYA_TIER_CONTEXT` | off | Score a follow-up together with the request before it. |
+
 **A tier that is loaded and a tier that is misconfigured are different facts.** The whole
 fallback ladder used to decide from `bool(reply)`, and a retired model id (HTTP 410), a
 rejected key (401), a model the account cannot call (404), a refused parameter (400) and a
