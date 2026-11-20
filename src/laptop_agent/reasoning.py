@@ -5,7 +5,7 @@ from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import FOLLOW_UP_RULE
 from laptop_agent.planner.core import CutOff
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
-from laptop_agent.supervisor import RunStopped
+from laptop_agent.supervisor import RunStopped, group_of, is_read
 
 import json
 import re
@@ -26,6 +26,8 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 # answer may still say "Observation: ..." in its prose.
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
 _FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
+# "ACTION: FINAL: <answer>": live, a helper's answer this way ran as a command and was lost.
+_ACTION_FINAL_RE = re.compile(r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER|DONE)[ \t]*:)", re.IGNORECASE | re.MULTILINE)
 _CUT_OFF_REMINDER = (
     "\n\nYour last reply was cut off at the length limit, so none of it was used. Reply again, "
     "shorter: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -67,6 +69,13 @@ class AgentStep:
     command: str
     status: str  # ok | failed | blocked
     message: str
+    agent: str = ""   # which agent of a team run took it ("" for the planner or a single run)
+    depth: int = 0
+
+
+# Another agent's answer is what a team's planner combines from, and a read's text is what the step was
+# for, so both are kept longer than a tool's reply. At 320, a long path left a notes file cut short.
+LONG_OBSERVATION = 1500
 
 
 @dataclass
@@ -141,7 +150,7 @@ def parse_agent_decision(text: str) -> AgentDecision:
     live a run ended on "[The full content of README.md would be provided here after the
     action runs...]", another on an answer the model had just said it could not give yet.
     """
-    raw = _drop_invented_observation((text or "").strip())
+    raw = _drop_invented_observation(_ACTION_FINAL_RE.sub(r"\1", (text or "").strip()))
     thought_match = _THOUGHT_RE.search(raw)
     thought = thought_match.group(1).strip() if thought_match else ""
 
@@ -188,7 +197,9 @@ def parse_agent_decision(text: str) -> AgentDecision:
 def _runnable(action: re.Match[str]) -> str:
     """The command an ACTION line names, or '' for 'none', 'stop' and the like."""
     command = _strip_command(action.group(1))
-    return "" if command.lower() in {"none", "n/a", "stop", "done"} else command
+    # "(no command needed - I'll answer directly)": live, a helper wrote this before its answer, and
+    # it was dispatched as a command. No command starts with a parenthesis.
+    return "" if command.lower() in {"none", "n/a", "stop", "done"} or command.startswith("(") else command
 
 
 def _describe_datum(key: str, value: object) -> str:
@@ -223,7 +234,7 @@ def _describe_datum(key: str, value: object) -> str:
     return f"{key}={text}"
 
 
-def _observe(result: ToolResult) -> str:
+def _observe(result: ToolResult, limit: int = 320) -> str:
     """Compress a tool result into a short observation line for the scratchpad.
 
     Truncation is stated rather than implied: an agent that cannot tell a complete
@@ -232,9 +243,9 @@ def _observe(result: ToolResult) -> str:
     status = "ok" if result.ok else "failed"
     message = (result.message or "").strip().replace("\n", " ")
     cut = ""
-    if len(message) > 320:
-        cut = f" [message clipped: showing 317 of {len(message)} characters]"
-        message = message[:317] + "…"
+    if len(message) > limit:
+        cut = f" [message clipped: showing {limit - 3} of {len(message)} characters]"
+        message = message[: limit - 3] + "…"
     data = result.data if isinstance(result.data, dict) else {}
     facts = ", ".join(_describe_datum(key, value) for key, value in sorted(data.items()))
     suffix = f" [data: {facts}]" if facts else ""
@@ -257,11 +268,15 @@ class AutonomousAgent:
         execute: Callable[[str], Awaitable[ToolResult]],
         command_reference: str = "",
         max_steps: int = 6,
+        close_on_stop: bool = True,
     ) -> None:
         self._decide = decide
         self._execute = execute
         self._command_reference = command_reference.strip()
         self.max_steps = max(1, max_steps)
+        # Whether a supervisor stop still asks for what the steps found. A team's helper does not: the
+        # stop is the whole tree's, and its planner closes the run.
+        self.close_on_stop = close_on_stop
 
     def _build_prompt(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
         lines = [
@@ -271,7 +286,7 @@ class AutonomousAgent:
             "Reply in EXACTLY this format:",
             "THOUGHT: <one short sentence of reasoning>",
             "ACTION: <a single command, copied verbatim from AVAILABLE COMMANDS with concrete arguments>",
-            "When the goal is met (or cannot proceed), instead reply:",
+            "When the goal is met, needs no command, or cannot proceed, instead reply:",
             "THOUGHT: <why you are stopping>",
             "FINAL: <the complete answer for the user — everything they should see goes after FINAL:, "
             "including any diagram, code or table; it may span many lines>",
@@ -298,7 +313,7 @@ class AutonomousAgent:
                 lines.append(f"{step.index + 1}. ACTION: {step.command}")
                 lines.append(f"   OBSERVATION: [{step.status}] {step.message}")
         else:
-            lines += ["", "PROGRESS SO FAR: (nothing yet — choose the first command)"]
+            lines += ["", "PROGRESS SO FAR: (nothing yet — choose the first command, or reply FINAL now if none is needed)"]
         lines += ["", "Your turn:"]
         return "\n".join(lines)
 
@@ -333,6 +348,8 @@ class AutonomousAgent:
             prompt = self._build_prompt(goal, steps, context)
             try:
                 reply = self._decide(prompt) or ""
+            except RunStopped as exc:   # the run's model calls are spent
+                return self._stopped(goal, steps, context, exc)
             except Exception as exc:  # the brain is injected; never crash the loop on it
                 return AgentRunResult(
                     goal=goal,
@@ -378,11 +395,17 @@ class AutonomousAgent:
                     steps=steps,
                 )
 
+            # Live, a helper ran "weather <location>" copied from its list; only the list's own
+            # placeholders count, so a command may still hold angle brackets of its own.
+            unfilled = [token for token in re.findall(r"<[^<>\s][^<>]*>", decision.command)
+                        if token in self._command_reference]
             try:
-                result = await self._execute(decision.command)
+                if unfilled:
+                    result = ToolResult.failure(f"Not run: fill in {', '.join(unfilled)} with a real value.")
+                else:
+                    result = await self._execute(decision.command)
             except RunStopped as exc:
-                # The supervisor ended the run: not a failed step for the model to work around.
-                return AgentRunResult(goal=goal, final_answer=str(exc), status="stopped", steps=steps)
+                return self._stopped(goal, steps, context, exc)
             except Exception as exc:
                 result = ToolResult.failure(str(exc))
 
@@ -391,7 +414,8 @@ class AutonomousAgent:
                 thought=decision.thought,
                 command=decision.command,
                 status="ok" if result.ok else "failed",
-                message=_observe(result),
+                message=_observe(result, LONG_OBSERVATION if is_read(decision.command) or group_of(decision.command)[0] == "delegate"
+                                 else 320),
             )
             steps.append(step)
             _emit(step)
@@ -429,25 +453,51 @@ class AutonomousAgent:
             return retried
         return retried if retried.structured or not decision.final_answer else decision
 
+    def _stopped(self, goal: str, steps: list[AgentStep], context: str, exc: RunStopped) -> AgentRunResult:
+        """The supervisor ended the run: not a failed step for the model to work around. What the steps
+        found is still given, with no step left to take: live, a stop for repeating a read answered only
+        "Stopped by the supervisor" about a file the run had read."""
+        answer = str(exc)
+        if steps and self.close_on_stop:
+            found = self._closing_answer(goal, steps, context, (
+                f"\n\nThe run was stopped: {answer} Do not choose another command. Reply with FINAL: "
+                "<what the steps above found toward the GOAL, and what is missing> only.")) or self._found(steps)
+            answer = f"{answer}\n\n{found}"
+        return AgentRunResult(goal=goal, final_answer=answer, status="stopped", steps=steps)
+
+    @staticmethod
+    def _found(steps: list[AgentStep]) -> str:
+        # What each step found, not only that it ran: live, the summary call hit a dropped connection
+        # and the answer named eight weather lookups without one temperature.
+        return "What the steps found:\n" + "\n".join(f"- {step.command}: {step.message[:240]}" for step in steps)
+
     def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
-        prompt = self._build_prompt(goal, steps, context) + (
+        summary = self._closing_answer(goal, steps, context, (
             "\n\nYou have reached the step limit. Reply with FINAL: <summary of progress "
             "and what remains> only."
-        )
+        ))
+        if summary:
+            return summary
+        if not steps:
+            return f"Reached the {self.max_steps}-step limit on: {goal}. No steps ran."
+        return f"Reached the {self.max_steps}-step limit on: {goal}. {self._found(steps)}"
+
+    def _closing_answer(self, goal: str, steps: list[AgentStep], context: str, instruction: str) -> str:
+        """One last FINAL from what the steps found, or "" when the model gives none."""
         try:
-            reply = self._decide(prompt) or ""
+            reply = self._decide(self._build_prompt(goal, steps, context) + instruction) or ""
             check_cancelled()
-            # A summary cut off at the length limit ends mid-sentence; the recap below is true
+            # A summary cut off at the length limit ends mid-sentence; the caller's fallback is true
             # (Codex's review of #178).
             decision = None if isinstance(reply, CutOff) else parse_agent_decision(reply)
             if decision is not None and decision.final_answer:
                 return decision.final_answer
+        except RunStopped:
+            return ""   # the run's model calls are spent: the caller's fallback lists what the steps found
         except Exception as exc:
-            # The step limit message below is the fallback; without this the reason the
-            # agent stopped reasoning was thrown away.
+            # The caller's fallback stands; without this the reason the agent stopped reasoning was lost.
             record_failure("agent/final", exc, goal=goal[:80])
-        ran = "; ".join(f"{step.command} -> {step.status}" for step in steps) or "no steps ran"
-        return f"Reached the {self.max_steps}-step limit on: {goal}. Progress: {ran}."
+        return ""
 
 
 class AgentRunTracker:
@@ -461,7 +511,7 @@ class AgentRunTracker:
         self._load()
 
     @synchronized
-    def record_run(self, result: AgentRunResult) -> dict[str, object]:
+    def record_run(self, result: AgentRunResult, agents: list[dict[str, object]] | None = None) -> dict[str, object]:
         ok = sum(1 for step in result.steps if step.status == "ok")
         failed = sum(1 for step in result.steps if step.status == "failed")
         run = {
@@ -475,6 +525,8 @@ class AgentRunTracker:
             "failed_count": failed,
             "steps": [step.__dict__ for step in result.steps],
         }
+        if agents is not None:
+            run["agents"] = agents
         self._next_run += 1
         self._runs.append(run)
         if len(self._runs) > self.max_runs:

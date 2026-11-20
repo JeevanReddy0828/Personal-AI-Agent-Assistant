@@ -113,6 +113,7 @@ _DEV_EXACT = frozenset({
     "autopilot status", "autonomous status", "schedule", "schedule list", "schedules",
     "show schedule", "schedule run due", "run due schedules", "schedule tick", "agent runs",
     "agent history", "autonomous runs", "agent last", "agent status", "last agent run", "agents",
+    "agents off", "agents on",
     "agent control", "control room", "agent dashboard", "tasks", "task dashboard", "show tasks",
     # the owner's own code
     "plugins",

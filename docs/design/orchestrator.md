@@ -82,10 +82,36 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   direction a wrong route must fail in. Known limits: the conversation context is not a
   taint source, queries to fixed services (search, weather) are not treated as sending out,
   and what an approved program does is outside it.
+- **A team run is one tree under one supervisor state** (`agent team <goal>`, `run_agent(team=True)`).
+  The planner leads on the strongest tier configured (ultra, smart, fast, with the lower tiers and
+  the backup behind it, 8 steps) and is offered `delegate <fast|smart> <sub-task>` for the
+  configured tiers below its own. `_supervised` intercepts a step the supervisor allows as
+  `delegate` and `_delegator` runs a child `AutonomousAgent` on that tier (4 steps, the sub-task plus
+  one line naming the planner's goal and telling it to answer directly, no conversation). A child may
+  only read, compute (`HELPER_COMPUTES`) or delegate; anything else is refused (`helper`). Its FINAL is the step's observation, kept
+  to 1,500 characters (`reasoning.LONG_OBSERVATION`, which a read's text gets too) rather than 320, and a child out of steps
+  answers "(step limit reached) …". Every agent's `Supervisor` shares one `supervisor.RunTree`:
+  the taint (a child starts tainted, and what it reads taints the planner, since its answer is
+  outside text to it), the refusals, and the stop. The trip breaker is checked first in every
+  `check`: more than `MAX_STEPS_PER_MINUTE` (15) steps in a minute or `MAX_TREE_STEPS` (20) in all,
+  a delegation deeper than `MAX_DEPTH` (2) or past `MAX_AGENTS` (4) started; a trip, like any STOP
+  (repeats, refusals) in any agent, is stored on the tree, every later check returns it, and the
+  parent's `delegate` step re-raises it, so the whole run ends with the rule in its answer.
+  `delegate` goes strictly below the agent's *assigned* tier, judged so because a busy ultra is
+  answered by smart; trust is still judged by the tier that wrote the step, so the backup cannot
+  delegate. `agent run`, `agent team`, `schedule agent` and `autopilot` are `DIRECT`: before, a step
+  could start a fresh run with a clean supervisor. Audit: verdicts carry `run`/`parent`/`depth`,
+  each hand-off is an `agent_message` (`direction` task or result), and the saved run has
+  `agents`. Children run one at a time; their steps go to the same `on_step` callback, marked with
+  `agent` and `depth`, but no page path starts a team run yet (`agent team` typed in chat runs
+  through `handle`, with no live trace), so the steps are seen in the saved run.
 - **The agent trusts a reply only up to its first runnable ACTION** (`parse_agent_decision`).
   The model writes ACTION, an OBSERVATION it made up and a FINAL built on it, all in one
   reply, and FINAL used to win: runs ended on a README summary of a file that does not
   exist, or on "[the content would be provided here after the action runs]". An
   upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
-  and a reply with neither header is asked again once (`_ask_again`). Known limit: a
+  and a reply with neither header is asked again once (`_ask_again`). `ACTION: (no command needed)`
+  is not a step, and `ACTION: FINAL: <answer>` is the FINAL (both seen live from team helpers). A
+  command still holding a placeholder from the list (`weather <location>`) is not run, and a run the
+  supervisor stops is asked once, with no step left to take, what its steps found. Known limit: a
   well-formed FINAL can still be wrong, which parsing cannot see.

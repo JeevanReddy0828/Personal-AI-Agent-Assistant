@@ -58,7 +58,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Routing and conversation | `test_planner.py`, `test_llm_planner.py`, `test_everyday_requests.py` (the routing contract and the never-crash sweeps), `test_selfcheck.py`, `test_conversation_flow.py`, `test_command_dispatch.py`, `test_orchestrator.py`, `test_context.py`, `test_monologue.py`, `test_learn.py` |
 | Model tiers and reliability | `test_model_fallback.py`, `test_model_status.py`, `test_openrouter_fallback.py`, `test_failures*.py`, `test_tracing.py`, `test_reliability_regressions.py` |
 | Links you finish | `test_messaging.py`: WhatsApp/Telegram messages opened ready to send, the Google Flights link |
-| Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_supervisor.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
+| Safety and accounts | `test_access.py`, `test_accounts.py`, `test_approvals.py`, `test_supervisor.py`, `test_supervisor_matrix.py`, `test_security_regressions.py`, `test_lan_access.py`, `test_token_vault.py`, `test_google_*.py`, `test_webui_auth.py` |
 | Keys to other apps | `test_keys.py`: shortcuts and typing reach the app named or the one in use, never J.A.R.V.I.S |
 | Web server and page | `test_webui*.py` (one per panel or route group), `test_page_assets.py`, `test_webui_caching.py`, `test_window_fx.py` |
 | Scripts | `test_codefix.py`: run a Python script, fix it from its own error, diff shown and backup kept |
@@ -68,7 +68,7 @@ About 110 files, one or more per area. The naming tells you where to look:
 | Health | `test_health.py`, `test_setup_report.py`, `test_diagnosis.py` (the self-diagnosis), `test_metrics.py` |
 | Laptop controls | `test_system.py`: lock, power, brightness, wallpaper, processes, Settings |
 | Stores and memory | `test_knowledge*.py`, `test_embeddings.py`, `test_terms.py`, `test_reminders.py`, `test_reminder_delivery.py`, `test_scheduler*.py`, `test_timeparse.py`, `test_daylight_saving.py`, `test_retention.py`, `test_personal_life.py`, `test_briefing.py` |
-| Autonomy and jobs | `test_reasoning.py`, `test_autopilot.py`, `test_workflows.py`, `test_tasks.py`, `test_advisor.py`, `test_control_room.py`, `test_jobs.py`, `test_copilot.py`, `test_jobright.py`, `test_watch.py` |
+| Autonomy and jobs | `test_reasoning.py`, `test_multi_agent.py`, `test_agent_limits.py`, `test_autopilot.py`, `test_workflows.py`, `test_tasks.py`, `test_advisor.py`, `test_control_room.py`, `test_jobs.py`, `test_copilot.py`, `test_jobright.py`, `test_watch.py` |
 | Analytics | `test_forecast.py`, `test_analytics_diagnostics.py` |
 | Voice | `test_voice.py`, `test_webui_voice*.py`, `test_recordings.py`, `test_riva_deadline.py`, `test_nvcf.py` (looking up a retired Riva function id), `test_tts_engine.py` (the hosted Magpie voice and its offline fallback), `test_spoken_*.py`, `test_wake.py`, `test_browser_wake.py`, `test_hotkey.py`, `test_browser_push_to_talk.py`, `test_spoken.py`, `test_browser_greeting.py` |
 | Files on disk | `test_fileops.py`: move, copy, rename, delete to the Recycle Bin, undo |
