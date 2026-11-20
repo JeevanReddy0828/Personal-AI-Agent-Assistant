@@ -58,6 +58,9 @@ class TeamRunTests(unittest.TestCase):
         self.assertTrue(result.ok, result.message)
         self.assertEqual(result.message, "3 cats, the tabby wins")
         self.assertIn("delegate <fast|smart> <sub-task>", ultra.prompts[0])
+        # Live, the planner handed "remember ..." to a helper that cannot act, and started a fifth helper.
+        self.assertIn("make any change yourself", ultra.prompts[0])
+        self.assertIn(f"at most {supervisor.MAX_AGENTS} helpers", ultra.prompts[0])
         self.assertIn("GOAL: count the cats", fast.prompts[0])
         self.assertIn("look into cats", fast.prompts[0])
         self.assertNotIn("delegate", fast.prompts[0])        # nothing below fast
@@ -103,6 +106,9 @@ class TeamRunTests(unittest.TestCase):
         for withheld in ("- document ", "- save note", "- reminder add", "- open url", "- image "):
             self.assertNotIn(withheld, commands)
         self.assertIn("Answer in FINAL from what you know", fast.prompts[0])
+        # Live, a helper given "remember ..." searched instead and the team said the fact was saved.
+        self.assertIn("If the sub-task asks you to save, change, create or send something, do not "
+                      "pretend it is done", fast.prompts[0])
         self.assertIn("or reply FINAL now if none is needed", fast.prompts[0])
         self.assertIn("- document ", ultra.prompts[0])
 
@@ -127,6 +133,33 @@ class TeamRunTests(unittest.TestCase):
         self.assertEqual(len(ultra.prompts), 1)              # the planner is not asked again
         self.assertIn("breaker:steps", [v["rule"] for v in self.audit("supervisor")])
         self.assertEqual(self.audit("agent_message")[-1]["status"], "stopped")
+
+    def test_a_stopped_team_still_gives_what_its_helpers_found(self) -> None:
+        """Live, the fifth helper of a ten-city run tripped the cap and four cities' weather was lost."""
+        ultra, _smart, fast = self.tiers(
+            ultra=(step("delegate fast weather in London"), step("delegate fast weather in Oslo"),
+                   "THOUGHT: report\nFINAL: London 9C; Oslo was not reached"),
+            fast=("FINAL: London 9C", step("weather Oslo"), step("weather Oslo, Norway"), "FINAL: never"))
+        with patch.object(supervisor, "MAX_TREE_STEPS", 3):
+            result = self.team()
+        self.assertEqual(result.data["agent"]["status"], "stopped")
+        self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
+        self.assertIn("London 9C; Oslo was not reached", result.message)
+        self.assertIn("The run was stopped", ultra.prompts[-1])
+        self.assertEqual(len(fast.prompts), 3)               # the helper is not asked to close
+
+    def test_a_helper_going_in_circles_does_not_end_the_team(self) -> None:
+        ultra, _smart, _fast = self.tiers(
+            ultra=(step("delegate fast find my favourite colour"), step("remember my favourite colour is teal"),
+                   "FINAL: saved teal"),
+            fast=(step("recall favourite colour"), step("recall favourite colour"), step("recall favourite colour"),
+                  "FINAL: not found"))
+        result = self.team()
+        self.assertEqual(result.data["agent"]["status"], "ok", result.message)
+        self.assertEqual(result.message, "saved teal")
+        self.assertIn("[ok] not found", ultra.prompts[1])
+        self.assertEqual([v["rule"] for v in self.audit("supervisor") if v["run"] == "a1"],
+                         ["reads", "reads", "repeat"])
 
     def test_a_child_out_of_steps_still_answers(self) -> None:
         ultra, _smart, _fast = self.tiers(
@@ -168,6 +201,13 @@ class TeamRunTests(unittest.TestCase):
         result = asyncio.run(execute("delegate fast count the cats"))
         self.assertFalse(result.ok)
         self.assertEqual(result.message, "This run cannot hand work to another agent.")
+
+    def test_agent_team_with_no_goal_says_how_to_use_it(self) -> None:
+        """Live, a bare "agent team" answered "No agent named 'team'."."""
+        for text in ("agent team", "Agent Team  "):
+            result = asyncio.run(self.orchestrator.handle(text))
+            self.assertFalse(result.ok)
+            self.assertIn("Use: agent team <goal>", result.message)
 
     def test_agent_team_is_a_command(self) -> None:
         self.tiers(ultra=("FINAL: hello from the team",))

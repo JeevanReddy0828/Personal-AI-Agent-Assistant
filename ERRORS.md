@@ -619,6 +619,23 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`test_a_helper_only_looks_up_and_computes`, `test_a_helper_is_offered_lookups_only_and_told_to_answer`).
   `ACTION: (no command needed)` and `ACTION: FINAL: <answer>` both ran as commands → neither is a
   step now (`parse_agent_decision`, `test_reasoning.py`).
+- **A team run stopped by the supervisor answered only "Stopped by the supervisor"** (scenario tests
+  of the team mode, 11-20): a read kept 320 characters, so a long path left a notes file cut short and
+  the agent read it three times (repeat stop); the planner gave writes to helpers that cannot act and
+  started a fifth helper; a helper ran `weather <location>`; a bare `agent team` said "No agent named
+  'team'" → reads keep 1,500 characters (`LONG_OBSERVATION`), a stopped run is asked once what it
+  found, the `delegate` line names what helpers can do and the cap, a command still holding a
+  placeholder from the list is not run, and `agent team` alone gives its usage (`test_reasoning.py`,
+  `test_multi_agent.py`).
+- **The team said "teal has been saved in long-term memory" and nothing was saved** (11-20) → the
+  planner delegated `remember` to a helper that cannot write; it searched, saw "Found 5 documents" and
+  called that a confirmation → a helper is told to answer "Not done - the planner must do this itself"
+  for any change, and a helper repeating a step is refused and told to answer instead of stopping the
+  team (`test_a_helper_going_in_circles_does_not_end_the_team`).
+- **A run at its step limit answered "weather London -> ok; weather Oslo -> ok ..." with no
+  temperatures** (11-20) → the summary call hit a dropped connection, and the fallback named each
+  step and its status only → the fallback lists what each step found
+  (`test_a_step_limit_with_no_summary_still_gives_what_each_step_found`).
 - **Agent mode could read a copied password and send it out in a URL; "Copy that!" overwrote the
   clipboard** (review of #284) → the clipboard was in the agent's command list, never went through
   the gate, and the routes matched pronouns and verbs about the clipboard itself → not in

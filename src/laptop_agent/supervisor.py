@@ -242,6 +242,11 @@ class Supervisor:
                                          f"{tree.last_refusal}")
         self._seen[lowered] = self._seen.get(lowered, 0) + 1
         if self._seen[lowered] > MAX_REPEATS:
+            if self.depth > 0:
+                # A helper going in circles is told to answer, not counted toward the stop: live, a
+                # helper's repeat ended the team before its planner had done anything. Its step cap bounds it.
+                return Decision(Verdict.REFUSE, "repeat", "you already ran this step twice: answer in FINAL "
+                                                          "with what you have")
             return tree.stop("repeat", f"it tried the same step a third time: {command[:120]}")
         group, form = group_of(lowered)
         if group == "direct":

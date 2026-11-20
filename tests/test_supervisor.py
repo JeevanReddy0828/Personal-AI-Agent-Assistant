@@ -259,11 +259,20 @@ class TreeTests(unittest.TestCase):
         self.assertEqual((stopped.verdict, stopped.rule), (Verdict.STOP, "refusals"))
         self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.STOP)
 
-    def test_a_child_stopped_for_repeating_stops_the_tree(self) -> None:
+    def test_a_child_repeating_is_told_to_answer_and_the_tree_runs_on(self) -> None:
+        """Live, a helper asking the knowledge base the same question three times ended the whole team
+        before its planner had done anything, so the user got only "Stopped by the supervisor"."""
         for _ in range(3):
             last = self.child.check("weather Paris", "fast")
+        self.assertEqual((last.verdict, last.rule), (Verdict.REFUSE, "repeat"))
+        self.assertIn("answer in FINAL", last.reason)
+        self.assertEqual(self.tree.refusals, 0)
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
+
+    def test_a_planner_repeating_still_stops_the_tree(self) -> None:
+        for _ in range(3):
+            last = self.planner.check("weather Paris", "ultra")
         self.assertEqual((last.verdict, last.rule), (Verdict.STOP, "repeat"))
-        self.assertEqual(self.planner.check("weather Rome", "ultra").rule, "repeat")
 
     def test_delegation_only_goes_down_a_tier(self) -> None:
         self.assertIs(self.planner.check("delegate smart find it", "ultra").verdict, Verdict.ALLOW)
@@ -362,7 +371,8 @@ class SupervisedRunTests(unittest.TestCase):
         result, brain = self.run_agent(*[step("knowledge stats")] * 5)
         self.assertEqual(len(result.data["steps"]), 2)
         self.assertTrue(result.message.startswith("Stopped by the supervisor"), result.message)
-        self.assertEqual(len(brain.prompts), 3)      # it is not asked for a fourth step
+        self.assertEqual(len(brain.prompts), 4)      # not a fourth step: only what it found
+        self.assertIn("Do not choose another command", brain.prompts[3])
 
     def test_a_run_refused_twice_is_stopped(self) -> None:
         self.answers["Download file"] = False
