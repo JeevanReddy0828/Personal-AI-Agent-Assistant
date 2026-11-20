@@ -8,13 +8,14 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from laptop_agent.agents.common import _REMINDER_REMOVE, _query_and_root
 from laptop_agent.autopilot import parse_autopilot_steps
 from laptop_agent.planner.heuristic import fact_question
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.breakdown import breakdown_command
 from laptop_agent.tools.diagnostics import diagnostics_command
 from laptop_agent.tools.forecast import forecast_command
-from laptop_agent.agents.common import _REMINDER_REMOVE, _query_and_root
 
 
 class CoreDispatch:

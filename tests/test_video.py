@@ -13,12 +13,13 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.app import _build_video_planner
 from laptop_agent.planner.core import Planner
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 from laptop_agent.safety import ApprovalDenied, RiskLevel
 from laptop_agent.tools.video import MAX_VIDEO_BYTES, prepare_clip
-import test_orchestrator
 
 CLIP = b"\x00\x00\x00\x18ftypmp42" + b"x" * 100
 

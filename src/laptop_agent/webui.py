@@ -16,11 +16,10 @@ Run:  python -m laptop_agent.webui                 (browser tab)
 
 from __future__ import annotations
 
-from laptop_agent.cancellation import operation, cancel, check_cancelled, OperationCancelled
-
 import asyncio
 import base64
 import contextlib
+import hashlib
 import io
 import ipaddress
 import json
@@ -29,40 +28,41 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import tempfile
-import hashlib
-import socket
 import threading
 import time
 import wave
 import webbrowser
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable
+from urllib.parse import parse_qs, urlsplit
 
 from laptop_agent.access import SignedOut, acting_as, developer_only, hosted
 from laptop_agent.accounts import MAX_PASSWORD, Account, AccountError, AccountStore, HashingBusy, Principal
-from laptop_agent.storage import StorageDamaged, file_lock
-from laptop_agent.google_oidc import GoogleError, GoogleFlows, PROOF_COOKIE, FLOW_COOKIE, cookie as google_cookie
-from urllib.parse import parse_qs, urlsplit
 from laptop_agent.app import build_orchestrator
+from laptop_agent.approvals import ApprovalBroker
+from laptop_agent.cancellation import OperationCancelled, cancel, check_cancelled, operation
 from laptop_agent.cli import _json_safe
 from laptop_agent.config import load_config
+from laptop_agent.failures import FAILURES, record_failure
+from laptop_agent.google_oidc import FLOW_COOKIE, PROOF_COOKIE, GoogleError, GoogleFlows
+from laptop_agent.google_oidc import cookie as google_cookie
 from laptop_agent.health import setup_report, system_health
+from laptop_agent.hotkey import GlobalHotkey
 from laptop_agent.metrics import system_metrics
 from laptop_agent.retention import sweep, sweep_uploads
-from laptop_agent.approvals import ApprovalBroker
-from laptop_agent.failures import FAILURES, record_failure
-from laptop_agent.hotkey import GlobalHotkey
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
+from laptop_agent.spoken import SpokenBudget, greeting, spoken_turn
+from laptop_agent.storage import StorageDamaged, file_lock
 from laptop_agent.timeparse import describe
 from laptop_agent.voice import SpeechChunker, clean_for_speech, synthesize_wav, tts_engine_name
 from laptop_agent.wake import SAMPLE_RATE, WakeDetector, whisper_recognizer
-from laptop_agent.spoken import SpokenBudget, greeting, spoken_turn
 from laptop_agent.webui_page import PAGE, SIGNIN_PAGE
 from laptop_agent.window_fx import apply_window_effects
 
@@ -1511,7 +1511,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.split("?", 1)[0] in {"/", "/index.html"}:
             self._send(
                 503,
-                f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
+                f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode(),
                 "text/html; charset=utf-8",
             )
         else:

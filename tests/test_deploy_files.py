@@ -40,8 +40,9 @@ class DeployFilesTests(unittest.TestCase):
     def test_the_server_answers_to_the_apps_own_name(self) -> None:
         allowed = self.fly["env"]["LAPTOP_AGENT_ALLOWED_HOSTS"]
         self.assertEqual(allowed, f"{self.fly['app']}.fly.dev")
-        import laptop_agent.webui as webui
         from unittest.mock import patch
+
+        import laptop_agent.webui as webui
 
         with patch.dict("os.environ", {"LAPTOP_AGENT_ALLOWED_HOSTS": allowed}):
             self.assertEqual(webui._allowed_hosts(), frozenset({allowed}), "not a plain hostname the server accepts")

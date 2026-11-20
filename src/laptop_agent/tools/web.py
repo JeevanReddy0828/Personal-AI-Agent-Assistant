@@ -13,7 +13,6 @@ from typing import BinaryIO
 from urllib.parse import urlparse
 
 from laptop_agent.failures import record_failure
-
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 

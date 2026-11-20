@@ -5,8 +5,9 @@ import json
 import threading
 import unittest
 from urllib.parse import parse_qs, urlsplit
+
 from laptop_agent.failures import FAILURES
-from laptop_agent.google_oidc import GoogleError, GoogleFlows, identity, TTL
+from laptop_agent.google_oidc import TTL, GoogleError, GoogleFlows, identity
 
 
 def google_failures():
@@ -242,6 +243,7 @@ class GoogleFlowsTests(unittest.TestCase):
 class GoogleTransportTests(unittest.TestCase):
     def call(self, status=200, chunks=None, error=None):
         from unittest.mock import MagicMock, patch
+
         from laptop_agent.google_oidc import exchange
 
         connection = MagicMock()

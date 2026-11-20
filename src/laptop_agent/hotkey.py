@@ -12,8 +12,9 @@ from __future__ import annotations
 import ctypes
 import sys
 import threading
+from collections.abc import Callable
 from ctypes import wintypes
-from typing import Any, Callable
+from typing import Any
 
 from laptop_agent.failures import record_failure
 

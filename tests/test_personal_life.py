@@ -13,9 +13,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_everyday_requests import Everyday, FakeTier
+
 from laptop_agent.memory import MemoryStore, list_name
 from laptop_agent.planner import HeuristicPlannerProvider
-from test_everyday_requests import Everyday, FakeTier
 
 
 class MemoryTests(unittest.TestCase):

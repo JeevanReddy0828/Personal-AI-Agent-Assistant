@@ -23,6 +23,8 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
+from test_everyday_requests import CONTRACT, MUST_STAY_CHAT, Everyday, reached
+
 from laptop_agent import access
 from laptop_agent.access import EVERYDAY_EXACT, EVERYDAY_PREFIX, acting_as, everyday_form, is_personal, refused_command
 from laptop_agent.accounts import AccountStore, Principal
@@ -32,7 +34,6 @@ from laptop_agent.planner.core import Planner
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import SessionStore
 from laptop_agent.tools.base import ToolResult
-from test_everyday_requests import CONTRACT, MUST_STAY_CHAT, Everyday, reached
 
 PERSONAL = Principal("p1", "family", "personal")
 OTHER = Principal("p2", "guest", "personal")

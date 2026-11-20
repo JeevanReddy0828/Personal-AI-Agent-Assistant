@@ -11,12 +11,12 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.mcp import McpTool, configured
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 # A small MCP server: one read-only tool, one that changes things, one that destroys, one that errors.

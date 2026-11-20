@@ -4,9 +4,9 @@ import copy
 import json
 import math
 import re
-import sys
 import shutil
 import subprocess
+import sys
 import threading
 import time
 

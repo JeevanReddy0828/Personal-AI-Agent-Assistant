@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable
+from collections.abc import Callable
 
 from laptop_agent.context import normalize_history
 from laptop_agent.failures import record_failure

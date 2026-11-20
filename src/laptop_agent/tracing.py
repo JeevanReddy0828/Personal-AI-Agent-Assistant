@@ -8,6 +8,7 @@ copy of the conversation. The only text kept is the resolved command's **verb** 
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from bisect import bisect_left
@@ -17,8 +18,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
-
-import json
 
 # The ring of recent traces holds 300 turns, about three weeks here: too short to see an
 # hour-of-week pattern. So every turn's timings are also appended to `<name>_timings.jsonl`,
@@ -73,7 +72,7 @@ class TurnTrace:
         if self.ttft_ms is None:
             self.ttft_ms = _ms(time.monotonic() - self._t0)
 
-    def finish(self, ok: bool = True) -> "TurnTrace":
+    def finish(self, ok: bool = True) -> TurnTrace:
         self.total_ms = _ms(time.monotonic() - self._t0)
         self.ok = ok
         return self

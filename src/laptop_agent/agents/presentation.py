@@ -7,15 +7,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from laptop_agent.timeparse import describe
-from laptop_agent.tools.base import ToolResult, reserve_new_path
-from laptop_agent.failures import FAILURES
-from laptop_agent.diagnosis import diagnose as run_diagnosis, local_setup_rows
-from laptop_agent.selfcheck import run_selfcheck
-from laptop_agent.tools.diagnostics import ANOMALIES_USAGE, DRIVERS_USAGE
-from laptop_agent.tools.forecast import USAGE as FORECAST_USAGE
+
 from laptop_agent.agents.common import NL, _readable_size
 from laptop_agent.agents.knowledge_actions import KnowledgeActions
+from laptop_agent.diagnosis import diagnose as run_diagnosis
+from laptop_agent.diagnosis import local_setup_rows
+from laptop_agent.failures import FAILURES
+from laptop_agent.selfcheck import run_selfcheck
+from laptop_agent.timeparse import describe
+from laptop_agent.tools.base import ToolResult, reserve_new_path
+from laptop_agent.tools.diagnostics import ANOMALIES_USAGE, DRIVERS_USAGE
+from laptop_agent.tools.forecast import USAGE as FORECAST_USAGE
 
 
 class Presentation:

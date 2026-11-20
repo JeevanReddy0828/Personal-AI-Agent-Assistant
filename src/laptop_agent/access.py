@@ -24,9 +24,9 @@ and of every step of one, so that work now stops at its next step as Stop would 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Callable, Iterator
 
 from laptop_agent.accounts import Principal
 from laptop_agent.cancellation import OperationCancelled

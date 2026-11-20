@@ -9,6 +9,8 @@ import urllib.request
 from datetime import datetime
 from http.server import ThreadingHTTPServer
 
+from test_llm_planner import _FakeStream
+
 import laptop_agent.webui as webui
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 from laptop_agent.spoken import (
@@ -22,8 +24,6 @@ from laptop_agent.spoken import (
     spoken_turn,
 )
 from laptop_agent.tools.base import ToolResult
-
-from test_llm_planner import _FakeStream
 
 
 def system_prompt(spoken: bool) -> str:

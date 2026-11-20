@@ -19,7 +19,7 @@ from pathlib import Path
 
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.files import parse_number
-from laptop_agent.tools.forecast import MAX_ROWS, SeriesError, _TRAILING, _date, _rows, _shown
+from laptop_agent.tools.forecast import _TRAILING, MAX_ROWS, SeriesError, _date, _rows, _shown
 
 USAGE = (
     "total|average|median|count|max|min <column> by <column> in <file.csv>, "

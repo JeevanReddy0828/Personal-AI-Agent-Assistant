@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
-
 import json
 import re
 from pathlib import Path
 from typing import Any
+
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
 
 _KEY_SHAPE = re.compile(r"[^a-z0-9]+")
 

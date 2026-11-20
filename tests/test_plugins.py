@@ -10,12 +10,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.plugins import ENABLE, PluginTool, load
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 GOOD = """

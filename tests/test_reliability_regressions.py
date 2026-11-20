@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, UTC
 import json
-from pathlib import Path
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
-from laptop_agent.cancellation import operation, cancel, OperationCancelled
+from laptop_agent.agents.orchestrator import AgentOrchestrator
+from laptop_agent.cancellation import OperationCancelled, cancel, operation
 from laptop_agent.copilot import JobCopilot, render_resume_html
 from laptop_agent.jobs import JobTracker
 from laptop_agent.memory import MemoryStore
+from laptop_agent.reasoning import AutonomousAgent
 from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.storage import atomic_write_text, read_json, storage_warnings
-from laptop_agent.agents.orchestrator import AgentOrchestrator
-from laptop_agent.reasoning import AutonomousAgent
 from laptop_agent.tools.base import ToolResult
 
 
@@ -38,8 +38,9 @@ class RejectedPostKeepsItsStatusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import laptop_agent.webui as webui
         from http.server import ThreadingHTTPServer
+
+        import laptop_agent.webui as webui
 
         cls.webui = webui
         cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
@@ -302,7 +303,8 @@ class ReliabilityRegressions(unittest.TestCase):
             self.assertNotIn("tailored_pdf", tracker.get(job["id"]))
 
     def test_naive_reminder_uses_local_time_and_explicit_offset_wins(self):
-        from datetime import timezone, timedelta
+        from datetime import timedelta, timezone
+
         from laptop_agent.reminders import ReminderStore
 
         local = timezone(timedelta(hours=-5))
@@ -317,9 +319,10 @@ class ReliabilityRegressions(unittest.TestCase):
             self.assertEqual(ReminderStore._parse_due_at("2030-01-01T09:00+02:00").hour, 7)
 
     def test_native_webview_uses_persistent_profile(self):
-        import laptop_agent.webui as webui
         from types import SimpleNamespace
         from unittest.mock import Mock
+
+        import laptop_agent.webui as webui
 
         backend = SimpleNamespace(create_window=Mock(), start=Mock())
         with patch.dict("sys.modules", {"webview": backend}):

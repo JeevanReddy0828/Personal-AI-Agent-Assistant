@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import math
-import time
 import os
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,7 +12,6 @@ from laptop_agent import nvcf
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
-
 
 NL = chr(10)
 
@@ -451,8 +450,8 @@ def _riva_asr_backend(target: Path) -> dict[str, object]:
     import wave
 
     try:
-        import riva.client  # type: ignore
         import grpc  # type: ignore
+        import riva.client  # type: ignore
     except ImportError as exc:
         raise MissingDependencyError(
             "Cloud speech recognition needs: pip install nvidia-riva-client (or install this app's 'riva' extra)."

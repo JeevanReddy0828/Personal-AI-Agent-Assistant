@@ -20,10 +20,11 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import describe, parse_when, spoken_to_digits
-from test_everyday_requests import Everyday
 
 # A fixed Saturday morning, so every expectation is exact.
 NOW = datetime(2026, 9, 26, 6, 12, tzinfo=timezone(timedelta(hours=-5)))

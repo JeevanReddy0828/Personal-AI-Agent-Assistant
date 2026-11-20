@@ -5,9 +5,10 @@ rest of the orchestrator through `self`."""
 
 from __future__ import annotations
 
-from laptop_agent.cancellation import check_cancelled
 import re
 from datetime import datetime
+
+from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import accepts_context_query, accepts_keyword
 from laptop_agent.planner import Planner
 from laptop_agent.tools.base import ToolResult

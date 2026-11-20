@@ -9,7 +9,6 @@ from pathlib import Path
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
-
 # A screenshot backend captures the current screen and writes it to the given path.
 ScreenshotBackend = Callable[[Path], None]
 

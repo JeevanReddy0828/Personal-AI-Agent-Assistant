@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
-from laptop_agent.terms import collapse_acronyms, sentences as prose_sentences
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
+from laptop_agent.terms import collapse_acronyms
+from laptop_agent.terms import sentences as prose_sentences
 from laptop_agent.tools.base import ToolResult
 
 NL = chr(10)

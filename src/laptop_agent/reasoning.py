@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from laptop_agent.failures import record_failure
-from laptop_agent.cancellation import check_cancelled
-from laptop_agent.context import FOLLOW_UP_RULE
-from laptop_agent.planner.core import CutOff
-from laptop_agent.storage import atomic_write_text, read_json, synchronized
-from laptop_agent.supervisor import RunStopped, group_of, is_read
-
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Awaitable, Callable
 
+from laptop_agent.cancellation import check_cancelled
+from laptop_agent.context import FOLLOW_UP_RULE
+from laptop_agent.failures import record_failure
+from laptop_agent.planner.core import CutOff
+from laptop_agent.storage import atomic_write_text, read_json, synchronized
+from laptop_agent.supervisor import RunStopped, group_of, is_read
 from laptop_agent.tools.base import ToolResult
-
 
 # How the reasoning model is asked to answer each turn. We accept a couple of
 # header spellings so a smaller model that drifts slightly still parses.

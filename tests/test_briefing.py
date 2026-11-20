@@ -11,6 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from test_everyday_requests import Everyday
+from test_news import FEED
+from test_weather import FORECAST, GEO
+
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.briefing import Section, describe_format, news_lines, parse_format
@@ -19,9 +23,6 @@ from laptop_agent.failures import FAILURES
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.weather import WeatherTool
-from test_everyday_requests import Everyday
-from test_news import FEED
-from test_weather import FORECAST, GEO
 
 
 class FormatTests(unittest.TestCase):

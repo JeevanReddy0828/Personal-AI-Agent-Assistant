@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 from laptop_agent.config import load_config

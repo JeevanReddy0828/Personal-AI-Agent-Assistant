@@ -5,26 +5,13 @@ rest of the orchestrator through `self`."""
 
 from __future__ import annotations
 
-from laptop_agent.cancellation import check_cancelled, OperationCancelled
 import asyncio
 import re
 from dataclasses import replace
 from datetime import datetime
-from laptop_agent.autopilot import AutopilotStep
-from laptop_agent.context import AGENT_BUDGET, context_block
-from laptop_agent.copilot import JobCopilot
-from laptop_agent.planner import Planner
-from laptop_agent.reasoning import AutonomousAgent
-from laptop_agent.access import SignedOut, ensure_signed_in
-from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
-from laptop_agent.scheduler import ScheduleError, parse_schedule
+
 from laptop_agent import supervisor as supervision
-from laptop_agent.supervisor import RunStopped, RunTree, Supervisor, Verdict, allowed_in_a_run
-from laptop_agent.tasks import TaskRecord
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.failures import record_failure
-from laptop_agent.tools.codefix import CodeFixTool
-from laptop_agent.workflows import WorkflowStep
+from laptop_agent.access import SignedOut, ensure_signed_in
 from laptop_agent.agents.common import (
     NL,
     _agent_schedule_refused,
@@ -33,6 +20,20 @@ from laptop_agent.agents.common import (
     _job_line,
     _too_often,
 )
+from laptop_agent.autopilot import AutopilotStep
+from laptop_agent.cancellation import OperationCancelled, check_cancelled
+from laptop_agent.context import AGENT_BUDGET, context_block
+from laptop_agent.copilot import JobCopilot
+from laptop_agent.failures import record_failure
+from laptop_agent.planner import Planner
+from laptop_agent.reasoning import AutonomousAgent
+from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
+from laptop_agent.scheduler import ScheduleError, parse_schedule
+from laptop_agent.supervisor import RunStopped, RunTree, Supervisor, Verdict, allowed_in_a_run
+from laptop_agent.tasks import TaskRecord
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.codefix import CodeFixTool
+from laptop_agent.workflows import WorkflowStep
 
 
 class AgentMode:

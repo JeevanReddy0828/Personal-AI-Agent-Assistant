@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import tempfile
-import unittest
-from pathlib import Path
-
 import importlib.util
 import os
 import sys
+import tempfile
 import types
+import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.tools.transcribe as transcribe_module

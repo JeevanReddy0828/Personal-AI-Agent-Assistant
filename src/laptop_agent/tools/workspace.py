@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.failures import record_failure
 from laptop_agent.planner.core import CutOff

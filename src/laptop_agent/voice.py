@@ -8,7 +8,6 @@ from laptop_agent import nvcf
 from laptop_agent.failures import record_failure
 from laptop_agent.tools.base import ToolResult
 
-
 # Sentence-ish boundary: terminal punctuation followed by whitespace, or a newline.
 # Used to carve a streamed token feed into speakable chunks so text-to-speech can
 # start on the first sentence instead of waiting for the whole reply.

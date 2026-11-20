@@ -19,8 +19,9 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure

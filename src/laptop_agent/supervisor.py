@@ -35,11 +35,11 @@ import os
 import threading
 import time
 from collections import Counter, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 from pathlib import Path
-from typing import Callable
 from urllib.parse import urlsplit
 
 from laptop_agent.failures import record_failure

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import json
 import base64
-from pathlib import Path
+import json
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.webui as webui

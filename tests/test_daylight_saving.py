@@ -22,11 +22,12 @@ from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from agent_patches import patch_agents
+from test_everyday_requests import Everyday
+
 import laptop_agent.timeparse as timeparse
 from laptop_agent.reminders import ReminderStore
 from laptop_agent.timeparse import describe, parse_when
-from agent_patches import patch_agents
-from test_everyday_requests import Everyday
 
 try:
     NEW_YORK: ZoneInfo | None = ZoneInfo("America/New_York")

@@ -6,19 +6,18 @@ from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
-from laptop_agent.jobs import JobTracker
 from laptop_agent.embeddings import Embedder
+from laptop_agent.jobs import JobTracker
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
 from laptop_agent.reasoning import AgentRunTracker
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.safety import ApprovalGate, ApprovalRequest
+from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.tasks import TaskTracker
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
-from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.email import EmailTool
 from laptop_agent.tools.files import FileTool
 from laptop_agent.tools.jobright import JobrightTool
@@ -30,6 +29,7 @@ from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool, build_search_backend
+from laptop_agent.tools.windows import WindowTool
 from laptop_agent.workflows import WorkflowTracker
 
 

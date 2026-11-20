@@ -14,9 +14,9 @@ import json
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.failures import record_failure
 from laptop_agent.storage import StorageDamaged, atomic_write_text, file_lock, read_json_strict

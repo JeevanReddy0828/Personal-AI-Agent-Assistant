@@ -6,7 +6,6 @@ from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.files import CATEGORY_BY_EXTENSION, FileTool
 from laptop_agent.tools.transcribe import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, TranscribeTool
 
-
 # A "universal" entry point inspired by the Mark XXXIX-OR file processor: hand it
 # any path and it picks the most useful default operation for that file type,
 # delegating to the existing FileTool / TranscribeTool. It does not add new

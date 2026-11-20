@@ -12,10 +12,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import test_orchestrator as base
+from test_supervisor import Clock, Script, step
+
 from laptop_agent import supervisor
 from laptop_agent.planner import Planner
 from laptop_agent.supervisor import AgentLedger, RunTree, Supervisor, Verdict
-from test_supervisor import Clock, Script, step
 
 
 class RunLimitTests(unittest.TestCase):

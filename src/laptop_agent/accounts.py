@@ -23,10 +23,10 @@ import re
 import secrets
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 

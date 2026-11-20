@@ -26,8 +26,8 @@ from laptop_agent.accounts import (
     main,
     verify_password,
 )
-from laptop_agent.storage import StorageDamaged
 from laptop_agent.sessions import ABSOLUTE_SECONDS, IDLE_SECONDS, SessionStore
+from laptop_agent.storage import StorageDamaged
 
 CHEAP = (2**10, 8, 1)
 GOOD = "correct horse battery"

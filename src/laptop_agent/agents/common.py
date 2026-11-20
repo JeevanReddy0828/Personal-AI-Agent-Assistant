@@ -5,38 +5,11 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from laptop_agent.audit import AuditLogger
-from laptop_agent.autopilot import AutopilotTracker
-from laptop_agent.jobs import JobTracker
-from laptop_agent.knowledge import KnowledgeBase
-from laptop_agent.memory import MemoryStore
-from laptop_agent.planner import Planner
-from laptop_agent.reasoning import AgentRunTracker
-from laptop_agent.reminders import ReminderStore
-from laptop_agent.timeparse import describe, spoken_to_digits
-from laptop_agent.scheduler import SchedulerStore
-from laptop_agent import supervisor as supervision
-from laptop_agent.supervisor import RunStopped, RunTree
-from laptop_agent.tasks import TaskTracker
-from laptop_agent.tools.windows import WindowTool
-from laptop_agent.tools.browser import BrowserAutomationTool
-from laptop_agent.tools.desktop import DesktopTool
-from laptop_agent.tools.email import EmailTool
-from laptop_agent.tools.files import FileTool
-from laptop_agent.tools.jobright import JobrightTool
-from laptop_agent.tools.music import MusicTool
-from laptop_agent.tools.obsidian import ObsidianVault
-from laptop_agent.tools.research import ResearchTool
-from laptop_agent.tools.terminal import TerminalTool
-from laptop_agent.tools.transcribe import TranscribeTool
-from laptop_agent.tools.web import WebTool
-from laptop_agent.tools.webcam import WebcamTool
-from laptop_agent.tools.websearch import WebSearchTool
-from laptop_agent.workflows import WorkflowTracker
-from typing import Callable
 
+from laptop_agent import supervisor as supervision
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.jobs import JobTracker
@@ -45,12 +18,10 @@ from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import Planner
 from laptop_agent.reasoning import AgentRunTracker
 from laptop_agent.reminders import ReminderStore
-from laptop_agent.timeparse import describe, spoken_to_digits
 from laptop_agent.scheduler import SchedulerStore
-from laptop_agent import supervisor as supervision
 from laptop_agent.supervisor import RunStopped, RunTree
 from laptop_agent.tasks import TaskTracker
-from laptop_agent.tools.windows import WindowTool
+from laptop_agent.timeparse import describe, spoken_to_digits
 from laptop_agent.tools.browser import BrowserAutomationTool
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.email import EmailTool
@@ -64,6 +35,7 @@ from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.web import WebTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
+from laptop_agent.tools.windows import WindowTool
 from laptop_agent.workflows import WorkflowTracker
 
 NL = chr(10)

@@ -10,9 +10,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools.translate import parse_translation
+from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools.weather import clean_place
 
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import html as _html
-from html.parser import HTMLParser
-from urllib.parse import urlsplit
 import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 # Logic ported from the Agentic-AI-JOB-CoPilot project (ATS scoring, keyword/claims
 # extraction, grounding) — all stdlib — reused here against this app's own LLM

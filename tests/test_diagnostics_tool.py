@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.tools.diagnostics import (
@@ -17,7 +19,6 @@ from laptop_agent.tools.diagnostics import (
     run_anomalies,
     run_drivers,
 )
-from test_everyday_requests import Everyday
 
 
 def sales_csv(path: Path, rows: int = 60, seed: int = 11) -> Path:

@@ -9,24 +9,8 @@ import difflib
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from laptop_agent.memory import list_name
-from laptop_agent.metrics import battery_status, system_metrics
-from laptop_agent.planner.heuristic import fact_question, nameless_list_edit
+
 from laptop_agent.access import developer_only, everyday_form, is_personal, refused_command
-from laptop_agent.timeparse import describe
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.failures import record_failure
-from laptop_agent.tools import keys as keys_tools
-from laptop_agent.tools.units import UnitTool, looks_like_conversion
-from laptop_agent.tools.chance import draw
-from laptop_agent.tools.dates import (
-    RELATIVE_DAYS,
-    date_question,
-    describe_day,
-    resolve as resolve_date,
-    says_a_year,
-)
-from laptop_agent.tools.dates import calendar_fact, span_text, until_moment
 from laptop_agent.agents.common import (
     _BARE_LIST,
     _HOW_LONG_LEFT,
@@ -35,6 +19,27 @@ from laptop_agent.agents.common import (
     _WHICH_LIST,
     _reminder_line,
 )
+from laptop_agent.failures import record_failure
+from laptop_agent.memory import list_name
+from laptop_agent.metrics import battery_status, system_metrics
+from laptop_agent.planner.heuristic import fact_question, nameless_list_edit
+from laptop_agent.timeparse import describe
+from laptop_agent.tools import keys as keys_tools
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.chance import draw
+from laptop_agent.tools.dates import (
+    RELATIVE_DAYS,
+    calendar_fact,
+    date_question,
+    describe_day,
+    says_a_year,
+    span_text,
+    until_moment,
+)
+from laptop_agent.tools.dates import (
+    resolve as resolve_date,
+)
+from laptop_agent.tools.units import UnitTool, looks_like_conversion
 
 
 class Everyday:

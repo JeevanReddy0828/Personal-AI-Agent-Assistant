@@ -4,13 +4,15 @@ import json
 import unittest
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, urlsplit, urlencode
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+import test_webui_auth as auth_tests
+from test_google_oidc import google_failures, jwt
+from test_webui_auth import GOOD
+
 from laptop_agent.failures import FAILURES
 from laptop_agent.google_oidc import GoogleFlows
-import test_webui_auth as auth_tests
-from test_webui_auth import GOOD
-from test_google_oidc import google_failures, jwt
 
 
 class GoogleHTTPTests(unittest.TestCase):

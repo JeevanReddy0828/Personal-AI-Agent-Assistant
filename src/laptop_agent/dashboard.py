@@ -23,7 +23,6 @@ from laptop_agent.app import build_orchestrator
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest
 from laptop_agent.voice import VoiceIO
 
-
 THEME = {
     "bg": "#060a12",
     "panel": "#0a1120",

@@ -7,10 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.document import DocumentTool, split_format
 from test_document import DECK
 from test_everyday_requests import Everyday
+
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.document import DocumentTool, split_format
 
 
 class SpokenDeckTests(unittest.TestCase):

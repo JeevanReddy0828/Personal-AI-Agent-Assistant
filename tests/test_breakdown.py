@@ -6,10 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
 from laptop_agent.tools.breakdown import breakdown_command, breakdown_request
-from test_everyday_requests import Everyday
 
 SALES = """Date,Region,Product,Customer,Units,Revenue
 2025-01-05,North,Widget,Acme,10,"1,200"

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, on_laptop_clock, parse_clock
-
 import json
 import re
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, positive_int, read_json, synchronized
+from laptop_agent.timeparse import DURATION_UNITS, TimeParseError, on_laptop_clock, parse_clock
 
 
 class ScheduleError(ValueError):
@@ -45,7 +45,7 @@ class Schedule:
         return data
 
     @staticmethod
-    def from_dict(data: dict) -> "Schedule":
+    def from_dict(data: dict) -> Schedule:
         kind = str(data.get("kind", "interval"))
         if kind == "daily":
             days = tuple(sorted({int(day) for day in data.get("days") or () if 0 <= int(day) <= 6}))
@@ -201,7 +201,7 @@ class ScheduledJob:
         }
 
     @staticmethod
-    def from_dict(data: dict) -> "ScheduledJob":
+    def from_dict(data: dict) -> ScheduledJob:
         return ScheduledJob(
             id=int(data["id"]),
             kind=str(data.get("kind", "command")),

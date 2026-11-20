@@ -8,46 +8,16 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from datetime import datetime
-from laptop_agent.context import normalize_history, refers_back, topic_of
-from laptop_agent.briefing import parse_format
-from laptop_agent.planner.core import PlanDecision
-from laptop_agent.planner.heuristic import (
-    follows_a_file_change,
-    asks_to_learn,
-    SMALL_TALK,
-    asks_to_arrange,
-    asks_to_be_told,
-    is_diagram_subject,
-    asks_not_to_forget,
-    is_negated,
-    is_plain_question,
-    strip_address,
-)
-from laptop_agent.timeparse import TimeParseError, _find_day, parse_when, spoken_to_digits
-from laptop_agent.safety import ApprovalDenied
-from laptop_agent.supervisor import Verdict, routed
-from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.windows import parse_placements
-from laptop_agent.tools.calculator import looks_like_arithmetic
-from laptop_agent.tools.clock import _requested_zone, asks_the_time, zone_question
-from laptop_agent.tools.textcard import wants_text_rendered
-from laptop_agent.tools.units import convert_again, looks_like_conversion
-from laptop_agent.tools.chance import is_chance_request
-from laptop_agent.tools.dates import resolve as resolve_date
-from laptop_agent.tools.dates import answerable, until_moment
-from laptop_agent.tools.breakdown import breakdown_request
-from laptop_agent.tracing import current_trace
-from laptop_agent.tools.document import page_target
-from laptop_agent.tools.translate import parse_translation
+
 from laptop_agent.agents.common import (
     _AMOUNT_AGAIN,
     _CLOCK_ANSWER,
-    _CONVERTED,
     _CONVERT_AGAIN,
+    _CONVERTED,
     _CURRENCY,
     _DAY_ANSWER,
-    _DRAWN,
     _DRAW_AGAIN,
+    _DRAWN,
     _GAP_ANSWER,
     _JOINER,
     _KEEP_THEM,
@@ -59,8 +29,8 @@ from laptop_agent.agents.common import (
     _REMINDER_CREATION,
     _REQUEST_START,
     _SPLIT_THEM,
-    _TIMER_PART,
     _TIME_AGAIN,
+    _TIMER_PART,
     _UNCLEAR_ITEMS,
     _UNIT_WORDS,
     _UNTIL_AGAIN,
@@ -70,12 +40,43 @@ from laptop_agent.agents.common import (
     _WEATHER_ANSWER,
     _WHOLE_ARGUMENT,
     _YES_AND_NO,
-    _ZONES_ANSWER,
     _ZONE_AGAIN,
+    _ZONES_ANSWER,
     _has_own_subject,
     _meaningful,
     _short_topic,
 )
+from laptop_agent.briefing import parse_format
+from laptop_agent.context import normalize_history, refers_back, topic_of
+from laptop_agent.planner.core import PlanDecision
+from laptop_agent.planner.heuristic import (
+    SMALL_TALK,
+    asks_not_to_forget,
+    asks_to_arrange,
+    asks_to_be_told,
+    asks_to_learn,
+    follows_a_file_change,
+    is_diagram_subject,
+    is_negated,
+    is_plain_question,
+    strip_address,
+)
+from laptop_agent.safety import ApprovalDenied
+from laptop_agent.supervisor import Verdict, routed
+from laptop_agent.timeparse import TimeParseError, _find_day, parse_when, spoken_to_digits
+from laptop_agent.tools.base import ToolResult
+from laptop_agent.tools.breakdown import breakdown_request
+from laptop_agent.tools.calculator import looks_like_arithmetic
+from laptop_agent.tools.chance import is_chance_request
+from laptop_agent.tools.clock import _requested_zone, asks_the_time, zone_question
+from laptop_agent.tools.dates import answerable, until_moment
+from laptop_agent.tools.dates import resolve as resolve_date
+from laptop_agent.tools.document import page_target
+from laptop_agent.tools.textcard import wants_text_rendered
+from laptop_agent.tools.translate import parse_translation
+from laptop_agent.tools.units import convert_again, looks_like_conversion
+from laptop_agent.tools.windows import parse_placements
+from laptop_agent.tracing import current_trace
 
 
 class Routing:

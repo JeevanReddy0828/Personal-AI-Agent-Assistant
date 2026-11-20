@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import test_orchestrator
+
 from laptop_agent import nvcf
 from laptop_agent.access import acting_as
 from laptop_agent.accounts import Principal
@@ -17,8 +19,6 @@ from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalGate, RiskLevel
 from laptop_agent.tools import translate
 from laptop_agent.tools.translate import LANGUAGES, TranslateTool, parse_translation, script_language
-
-import test_orchestrator
 
 
 def echo(texts, source, target):

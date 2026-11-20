@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from laptop_agent.failures import record_failure
-from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
-
 import base64
 import ctypes
 import json
@@ -11,6 +8,9 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from laptop_agent.failures import record_failure
+from laptop_agent.storage import StorageDamaged, atomic_write_text, read_json_strict, synchronized
 
 
 class TokenVaultError(RuntimeError):
