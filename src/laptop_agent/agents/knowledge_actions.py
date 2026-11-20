@@ -13,6 +13,7 @@ from laptop_agent.access import is_personal
 from laptop_agent.agents.common import NL
 from laptop_agent.briefing import PROFILE_KEY
 from laptop_agent.context import ADVISOR_BUDGET, build_context, normalize_history, refers_back, resolve_reference
+from laptop_agent.progress import report_progress
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.calculator import looks_like_arithmetic
@@ -278,7 +279,7 @@ class KnowledgeActions:
             "very screen. Concisely describe what the user is working on. If you see your own app window (a dark chat "
             "with an amber accent), call it out as yourself ('that dark window is me'). Focus on what matters, not every pixel."
         )
-        described = self._describe_with_vision(path, prompt)
+        described = self._describe_with_vision(path, prompt, "Looking at the screen")
         if described is not None:
             return ToolResult.success(described, screenshot=path, vision=True)
         # No vision model available — fall back to OCR text.
@@ -306,7 +307,7 @@ class KnowledgeActions:
             "You are J.A.R.V.I.S looking through the user's webcam. Concisely describe who and "
             "what you see — the person, their setting, and anything notable. Be natural, not clinical."
         )
-        described = self._describe_with_vision(path, prompt)
+        described = self._describe_with_vision(path, prompt, "Looking through the webcam")
         if described is not None:
             return ToolResult.success(described, webcam=path, vision=True)
         ocr = self.context.transcribe.ocr_image(path)
@@ -371,6 +372,7 @@ class KnowledgeActions:
                     preview=f"{source.name} ({clip.stat().st_size // 1024} KB)",
                 )
             )
+            report_progress("Watching the video")
             described = describe(str(clip), question.strip() or "Describe what happens in this video, in order.")
         if described is None:
             return ToolResult.failure(
@@ -378,12 +380,13 @@ class KnowledgeActions:
             )
         return ToolResult.success(described, path=str(source), vision=True, video=True)
 
-    def _describe_with_vision(self, path: str, prompt: str) -> str | None:
+    def _describe_with_vision(self, path: str, prompt: str, status: str = "Looking at the image") -> str | None:
         if self.vision_planner is None:
             return None
         describe = getattr(self.vision_planner.provider, "describe_image", None)
         if describe is None:
             return None
+        report_progress(status)
         return describe(path, prompt)
 
     @staticmethod

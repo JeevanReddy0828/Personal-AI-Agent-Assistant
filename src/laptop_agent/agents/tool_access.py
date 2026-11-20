@@ -19,6 +19,7 @@ from laptop_agent.config import load_config
 from laptop_agent.failures import record_failure
 from laptop_agent.metrics import battery_status, system_metrics
 from laptop_agent.planner.core import CutOff
+from laptop_agent.progress import report_progress
 from laptop_agent.tools import clipboard as clipboard_tools
 from laptop_agent.tools import fileops
 from laptop_agent.tools import system as system_tools
@@ -90,6 +91,7 @@ class ToolAccess:
         tool = self._image_tool()
         if not described or not tool.available():
             return tool.generate(described, shape=shape)
+        report_progress("Drawing the picture")
         previous = self._previous_picture(history_turns)
         detail = self._image_prompt(described, str(previous.get("prompt") or "") if previous else "")
         seed = previous.get("seed") if previous else None
