@@ -11,6 +11,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 ## Symptom index
 
 ### Tests and verification
+- **A test that saves a file failed once in a full run on Windows and passed when run again** (11-20:
+  a reminder schedule, then a research report) -> most likely (not reproduced in 2,400 runs and a
+  clock sweep) `os.replace` raising PermissionError while another
+  program (an antivirus scan, the search indexer) has the file open for a moment, and the save failed
+  the turn -> `storage._replace` retries a busy replace on Windows four times within a second
+  (`test_storage_replace.py`); the reminder test now prints the reply if its hint is missing.
 - **Despacito kept opening in the browser and the volume kept changing (again)** → only
   `run_tests.py` made `os.startfile` / `webbrowser.open` / `keybd_event` inert, and probe and
   review scripts (both agents) imported the `Everyday` harness directly, whose fake YouTube

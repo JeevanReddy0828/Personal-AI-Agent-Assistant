@@ -204,7 +204,9 @@ class ReminderConversationTests(unittest.TestCase):
         # matched as a substring it cancels "eat supper" when that was set first.
         self.say("remind me every day at 8pm to eat supper")
         message = self.say("remind me every weekday at 9am to stand up")
-        hint = re.search(r'Say "(cancel the .+? reminder)"', message).group(1)
+        found = re.search(r'Say "(cancel the .+? reminder)"', message)
+        self.assertIsNotNone(found, message)  # once failed with only `None.group`, and the reply was lost
+        hint = found.group(1)
         self.assertEqual(hint, "cancel the stand up reminder")
         self.assertIn("Stopped the repeating reminder: stand up.", self.say(hint))
         (left,) = self.everyday.orchestrator.context.scheduler.list_jobs()

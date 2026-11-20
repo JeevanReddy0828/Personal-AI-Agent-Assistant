@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
@@ -103,6 +104,25 @@ def synchronized(method):
     return wrapped
 
 
+# On Windows, replacing a file fails with PermissionError while another program has it open for a
+# moment (an antivirus scan, the search indexer). A save that failed for that failed the whole turn:
+# two file-saving tests each failed once in a full run and passed when run again. Elsewhere the same
+# error means real permissions, which waiting does not fix.
+RETRY_BUSY_REPLACE = os.name == "nt"
+REPLACE_ATTEMPTS = 5
+
+
+def _replace(source: str, target: Path) -> None:
+    for attempt in range(REPLACE_ATTEMPTS if RETRY_BUSY_REPLACE else 1):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if not RETRY_BUSY_REPLACE or attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.05 * 2**attempt)  # 0.05, 0.1, 0.2, 0.4: under a second in all
+
+
 def _replace_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
@@ -111,7 +131,7 @@ def _replace_text(path: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _replace(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
