@@ -133,9 +133,23 @@ class TierDeciderWiringTests(unittest.TestCase):
                              laya_deadline_ms=400, laya_tier_context=True)
             decider = _build_tier_decider(config)
             self.assertIsInstance(decider, TierDecider)
+            self.assertEqual(decider._api_key, "secret")
             self.assertEqual(decider.status(), {"laya": True, "cooling_down": False, "deadline_ms": 400,
                                                 "use_context": True})
             self.assertIsInstance(build_orchestrator(lambda request: True, config=config).tier_decider, TierDecider)
+
+    def test_only_a_loopback_http_url_builds_a_decider(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = self.config(Path(raw))
+            for url in ("http://127.0.0.1:8000", "http://[::1]:8000", "http://localhost:8000"):
+                with self.subTest(url=url):
+                    self.assertIsInstance(_build_tier_decider(replace(base, laya_url=url)), TierDecider)
+            for url in ("http://192.168.1.5:8000", "https://example.com", "file:///x"):
+                with self.subTest(url=url):
+                    with patch("laptop_agent.app.record_failure") as record:
+                        self.assertIsNone(_build_tier_decider(replace(base, laya_url=url)))
+                    record.assert_called_once()
+                    self.assertNotIn(url, repr(record.call_args))
 
 
 class LayaConfigTests(unittest.TestCase):

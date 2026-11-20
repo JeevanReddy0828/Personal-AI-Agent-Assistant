@@ -131,7 +131,8 @@ class LayaTests(unittest.TestCase):
             self.assertFalse(decider.status()["cooling_down"])
 
     def test_malformed_response_falls_back(self) -> None:
-        for response in ({"model": "english"}, scored("1.2"), scored(None), {"answers": {}}):
+        for response in ({"model": "english"}, scored("1.2"), scored(None), {"answers": {}},
+                         scored(float("nan")), scored(float("inf")), scored(True)):
             with self.subTest(response=response):
                 with mock.patch("laptop_agent.decisions.record_failure") as record:
                     decision = TierDecider(heuristic, backend=FakeBackend(response)).decide("explain monads")
@@ -211,6 +212,13 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(decider.decide("what about decoders", HISTORY[:2]).follow_up)
         self.assertFalse(decider.decide("what about decoders").follow_up)
         self.assertFalse(decider.decide("what about decoders", []).follow_up)
+        self.assertFalse(decider.decide("what about the decoders and how they differ", HISTORY[:2]).follow_up)
+
+    def test_long_reply_is_sent_alone_even_with_use_context(self) -> None:
+        backend = FakeBackend(scored(1.0))
+        text = "what about the decoders and how they differ"
+        TierDecider(heuristic, backend=backend, use_context=True).decide(text, HISTORY)
+        self.assertEqual(backend.calls[0][0]["state"]["request"], text)
 
 
 class HttpBackendTests(unittest.TestCase):

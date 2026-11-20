@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
@@ -9,6 +11,7 @@ from laptop_agent.config import AppConfig, load_config
 from laptop_agent.decisions import TierDecider
 from laptop_agent.jobs import JobTracker
 from laptop_agent.embeddings import Embedder
+from laptop_agent.failures import record_failure
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
 from laptop_agent.planner import HeuristicPlannerProvider, OpenAICompatiblePlannerProvider, Planner
@@ -186,6 +189,16 @@ def _build_video_planner(config: AppConfig) -> Planner | None:
 
 def _build_tier_decider(config: AppConfig) -> TierDecider | None:
     if config.laya_url is None:
+        return None
+    parsed = urlparse(config.laya_url)
+    try:
+        host = parsed.hostname or ""
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if parsed.scheme not in ("http", "https") or not loopback:
+        record_failure("decisions/config", "LAYA_URL must be a loopback http(s) address",
+                       url_scheme=parsed.scheme, host=parsed.hostname)
         return None
     return TierDecider(
         AgentOrchestrator._complexity,

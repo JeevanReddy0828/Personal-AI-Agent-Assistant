@@ -87,8 +87,8 @@ web pill shows "smart/ultra model busy" while the fast tier stays healthy.
 marks a short reply (six words or fewer) as a follow-up. `explicit_cue` sends a message that
 asks for depth ("think hard", "step by step", "in depth") straight to ultra. `laya` asks a
 Laya server how hard the request is. `heuristic` is `_complexity`, today's rule, and the
-answer whenever Laya is absent, slow or wrong. With `LAYA_URL` unset the `laya` step is
-skipped and chat behaves exactly as it did before.
+answer whenever Laya is absent, slow or wrong. With `LAYA_URL` unset there is no pipeline:
+`_complexity` alone decides, exactly as before.
 
 - **Laya's answer is a score, not a tier.** The server scores a preset difficulty question
   from 0 to 3, and the thresholds (1.55, 2.05) turn it into fast, smart or ultra. The
@@ -123,8 +123,8 @@ turns and the heuristic decides them.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `LAYA_URL` | unset | Base URL of the Laya server. Unset keeps today's heuristic. |
-| `LAYA_API_KEY` | unset | Sent as a Bearer token when the server asks for one. |
+| `LAYA_URL` | unset | Base URL of the Laya server; must be a loopback http(s) address, anything else is refused and recorded. Unset keeps today's heuristic. |
+| `LAYA_API_KEY` | unset | Sent as a Bearer token on every call when set. |
 | `LAYA_DEADLINE_MS` | 250 | How long the `laya` step may take before the heuristic answers. |
 | `LAYA_TIER_CONTEXT` | off | Score a follow-up together with the request before it. |
 

@@ -1,8 +1,8 @@
 # Proposal: a Laya decision model in the tier choice
 
-**Status: proposal, plus its phase 0 measurement on the CPU and the GPU. Phase 1 is built on branch
-`claude/laya-tier-pipeline`.** The text below describes the state before it; the measurement ran in a throwaway environment outside the repository. Written 2026-11-09 against
-`main` at `e251f50`. It answers one question: can the Laya typed-decision model
+**Status: proposal, plus its phase 0 measurement on the CPU and the GPU. Phase 1 is built; see
+`docs/design/models.md` ("Choosing the tier").** The text below describes the state before it; the measurement ran in a
+throwaway environment outside the repository. Written 2026-11-09 against `main` at `e251f50`. It answers one question: can the Laya typed-decision model
 ([`JeevanReddy0828/laya-mlx`](https://github.com/JeevanReddy0828/laya-mlx), a fork of
 `mizorewww/laya-mlx`) help the brain choose between the fast, smart and ultra tiers? The model and
 the runtime that runs it get different answers, so they are kept apart below.
