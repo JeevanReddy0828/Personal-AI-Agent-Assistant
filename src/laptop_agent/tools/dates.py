@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import calendar
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from laptop_agent.timeparse import MONTHS, TimeParseError, _find_day, _find_time, on_laptop_clock, parse_when
 
@@ -313,7 +313,7 @@ def until_moment(text: str, unit: str, now: datetime, profile: dict[str, object]
                     guess = (wall - timedelta(days=back)).replace(fold=fold)
                     moment = on_laptop_clock(guess, now.tzinfo)
                     # Read back through UTC: a zone converted to itself is returned unchanged.
-                    shown = on_laptop_clock(moment.astimezone(timezone.utc), now.tzinfo)
+                    shown = on_laptop_clock(moment.astimezone(UTC), now.tzinfo)
                     if shown.replace(tzinfo=None) == guess:
                         readings.append(moment)
         # The next one to come; for a time already gone today, the latest that went.

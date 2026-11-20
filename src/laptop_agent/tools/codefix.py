@@ -15,12 +15,12 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
-from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
 Writer = Callable[[str], str]

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import threading
+import unittest
 import urllib.error
 import urllib.request
-import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import Mock, patch
 
@@ -136,8 +136,8 @@ class FallbackAppHotkeyTests(unittest.TestCase):
                 self.assertIsInstance(body["sequence"], int)
 
     def test_chromium_fallback_registers_the_global_key_and_signals_the_page(self) -> None:
-        import laptop_agent.webui as webui
         import laptop_agent.tools.transcribe as transcribe
+        import laptop_agent.webui as webui
 
         server = Mock(server_address=("127.0.0.1", 4321))
         process = Mock()

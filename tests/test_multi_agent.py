@@ -12,10 +12,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_orchestrator as base
+from test_supervisor import Script, step
+
 from laptop_agent import supervisor
 from laptop_agent.planner import Planner
 from laptop_agent.safety import RiskLevel
-from test_supervisor import Script, step
 
 
 class TeamRunTests(unittest.TestCase):

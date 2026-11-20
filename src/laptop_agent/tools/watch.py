@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.storage import atomic_write_text, file_lock, read_json

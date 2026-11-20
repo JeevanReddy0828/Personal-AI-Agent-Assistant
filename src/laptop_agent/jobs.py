@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+
+from laptop_agent.storage import atomic_write_text, positive_int, read_json, synchronized
 
 # Pipeline stages, in funnel order. "lead" is a sourced-but-not-yet-applied state
 # (e.g. a Jobright pull) that sits before the funnel; "rejected" is a terminal

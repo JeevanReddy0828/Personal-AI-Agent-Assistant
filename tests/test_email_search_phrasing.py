@@ -6,9 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.email import EmailTool
-from test_everyday_requests import Everyday
 
 
 class _Mailbox:

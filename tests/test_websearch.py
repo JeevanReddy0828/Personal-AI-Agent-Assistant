@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import unittest
-
 import json
+import unittest
 from unittest.mock import patch
 
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.tools.websearch import (
     WebSearchError,
     WebSearchTool,
-    _ResultParser,
     _clean_url,
+    _ResultParser,
     brave_search_backend,
     build_search_backend,
     serpapi_search_backend,

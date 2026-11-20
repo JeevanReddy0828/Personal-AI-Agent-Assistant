@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 MAX_VIDEO_BYTES = 8 * 1024 * 1024
 _SHRINK_TIMEOUT = 300

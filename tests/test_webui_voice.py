@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import threading
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import laptop_agent.webui as webui
-from laptop_agent.voice import clean_for_speech
 from laptop_agent.spoken import MORE_ON_SCREEN, SPOKEN_WORDS
 from laptop_agent.tools.base import ToolResult
+from laptop_agent.voice import clean_for_speech
 
 
 class VoiceStreamTests(unittest.TestCase):

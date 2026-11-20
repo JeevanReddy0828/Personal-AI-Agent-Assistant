@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from agent_patches import patch_agents
+from test_everyday_requests import Everyday
 
 from laptop_agent.planner import HeuristicPlannerProvider
 from laptop_agent.tools.dates import (
@@ -24,8 +27,6 @@ from laptop_agent.tools.dates import (
     until_moment,
 )
 from laptop_agent.tools.units import UnitTool, convert, looks_like_conversion, parse
-from agent_patches import patch_agents
-from test_everyday_requests import Everyday
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone(timedelta(hours=-5)))
 
@@ -549,7 +550,7 @@ class TimeUntilTests(unittest.TestCase):
         with patch("laptop_agent.timeparse.LOCAL_ZONE", _NEW_YORK):
             moment = until_moment("christmas", "hours", evening)
         # 25 December starts at 05:00 UTC in New York; the hour the clocks go back is counted.
-        self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=timezone.utc))
+        self.assertEqual(moment, datetime(2026, 12, 25, 5, 0, tzinfo=UTC))
         self.assertEqual(span_text(round((moment - evening).total_seconds() / 60), "hours"), "2,141 hours 25 minutes")
 
     @unittest.skipIf(_NEW_YORK is None, "no zone data here; CI installs tzdata")

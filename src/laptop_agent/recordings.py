@@ -6,8 +6,8 @@ import io
 import re
 import secrets
 import wave
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
 MAX_SECONDS = 120
 MAX_WAV_BYTES = 44 + MAX_SECONDS * 16000 * 2

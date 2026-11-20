@@ -4,23 +4,23 @@ import asyncio
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from dataclasses import replace
+from desktop_guard import make_desktop_inert
 
-from laptop_agent.app import build_context
 from laptop_agent.agents.orchestrator import AgentOrchestrator
+from laptop_agent.app import build_context
 from laptop_agent.config import AppConfig
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
 from laptop_agent.tools.desktop import DesktopTool
-from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
-from desktop_guard import make_desktop_inert
+from laptop_agent.tools.windows import WindowTool
 
 # Importing this builder switches off the browser, app launches and media keys, whoever imports
 # it: probes that imported it outside run_tests.py opened YouTube and pressed the volume keys.

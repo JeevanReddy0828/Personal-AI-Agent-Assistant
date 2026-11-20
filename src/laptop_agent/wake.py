@@ -16,7 +16,7 @@ import os
 import re
 import threading
 import wave
-from typing import Callable
+from collections.abc import Callable
 
 from laptop_agent.failures import record_failure
 

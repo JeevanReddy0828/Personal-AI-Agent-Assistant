@@ -19,7 +19,7 @@ actually in effect.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from laptop_agent.timeparse import on_laptop_clock, spoken_to_digits
 from laptop_agent.tools.base import ToolResult
@@ -306,7 +306,7 @@ def next_clock_change(now: datetime, days: int = 400, direction: int = 0) -> tup
     as (the wall clock just before it, the wall clock it becomes), or None when there is none within
     `days`. "when does daylight saving start" in October answered November's change back (Codex's
     review of #271)."""
-    start = now.astimezone(timezone.utc)
+    start = now.astimezone(UTC)
 
     def offset(moment: datetime) -> timedelta | None:
         return on_laptop_clock(moment, now.tzinfo).utcoffset()
@@ -531,7 +531,7 @@ class ClockTool:
         ahead = time_ahead(request)
         if ahead is not None:
             # Real elapsed time, read on the laptop's clock: across a clock change the offset differs.
-            moment = on_laptop_clock(local.astimezone(timezone.utc) + ahead[0], local.tzinfo)
+            moment = on_laptop_clock(local.astimezone(UTC) + ahead[0], local.tzinfo)
             return ToolResult.success(
                 f"In {ahead[1]} it will be **{self._clock(moment)}** on "
                 f"{moment.strftime('%A, %d %B %Y').replace(' 0', ' ')}.",
@@ -616,9 +616,7 @@ class ClockTool:
             # picked the first of the two (Codex's review of #243).
             readings = [wall.replace(tzinfo=zone_a, fold=fold) for fold in (0, 1)]
             real = [
-                moment
-                for moment in readings
-                if moment.astimezone(timezone.utc).astimezone(zone_a).replace(tzinfo=None) == wall
+                moment for moment in readings if moment.astimezone(UTC).astimezone(zone_a).replace(tzinfo=None) == wall
             ]
             if not real:
                 return ToolResult.failure(
@@ -626,7 +624,7 @@ class ClockTool:
                     f"{wall.strftime('%A %d %B').replace(' 0', ' ')}: the clocks go "
                     f"forward past it that night."
                 )
-            if len({moment.astimezone(timezone.utc) for moment in real}) > 1:
+            if len({moment.astimezone(UTC) for moment in real}) > 1:
                 both = [
                     f"**{self._clock(moment)} {moment.strftime('%Z')}** is **{self._clock(moment.astimezone(zone_b))} "
                     f"{moment.astimezone(zone_b).strftime('%Z')}** {place_b}"

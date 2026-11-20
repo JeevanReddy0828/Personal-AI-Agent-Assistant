@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 import laptop_agent.webui as webui
@@ -184,7 +184,7 @@ class BrowserRegressions(unittest.TestCase):
         )
 
     def test_stop_reaches_backend_and_prevents_followup(self):
-        from laptop_agent.cancellation import check_cancelled, OperationCancelled
+        from laptop_agent.cancellation import OperationCancelled, check_cancelled
 
         entered, stopped = threading.Event(), threading.Event()
 
@@ -516,12 +516,13 @@ class BrowserRegressions(unittest.TestCase):
         self.wait_js("JSON.parse(localStorage.jarvis_sessions)[0].msgs.length===2")
 
     def test_pdf_is_one_page_and_overflow_preserves_previous_file(self):
-        from laptop_agent.copilot import render_resume_html
-        from laptop_agent.tools.resume_pdf import render_html_to_pdf
-        from pypdf import PdfReader
-
         # Run async PDF export in a separate thread from Playwright's sync loop.
         from concurrent.futures import ThreadPoolExecutor
+
+        from pypdf import PdfReader
+
+        from laptop_agent.copilot import render_resume_html
+        from laptop_agent.tools.resume_pdf import render_html_to_pdf
 
         with tempfile.TemporaryDirectory() as raw, ThreadPoolExecutor(max_workers=1) as pool:
             path = Path(raw) / "resume.pdf"
@@ -2118,6 +2119,7 @@ class RecordingBrowserTests(unittest.TestCase):
 
     def setUp(self):
         from dataclasses import replace
+
         from laptop_agent.tools.transcribe import TranscribeTool
 
         self.temp = tempfile.TemporaryDirectory()

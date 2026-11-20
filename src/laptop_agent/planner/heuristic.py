@@ -11,10 +11,12 @@ from laptop_agent.tools.breakdown import breakdown_request
 from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 from laptop_agent.tools.chance import is_chance_request
 from laptop_agent.tools.music import is_personal_message_target
-from laptop_agent.tools.translate import LANGUAGES as _LANGUAGES, UNSUPPORTED as _UNSUPPORTED_LANGUAGES
+from laptop_agent.tools.translate import LANGUAGES as _LANGUAGES
+from laptop_agent.tools.translate import UNSUPPORTED as _UNSUPPORTED_LANGUAGES
 from laptop_agent.tools.translate import parse_translation
 from laptop_agent.tools.weather import _PART_OF_DAY, _WEEKDAY, clean_place
-from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS, _ALIASES as _LAYOUT_ALIASES
+from laptop_agent.tools.windows import _ALIASES as _LAYOUT_ALIASES
+from laptop_agent.tools.windows import LAYOUTS as _LAYOUTS
 
 # Built from the tool's own vocabulary, never hand-written. The previous list here was a
 # copy that had already drifted: it had `left` and `third` but none of `top left`,

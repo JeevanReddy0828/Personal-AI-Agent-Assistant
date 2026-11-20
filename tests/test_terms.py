@@ -9,7 +9,7 @@ from laptop_agent.knowledge import _content_terms, _tokenize
 from laptop_agent.safety import ApprovalGate
 from laptop_agent.terms import collapse_acronyms, content_terms, sentences, words
 from laptop_agent.tools.files import FileTool
-from laptop_agent.tools.obsidian import _query_terms, ObsidianVault
+from laptop_agent.tools.obsidian import ObsidianVault, _query_terms
 
 NOTE = """---
 title: J.A.R.V.I.S

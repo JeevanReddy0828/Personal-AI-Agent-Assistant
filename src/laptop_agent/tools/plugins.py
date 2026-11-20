@@ -20,9 +20,9 @@ import re
 import sys
 import threading
 import types
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.cancellation import OperationCancelled
 from laptop_agent.failures import record_failure

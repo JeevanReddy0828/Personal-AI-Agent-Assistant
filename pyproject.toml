@@ -63,9 +63,14 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-# Correctness only: syntax errors, undefined names, invalid comparisons, unused imports.
-# Style rules are not enforced yet; widening this needs a clean-up of the existing code first.
-select = ["E9", "F63", "F7", "F82", "F401"]
+# Correctness (syntax errors, undefined names, invalid comparisons, unused imports), sorted imports (I)
+# and modern syntax (UP). Layout is `ruff format`.
+select = ["E9", "F63", "F7", "F82", "F401", "I", "UP"]
+# UP042 (str-based enum to StrEnum) changes what str() of a member returns: not a pure modernisation.
+ignore = ["UP042"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["laptop_agent"]
 
 [tool.mypy]
 python_version = "3.11"

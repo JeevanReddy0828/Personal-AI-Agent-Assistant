@@ -10,7 +10,6 @@ from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 
-
 CommandRunner = Callable[[str, Path, int], subprocess.CompletedProcess[str]]
 
 

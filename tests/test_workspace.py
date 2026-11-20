@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
+from laptop_agent.planner.core import CutOff
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.planner.core import CutOff
 from laptop_agent.tools.workspace import MAX_FILES, WorkspaceTool, file_plan, folder_and_place, safe_relative
 
 PERSONAL = Principal("p1", "family", "personal")

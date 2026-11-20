@@ -8,19 +8,20 @@ from __future__ import annotations
 import re
 import tempfile
 from pathlib import Path
-from laptop_agent.context import ADVISOR_BUDGET, build_context, normalize_history, refers_back, resolve_reference
-from laptop_agent.briefing import PROFILE_KEY
+
 from laptop_agent.access import is_personal
+from laptop_agent.agents.common import NL
+from laptop_agent.briefing import PROFILE_KEY
+from laptop_agent.context import ADVISOR_BUDGET, build_context, normalize_history, refers_back, resolve_reference
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
-from laptop_agent.tools.windows import parse_placements
 from laptop_agent.tools.calculator import looks_like_arithmetic
-from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.email import EmailDraft
+from laptop_agent.tools.learn import LearnTool
+from laptop_agent.tools.plugins import PluginTool
 from laptop_agent.tools.transcribe import IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS
 from laptop_agent.tools.video import prepare_clip
-from laptop_agent.tools.learn import LearnTool
-from laptop_agent.agents.common import NL
+from laptop_agent.tools.windows import parse_placements
 
 
 class KnowledgeActions:

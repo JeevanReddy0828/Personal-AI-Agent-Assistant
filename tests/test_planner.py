@@ -110,7 +110,7 @@ class HeuristicPlannerTests(unittest.TestCase):
         no thirds, no halves. So "notepad on the top left" could not route even though
         `parse_placements` reads it perfectly. Derived now, so the two cannot disagree."""
         from laptop_agent.planner.heuristic import _POSITION_WORD
-        from laptop_agent.tools.windows import LAYOUTS, _ALIASES
+        from laptop_agent.tools.windows import _ALIASES, LAYOUTS
 
         for phrase in ("top left", "bottom right", "left third", "right half"):
             with self.subTest(phrase=phrase):

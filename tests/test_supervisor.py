@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 
 import test_orchestrator as base
+
 from laptop_agent import supervisor
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.planner import Planner
 from laptop_agent.safety import RiskLevel
 from laptop_agent.supervisor import Supervisor, Verdict, group_of
-
 
 # Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
 # only to a team run, and the rest start a run, which a step never may.

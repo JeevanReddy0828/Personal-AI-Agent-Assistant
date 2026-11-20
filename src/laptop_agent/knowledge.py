@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
-from laptop_agent.storage import atomic_write_text, read_json, synchronized, positive_int
-from laptop_agent.terms import collapse_acronyms, content_terms, sentences as prose_sentences, words
-
 import json
 import math
 import re
 from pathlib import Path
+
+from laptop_agent.embeddings import Embedder, cosine, reciprocal_rank_fusion
+from laptop_agent.storage import atomic_write_text, positive_int, read_json, synchronized
+from laptop_agent.terms import collapse_acronyms, content_terms, words
+from laptop_agent.terms import sentences as prose_sentences
 
 # How many consecutive sentences make a passage. One sentence is too small a unit to
 # answer a question with: the line that defines a thing rarely repeats the words the
@@ -196,7 +197,7 @@ class KnowledgeBase:
         self,
         path: Path,
         max_text_chars: int = 200_000,
-        embedder: "Embedder | None" = None,
+        embedder: Embedder | None = None,
     ) -> None:
         self.path = path
         self.max_text_chars = max_text_chars

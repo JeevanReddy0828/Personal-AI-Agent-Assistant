@@ -9,10 +9,10 @@ See docs/forecasting.md for the public contract and empirical-interval limitatio
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from collections.abc import Sequence
+from dataclasses import dataclass
 from statistics import fmean
-from typing import Sequence
 
 MAX_POINTS = 4096
 MAX_HORIZON = 48

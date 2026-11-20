@@ -242,6 +242,7 @@ class HealthTests(unittest.TestCase):
 
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_health import _config, _orchestrator
+
         from laptop_agent.health import system_health
 
         orchestrator = _orchestrator("OpenAICompatiblePlannerProvider", True)

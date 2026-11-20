@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+
+import test_orchestrator
 
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
@@ -20,10 +22,8 @@ from laptop_agent.scheduler import SchedulerStore
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.watch import Watches
 
-import test_orchestrator
-
 PERSONAL = Principal("p1", "family", "personal")
-START = datetime(2026, 10, 14, 9, 0, tzinfo=timezone.utc)
+START = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
 CALM = {"battery_percent": 80, "plugged": False, "cpu_percent": 10.0, "ram_percent": 40.0, "disk_free_gb": 200.0}
 
 

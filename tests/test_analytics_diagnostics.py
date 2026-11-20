@@ -1,9 +1,9 @@
-from dataclasses import asdict, FrozenInstanceError
 import importlib
 import json
 import math
 import random
 import unittest
+from dataclasses import FrozenInstanceError, asdict
 
 from laptop_agent.analytics.diagnostics import anomalies, drivers
 

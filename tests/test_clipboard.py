@@ -13,14 +13,14 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.tools import clipboard
 from laptop_agent.tools.clipboard import MAX_SHOWN, ClipboardTool, MemoryClipboard, WindowsClipboard
 from laptop_agent.tools.translate import TranslateTool
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 

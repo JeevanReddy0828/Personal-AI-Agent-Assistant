@@ -291,6 +291,7 @@ class MetricsCacheTests(unittest.TestCase):
     def test_one_shot_status_and_briefing_refresh_cold_and_stale_snapshots(self):
         import tempfile
         from pathlib import Path
+
         from agent_patches import patch_agents
         from test_orchestrator import OrchestratorTests
 

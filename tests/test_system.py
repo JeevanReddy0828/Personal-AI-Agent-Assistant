@@ -12,14 +12,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import test_orchestrator
+
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools import system
 from laptop_agent.tools.system import SystemTool, settings_page
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 

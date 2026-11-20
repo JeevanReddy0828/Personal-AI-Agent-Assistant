@@ -41,7 +41,7 @@ class FailureLogTests(unittest.TestCase):
     def test_the_ring_is_bounded(self) -> None:
         log = FailureLog(limit=5)
         for index in range(20):
-            log.record("spot", "failure %d" % index)
+            log.record("spot", f"failure {index}")
         self.assertEqual(log.summary()["kept"], 5)
         self.assertEqual(log.summary()["distinct"], 1)
 

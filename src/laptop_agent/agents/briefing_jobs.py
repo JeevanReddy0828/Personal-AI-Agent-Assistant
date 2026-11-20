@@ -6,8 +6,8 @@ rest of the orchestrator through `self`."""
 from __future__ import annotations
 
 import contextvars
-import html
 import hashlib
+import html
 import json
 import re
 import urllib.error
@@ -16,9 +16,8 @@ import urllib.request
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
-from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
-from laptop_agent.jobs import normalize_stage
-from laptop_agent.metrics import system_metrics
+
+from laptop_agent.agents.common import _say_seconds
 from laptop_agent.briefing import (
     CAN_INCLUDE,
     DEFAULT_FORMAT,
@@ -33,11 +32,13 @@ from laptop_agent.briefing import (
     parse_format,
     weather_text,
 )
-from laptop_agent.timeparse import describe, on_laptop_clock
-from laptop_agent.safety import ApprovalDenied
-from laptop_agent.tools.base import ToolResult
+from laptop_agent.copilot import JobCopilot, ats_score, extract_keywords
 from laptop_agent.failures import record_failure
-from laptop_agent.agents.common import _say_seconds
+from laptop_agent.jobs import normalize_stage
+from laptop_agent.metrics import system_metrics
+from laptop_agent.safety import ApprovalDenied
+from laptop_agent.timeparse import describe, on_laptop_clock
+from laptop_agent.tools.base import ToolResult
 
 
 class BriefingJobs:

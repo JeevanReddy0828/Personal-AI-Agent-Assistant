@@ -17,9 +17,9 @@ import re
 import shutil
 import stat as stat_module
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.storage import atomic_write_text, file_lock, read_json

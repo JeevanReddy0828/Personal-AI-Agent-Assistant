@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 import importlib
 import json
 import math
 import random
-from statistics import fmean
 import unittest
+from dataclasses import asdict
+from statistics import fmean
 from unittest.mock import patch
 
 f = importlib.import_module("laptop_agent.analytics.forecast")

@@ -9,14 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import test_orchestrator
+
+import laptop_agent.tools.codefix as codefix
 from laptop_agent.access import acting_as, refused_command
 from laptop_agent.accounts import Principal
 from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 from laptop_agent.safety import ApprovalDenied, ApprovalGate, RiskLevel
 from laptop_agent.tools.codefix import CodeFixTool, corrected, run_python
-import laptop_agent.tools.codefix as codefix
-
-import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 BROKEN = "total = 1 + '2'\nprint(total)\n"

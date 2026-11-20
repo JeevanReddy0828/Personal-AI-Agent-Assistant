@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from laptop_agent.cancellation import check_cancelled, interruptible_response
-
 import json
 import os
 import re
@@ -10,6 +8,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
+from laptop_agent.cancellation import check_cancelled, interruptible_response
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
 from laptop_agent.model_status import BROKEN, DEGRADED

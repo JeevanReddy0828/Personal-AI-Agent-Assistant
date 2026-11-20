@@ -19,9 +19,10 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.health import misconfigured_advice, setup_report

@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit, urlencode
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+from test_google_oidc import jwt
 
 import laptop_agent.webui as webui
 from laptop_agent.accounts import AccountStore
-from laptop_agent.sessions import SessionStore
 from laptop_agent.google_oidc import GoogleFlows
-from test_google_oidc import jwt
+from laptop_agent.sessions import SessionStore
 
 
 @unittest.skipUnless(os.environ.get("JARVIS_BROWSER_TESTS") == "1", "Opt-in Chromium checks")

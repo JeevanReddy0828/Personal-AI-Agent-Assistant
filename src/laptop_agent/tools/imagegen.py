@@ -9,8 +9,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.failures import record_failure
+from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
 # A backend takes the model id and the request body and returns the parsed JSON

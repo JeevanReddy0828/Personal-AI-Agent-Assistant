@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
-from contextvars import ContextVar
 import socket
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 
 class OperationCancelled(asyncio.CancelledError):

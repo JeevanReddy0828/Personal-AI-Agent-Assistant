@@ -25,35 +25,38 @@ import tempfile
 import time
 import unittest
 from dataclasses import replace
-from datetime import date, datetime, time as clock_time, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as clock_time
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from agent_patches import patch_agents
+from test_news import FEED
+from test_orchestrator import OrchestratorTests, _FakeWindows
+from test_travel import transport as travel_transport
+from test_weather import FORECAST, GEO
+
 from laptop_agent.agents.orchestrator import AgentOrchestrator
 from laptop_agent.app import build_context
 from laptop_agent.failures import FAILURES
 from laptop_agent.planner import HeuristicPlannerProvider, PlanDecision, Planner
 from laptop_agent.safety import ApprovalDenied, RiskLevel
-from laptop_agent.selfcheck import MUST_STAY_CHAT as SELFCHECK_MUST_STAY_CHAT, ROUTING_CONTRACT
+from laptop_agent.selfcheck import MUST_STAY_CHAT as SELFCHECK_MUST_STAY_CHAT
+from laptop_agent.selfcheck import ROUTING_CONTRACT
 from laptop_agent.tools.desktop import DesktopTool
 from laptop_agent.tools.music import MusicTool
 from laptop_agent.tools.news import NewsTool
 from laptop_agent.tools.research import ResearchTool
 from laptop_agent.tools.terminal import TerminalTool
 from laptop_agent.tools.transcribe import TranscribeTool
-from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools.translate import TranslateTool
+from laptop_agent.tools.travel import TravelTool
 from laptop_agent.tools.weather import WeatherTool
 from laptop_agent.tools.webcam import WebcamTool
 from laptop_agent.tools.websearch import WebSearchTool
 from laptop_agent.tools.windows import WindowTool
 from laptop_agent.tools.youtube import YouTubeTool
-from test_news import FEED
-from test_orchestrator import OrchestratorTests, _FakeWindows
-from test_travel import transport as travel_transport
-from test_weather import FORECAST, GEO
 
 
 class FakeTier:
@@ -1089,16 +1092,14 @@ class ReminderDayTests(unittest.TestCase):
                 noon = datetime.combine(cls.day, clock_time(12))
                 return noon if tz is None else noon.astimezone(tz)
 
-        with patch_agents(datetime, StoppedClock), patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc):
+        with patch_agents(datetime, StoppedClock), patch("laptop_agent.timeparse.LOCAL_ZONE", UTC):
             for offset in range(7):
                 with self.subTest(weekday=offset), tempfile.TemporaryDirectory() as tmp:
                     StoppedClock.day = date(2026, 9, 21) + timedelta(days=offset)
                     everyday = Everyday(Path(tmp))
                     store = everyday.orchestrator.context.reminders
                     for day_offset, message in ((0, "today item"), (1, "tomorrow item"), (2, "later item")):
-                        due = datetime.combine(
-                            StoppedClock.day + timedelta(days=day_offset), clock_time(9), tzinfo=timezone.utc
-                        )
+                        due = datetime.combine(StoppedClock.day + timedelta(days=day_offset), clock_time(9), tzinfo=UTC)
                         self.assertTrue(store.add(due.isoformat(), message)["ok"])
                     tomorrow = StoppedClock.day + timedelta(days=1)
                     for request in (
@@ -1153,7 +1154,7 @@ class ReminderDayTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch_agents(datetime, StoppedClock),
-            patch("laptop_agent.timeparse.LOCAL_ZONE", timezone.utc),
+            patch("laptop_agent.timeparse.LOCAL_ZONE", UTC),
         ):
             everyday = Everyday(Path(tmp))
             repeat, _ = everyday.say("remind me every monday at 9am to send the report", stream=False)

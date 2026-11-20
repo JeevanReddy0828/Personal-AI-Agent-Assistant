@@ -4,8 +4,8 @@ import unittest
 
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.windows import (
-    DesktopWindow,
     LAYOUTS,
+    DesktopWindow,
     WindowTool,
     normalize_layout,
     parse_placements,

@@ -7,7 +7,6 @@ from pathlib import Path
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.transcribe import MissingDependencyError
 
-
 # A capture backend writes one webcam frame to ``dest`` and returns the path it wrote.
 CaptureBackend = Callable[[int, Path], Path]
 

@@ -8,9 +8,11 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from test_everyday_requests import Everyday
+
 from laptop_agent.access import acting_as
-from laptop_agent.analytics.forecast import forecast
 from laptop_agent.accounts import Principal
+from laptop_agent.analytics.forecast import forecast
 from laptop_agent.tools.forecast import (
     SeriesError,
     _shown,
@@ -19,7 +21,6 @@ from laptop_agent.tools.forecast import (
     load_series,
     run_forecast,
 )
-from test_everyday_requests import Everyday
 
 
 class LoadSeriesTests(unittest.TestCase):
