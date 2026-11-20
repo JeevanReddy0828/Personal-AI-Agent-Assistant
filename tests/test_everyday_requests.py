@@ -245,7 +245,7 @@ class RoutingContractTests(unittest.TestCase):
                 self.assertIn("the curly one", result.message)
 
     def test_only_the_words_before_a_path_are_straightened(self) -> None:
-        from laptop_agent.agents.orchestrator import _fold_apostrophes
+        from laptop_agent.agents.common import _fold_apostrophes
         self.assertEqual(_fold_apostrophes("what’s the weather"), "what's the weather")
         self.assertEqual(_fold_apostrophes("could you’d read file a’s.txt"), "could you'd read file a’s.txt")
         self.assertEqual(_fold_apostrophes("forecast sales in Jeevan’s.csv"), "forecast sales in Jeevan’s.csv")
@@ -266,7 +266,7 @@ class RoutingContractTests(unittest.TestCase):
                 self.assertTrue(result.ok, result.message)
 
     def test_only_a_quoted_path_loses_its_quotes(self) -> None:
-        from laptop_agent.agents.orchestrator import _clean_paths
+        from laptop_agent.agents.common import _clean_paths
         self.assertEqual(_clean_paths(r"read file C:\Jeevan's docs\Sam's notes.txt"),
                          r"read file C:\Jeevan's docs\Sam's notes.txt")
         self.assertEqual(_clean_paths(r"read file C:\Jeevan's docs\the kids' photos.txt"),

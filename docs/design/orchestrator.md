@@ -87,8 +87,9 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   the backup behind it, 8 steps) and is offered `delegate <fast|smart> <sub-task>` for the
   configured tiers below its own. `_supervised` intercepts a step the supervisor allows as
   `delegate` and `_delegator` runs a child `AutonomousAgent` on that tier (4 steps, the sub-task plus
-  one line naming the planner's goal, no conversation); its FINAL is the step's observation, kept
-  to 1,500 characters (`reasoning.DELEGATE_OBSERVATION`) rather than 320, and a child out of steps
+  one line naming the planner's goal and telling it to answer directly, no conversation). A child may
+  only read, compute (`HELPER_COMPUTES`) or delegate; anything else is refused (`helper`). Its FINAL is the step's observation, kept
+  to 1,500 characters (`reasoning.LONG_OBSERVATION`, which a read's text gets too) rather than 320, and a child out of steps
   answers "(step limit reached) …". Every agent's `Supervisor` shares one `supervisor.RunTree`:
   the taint (a child starts tainted, and what it reads taints the planner, since its answer is
   outside text to it), the refusals, and the stop. The trip breaker is checked first in every
@@ -109,5 +110,8 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
   reply, and FINAL used to win: runs ended on a README summary of a file that does not
   exist, or on "[the content would be provided here after the action runs]". An
   upper-case OBSERVATION before any FINAL is cut off, an ACTION before FINAL runs first,
-  and a reply with neither header is asked again once (`_ask_again`). Known limit: a
+  and a reply with neither header is asked again once (`_ask_again`). `ACTION: (no command needed)`
+  is not a step, and `ACTION: FINAL: <answer>` is the FINAL (both seen live from team helpers). A
+  command still holding a placeholder from the list (`weather <location>`) is not run, and a run the
+  supervisor stops is asked once, with no step left to take, what its steps found. Known limit: a
   well-formed FINAL can still be wrong, which parsing cannot see.

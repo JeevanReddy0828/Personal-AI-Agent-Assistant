@@ -88,6 +88,17 @@ delegate <fast|smart> <sub-task>
   whose `execute` is a supervised execute bound to the **same `RunTree`** (below), with `depth =
   parent depth + 1`. It gets the sub-task as its GOAL plus one line naming the parent's goal, not
   the conversation context. Its `max_steps` is 4; the planner's is 8.
+- **A child only looks things up and works things out** (added after the live test, 11-20: helpers
+  wrote three documents and tried to save a note instead of answering). It is offered, and its
+  supervisor allows, only READS, `supervisor.HELPER_COMPUTES` (convert, weather, totals and the
+  like) and `delegate`, but not `look at webcam` or `read screen` (`HELPER_SENSORS`: the webcam asks
+  nothing); anything else is refused with rule `helper`. That refusal is counted toward the tree's
+  stop only when the tree has read outside text and the step is a real command (a possible injected
+  attempt to act); otherwise it is not: a helper that meant to answer wrote "ACTION: (no command needed)" twice,
+  and the two refusals ended the run; its own 4 steps bound it. Its goal line tells it to answer in
+  FINAL and use a command only for what it cannot know, and every agent's prompt now says FINAL may
+  come first when no command is needed. Acting is the
+  planner's, so a child never reaches the taint rule's ASK: it is refused first.
 - **A child at the depth cap** is not offered `delegate`; one at a lower depth is offered it for the
   tiers below its own.
 - **Its answer** comes back as the parent's OBSERVATION: `[ok] <child FINAL>` or `[failed] …`.
@@ -147,13 +158,44 @@ Defaults are module constants; tests patch them. A trip:
 3. is written to the audit log like every verdict, with the rule.
 
 **Any supervisor STOP in any agent stops the tree**, not only a breaker trip: a child stopped for
-repeating a step or for refusals sets `tree.stopped = (rule, reason)` before `RunStopped` is
+refusals sets `tree.stopped = (rule, reason)` before `RunStopped` is
 raised, and every later `check` in the tree returns that STOP. `AutonomousAgent.run` keeps catching
 `RunStopped` as it does now; the parent's `delegate` execution reads `tree.stopped` after the child
 returns and, if set, raises `RunStopped` itself, so the whole tree returns with the stop message as
-its answer and status `stopped`. A child that merely ran out of its 4 steps is not a stop: its
+its answer and status `stopped`. The planner is then asked once, with no step left to take, what its
+steps found (`AutonomousAgent(close_on_stop=...)`; a helper is not asked, the planner closes), and that
+follows the stop message: live, a ten-city run that tripped the agents cap lost four cities' results,
+and a run stopped for repeating a read answered nothing about the file. A child that merely ran out
+of its 4 steps is not a stop, and neither is a helper repeating a step a third time (changed
+11-20, after a live run where a helper asking the knowledge base the same question three times ended
+the team before its planner had acted): that step is refused (rule `repeat`, not counted) and the
+helper told to answer; a planner repeating still stops the tree. A helper given a change to make is
+told to answer "Not done - the planner must do this itself" rather than claim it, after a live run
+where a helper searched instead and the team said a fact was saved. A child out of steps: its
 step-limit summary comes back as `[ok] (step limit reached) <summary>`. The existing Stop
 button keeps working through `check_cancelled`, since children run in the same request.
+
+### No running wild (added 2026-11-20)
+
+Jeevan asked that agents never run wild: never hammer a site, never loop off each other, never leave
+something hard for a person to undo. Beyond the breaker, plain rules in `supervisor.py`, each with its
+own test in `tests/test_agent_limits.py`:
+
+| Rule | Limit | Where |
+|---|---|---|
+| Web budget per run | 30 requests; `research`, `research report` and `solve` cost 6 (a search and its pages), other network steps 1 (`WEB_COST`) | `RunTree.charge`, `breaker:web` |
+| One site per run | 5 steps to one host (from a URL), or to the search engine, or to one service | `breaker:site` |
+| Time per run | 10 minutes, checked at each step | `breaker:time` |
+| Model calls per run | 30, every agent's, retries and closing answers included | `RunTree.count_call` via `orchestrator._counted`, `breaker:calls` |
+| Messages per run | 1 (`message`, `email api send`); the next is refused and counted | rule `sends` |
+| Approval cards per run | 3 (a carded step, or a step asked about after outside text) | `breaker:cards` |
+| A run nobody watches | a scheduled run only reads and computes | rule `unattended` |
+| A day, across every run | 30 runs, 150 steps; kept in `agent_ledger.json`, reset at local midnight; unreadable, it fails closed | `AgentLedger`, `breaker:daily` |
+| One run at a time | a second run, from another tab or a schedule, is refused at once | `orchestrator._agent_running` |
+| Scheduled agents | at most hourly and at most 5; an older, more frequent one is not run | `_agent_schedule_refused`, `run_due_schedules` |
+| Kill switch | `agents off` refuses every run, team and scheduled agent, survives a restart and a new day; a run going stops at its next step; `agents on` lifts it. Neither is a step of a run (`DIRECT`) | `AgentLedger.set_off` |
+
+A stop from any of these, like every stop, still gives what the steps found.
 
 ### What is recorded
 
@@ -172,8 +214,8 @@ In `tests/test_supervisor.py` (rules) and a new `tests/test_multi_agent.py` (orc
 
 - each breaker rule trips: rate (injected clock), depth, agents, steps; the audit names the rule;
   a sibling or parent checking after a trip gets STOP;
-- a child cannot escape taint: the planner reads the web, delegates; the child's `open url` is asked
-  (HIGH) and, denied, counts toward the tree's refusals; a child that reads taints the planner;
+- a child cannot escape taint: the planner reads the web, delegates; the child's `open url` is
+  refused (`helper`); a child that reads taints the planner;
 - a refusal in a child plus one in the parent stops the tree;
 - `delegate` up or sideways in tier is refused; from an untrusted tier is refused;
 - `agent run`, `schedule agent`, `autopilot` as steps are refused (`direct`) - fails on `main` today;

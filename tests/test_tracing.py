@@ -102,6 +102,16 @@ class TraceRollupTests(unittest.TestCase):
             self.assertEqual([call.args[0] for call in rewrite.call_args_list], [store.path])
             self.assertEqual(store.hourly()[0]["turns"], 2)
 
+    def test_a_turn_writes_the_ring_without_a_backup(self) -> None:
+        # Keeping a backup re-read the whole ring and wrote it twice with two fsyncs on every turn:
+        # 15 of an instant command's 17ms. Traces are diagnostics; a lost write loses one turn's timing.
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            for minute in range(3):
+                store.add(TurnTrace(at=f"2026-10-01T05:0{minute}:00+00:00", total_ms=100))
+            self.assertFalse((Path(raw) / "traces.json.bak").exists())
+            self.assertEqual(len(TraceStore(Path(raw) / "traces.json").recent()), 3)
+
 
 class TurnTraceTests(unittest.TestCase):
     def test_phases_are_recorded_in_milliseconds(self) -> None:

@@ -41,6 +41,24 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(d.command, "scan files .")
         self.assertEqual(d.thought, "look first")
 
+    def test_an_action_saying_no_command_is_needed_is_not_a_step(self) -> None:
+        """Live, a helper's reply: the parenthesis ran as a command, and its answer was lost."""
+        d = parse_agent_decision("THOUGHT: I know this\nACTION: (no command needed - I'll generate it directly)\n"
+                                 "THOUGHT: writing it\nFINAL: Day 1: SELECT")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "Day 1: SELECT")
+
+    def test_an_action_holding_a_final_is_the_final(self) -> None:
+        """Live, a helper wrote its answer as "ACTION: FINAL: ..." and it ran as a command."""
+        d = parse_agent_decision("THOUGHT: done\nACTION: FINAL: Day 1: Exercise 1 - SELECT\nDay 2: WHERE")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "Day 1: Exercise 1 - SELECT\nDay 2: WHERE")
+
+    def test_an_action_holding_a_done_is_the_final(self) -> None:
+        d = parse_agent_decision("THOUGHT: done\nACTION: DONE: SELECT, WHERE")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "SELECT, WHERE")
+
     def test_a_final_written_before_any_action_ends_the_run(self) -> None:
         d = parse_agent_decision("THOUGHT: done\nFINAL: all set\nACTION: scan files .")
         self.assertTrue(d.is_final)
@@ -194,16 +212,19 @@ class AutonomousAgentTests(unittest.TestCase):
         # The scratchpad from earlier steps must reach the model on later turns.
         self.assertIn("scan files .", brain.prompts[-1])
 
-    def test_a_delegate_result_is_observed_at_length(self) -> None:
-        """Another agent's answer is what the planner combines from: 320 characters cut it to a stub."""
-        brain = _ScriptedBrain(["ACTION: delegate fast count the files", "ACTION: read file a.txt", "FINAL: done"])
+    def test_a_delegate_result_or_a_read_is_observed_at_length(self) -> None:
+        """Another agent's answer is what the planner combines from, and a read is what the step was for:
+        live, 320 characters cut a short notes file before its end, and the agent read it three times."""
+        brain = _ScriptedBrain(["ACTION: delegate fast count the files", "ACTION: read file a.txt",
+                                "ACTION: inspect page https://example.com", "ACTION: weather Paris", "FINAL: done"])
         long = "word " * 200
 
         agent = AutonomousAgent(brain, _executor(lambda command: ToolResult.success(long)))
         result = asyncio.run(agent.run("count and read"))
-        self.assertIn(long.strip(), result.steps[0].message)
-        self.assertNotIn("clipped", result.steps[0].message)
-        self.assertIn("message clipped: showing 317 of 999",result.steps[1].message)
+        for read in result.steps[:3]:
+            self.assertIn(long.strip(), read.message)
+            self.assertNotIn("clipped", read.message)
+        self.assertIn("message clipped: showing 317 of 999", result.steps[3].message)
 
     def test_observes_failures_and_keeps_going(self) -> None:
         brain = _ScriptedBrain(
@@ -373,6 +394,77 @@ class AutonomousAgentTests(unittest.TestCase):
         result = asyncio.run(agent.run("read my notes"))
         self.assertEqual(result.status, "failed")
         self.assertNotIn("made up", result.final_answer)
+
+    def test_a_command_with_a_placeholder_left_in_is_not_run(self) -> None:
+        """Live, a helper ran "weather <location>" copied from its command list."""
+        brain = _ScriptedBrain(["ACTION: weather <location>", "ACTION: weather Paris", "FINAL: mild"])
+        seen: list[str] = []
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
+                                command_reference="- weather <location>\n- run command <command>")
+        result = asyncio.run(agent.run("weather in Paris"))
+        self.assertEqual(seen, ["weather Paris"])
+        self.assertEqual(result.steps[0].status, "failed")
+        self.assertIn("<location>", result.steps[0].message)
+        self.assertIn("fill in", result.steps[0].message)
+
+    def test_angle_brackets_the_command_list_does_not_hold_still_run(self) -> None:
+        seen: list[str] = []
+        brain = _ScriptedBrain(["ACTION: translate <b>bold</b> to French", "FINAL: done"])
+        agent = AutonomousAgent(brain, _executor(lambda c: seen.append(c) or ToolResult.success("ok")),
+                                command_reference="- translate <text> to <language>")
+        asyncio.run(agent.run("translate it"))
+        self.assertEqual(seen, ["translate <b>bold</b> to French"])
+
+    def test_a_stopped_run_still_says_what_it_found(self) -> None:
+        """Live, a stop for repeating a read answered only "Stopped by the supervisor", though the
+        run had read what the user asked about."""
+        from laptop_agent.supervisor import RunStopped
+
+        brain = _ScriptedBrain(["ACTION: read file notes.txt", "ACTION: read file notes.txt",
+                                "THOUGHT: wrap up\nFINAL: Budget 12,400 of 20,000 spent."])
+
+        async def execute(command: str) -> ToolResult:
+            if len(brain.prompts) > 1:
+                raise RunStopped("Stopped by the supervisor: it tried the same step a third time.")
+            return ToolResult.success("Budget: 12,400 of 20,000")
+
+        result = asyncio.run(AutonomousAgent(brain, execute).run("summarize my notes"))
+        self.assertEqual(result.status, "stopped")
+        self.assertTrue(result.final_answer.startswith("Stopped by the supervisor"), result.final_answer)
+        self.assertIn("Budget 12,400 of 20,000 spent.", result.final_answer)
+        self.assertIn("was stopped", brain.prompts[-1])
+        self.assertIn("Do not choose another command", brain.prompts[-1])
+
+    def test_a_run_stopped_before_any_step_or_told_not_to_close_asks_nothing_more(self) -> None:
+        from laptop_agent.supervisor import RunStopped
+
+        async def stop(command: str) -> ToolResult:
+            raise RunStopped("Stopped by the supervisor: no.")
+
+        for steps_first, close in ((False, True), (True, False)):
+            brain = _ScriptedBrain((["ACTION: tasks"] if steps_first else []) + ["ACTION: memory", "FINAL: x"])
+            ran = []
+
+            async def execute(command: str) -> ToolResult:
+                ran.append(command)
+                if len(ran) > 1 or not steps_first:
+                    return await stop(command)
+                return ToolResult.success("ok")
+
+            result = asyncio.run(AutonomousAgent(brain, execute, close_on_stop=close).run("go"))
+            self.assertEqual(result.final_answer, "Stopped by the supervisor: no.")
+            self.assertEqual(len(brain.prompts), 2 if steps_first else 1)
+
+    def test_a_step_limit_with_no_summary_still_gives_what_each_step_found(self) -> None:
+        """Live, the summary call hit a dropped connection, and the answer listed "weather London -> ok"
+        for eight cities without one temperature."""
+        brain = _ScriptedBrain(["ACTION: weather London", "ACTION: weather Oslo", ""])
+        found = {"weather London": "London overcast, 48F", "weather Oslo": "Oslo clear, 35F"}
+        agent = AutonomousAgent(brain, _executor(lambda c: ToolResult.success(found[c])), max_steps=2)
+        result = asyncio.run(agent.run("weather in two cities"))
+        self.assertIn("Reached the 2-step limit", result.final_answer)
+        self.assertIn("London overcast, 48F", result.final_answer)
+        self.assertIn("Oslo clear, 35F", result.final_answer)
 
     def test_step_cap_forces_summary(self) -> None:
         brain = _ScriptedBrain(["ACTION: tasks"] * 10)  # never emits FINAL

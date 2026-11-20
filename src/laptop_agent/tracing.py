@@ -150,7 +150,7 @@ class TraceStore:
             self._traces = [item for item in loaded if isinstance(item, dict)][-self.max_traces :]
 
     def _save(self) -> None:
-        atomic_write_text(self.path, json.dumps(self._traces, indent=2, default=str))
+        atomic_write_text(self.path, json.dumps(self._traces, indent=2, default=str), backup=False)
 
     def _timings(self) -> list[dict[str, object]]:
         # Bytes, decoded line by line inside _timing: decoding the whole file first raised
