@@ -5,15 +5,74 @@ rest of the orchestrator through `self`."""
 
 from __future__ import annotations
 
+import contextvars
+import queue
 import re
+import threading
+import time
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 
 from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import accepts_context_query, accepts_keyword
+from laptop_agent.model_status import DEGRADED
 from laptop_agent.planner import Planner
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.clock import asks_the_time
 from laptop_agent.tracing import TurnTrace, current_trace
+
+# How long a tier may take to start its answer before the next tier is asked instead. Healthy tiers
+# started within about 10s in the timing log; on 2026-11-11 two took 23-30s and nothing moved on.
+FIRST_WORD_SECONDS = 12.0
+
+
+class _NoFirstWord(Exception):
+    """The stream had not produced its first word in time."""
+
+
+def _first_word_within(make: Callable[[], Iterable[str]], seconds: float) -> Iterator[str]:
+    """Yield a stream's tokens, giving up with `_NoFirstWord` if the first is not there in `seconds`.
+
+    The stream is read on its own thread, so a provider waiting on a slow first byte cannot hold the
+    turn; tokens are handed back here, so the caller's sink and Stop checks stay on its own thread.
+    Once the first word arrives there is no deadline: the provider's own timeouts apply."""
+    tokens: queue.Queue[object] = queue.Queue()
+    abandoned = threading.Event()
+    done = object()
+
+    def pump() -> None:
+        stream = make()
+        try:
+            for token in stream:
+                if abandoned.is_set():
+                    break
+                tokens.put(token)
+        except BaseException as exc:  # handed to the caller's thread, which raises it as before
+            tokens.put(exc)
+        finally:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
+            tokens.put(done)
+
+    threading.Thread(target=contextvars.copy_context().run, args=(pump,), daemon=True).start()
+    give_up = time.monotonic() + seconds
+    started = False
+    while True:
+        check_cancelled()
+        try:
+            item = tokens.get(timeout=0.1)
+        except queue.Empty:
+            if not started and time.monotonic() >= give_up:
+                abandoned.set()
+                raise _NoFirstWord from None
+            continue
+        if item is done:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        started = True
+        yield str(item)
 
 
 class ChatTiers:
@@ -181,10 +240,16 @@ class ChatTiers:
         if on_token is not None and streamer is not None:
             chunks: list[str] = []
             try:
-                for token in cls._call_with_query(streamer, command, profile, history, query, sink):
+                for token in _first_word_within(
+                    lambda: cls._call_with_query(streamer, command, profile, history, query, sink), FIRST_WORD_SECONDS
+                ):
                     check_cancelled()
                     chunks.append(token)
                     on_token(token)
+            except _NoFirstWord:
+                if failures is not None:
+                    failures.append((DEGRADED, f"did not start answering within {FIRST_WORD_SECONDS:.0f}s"))
+                return ""
             except (OSError, TimeoutError):
                 check_cancelled()
                 reset = getattr(on_token, "reset", None)
