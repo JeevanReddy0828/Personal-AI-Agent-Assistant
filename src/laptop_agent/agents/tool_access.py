@@ -5,12 +5,16 @@ rest of the orchestrator through `self`."""
 
 from __future__ import annotations
 
+import contextvars
+import json
 import re
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
 from laptop_agent.advisor import ProblemSolver
+from laptop_agent.cancellation import OperationCancelled
 from laptop_agent.config import load_config
 from laptop_agent.failures import record_failure
 from laptop_agent.metrics import battery_status, system_metrics
@@ -55,14 +59,111 @@ class ToolAccess:
             self._messaging_cache = MessagingTool(self.context.web.approval_gate)
         return self._messaging_cache
 
-    def _generate_image(self, request: str) -> ToolResult:
-        """`image <description>` — the trailing shape word picks the aspect ratio."""
+    # The web client sends each reply's tool data back as one JSON line after this marker.
+    _PICTURE_DATA = re.compile(r"\[tool result data, context only[^\]\n]*\]\s*(\{.*\})\s*$")
+    # Another take on the same picture. Narrow on purpose: "make the glass a different colour"
+    # and "add a new straw" are edits, and an edit keeps the seed.
+    _ANOTHER_PICTURE = re.compile(
+        r"\b(?:another|(?:a\s+)?(?:new|different)\s+(?:one|version|take|picture|image|photo)"
+        r"|variations?|(?:try|do\s+it|draw\s+it|make\s+it)\s+again|retry|redo|re-?draw|re-?generate)\b",
+        re.IGNORECASE,
+    )
+    _PROMPT_PREAMBLE = re.compile(
+        r"^(?:sure|okay|ok|absolutely|of course|certainly|here'?s|here is|got it)\b[^:]{0,60}[:.!]?\s*$",
+        re.IGNORECASE,
+    )
+    _IMAGE_PROMPT_SECONDS = 8.0
+
+    def _generate_image(self, request: str, history_turns=None) -> ToolResult:
+        """`image <description>` — the trailing shape word picks the aspect ratio.
+
+        "Chatgpt in mojito" went to FLUX as those three words and came back as a plain
+        mojito: the model does not know the name, and the turn before ("more lime") had
+        drawn an unrelated glass, because every follow-up started from nothing. So the
+        description is rewritten into a detailed prompt first, and a request that follows a
+        picture is drawn from that picture's prompt and seed, which keeps the scene."""
         described, shape = request.strip(), "square"
         match = re.search(r"\s+(square|landscape|portrait|wide|tall)$", described, re.IGNORECASE)
         if match:
             shape = match.group(1).lower()
             described = described[: match.start()].strip()
-        return self._image_tool().generate(described, shape=shape)
+        tool = self._image_tool()
+        if not described or not tool.available():
+            return tool.generate(described, shape=shape)
+        previous = self._previous_picture(history_turns)
+        detail = self._image_prompt(described, str(previous.get("prompt") or "") if previous else "")
+        seed = previous.get("seed") if previous else None
+        redraw = previous is not None and (
+            self._ANOTHER_PICTURE.search(described)
+            or described.lower().strip(" .!?") == str(previous.get("request") or "").lower().strip(" .!?")
+        )
+        if redraw or not isinstance(seed, int) or isinstance(seed, bool):
+            seed = None
+        return tool.generate(described, shape=shape, seed=seed, detail=detail)
+
+    @classmethod
+    def _previous_picture(cls, history_turns) -> dict | None:
+        """The picture this chat's latest reply showed, from the tool data the web client
+        sends back with it: the prompt it was drawn from, the user's words and the seed."""
+        for turn in reversed(history_turns or []):
+            if turn.get("role") != "assistant":
+                continue
+            found = cls._PICTURE_DATA.search(str(turn.get("text") or ""))
+            if not found:
+                return None
+            try:
+                data = json.loads(found.group(1))
+            except ValueError as exc:
+                record_failure("imagegen/previous", exc)
+                return None
+            if isinstance(data, dict) and str(data.get("url") or "").startswith("/api/image?") and data.get("prompt"):
+                return data
+            return None
+        return None
+
+    def _image_prompt(self, request: str, previous: str) -> str:
+        """The request as a detailed prompt from the fast tier, or the request itself when
+        there is no model, it is resting after a failure, or it does not answer in time."""
+        provider = getattr(self.planner, "provider", None) if self.planner is not None else None
+        answer = getattr(provider, "answer", None)
+        if answer is None or not self.model_status.should_attempt("fast"):
+            return request
+        ask = (
+            "You write prompts for a text-to-image model that knows nothing outside the prompt. "
+            "Rewrite the request below as one detailed prompt of 40 to 70 words: the subject, how it "
+            "looks, the setting, lighting and style. Describe any named product, logo, brand, character "
+            "or person by what it looks like (shapes, colours), because the model may not know the name. "
+            "Keep everything the request asks for. "
+        )
+        if previous:
+            # Measured: asked to label its answer EDIT or NEW as well, the model labelled a
+            # clear edit NEW; asked to "ignore it if unrelated", it dropped the scene of a
+            # clear edit. This wording kept the scene for "more lime" and ignored the mojito
+            # for "a red fox sleeping in the snow".
+            ask += (
+                f'The previous picture was drawn from this prompt: "{previous}". If the request changes '
+                "or adds to that picture, write that prompt with the change applied; otherwise ignore it. "
+            )
+        ask += "Reply with the prompt only, on one line.\n\nRequest: " + request
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="image-prompt")
+        try:
+            future = pool.submit(contextvars.copy_context().run, answer, ask, {}, max_tokens=1200)
+            reply = future.result(timeout=self._IMAGE_PROMPT_SECONDS) or ""
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            record_failure("imagegen/prompt", exc)
+            return request
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        # answer() thinks first, hence the 1200 tokens; and a line introducing the prompt
+        # ("Sure! Here's a detailed prompt:") is not the prompt.
+        lines = [line.strip() for line in str(reply).splitlines() if line.strip()]
+        lines = [line for line in lines if not line.endswith(":") and not self._PROMPT_PREAMBLE.match(line)]
+        line = re.sub(r"^(?:prompt|edit|new)\s*:\s*", "", lines[0], flags=re.IGNORECASE).strip("\"' ") if lines else ""
+        if not line or self._META_REPLY.match(line):
+            return request
+        return line[:1000]
 
     def _document_tool(self) -> DocumentTool:
         if self._document_tool_cache is None:

@@ -452,6 +452,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
   note alone is not an answer, or the fallback never runs (#177). (10-02)
 - **The model will not shorten its own draft** (335 → 319 words, asked for 142) → draft the
   request again to a smaller budget instead (#176). (10-02)
+- **"Chatgpt in mojito image" drew a plain mojito, and "more lime" an unrelated glass** → FLUX
+  got the user's three words, knows no brand names, and every follow-up started from a random
+  seed → `_generate_image` has the fast tier write a detailed prompt (8 s cap, the user's words
+  if it fails), and a request right after a picture is written from that picture's prompt and
+  drawn from its seed, which keeps the scene; the same request or "another" gets a new seed
+  (`test_image_prompts.py`). The hosted Klein cannot edit an uploaded picture. (11-11)
 
 ### Retrieval: knowledge, files, context
 - **"summarize what I copied" and "copy that" had nowhere to go** → no tool could read or write the
