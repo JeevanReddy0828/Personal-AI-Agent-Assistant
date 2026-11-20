@@ -15,6 +15,9 @@ judges injected text can be talked round by it:
   otherwise) may read and compute, never act; the same holds for a command the router's model
   picks for the user's own sentence;
 - off the track: the same step a third time, or two refusals, ends the run;
+- one tree: an agent a run delegates to (`delegate`, in `agent team`) shares the run's `RunTree`:
+  its taint, its refusals and its stop. A run can start another in no other way, and a trip
+  breaker caps the tree's steps a minute, its steps in all, its depth and the agents it starts;
 - every verdict is written to the audit log with the rule that made it.
 
 It supervises what a run asks for. What an approved program then does is the operating
@@ -23,8 +26,11 @@ system's to contain, not this module's.
 from __future__ import annotations
 
 import os
+import time
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from typing import Callable
 
 
 class Verdict(str, Enum):
@@ -65,8 +71,12 @@ CARDED = (
     "download", "file move", "file copy", "file rename", "undo file", "convert file", "organize folder",
     "open app", "message", "workspace", "learn from chat", "email api draft", "email api send", "mcp",
 )
-# DIRECT: never a step of a run.
-DIRECT = ("run command", "code run", "code fix", "file delete")
+# DIRECT: never a step of a run. Starting a run is here too: `agent run` from a step built a fresh
+# supervisor with no taint, so a run could launder itself; `delegate` is the one way, and keeps the tree.
+DIRECT = ("run command", "code run", "code fix", "file delete", "agent run", "agent team", "schedule agent",
+          "autopilot")
+# DELEGATE: hands a sub-task to an agent on a lower tier, in the same tree (offered to `agent team` only).
+DELEGATE = ("delegate",)
 # SAFE: computed here or read from the user's own stores; neither tainting nor guarded.
 SAFE = (
     "scan files", "file info", "knowledge list", "knowledge stats", "notes audit", "windows", "watch health",
@@ -76,9 +86,17 @@ SAFE = (
 )
 # A command that both reads and is in another group: a page or a server answers with its own text.
 ALSO_READS = ("inspect page", "mcp")
-_GROUPS = (("direct", DIRECT), ("guarded", GUARDED), ("carded", CARDED), ("reads", READS), ("safe", SAFE))
+_GROUPS = (("direct", DIRECT), ("guarded", GUARDED), ("carded", CARDED), ("reads", READS), ("safe", SAFE),
+           ("delegate", DELEGATE))
 MAX_REPEATS = 2
 MAX_REFUSALS = 2
+# The trip breaker, over the whole run tree. Read at each check, so a test can patch them. The rate
+# must stay below the total: at 20 and 20 a burst was stopped only where the total would stop it.
+MAX_STEPS_PER_MINUTE = 15
+MAX_TREE_STEPS = 20
+MAX_DEPTH = 2           # the planner is depth 0
+MAX_AGENTS = 4          # agents one tree may start, the planner not counted
+TIER_RANK = {"fast": 0, "smart": 1, "ultra": 2}
 
 
 def _matches(lowered: str, form: str) -> bool:
@@ -131,40 +149,112 @@ def routed(command: str, tier: str) -> Decision:
     return Decision(Verdict.REFUSE, "trust", f"the {tier or 'unnamed'} model is not trusted to choose that")
 
 
-class Supervisor:
-    """One run's supervisor. `check` before each step; `refused` when a step was not approved."""
+class RunTree:
+    """What every agent of one run shares: taint, refusals, the breaker's counts and the stop.
 
-    def __init__(self) -> None:
+    Kept apart from `Supervisor` so a delegated agent cannot start cleaner than the run that
+    started it, and one stop anywhere in the tree stops every agent in it."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self.tainted_by = ""
+        self.refusals = 0
+        self.last_refusal = ""
+        self.stopped: Decision | None = None
+        self.agents: list[dict[str, object]] = []
+        self.steps = 0
+        self._clock = clock
+        self._recent: deque[float] = deque()
+
+    def add_agent(self, parent: str, depth: int, tier: str, task: str) -> str:
+        agent = f"a{len(self.agents) + 1}"
+        self.agents.append({"id": agent, "parent": parent, "depth": depth, "tier": tier, "task": task, "steps": []})
+        return agent
+
+    def stop(self, rule: str, reason: str) -> Decision:
+        self.stopped = Decision(Verdict.STOP, rule, reason)
+        return self.stopped
+
+    def count_step(self) -> Decision | None:
+        """Count one step of any agent; the breaker's verdict when it trips."""
+        now = self._clock()
+        self.steps += 1
+        self._recent.append(now)
+        while self._recent and self._recent[0] <= now - 60:
+            self._recent.popleft()
+        if len(self._recent) > MAX_STEPS_PER_MINUTE:
+            return self.stop("breaker:rate", f"its agents took more than {MAX_STEPS_PER_MINUTE} steps in a minute")
+        if self.steps > MAX_TREE_STEPS:
+            return self.stop("breaker:steps", f"its agents took more than {MAX_TREE_STEPS} steps in all")
+        return None
+
+
+class Supervisor:
+    """One agent's supervisor. `check` before each step; `refused` when a step was not approved.
+
+    `tree` is shared by every agent of the same run (a fresh one when not given); `tier` is the tier
+    the agent was assigned, which `delegate` may only go below."""
+
+    def __init__(self, tree: RunTree | None = None, *, agent: str = "a0", parent: str = "", depth: int = 0,
+                 tier: str = "") -> None:
+        self.tree = tree or RunTree()
+        self.agent = agent
+        self.parent = parent
+        self.depth = depth
+        self.tier = tier
         self._seen: dict[str, int] = {}
-        self._refusals = 0
-        self._last_refusal = ""
+
+    @property
+    def tainted_by(self) -> str:
+        return self.tree.tainted_by
 
     def refused(self, why: str = "you did not approve it") -> None:
-        self._refusals += 1
-        self._last_refusal = why
+        self.tree.refusals += 1
+        self.tree.last_refusal = why
 
     def check(self, command: str, tier: str = "smart") -> Decision:
+        tree = self.tree
+        if tree.stopped is not None:
+            return tree.stopped
         lowered = " ".join((command or "").lower().split())
-        if self._refusals >= MAX_REFUSALS:
+        tripped = tree.count_step()
+        if tripped is not None:
+            return tripped
+        if tree.refusals >= MAX_REFUSALS:
             # With the cause: live, "2 of its steps were refused" left the user guessing which rule.
-            return Decision(Verdict.STOP, "refusals", f"{self._refusals} of its steps were refused, the last because "
-                                                      f"{self._last_refusal}")
+            return tree.stop("refusals", f"{tree.refusals} of its steps were refused, the last because "
+                                         f"{tree.last_refusal}")
         self._seen[lowered] = self._seen.get(lowered, 0) + 1
         if self._seen[lowered] > MAX_REPEATS:
-            return Decision(Verdict.STOP, "repeat", f"it tried the same step a third time: {command[:120]}")
+            return tree.stop("repeat", f"it tried the same step a third time: {command[:120]}")
         group, form = group_of(lowered)
         if group == "direct":
             self.refused(f"\"{form}\" is never a step of an agent run (ask for it yourself, outside agent mode)")
-            return Decision(Verdict.REFUSE, "direct", self._last_refusal)
+            return Decision(Verdict.REFUSE, "direct", tree.last_refusal)
         if not trusted(tier) and group not in _UNTRUSTED_MAY:
             self.refused(f"the {tier or 'unnamed'} model chose it, and that model may read and compute but not act")
-            return Decision(Verdict.REFUSE, "trust", self._last_refusal)
-        tainted_before = self.tainted_by
+            return Decision(Verdict.REFUSE, "trust", tree.last_refusal)
+        if group == "delegate":
+            return self._delegate(lowered)
+        tainted_before = tree.tainted_by
         if group == "reads" or any(_matches(lowered, form) for form in ALSO_READS):
-            self.tainted_by = self.tainted_by or form or lowered[:40]
+            tree.tainted_by = tree.tainted_by or form or lowered[:40]
         if tainted_before and group in {"guarded", "unknown"}:
             return Decision(Verdict.ASK, "taint", f"This run has read outside text ({tainted_before}), which can "
                                                   "carry instructions, and now wants to act on the laptop or send "
                                                   "something out.")
         return Decision(Verdict.ALLOW, group)
+
+    def _delegate(self, lowered: str) -> Decision:
+        """`delegate <tier> <sub-task>`: only to a tier below this agent's own, within the breaker."""
+        words = lowered.split(maxsplit=2)
+        target = words[1] if len(words) > 1 else ""
+        own = TIER_RANK.get(self.tier)
+        if own is None or target not in TIER_RANK or TIER_RANK[target] >= own:
+            self.refused(f"an agent on the {self.tier or 'unnamed'} tier may hand work only to a lower tier, "
+                         f"not \"{target or 'none'}\"")
+            return Decision(Verdict.REFUSE, "delegate-tier", self.tree.last_refusal)
+        if self.depth + 1 > MAX_DEPTH:
+            return self.tree.stop("breaker:depth", f"an agent tried to delegate deeper than {MAX_DEPTH} levels")
+        if len(self.tree.agents) >= MAX_AGENTS:
+            return self.tree.stop("breaker:agents", f"it tried to start more than {MAX_AGENTS} agents")
+        return Decision(Verdict.ALLOW, "delegate")

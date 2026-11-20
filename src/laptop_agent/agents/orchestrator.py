@@ -74,7 +74,8 @@ from laptop_agent.access import SignedOut, developer_only, ensure_signed_in, eve
 from laptop_agent.timeparse import TimeParseError, _find_day, _find_time, describe, on_laptop_clock, parse_when, spoken_to_digits
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.scheduler import ScheduleError, SchedulerStore, parse_days, parse_schedule
-from laptop_agent.supervisor import RunStopped, Supervisor, Verdict, allowed_in_a_run, routed
+from laptop_agent import supervisor as supervision
+from laptop_agent.supervisor import RunStopped, RunTree, Supervisor, Verdict, allowed_in_a_run, routed
 from laptop_agent.tasks import TaskRecord, TaskTracker
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 from laptop_agent.tools.windows import WindowTool, parse_placements
@@ -518,6 +519,11 @@ def _reminder_line(item: dict, now: datetime) -> str:
     except ValueError:
         when = str(item.get("due_at", ""))
     return f"- #{item.get('id')} {when} — {item.get('message')}"
+
+
+def _answers(planner: Planner | None) -> bool:
+    """Whether a tier's planner has a model that can answer an agent's prompt."""
+    return planner is not None and getattr(planner.provider, "answer", None) is not None
 
 
 def _readable_size(size: int) -> str:
@@ -1345,6 +1351,9 @@ class AgentOrchestrator:
 
         if lowered.startswith("agent run "):
             return await self._run_agent(command[len("agent run ") :].strip(), history=history_turns)
+
+        if lowered.startswith("agent team "):
+            return await self._run_agent(command[len("agent team ") :].strip(), history=history_turns, team=True)
 
         if lowered in {"agents", "agent control", "control room", "agent dashboard"}:
             return self._agent_control_room()
@@ -3430,6 +3439,7 @@ class AgentOrchestrator:
                 "  autopilot workflow <safe command 1> ;; <safe command 2>",
                 "  autopilot status",
                 "  agent run <goal>   (autonomous multi-step: plans, acts, observes, repeats)",
+                "  agent team <goal>  (the strongest model plans and hands parts to cheaper ones)",
                 "  agent runs | agent last",
                 "  schedule <when> :: <command>     (e.g. 'daily at 08:00 :: briefing')",
                 "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
@@ -4565,31 +4575,63 @@ class AgentOrchestrator:
         "audit",
     )
 
-    def _agent_reference(self) -> str:
-        return "\n".join(f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command))
+    _TEAM_STEPS = 8
+    _CHILD_STEPS = 4
 
-    def _record_verdict(self, source: str, command: str, tier: str, decision) -> None:
+    def _agent_reference(self, delegate_to: tuple[str, ...] = ()) -> str:
+        lines = [f"- {command}" for command in self._AGENT_COMMANDS if allowed_in_a_run(command)]
+        if delegate_to:
+            lines.append(f"- delegate <{'|'.join(delegate_to)}> <sub-task>   (hand a part that does not need you to a "
+                         "cheaper model, written out in full; its answer comes back as the OBSERVATION)")
+        return "\n".join(lines)
+
+    def _tier_planners(self) -> dict[str, Planner | None]:
+        return {"fast": self.planner, "smart": self.smart_planner, "ultra": self.ultra_planner}
+
+    def _delegate_to(self, tier: str, depth: int) -> tuple[str, ...]:
+        """The configured tiers below `tier` an agent at `depth` may be offered (none at the depth cap)."""
+        if depth >= supervision.MAX_DEPTH or tier not in supervision.TIER_RANK:
+            return ()
+        planners = self._tier_planners()
+        return tuple(name for name in ("fast", "smart")
+                     if supervision.TIER_RANK[name] < supervision.TIER_RANK[tier] and _answers(planners[name]))
+
+    def _record_verdict(self, source: str, command: str, tier: str, decision, **where: object) -> None:
         try:
             self.context.audit.record("supervisor", source=source, command=command[:300], tier=tier,
-                                      verdict=decision.verdict.value, rule=decision.rule, reason=decision.reason)
+                                      verdict=decision.verdict.value, rule=decision.rule, reason=decision.reason,
+                                      **where)
         except Exception as exc:  # a full disk must not let a step run unrecorded and unnoticed
             record_failure("supervisor/audit", exc)
 
-    def _supervised(self, history: list[dict[str, str]] | None, brain=None):
-        """One run's `execute`: each step is put to a fresh Supervisor before it is dispatched,
-        and the verdict is written to the audit log (supervisor.py). `brain` is the run's own
-        `decide`, which says which model tier wrote the step."""
-        supervisor = Supervisor()
+    def _record_message(self, **payload: object) -> None:
+        try:
+            self.context.audit.record("agent_message", **payload)
+        except Exception as exc:  # as above: a hand-off must not go unrecorded and unnoticed
+            record_failure("supervisor/audit", exc)
+
+    def _supervised(self, history: list[dict[str, str]] | None, brain=None, supervisor: Supervisor | None = None,
+                    delegate=None):
+        """One agent's `execute`: each step is put to its Supervisor before it is dispatched, and the
+        verdict is written to the audit log (supervisor.py). `brain` is the agent's own `decide`,
+        which says which model tier wrote the step. In a team run `supervisor` shares the run's tree,
+        and `delegate` runs the agent a `delegate` step hands work to."""
+        supervisor = supervisor or Supervisor()
         gate = self.context.web.approval_gate
 
         async def execute(command: str) -> ToolResult:
             tier = getattr(brain, "tier", "")
             decision = supervisor.check(command, tier)
-            self._record_verdict("agent", command, tier, decision)
+            self._record_verdict("agent", command, tier, decision, run=supervisor.agent, parent=supervisor.parent,
+                                 depth=supervisor.depth)
             if decision.verdict is Verdict.STOP:
                 raise RunStopped(f"Stopped by the supervisor: {decision.reason}.")
             if decision.verdict is Verdict.REFUSE:
                 return ToolResult.failure(f"Refused by the supervisor: {decision.reason}")
+            if decision.rule == "delegate":
+                if delegate is None:
+                    return ToolResult.failure("This run cannot hand work to another agent.")
+                return await delegate(command)
             try:
                 if decision.verdict is Verdict.ASK:
                     gate.require(ApprovalRequest(action=f"Agent step: {command[:200]}", risk=RiskLevel.HIGH,
@@ -4600,6 +4642,54 @@ class AgentOrchestrator:
                 raise
 
         return execute
+
+    def _delegator(self, tree: RunTree, goal: str, parent: str, depth: int, on_step=None):
+        """The `delegate` handler for the agent `parent` of a team run: runs a child agent on the
+        named lower tier, in the same tree, and returns its answer as the step's result."""
+
+        async def delegate(command: str) -> ToolResult:
+            words = command.split(maxsplit=2)
+            tier = words[1].lower()        # the supervisor allowed it, so it names a tier below the parent's
+            task = words[2].strip() if len(words) > 2 else ""
+            if not task:
+                return ToolResult.failure("Use: delegate <tier> <sub-task>, with the sub-task written out.")
+            planner = self._tier_planners()[tier]
+            if not _answers(planner):
+                return ToolResult.failure(f"There is no {tier} model configured to hand that to.")
+            child_depth = depth + 1
+            agent = tree.add_agent(parent, child_depth, tier, task)
+            record = tree.agents[-1]
+            where = dict(run=agent, parent=parent, depth=child_depth, tier=tier)
+            self._record_message(**where, direction="task", text=task[:300], status="sent")
+
+            def child_step(step) -> None:
+                step = replace(step, agent=agent, depth=child_depth)
+                record["steps"].append(step.__dict__)
+                if on_step is not None:
+                    on_step(step)
+
+            brain = self._build_agent_brain((planner, self.fallback_planner))
+            child = AutonomousAgent(
+                decide=brain,
+                execute=self._supervised(None, brain, Supervisor(tree, agent=agent, parent=parent, depth=child_depth,
+                                                                 tier=tier),
+                                         self._delegator(tree, goal, agent, child_depth, on_step)),
+                command_reference=self._agent_reference(self._delegate_to(tier, child_depth)),
+                max_steps=self._CHILD_STEPS,
+            )
+            result = await child.run(f"{task}\n(This is one part of a larger goal: {goal})", on_step=child_step)
+            stopped = tree.stopped
+            self._record_message(**where, direction="result", text=result.final_answer[:300],
+                                 status="stopped" if stopped is not None else result.status)
+            if stopped is not None:
+                # One stop anywhere stops the whole tree, not only the child it happened in.
+                raise RunStopped(f"Stopped by the supervisor: {stopped.reason}.")
+            answer = result.final_answer
+            if result.status == "stopped":
+                answer = f"(step limit reached) {answer}"
+            return ToolResult(ok=result.status != "failed", message=answer)
+
+        return delegate
 
     def _build_agent_brain(self, planners=None, answer_max_tokens: int | None = None):
         """Return a sync ``decide(prompt) -> str`` backed by the strongest available model.
@@ -4657,25 +4747,37 @@ class AgentOrchestrator:
             self._resume_copilot_cache = JobCopilot(decide=brain)
         return self._resume_copilot_cache
 
-    async def run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
+    async def run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None,
+                        team: bool = False) -> ToolResult:
         """Public entry for autonomous runs with an optional per-step callback (used by the
-        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path.
-        ``history`` is the session transcript so the goal can refer to earlier turns."""
-        return await self._run_agent(goal, on_step=on_step, history=history)
+        web UI to stream the live trace). Mirrors the 'agent run <goal>' command path, or with
+        ``team`` 'agent team <goal>'. ``history`` is the session transcript so the goal can refer
+        to earlier turns."""
+        return await self._run_agent(goal, on_step=on_step, history=history, team=team)
 
-    async def _run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None) -> ToolResult:
+    async def _run_agent(self, goal: str, on_step=None, history: list[dict[str, str]] | None = None,
+                         team: bool = False) -> ToolResult:
         goal = goal.strip()
         if not goal:
             return ToolResult.failure("Use: agent run <goal>  (e.g. 'agent run summarize the README and index it')")
 
-        agent_id = self.control_room.start(f"agent: {goal}")
-        brain = self._build_agent_brain()
-        agent = AutonomousAgent(
-            decide=brain,
-            execute=self._supervised(history, brain),
-            command_reference=self._agent_reference(),
-            max_steps=6,
-        )
+        agent_id = self.control_room.start(f"agent team: {goal}" if team else f"agent: {goal}")
+        tree: RunTree | None = None
+        if team:
+            # The planner leads on the strongest tier configured, with the tiers below and the backup behind it.
+            planners = self._tier_planners()
+            tier = next((name for name in ("ultra", "smart", "fast") if _answers(planners[name])), "fast")
+            ladder = [planners[name] for name in ("ultra", "smart", "fast")
+                      if supervision.TIER_RANK[name] <= supervision.TIER_RANK[tier]]
+            brain = self._build_agent_brain((*ladder, self.fallback_planner))
+            tree = RunTree()
+            execute = self._supervised(history, brain, Supervisor(tree, tier=tier),
+                                       self._delegator(tree, goal, "a0", 0, on_step))
+            reference, max_steps = self._agent_reference(self._delegate_to(tier, 0)), self._TEAM_STEPS
+        else:
+            brain = self._build_agent_brain()
+            execute, reference, max_steps = self._supervised(history, brain), self._agent_reference(), 6
+        agent = AutonomousAgent(decide=brain, execute=execute, command_reference=reference, max_steps=max_steps)
         context = context_block(history or [], goal, budget=AGENT_BUDGET)
         try:
             result = await agent.run(goal, on_step=on_step, context=context)
@@ -4688,7 +4790,7 @@ class AgentOrchestrator:
             return ToolResult.failure(f"Autonomous run crashed: {exc}", goal=goal)
         self.control_room.finish(agent_id, result.final_answer, ok=result.status != "failed")
 
-        run = self.context.agent_runs.record_run(result)
+        run = self.context.agent_runs.record_run(result, agents=tree.agents if tree is not None else None)
         payload = dict(
             goal=goal,
             answer=result.final_answer,
