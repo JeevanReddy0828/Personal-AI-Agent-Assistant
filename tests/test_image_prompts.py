@@ -35,7 +35,9 @@ def picture_turn(data: dict | None = PREVIOUS) -> dict[str, str]:
     """An assistant turn as the web client sends it back: the reply, then its tool data."""
     text = f"![mojito]({PREVIOUS['url']})\n\nHere is *mojito*."
     if data is not None:
-        text += "\n[tool result data, context only - not a format to imitate] " + json.dumps(data, separators=(",", ":"))
+        text += "\n[tool result data, context only - not a format to imitate] " + json.dumps(
+            data, separators=(",", ":")
+        )
     return {"role": "assistant", "text": text}
 
 
@@ -92,8 +94,9 @@ class ImagePromptTests(unittest.TestCase):
 
     def test_a_follow_up_is_drawn_from_the_last_pictures_prompt_and_seed(self) -> None:
         writer = Writer()
-        result = self.draw(self.orchestrator(writer), "Chatgpt in mojito",
-                           [{"role": "user", "text": "mojito"}, picture_turn()])
+        result = self.draw(
+            self.orchestrator(writer), "Chatgpt in mojito", [{"role": "user", "text": "mojito"}, picture_turn()]
+        )
         self.assertTrue(result.ok, result.message)
         self.assertIn(PREVIOUS["prompt"], writer.asked[0])
         self.assertEqual(self.sent[0]["seed"], 4242)
@@ -140,8 +143,7 @@ class ImagePromptTests(unittest.TestCase):
 
     def test_only_the_latest_reply_counts_as_the_last_picture(self) -> None:
         writer = Writer()
-        history = [picture_turn(), {"role": "user", "text": "thanks"},
-                   {"role": "assistant", "text": "You're welcome."}]
+        history = [picture_turn(), {"role": "user", "text": "thanks"}, {"role": "assistant", "text": "You're welcome."}]
         self.draw(self.orchestrator(writer), "a red fox", history)
         self.assertNotIn(PREVIOUS["prompt"], writer.asked[0])
         self.assertNotEqual(self.sent[0]["seed"], 4242)
