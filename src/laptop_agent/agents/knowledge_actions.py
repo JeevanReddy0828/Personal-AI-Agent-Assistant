@@ -332,7 +332,9 @@ class KnowledgeActions:
         if text:
             return ToolResult.success(
                 f"I couldn't look at {what} itself ({gap}), so I read the text from {what} instead.\n\n{ocr.message}",
-                ocr_text=text, vision=False, **data,
+                ocr_text=text,
+                vision=False,
+                **data,
             )
         if ocr.ok:
             return ToolResult.failure(f"I couldn't look at {what} ({gap}), and it has no readable text.", **data)

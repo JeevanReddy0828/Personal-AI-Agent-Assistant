@@ -135,7 +135,9 @@ class DescribeImageFailureTests(unittest.TestCase):
         calls: list[dict] = []
         heard: list[tuple[str, str]] = []
         provider = OpenAICompatiblePlannerProvider("k", "m", transport=lambda payload: calls.append(payload) or "x")
-        reply = provider.describe_image("Z:/no/such/photo.jpg", "what is this", on_failure=lambda *why: heard.append(why))
+        reply = provider.describe_image(
+            "Z:/no/such/photo.jpg", "what is this", on_failure=lambda *why: heard.append(why)
+        )
         self.assertIsNone(reply)
         self.assertEqual(calls, [])
         self.assertIn("could not be read", heard[0][1])
