@@ -73,8 +73,10 @@ CARDED = (
 )
 # DIRECT: never a step of a run. Starting a run is here too: `agent run` from a step built a fresh
 # supervisor with no taint, so a run could launder itself; `delegate` is the one way, and keeps the tree.
-DIRECT = ("run command", "code run", "code fix", "file delete", "agent run", "agent team", "schedule agent",
-          "autopilot")
+# `terminal` and `shell` run the shell like `run command` does, and were unknown here until a test walked
+# every branch into the shell (tests/test_supervisor_matrix.py).
+DIRECT = ("run command", "terminal", "shell", "code run", "code fix", "file delete", "agent run", "agent team",
+          "schedule agent", "autopilot")
 # DELEGATE: hands a sub-task to an agent on a lower tier, in the same tree (offered to `agent team` only).
 DELEGATE = ("delegate",)
 # SAFE: computed here or read from the user's own stores; neither tainting nor guarded.

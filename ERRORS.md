@@ -606,6 +606,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
 - **"Command timed out after 1s" arrived after 30 s** (audit, 11-11) → `subprocess.run`'s timeout
   kills the shell alone; its child keeps the pipes open → the whole tree is ended
   (`TerminalTool._end_tree`, `test_a_timeout_ends_what_the_shell_started`).
+- **An agent step could reach the shell as `terminal ...` or `shell ...`** (supervisor tests, 11-20) →
+  the orchestrator runs the shell for `run command`, `terminal` and `shell`, but only `run command`
+  was `DIRECT`; the others were unknown, so allowed in a run that had read nothing → both are
+  `DIRECT`, and a test walks every orchestrator branch into a tool no run may use and requires its
+  prefix to be `DIRECT` (`test_supervisor_matrix.py`).
 - **An agent run could shed its own taint by starting another run** (design review, 11-20) →
   `agent run`, `schedule agent` and `autopilot` were in no supervisor group, so a step could run
   them, and `agent run` built a fresh `Supervisor()` with no taint, refusals or repeats → they are

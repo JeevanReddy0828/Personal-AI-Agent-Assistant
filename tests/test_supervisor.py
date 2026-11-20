@@ -17,7 +17,7 @@ from laptop_agent.supervisor import Supervisor, Verdict, group_of
 
 # Forms the supervisor names that are deliberately not in `_AGENT_COMMANDS`: `delegate` is offered
 # only to a team run, and the rest start a run, which a step never may.
-NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot"}
+NOT_AGENT_COMMANDS = {"delegate", "agent run", "agent team", "schedule agent", "autopilot", "terminal", "shell"}
 
 
 def head(entry: str) -> str:
