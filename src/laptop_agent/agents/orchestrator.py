@@ -196,7 +196,9 @@ class AgentOrchestrator(
         self._code_fix_cache: CodeFixTool | None = None
         # The rolling summary of older turns is written by the fast tier in the background
         # (see context.py); with no model configured it simply never appears.
-        register_summarizer(self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400))
+        register_summarizer(
+            self._build_agent_brain((self.planner, self.smart_planner, self.fallback_planner), answer_max_tokens=400)
+        )
 
     async def handle(
         self,
@@ -258,7 +260,8 @@ class AgentOrchestrator(
         record_failure("orchestrator.handle", exc, verb=verb if verb in self._command_verbs() else "")
         # The commonest cause by far: a path the operating system refuses outright.
         unusable = (isinstance(exc, ValueError) and "null" in str(exc)) or (
-            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206))
+            isinstance(exc, OSError) and (exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == 206)
+        )
         if unusable:
             return ToolResult.failure(_UNUSABLE_PATH, error=type(exc).__name__)
         detail = " ".join(str(exc).split())[:200] or type(exc).__name__
@@ -280,7 +283,9 @@ class AgentOrchestrator(
         ensure_signed_in()
         # An `mcp` call's arguments are JSON data, not a sentence: folded and path-cleaned, a value
         # such as "C:/r.csv" lost its quotes and "it’s" changed (review of #293).
-        command = text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
+        command = (
+            text.strip() if text.strip().lower().startswith("mcp ") else _clean_paths(_fold_apostrophes(text.strip()))
+        )
         lowered = command.lower()
         history_turns = history or []
         if not command:
@@ -361,8 +366,9 @@ class AgentOrchestrator(
                         continue
                     attempted.add(tier_label)
                     why: list[tuple[str, str]] = []
-                    reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
-                                             on_token, failures=why)
+                    reply = self._tier_reply(
+                        tier_planner.provider, command, profile, history_turns, on_token, failures=why
+                    )
                     self._record_tier(tier_label, reply, why)
                     if reply:
                         response, model_used, answered = reply, tier_label, True
@@ -386,8 +392,7 @@ class AgentOrchestrator(
                     deferred = real_fast and (not planned.response or canned) and planned.confidence > 0
                     if fast_provider is not None and fast_available and (on_token is not None or deferred):
                         why = []
-                        reply = self._tier_reply(fast_provider, command, profile, history_turns,
-                                                 on_token, failures=why)
+                        reply = self._tier_reply(fast_provider, command, profile, history_turns, on_token, failures=why)
                         if real_fast:
                             self._record_tier("fast", reply, why)
                         if reply:
@@ -407,24 +412,31 @@ class AgentOrchestrator(
                     for tier_planner, tier_label in self._recovery_chat_tiers(attempted):
                         attempted.add(tier_label)
                         why = []
-                        reply = self._tier_reply(tier_planner.provider, command, profile, history_turns,
-                                                 on_token, failures=why)
+                        reply = self._tier_reply(
+                            tier_planner.provider, command, profile, history_turns, on_token, failures=why
+                        )
                         self._record_tier(tier_label, reply, why)
                         if reply:
                             response, model_used, answered = reply, tier_label, True
                             break
-                if not answered and self.fallback_planner is not None and self.model_status.should_attempt("openrouter"):
+                if (
+                    not answered
+                    and self.fallback_planner is not None
+                    and self.model_status.should_attempt("openrouter")
+                ):
                     # Cross-provider safety net is also cooled down after an error.
                     why = []
-                    reply = self._tier_reply(self.fallback_planner.provider, command, profile,
-                                             history_turns, on_token, failures=why)
+                    reply = self._tier_reply(
+                        self.fallback_planner.provider, command, profile, history_turns, on_token, failures=why
+                    )
                     self._record_tier("openrouter", reply, why)
                     if reply:
                         response, model_used, answered = reply, "openrouter", True
                 if not answered and not response:
                     response = (
                         "I couldn't reach any configured language model just now. Please try again in a minute."
-                        if self._has_language_model() else _NO_MODEL_REPLY
+                        if self._has_language_model()
+                        else _NO_MODEL_REPLY
                     )
                     model_used = "unavailable"
                 degraded = model_used != requested_label

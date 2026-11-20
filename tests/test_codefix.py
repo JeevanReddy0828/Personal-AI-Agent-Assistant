@@ -79,8 +79,12 @@ class CodeFixTests(unittest.TestCase):
 
     def test_a_denied_fix_writes_nothing(self) -> None:
         answers = iter([True, False])
-        tool = CodeFixTool(lambda prompt: self.reply, ApprovalGate(ask=lambda request: next(answers)), self.root / "backups",
-                           lambda path: self.exit)
+        tool = CodeFixTool(
+            lambda prompt: self.reply,
+            ApprovalGate(ask=lambda request: next(answers)),
+            self.root / "backups",
+            lambda path: self.exit,
+        )
         with self.assertRaises(ApprovalDenied):
             tool.fix(str(self.script))
         self.assertEqual(self.script.read_text(encoding="utf-8"), BROKEN)
@@ -92,8 +96,9 @@ class CodeFixTests(unittest.TestCase):
                 self.script.write_text("my newer work\n", encoding="utf-8")
             return True
 
-        tool = CodeFixTool(lambda prompt: self.reply, ApprovalGate(ask=ask), self.root / "backups",
-                           lambda path: self.exit)
+        tool = CodeFixTool(
+            lambda prompt: self.reply, ApprovalGate(ask=ask), self.root / "backups", lambda path: self.exit
+        )
         result = tool.fix(str(self.script))
         self.assertFalse(result.ok)
         self.assertIn("changed", result.message)
@@ -166,8 +171,12 @@ class CodeCommandTests(unittest.TestCase):
             orch = self.build(Path(tmp))
             script = Path(tmp) / "add.py"
             script.write_text(BROKEN, encoding="utf-8")
-            orch._code_fix_cache = CodeFixTool(lambda prompt: f"```python\n{FIXED}```", orch.context.web.approval_gate,
-                                               Path(tmp) / "backups", lambda path: (1, "TypeError"))
+            orch._code_fix_cache = CodeFixTool(
+                lambda prompt: f"```python\n{FIXED}```",
+                orch.context.web.approval_gate,
+                Path(tmp) / "backups",
+                lambda path: (1, "TypeError"),
+            )
             result = asyncio.run(orch.handle(f"fix my script {script}", history=[]))
             self.assertTrue(result.ok, result.message)
             self.assertEqual(script.read_text(encoding="utf-8"), FIXED)
@@ -176,16 +185,26 @@ class CodeCommandTests(unittest.TestCase):
 class CodeRoutingTests(unittest.TestCase):
     def test_scripts_named_with_py_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()
-        for text, command in {"run hello.py": "code run hello.py", "fix my script hello.py": "code fix hello.py",
-                              "debug hello.py": "code fix hello.py", "what's wrong with hello.py": "code fix hello.py",
-                              'fix "my app.py"': 'code fix "my app.py"'}.items():
+        for text, command in {
+            "run hello.py": "code run hello.py",
+            "fix my script hello.py": "code fix hello.py",
+            "debug hello.py": "code fix hello.py",
+            "what's wrong with hello.py": "code fix hello.py",
+            'fix "my app.py"': 'code fix "my app.py"',
+        }.items():
             with self.subTest(text):
                 self.assertEqual(planner.plan(text, "", {}).command, command)
 
     def test_coding_questions_are_not_scripts(self) -> None:
         planner = HeuristicPlannerProvider()
-        for text in ("how do I fix a python script", "fix my code", "run python", "what is a .py file", "run the tests",
-                     "fix my bike"):
+        for text in (
+            "how do I fix a python script",
+            "fix my code",
+            "run python",
+            "what is a .py file",
+            "run the tests",
+            "fix my bike",
+        ):
             with self.subTest(text):
                 self.assertFalse((planner.plan(text, "", {}).command or "").startswith("code "), text)
 

@@ -76,13 +76,20 @@ class ProblemSolver:
         try:
             reply = (self._decide(prompt) or "").strip()
         except Exception as exc:  # the brain is injected; surface, don't crash
-            return AdviceResult(problem=problem, analysis=f"My reasoning model errored: {exc}", ok=False,
-                                used_research=used_research, sources=sources)
+            return AdviceResult(
+                problem=problem,
+                analysis=f"My reasoning model errored: {exc}",
+                ok=False,
+                used_research=used_research,
+                sources=sources,
+            )
         if not reply:
             return AdviceResult(
                 problem=problem,
                 analysis="I need a language model configured to think this through (set OPENAI_* in your .env).",
-                ok=False, used_research=used_research, sources=sources,
+                ok=False,
+                used_research=used_research,
+                sources=sources,
             )
         return AdviceResult(problem=problem, analysis=reply, ok=True, used_research=used_research, sources=sources)
 

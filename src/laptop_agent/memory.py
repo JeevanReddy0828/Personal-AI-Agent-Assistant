@@ -24,9 +24,17 @@ def _normalized(key: str) -> str:
 _SECTIONS: dict[str, Any] = {"profile": {}, "preferences": {}, "notes": [], "lists": {}}
 
 # One list, however it is called: "grocery list" and "shopping list" are the same list.
-_LIST_ALIASES = {"grocery": "shopping", "groceries": "shopping", "shop": "shopping",
-                 "to do": "todo", "to-do": "todo", "todos": "todo", "things to do": "todo", "task": "todo",
-                 "tasks": "todo"}
+_LIST_ALIASES = {
+    "grocery": "shopping",
+    "groceries": "shopping",
+    "shop": "shopping",
+    "to do": "todo",
+    "to-do": "todo",
+    "todos": "todo",
+    "things to do": "todo",
+    "task": "todo",
+    "tasks": "todo",
+}
 # Every name that is a list without the word "list" after it ("add milk to groceries").
 KNOWN_LISTS = frozenset(_LIST_ALIASES) | frozenset(_LIST_ALIASES.values())
 
@@ -48,8 +56,10 @@ class MemoryStore:
             return
         loaded = read_json(self.path, {})
         if isinstance(loaded, dict):
-            self._data = {key: loaded.get(key) if isinstance(loaded.get(key), type(default)) else type(default)()
-                          for key, default in _SECTIONS.items()}
+            self._data = {
+                key: loaded.get(key) if isinstance(loaded.get(key), type(default)) else type(default)()
+                for key, default in _SECTIONS.items()
+            }
 
     @synchronized
     def lists(self) -> dict[str, list[str]]:
@@ -147,21 +157,46 @@ class MemoryStore:
         spot, a door code - stayed in every answer about the user for good.
         """
         # Only words that say something: "forget the" must not match every note with "the".
-        filler = {"the", "a", "an", "my", "i", "that", "it", "to", "of", "on", "in", "at", "is",
-                  "was", "me", "about", "and", "or", "for", "this", "what", "told", "you", "said"}
+        filler = {
+            "the",
+            "a",
+            "an",
+            "my",
+            "i",
+            "that",
+            "it",
+            "to",
+            "of",
+            "on",
+            "in",
+            "at",
+            "is",
+            "was",
+            "me",
+            "about",
+            "and",
+            "or",
+            "for",
+            "this",
+            "what",
+            "told",
+            "you",
+            "said",
+        }
         wanted = [word for word in _normalized(words).split() if word not in filler]
         notes = self._data.setdefault("notes", [])
 
         def holding(required: list[str]) -> list[Any]:
-            return [note for note in notes if required and all(word in _normalized(str(note)).split() for word in required)]
+            return [
+                note for note in notes if required and all(word in _normalized(str(note)).split() for word in required)
+            ]
 
         # Every word first. Only "where", "when" or "who" may then go: each stands for the answer a note
         # holds - "forget where i parked" finds "i parked on level 3". "how" and "why" are a note's own
         # words, so a repeated "forget how i file my taxes" once dropped "i file my taxes on friday"
         # in place of the note already gone (Codex's review).
         dropped = holding(wanted)
-        if not dropped and re.match(r"(?:where|when|who)\s+(?:i|my|we|our|you|your|did|do|does)\b",
-                                    _normalized(words)):
+        if not dropped and re.match(r"(?:where|when|who)\s+(?:i|my|we|our|you|your|did|do|does)\b", _normalized(words)):
             dropped = holding(wanted[1:])
         if dropped:
             self._data["notes"] = [note for note in notes if note not in dropped]

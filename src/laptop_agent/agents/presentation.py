@@ -2,6 +2,7 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,7 +19,6 @@ from laptop_agent.agents.knowledge_actions import KnowledgeActions
 
 
 class Presentation:
-
     def _time_card(self, request: str) -> ToolResult:
         """`timecard [zone]` — an image whose text is the actual time.
 
@@ -74,8 +74,10 @@ class Presentation:
             lines.append(f"  FAIL  {check.name}")
             lines.append(f"        {check.detail}")
         if not failed:
-            lines.append(f"  Routing contract: {len(checks)} phrasings, all reaching the "
-                         "right tool, none grabbing ordinary prose.")
+            lines.append(
+                f"  Routing contract: {len(checks)} phrasings, all reaching the "
+                "right tool, none grabbing ordinary prose."
+            )
         payload = {
             "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
             "passed": len(checks) - len(failed),
@@ -114,15 +116,13 @@ class Presentation:
         ]
         for entry in recent:
             detail = str(entry.get("message", "")).replace("|", "/")[:80]
-            lines.append(
-                f"| `{entry['where']}` | {entry['kind']} | {entry['age_seconds']}s ago | {detail} |"
-            )
+            lines.append(f"| `{entry['where']}` | {entry['kind']} | {entry['age_seconds']}s ago | {detail} |")
         frequent = summary.get("most_frequent") or []
         if frequent:
             lines.append("")
-            lines.append("**Most frequent:** " + " · ".join(
-                f"{item['what']} ×{item['count']}" for item in frequent[:5]
-            ))
+            lines.append(
+                "**Most frequent:** " + " · ".join(f"{item['what']} ×{item['count']}" for item in frequent[:5])
+            )
         return ToolResult.success(NL.join(lines), **summary)
 
     @staticmethod
@@ -131,52 +131,53 @@ class Presentation:
 
         "what can you do" is the first thing anyone asks, and it used to return a hundred
         lines of command syntax. `help` still does, for reference."""
-        text = NL.join([
-            "I run on your laptop and I can act on it, not just talk about it. "
-            "Plain language works for all of this — the commands are just shortcuts.",
-            "",
-            "**Day to day**",
-            "Reminders, timers and alarms that ring on screen and out loud · shopping and to-do "
-            "lists · unit conversions and date counting · I remember what you tell me.",
-            "_Try:_ `set a pasta timer for 10 minutes` · `add milk and eggs to my shopping list` · "
-            "`how many days until christmas` · `remember my wife's birthday is june 5`",
-            "",
-            "**Files and documents**",
-            "Read, search, convert and organise your files · summarise a PDF, DOCX or "
-            "spreadsheet · answer questions about one file · pull tables out · per-column stats.",
-            "_Try:_ `summarize the readme` · `what files are here` · `analyze spreadsheet sales.csv`",
-            "",
-            "**See and hear**",
-            "OCR an image or scan with layout preserved · transcribe audio and video · "
-            "look at your screen or webcam · summarise a YouTube video.",
-            "_Try:_ `read screen` · `ocr image receipt.png` · `summarize youtube <url>`",
-            "",
-            "**Make things**",
-            "Draw a picture · write a real PDF, Word or Markdown document · draw a diagram "
-            "or flowchart · build a table you can copy or export as CSV.",
-            "_Try:_ `draw a red fox in snow` · `write a one page brief on X as a pdf` · "
-            "`draw an ERD for a users and orders schema`",
-            "",
-            "**Know things**",
-            "Real headlines and weather · web search and multi-source research · a searchable "
-            "knowledge base of anything you index · your Obsidian vault as memory · exact arithmetic.",
-            "_Try:_ `news` · `weather Hyderabad` · `research local-first AI agents` · "
-            "`what is 67458363*37834872`",
-            "",
-            "**Do things**",
-            "Open URLs and download files · open apps · run shell commands · send and search "
-            "email · play a song or video on YouTube · driving distances, trips and maps.",
-            "_Anything that changes the outside world asks you first._",
-            "_Try:_ `play music despacito` · `distance Hyderabad to Kurnool` · `email unread`",
-            "",
-            "**Think ahead**",
-            "Weigh a decision with researched options and a plan · run an autonomous "
-            "multi-step goal · schedule recurring jobs · reminders · a daily briefing.",
-            "_Try:_ `should I use Postgres or MongoDB for this` · `agent run tidy my downloads folder` · "
-            "`daily at 08:00 :: briefing`",
-            "",
-            "Ask `help` for the full command list, or `latency` to see where time went.",
-        ])
+        text = NL.join(
+            [
+                "I run on your laptop and I can act on it, not just talk about it. "
+                "Plain language works for all of this — the commands are just shortcuts.",
+                "",
+                "**Day to day**",
+                "Reminders, timers and alarms that ring on screen and out loud · shopping and to-do "
+                "lists · unit conversions and date counting · I remember what you tell me.",
+                "_Try:_ `set a pasta timer for 10 minutes` · `add milk and eggs to my shopping list` · "
+                "`how many days until christmas` · `remember my wife's birthday is june 5`",
+                "",
+                "**Files and documents**",
+                "Read, search, convert and organise your files · summarise a PDF, DOCX or "
+                "spreadsheet · answer questions about one file · pull tables out · per-column stats.",
+                "_Try:_ `summarize the readme` · `what files are here` · `analyze spreadsheet sales.csv`",
+                "",
+                "**See and hear**",
+                "OCR an image or scan with layout preserved · transcribe audio and video · "
+                "look at your screen or webcam · summarise a YouTube video.",
+                "_Try:_ `read screen` · `ocr image receipt.png` · `summarize youtube <url>`",
+                "",
+                "**Make things**",
+                "Draw a picture · write a real PDF, Word or Markdown document · draw a diagram "
+                "or flowchart · build a table you can copy or export as CSV.",
+                "_Try:_ `draw a red fox in snow` · `write a one page brief on X as a pdf` · "
+                "`draw an ERD for a users and orders schema`",
+                "",
+                "**Know things**",
+                "Real headlines and weather · web search and multi-source research · a searchable "
+                "knowledge base of anything you index · your Obsidian vault as memory · exact arithmetic.",
+                "_Try:_ `news` · `weather Hyderabad` · `research local-first AI agents` · `what is 67458363*37834872`",
+                "",
+                "**Do things**",
+                "Open URLs and download files · open apps · run shell commands · send and search "
+                "email · play a song or video on YouTube · driving distances, trips and maps.",
+                "_Anything that changes the outside world asks you first._",
+                "_Try:_ `play music despacito` · `distance Hyderabad to Kurnool` · `email unread`",
+                "",
+                "**Think ahead**",
+                "Weigh a decision with researched options and a plan · run an autonomous "
+                "multi-step goal · schedule recurring jobs · reminders · a daily briefing.",
+                "_Try:_ `should I use Postgres or MongoDB for this` · `agent run tidy my downloads folder` · "
+                "`daily at 08:00 :: briefing`",
+                "",
+                "Ask `help` for the full command list, or `latency` to see where time went.",
+            ]
+        )
         return ToolResult.success(text, kind="capabilities")
 
     @staticmethod
@@ -203,7 +204,7 @@ class Presentation:
                 "  schedule agent <when> :: <goal>  (run the autonomous agent on a schedule)",
                 "  agents off | agents on  (turn every agent run off, or back on)",
                 "  schedule list | schedule remove <id> | schedule run due",
-                "  remind me <what> <when>  (\"to call mom at 6pm\", \"in 20 minutes\", \"every day at 8am\")",
+                '  remind me <what> <when>  ("to call mom at 6pm", "in 20 minutes", "every day at 8am")',
                 "  reminders | reminders due | reminders next [alarm|timer] | reminder done <id>",
                 "  reminder delete <id|words|all>  ·  reminder stop <words>  (only what is going off now)",
                 "  reminder snooze [id] [<n>m]",
@@ -371,9 +372,13 @@ class Presentation:
                 newest = data.get("newest")
                 if not isinstance(newest, dict):
                     return f"There are no files in {data['root']}."
-                changed = describe(datetime.fromisoformat(str(newest["modified"])), datetime.now().astimezone(), local=True)
-                return (f"Nothing in {data['root']} changed {period}. The newest is "
-                        f"`{Path(str(newest['path'])).name}`, {changed}.")
+                changed = describe(
+                    datetime.fromisoformat(str(newest["modified"])), datetime.now().astimezone(), local=True
+                )
+                return (
+                    f"Nothing in {data['root']} changed {period}. The newest is "
+                    f"`{Path(str(newest['path'])).name}`, {changed}."
+                )
             if not files:
                 return f"There are no files in {data['root']}."
             shown = files[:12]
@@ -494,7 +499,11 @@ class Presentation:
             docs = data["documents"]
             if not docs:
                 return "Your knowledge base is empty. Index a file to get started."
-            return f"You have {len(docs)} document(s) indexed: " + ", ".join(str(d.get("source", "")) for d in docs[:6]) + "."
+            return (
+                f"You have {len(docs)} document(s) indexed: "
+                + ", ".join(str(d.get("source", "")) for d in docs[:6])
+                + "."
+            )
         if isinstance(data.get("memory"), dict):
             return KnowledgeActions._memory_text(data["memory"])
         return result.message

@@ -15,8 +15,9 @@ PASSCODE = "test-passcode-123"
 
 def _reload_webui(**env: str):
     """Import webui with a given environment. HOST and the passcode are read at import."""
-    saved = {key: os.environ.get(key) for key in
-             ("LAPTOP_AGENT_HOST", "LAPTOP_AGENT_PORT", "LAPTOP_AGENT_LAN_PASSCODE")}
+    saved = {
+        key: os.environ.get(key) for key in ("LAPTOP_AGENT_HOST", "LAPTOP_AGENT_PORT", "LAPTOP_AGENT_LAN_PASSCODE")
+    }
     for key, value in env.items():
         os.environ[key] = value
     for key in saved:
@@ -24,6 +25,7 @@ def _reload_webui(**env: str):
             os.environ.pop(key, None)
     try:
         import laptop_agent.webui as webui
+
         return importlib.reload(webui)
     finally:
         for key, value in saved.items():
@@ -80,8 +82,9 @@ class LanGateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.webui = _reload_webui(LAPTOP_AGENT_HOST="0.0.0.0", LAPTOP_AGENT_LAN_PASSCODE=PASSCODE)
-        cls.metrics = patch.object(cls.webui, "system_metrics",
-                                   return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []})
+        cls.metrics = patch.object(
+            cls.webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []}
+        )
         cls.metrics.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), cls.webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -182,8 +185,9 @@ class ThisMachineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.webui = _reload_webui(LAPTOP_AGENT_HOST="0.0.0.0", LAPTOP_AGENT_LAN_PASSCODE=PASSCODE)
-        cls.metrics = patch.object(cls.webui, "system_metrics",
-                                   return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []})
+        cls.metrics = patch.object(
+            cls.webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 2, "gpus": []}
+        )
         cls.metrics.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), cls.webui.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)

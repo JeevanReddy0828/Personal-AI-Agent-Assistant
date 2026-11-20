@@ -59,6 +59,8 @@ where = ["src"]
 
 [tool.ruff]
 target-version = "py311"
+# The code was written to about 120 columns (99% of lines were within 118 when `ruff format` was adopted).
+line-length = 120
 
 [tool.ruff.lint]
 # Correctness only: syntax errors, undefined names, invalid comparisons, unused imports.

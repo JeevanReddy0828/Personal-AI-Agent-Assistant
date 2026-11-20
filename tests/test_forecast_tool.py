@@ -11,7 +11,14 @@ from unittest.mock import patch
 from laptop_agent.access import acting_as
 from laptop_agent.analytics.forecast import forecast
 from laptop_agent.accounts import Principal
-from laptop_agent.tools.forecast import SeriesError, _shown, forecast_command, forecast_request, load_series, run_forecast
+from laptop_agent.tools.forecast import (
+    SeriesError,
+    _shown,
+    forecast_command,
+    forecast_request,
+    load_series,
+    run_forecast,
+)
 from test_everyday_requests import Everyday
 
 
@@ -59,9 +66,12 @@ class LoadSeriesTests(unittest.TestCase):
     def test_quarters_and_years_are_counted_on_the_calendar_the_labels_use(self) -> None:
         # Codex's review of #159: counting from the first date's month accepted these as
         # consecutive periods while labelling them Q1, Q2, Q4, Q4 and 2024, 2025, 2027.
-        ends = load_series(self.csv("Date,Sales\n2025-03-31,1\n2025-06-30,2\n2025-09-30,3\n2025-12-31,4\n"),
-                           "Sales", "Date")
-        self.assertEqual((ends.labels, ends.next_labels(1)), (["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"], ["2026-Q1"]))
+        ends = load_series(
+            self.csv("Date,Sales\n2025-03-31,1\n2025-06-30,2\n2025-09-30,3\n2025-12-31,4\n"), "Sales", "Date"
+        )
+        self.assertEqual(
+            (ends.labels, ends.next_labels(1)), (["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"], ["2026-Q1"])
+        )
         skipped = self.csv("Date,Sales\n2025-03-31,1\n2025-06-30,2\n2025-10-01,3\n2025-12-31,4\n", name="q.csv")
         self.assertIn("Two rows fall in the quarter of 2025-Q4", self.refused(skipped, "Sales", "Date"))
         years = self.csv("Date,Sales\n2024-12-31,1\n2025-12-31,2\n2027-01-01,3\n", name="y.csv")
@@ -77,7 +87,9 @@ class LoadSeriesTests(unittest.TestCase):
         message = self.refused(path, "Sales", "Month")
         self.assertIn("3 months are missing: 2025-03, 2025-04, 2025-05", message)
         many = self.csv("Month,Sales\n2024-01,5\n2024-02,5\n2025-01,7\n", name="many.csv")
-        self.assertIn("10 months are missing: 2024-03, 2024-04, 2024-05 and 7 more", self.refused(many, "Sales", "Month"))
+        self.assertIn(
+            "10 months are missing: 2024-03, 2024-04, 2024-05 and 7 more", self.refused(many, "Sales", "Month")
+        )
 
     def test_two_rows_in_one_period_are_not_added_up(self) -> None:
         path = self.csv("Day,Sales\n2025-01-01,5\n2025-01-02,6\n2025-01-02,7\n2025-01-03,8\n")
@@ -100,7 +112,9 @@ class LoadSeriesTests(unittest.TestCase):
 
     def test_an_unknown_column_lists_the_ones_that_exist(self) -> None:
         path = self.csv("Month,Region,Revenue\n2025-01,East,5\n2025-02,West,6\n")
-        self.assertIn("There is no column called 'sales'. Its numeric columns are: Revenue.", self.refused(path, "sales"))
+        self.assertIn(
+            "There is no column called 'sales'. Its numeric columns are: Revenue.", self.refused(path, "sales")
+        )
         self.assertIn("Its columns are: Month, Region, Revenue.", self.refused(path, "Revenue", "date"))
 
     def test_a_file_saved_by_excel_still_matches_its_first_column(self) -> None:
@@ -125,15 +139,23 @@ class LoadSeriesTests(unittest.TestCase):
 class ForecastRequestTests(unittest.TestCase):
     def test_the_request_names_a_column_a_file_and_optionally_dates_and_a_horizon(self) -> None:
         request = forecast_request(r'forecast Revenue in "C:\my data\sales.csv" by Month for the next 6 months')
-        self.assertEqual((request.column, request.path, request.date_column, request.horizon),
-                         ("Revenue", r"C:\my data\sales.csv", "Month", 6))
+        self.assertEqual(
+            (request.column, request.path, request.date_column, request.horizon),
+            ("Revenue", r"C:\my data\sales.csv", "Month", 6),
+        )
         bare = forecast_request(r"forecast steps from E:\logs\walks.tsv")
         self.assertEqual((bare.column, bare.date_column, bare.horizon), ("steps", None, 3))
 
     def test_the_weather_is_left_alone(self) -> None:
         # Without a .csv or .tsv this is not a data forecast, and the weather routes stay whole.
-        for text in ("forecast", "forecast for tomorrow", "boston forecast", "forecast in boston",
-                     "what's the forecast", "forecast revenue in sales.xlsx"):
+        for text in (
+            "forecast",
+            "forecast for tomorrow",
+            "boston forecast",
+            "forecast in boston",
+            "what's the forecast",
+            "forecast revenue in sales.xlsx",
+        ):
             with self.subTest(text):
                 self.assertIsNone(forecast_request(text))
                 self.assertIsNone(forecast_command(text))
@@ -187,8 +209,10 @@ class RunForecastTests(unittest.TestCase):
         result = self.run_on(values)
         self.assertTrue(result.ok)
         self.assertIn("| Row | Forecast | 80% range |", result.message)
-        self.assertEqual([line.split(" | ")[0] for line in result.message.splitlines() if line.startswith("| 6")],
-                         ["| 61", "| 62", "| 63"])
+        self.assertEqual(
+            [line.split(" | ")[0] for line in result.message.splitlines() if line.startswith("| 6")],
+            ["| 61", "| 62", "| 63"],
+        )
         self.assertIn("Range: the middle 80% of its own errors", result.message)
         # Accuracy is stated only from stretches that played no part in choosing the method.
         self.assertIn("later stretches that played no part in choosing it, its average miss was", result.message)
@@ -245,8 +269,10 @@ class RunForecastTests(unittest.TestCase):
     def test_a_small_series_keeps_its_figures(self) -> None:
         # Review of #159: two fixed decimals turned an error rate of 0.003 into 0 - its forecast,
         # its range, and "its average miss was 0", which claims a perfect forecast.
-        self.assertEqual([_shown(v) for v in (0.00306, 0.000128, -0.004, 0.0, -0.0, 0.5, 12.5, 1234.5)],
-                         ["0.00306", "0.000128", "-0.004", "0", "0", "0.5", "12.5", "1,234"])
+        self.assertEqual(
+            [_shown(v) for v in (0.00306, 0.000128, -0.004, 0.0, -0.0, 0.5, 12.5, 1234.5)],
+            ["0.00306", "0.000128", "-0.004", "0", "0", "0.5", "12.5", "1,234"],
+        )
         rates = [0.003 + 0.0004 * ((month * 7) % 5) / 4 for month in range(36)]
         result = self.run_on(rates)
         self.assertTrue(result.ok, result.message)
@@ -259,9 +285,14 @@ class RunForecastTests(unittest.TestCase):
         # like any other candidate; unstated, the reply says how to state it.
         def months(count: int) -> Path:
             path = self.dir / f"m{count}.csv"
-            path.write_text("Month,Revenue\n" + "".join(
-                f"{2020 + m // 12}-{m % 12 + 1:02d},{1200 + 5 * m + 300 * math.sin(2 * math.pi * m / 12):.2f}\n"
-                for m in range(count)), encoding="utf-8")
+            path.write_text(
+                "Month,Revenue\n"
+                + "".join(
+                    f"{2020 + m // 12}-{m % 12 + 1:02d},{1200 + 5 * m + 300 * math.sin(2 * math.pi * m / 12):.2f}\n"
+                    for m in range(count)
+                ),
+                encoding="utf-8",
+            )
             return path
 
         told = run_forecast(forecast_request(f"forecast Revenue in {months(36)} by Month season 12"))
@@ -282,9 +313,14 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.everyday = Everyday(Path(tmp.name), llm="none")
         self.path = Path(tmp.name) / "sales.csv"
-        self.path.write_text("Month,Revenue\n" + "".join(
-            f"{2020 + month // 12}-{month % 12 + 1:02d},{1000 + 12 * month + (month * 37) % 11 - 5}\n"
-            for month in range(60)), encoding="utf-8")
+        self.path.write_text(
+            "Month,Revenue\n"
+            + "".join(
+                f"{2020 + month // 12}-{month % 12 + 1:02d},{1000 + 12 * month + (month * 37) % 11 - 5}\n"
+                for month in range(60)
+            ),
+            encoding="utf-8",
+        )
 
     def test_a_developer_gets_the_forecast_and_a_personal_account_does_not(self) -> None:
         command = f"forecast Revenue in {self.path} by Month"
@@ -303,9 +339,12 @@ class ThroughTheAssistantTests(unittest.TestCase):
         self.assertFalse((routed or "").startswith("weather"), routed)
 
     def test_a_near_miss_is_never_the_weather(self) -> None:
-        for text in (f"forecast Revenue in {self.path}.", f"forecast Revenue in {self.path} for next 6 months",
-                     f"forecast Revenue in {self.path} for six months",
-                     f"what is the forecast for Revenue in {self.path}"):
+        for text in (
+            f"forecast Revenue in {self.path}.",
+            f"forecast Revenue in {self.path} for next 6 months",
+            f"forecast Revenue in {self.path} for six months",
+            f"what is the forecast for Revenue in {self.path}",
+        ):
             with self.subTest(text):
                 _result, ran = self.everyday.say(text)
                 self.assertFalse((ran or "").startswith("weather"), ran)

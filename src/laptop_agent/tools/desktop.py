@@ -66,6 +66,6 @@ class DesktopTool:
         try:
             backend(target)
         except Exception:
-            target.unlink(missing_ok=True)   # the claimed name, left empty, is not a screenshot
+            target.unlink(missing_ok=True)  # the claimed name, left empty, is not a screenshot
             raise
         return ToolResult.success(f"Saved screenshot: {target}", path=str(target))

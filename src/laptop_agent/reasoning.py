@@ -27,7 +27,9 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
 _FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
 # "ACTION: FINAL: <answer>": live, a helper's answer this way ran as a command and was lost.
-_ACTION_FINAL_RE = re.compile(r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER|DONE)[ \t]*:)", re.IGNORECASE | re.MULTILINE)
+_ACTION_FINAL_RE = re.compile(
+    r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER|DONE)[ \t]*:)", re.IGNORECASE | re.MULTILINE
+)
 _CUT_OFF_REMINDER = (
     "\n\nYour last reply was cut off at the length limit, so none of it was used. Reply again, "
     "shorter: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -69,7 +71,7 @@ class AgentStep:
     command: str
     status: str  # ok | failed | blocked
     message: str
-    agent: str = ""   # which agent of a team run took it ("" for the planner or a single run)
+    agent: str = ""  # which agent of a team run took it ("" for the planner or a single run)
     depth: int = 0
 
 
@@ -157,22 +159,33 @@ def parse_agent_decision(text: str) -> AgentDecision:
     # Prefer an upper-case header outside any fenced block: a deliverable may legitimately
     # contain a line such as "Done: migrated", "Answer: 4" or a "DONE:" YAML key.
     fenced = _fenced_spans(raw)
-    heads = [head for head in _FINAL_HEAD_RE.finditer(raw) if not any(start <= head.start() < end for start, end in fenced)]
+    heads = [
+        head for head in _FINAL_HEAD_RE.finditer(raw) if not any(start <= head.start() < end for start, end in fenced)
+    ]
     final_match = next((head for head in heads if head.group(1).isupper()), heads[0] if heads else None)
-    actions = [action for action in _ACTION_RE.finditer(raw)
-               if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)]
+    actions = [
+        action
+        for action in _ACTION_RE.finditer(raw)
+        if _runnable(action) and not any(start <= action.start() < end for start, end in fenced)
+    ]
     # Ahead of a FINAL only in the format's own spelling: a deliverable written before FINAL
     # may hold a prose line such as "Next: run the installer", which is not a step - and must
     # not hide a real ACTION after it either (Codex's review of #172).
     if final_match is None:
         action_match = actions[0] if actions else None
     else:
-        action_match = next((action for action in actions if _FORMAT_ACTION_RE.match(action.group(0))
-                             and action.start() < final_match.start()), None)
+        action_match = next(
+            (
+                action
+                for action in actions
+                if _FORMAT_ACTION_RE.match(action.group(0)) and action.start() < final_match.start()
+            ),
+            None,
+        )
     if action_match:
         return AgentDecision(thought=thought, command=_runnable(action_match), final_answer="", is_final=False)
     if final_match:
-        answer = raw[final_match.end():].strip().strip("`").strip()
+        answer = raw[final_match.end() :].strip().strip("`").strip()
         # The model sometimes writes the deliverable (a diagram, code, a table) and then a
         # one-line FINAL that refers to it "above" — keep that body, minus the headers.
         body = _ACTION_RE.sub("", _THOUGHT_RE.sub("", raw[: final_match.start()])).strip()
@@ -218,7 +231,8 @@ def _describe_datum(key: str, value: object) -> str:
         # answer to "how many python files are in src", where "by_extension: 4 fields"
         # sent the agent back to counting names and it said 42 against a true 65.
         scalars = {
-            str(k): v for k, v in list(value.items())[:10]
+            str(k): v
+            for k, v in list(value.items())[:10]
             if isinstance(v, (int, float, bool, str)) and len(str(v)) <= 40
         }
         if scalars and len(scalars) == len(value):
@@ -313,7 +327,10 @@ class AutonomousAgent:
                 lines.append(f"{step.index + 1}. ACTION: {step.command}")
                 lines.append(f"   OBSERVATION: [{step.status}] {step.message}")
         else:
-            lines += ["", "PROGRESS SO FAR: (nothing yet — choose the first command, or reply FINAL now if none is needed)"]
+            lines += [
+                "",
+                "PROGRESS SO FAR: (nothing yet — choose the first command, or reply FINAL now if none is needed)",
+            ]
         lines += ["", "Your turn:"]
         return "\n".join(lines)
 
@@ -348,7 +365,7 @@ class AutonomousAgent:
             prompt = self._build_prompt(goal, steps, context)
             try:
                 reply = self._decide(prompt) or ""
-            except RunStopped as exc:   # the run's model calls are spent
+            except RunStopped as exc:  # the run's model calls are spent
                 return self._stopped(goal, steps, context, exc)
             except Exception as exc:  # the brain is injected; never crash the loop on it
                 return AgentRunResult(
@@ -373,10 +390,13 @@ class AutonomousAgent:
             if decision is _CUT_TWICE or decision is _RETRY_FAILED:
                 return AgentRunResult(
                     goal=goal,
-                    final_answer=("The reasoning model's replies were cut off at the length limit twice, so nothing "
-                                  "from them was run." if decision is _CUT_TWICE else
-                                  "The reasoning model's reply was cut off at the length limit and asking again "
-                                  "failed, so nothing from it was run."),
+                    final_answer=(
+                        "The reasoning model's replies were cut off at the length limit twice, so nothing "
+                        "from them was run."
+                        if decision is _CUT_TWICE
+                        else "The reasoning model's reply was cut off at the length limit and asking again "
+                        "failed, so nothing from it was run."
+                    ),
                     status="failed",
                     steps=steps,
                 )
@@ -397,8 +417,9 @@ class AutonomousAgent:
 
             # Live, a helper ran "weather <location>" copied from its list; only the list's own
             # placeholders count, so a command may still hold angle brackets of its own.
-            unfilled = [token for token in re.findall(r"<[^<>\s][^<>]*>", decision.command)
-                        if token in self._command_reference]
+            unfilled = [
+                token for token in re.findall(r"<[^<>\s][^<>]*>", decision.command) if token in self._command_reference
+            ]
             try:
                 if unfilled:
                     result = ToolResult.failure(f"Not run: fill in {', '.join(unfilled)} with a real value.")
@@ -414,8 +435,12 @@ class AutonomousAgent:
                 thought=decision.thought,
                 command=decision.command,
                 status="ok" if result.ok else "failed",
-                message=_observe(result, LONG_OBSERVATION if is_read(decision.command) or group_of(decision.command)[0] == "delegate"
-                                 else 320),
+                message=_observe(
+                    result,
+                    LONG_OBSERVATION
+                    if is_read(decision.command) or group_of(decision.command)[0] == "delegate"
+                    else 320,
+                ),
             )
             steps.append(step)
             _emit(step)
@@ -459,9 +484,15 @@ class AutonomousAgent:
         "Stopped by the supervisor" about a file the run had read."""
         answer = str(exc)
         if steps and self.close_on_stop:
-            found = self._closing_answer(goal, steps, context, (
-                f"\n\nThe run was stopped: {answer} Do not choose another command. Reply with FINAL: "
-                "<what the steps above found toward the GOAL, and what is missing> only.")) or self._found(steps)
+            found = self._closing_answer(
+                goal,
+                steps,
+                context,
+                (
+                    f"\n\nThe run was stopped: {answer} Do not choose another command. Reply with FINAL: "
+                    "<what the steps above found toward the GOAL, and what is missing> only."
+                ),
+            ) or self._found(steps)
             answer = f"{answer}\n\n{found}"
         return AgentRunResult(goal=goal, final_answer=answer, status="stopped", steps=steps)
 
@@ -472,10 +503,12 @@ class AutonomousAgent:
         return "What the steps found:\n" + "\n".join(f"- {step.command}: {step.message[:240]}" for step in steps)
 
     def _summarize(self, goal: str, steps: list[AgentStep], context: str = "") -> str:
-        summary = self._closing_answer(goal, steps, context, (
-            "\n\nYou have reached the step limit. Reply with FINAL: <summary of progress "
-            "and what remains> only."
-        ))
+        summary = self._closing_answer(
+            goal,
+            steps,
+            context,
+            ("\n\nYou have reached the step limit. Reply with FINAL: <summary of progress and what remains> only."),
+        )
         if summary:
             return summary
         if not steps:
@@ -493,7 +526,7 @@ class AutonomousAgent:
             if decision is not None and decision.final_answer:
                 return decision.final_answer
         except RunStopped:
-            return ""   # the run's model calls are spent: the caller's fallback lists what the steps found
+            return ""  # the run's model calls are spent: the caller's fallback lists what the steps found
         except Exception as exc:
             # The caller's fallback stands; without this the reason the agent stopped reasoning was lost.
             record_failure("agent/final", exc, goal=goal[:80])
@@ -563,7 +596,9 @@ class AgentRunTracker:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2)
+        )
 
     @synchronized
     def _infer_next_run(self) -> int:

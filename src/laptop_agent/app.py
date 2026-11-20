@@ -124,7 +124,9 @@ def build_orchestrator(
 
 
 def _has_llm(config: AppConfig) -> bool:
-    return config.llm_provider in {"openai", "openai-compatible"} and bool(config.llm_api_key) and bool(config.llm_model)
+    return (
+        config.llm_provider in {"openai", "openai-compatible"} and bool(config.llm_api_key) and bool(config.llm_model)
+    )
 
 
 def _output_tokens(config: AppConfig) -> int | None:
@@ -137,8 +139,11 @@ def _output_tokens(config: AppConfig) -> int | None:
 
 def _build_planner(config: AppConfig) -> Planner:
     if _has_llm(config):
-        return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_model, config.llm_base_url,
-                                                       max_output_tokens=_output_tokens(config)))
+        return Planner(
+            OpenAICompatiblePlannerProvider(
+                config.llm_api_key, config.llm_model, config.llm_base_url, max_output_tokens=_output_tokens(config)
+            )
+        )
     return Planner(HeuristicPlannerProvider())
 
 
@@ -147,8 +152,11 @@ def _build_smart_planner(config: AppConfig) -> Planner | None:
     if not _has_llm(config):
         return None
     smart_model = config.llm_smart_model or config.llm_model
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, smart_model, config.llm_base_url, timeout=90,
-                                                   max_output_tokens=_output_tokens(config)))
+    return Planner(
+        OpenAICompatiblePlannerProvider(
+            config.llm_api_key, smart_model, config.llm_base_url, timeout=90, max_output_tokens=_output_tokens(config)
+        )
+    )
 
 
 def _build_ultra_planner(config: AppConfig) -> Planner | None:
@@ -160,8 +168,13 @@ def _build_ultra_planner(config: AppConfig) -> Planner | None:
     # token budget for the chain-of-thought it streams in `reasoning_content`.
     return Planner(
         OpenAICompatiblePlannerProvider(
-            config.llm_api_key, config.llm_ultra_model, config.llm_base_url, timeout=420,
-            reasoning=True, reasoning_budget=config.llm_reasoning_budget, max_output_tokens=_output_tokens(config),
+            config.llm_api_key,
+            config.llm_ultra_model,
+            config.llm_base_url,
+            timeout=420,
+            reasoning=True,
+            reasoning_budget=config.llm_reasoning_budget,
+            max_output_tokens=_output_tokens(config),
         )
     )
 
@@ -170,16 +183,22 @@ def _build_vision_planner(config: AppConfig) -> Planner | None:
     # The vision model reads images/screens. Requires an explicit vision model.
     if not _has_llm(config) or not config.llm_vision_model:
         return None
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_vision_model, config.llm_base_url,
-                                                   max_output_tokens=_output_tokens(config)))
+    return Planner(
+        OpenAICompatiblePlannerProvider(
+            config.llm_api_key, config.llm_vision_model, config.llm_base_url, max_output_tokens=_output_tokens(config)
+        )
+    )
 
 
 def _build_video_planner(config: AppConfig) -> Planner | None:
     # Its own slot: video needs a model that takes a clip, which the image model does not.
     if not _has_llm(config) or not config.llm_video_model:
         return None
-    return Planner(OpenAICompatiblePlannerProvider(config.llm_api_key, config.llm_video_model, config.llm_base_url,
-                                                   max_output_tokens=_output_tokens(config)))
+    return Planner(
+        OpenAICompatiblePlannerProvider(
+            config.llm_api_key, config.llm_video_model, config.llm_base_url, max_output_tokens=_output_tokens(config)
+        )
+    )
 
 
 def _build_openrouter_planner(config: AppConfig) -> Planner | None:

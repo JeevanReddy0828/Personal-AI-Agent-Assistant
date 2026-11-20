@@ -94,23 +94,30 @@ def _allowed_hosts() -> frozenset[str]:
     return frozenset(name for name in names if _HOSTNAME.fullmatch(name))
 
 
-def _exposure_problem(host: str, passcode: str, has_accounts: bool, is_hosted: bool,
-                      allowed: frozenset[str]) -> str | None:
+def _exposure_problem(
+    host: str, passcode: str, has_accounts: bool, is_hosted: bool, allowed: frozenset[str]
+) -> str | None:
     """Why this process must not start as configured, or None. Called once, at import."""
     if is_hosted:
         if host in _LOOPBACK:
-            return ("LAPTOP_AGENT_HOSTED is on but LAPTOP_AGENT_HOST is loopback: a hosted copy is reached "
-                    "through the platform's proxy, so bind 0.0.0.0.")
+            return (
+                "LAPTOP_AGENT_HOSTED is on but LAPTOP_AGENT_HOST is loopback: a hosted copy is reached "
+                "through the platform's proxy, so bind 0.0.0.0."
+            )
         if not allowed:
-            return ("LAPTOP_AGENT_HOSTED needs LAPTOP_AGENT_ALLOWED_HOSTS: the hostname this copy is "
-                    "served under (for example yourapp.fly.dev), or every request is refused as untrusted.")
+            return (
+                "LAPTOP_AGENT_HOSTED needs LAPTOP_AGENT_ALLOWED_HOSTS: the hostname this copy is "
+                "served under (for example yourapp.fly.dev), or every request is refused as untrusted."
+            )
         return None
     if host not in _LOOPBACK and len(passcode) < 8 and not has_accounts:
-        return ("To reach J.A.R.V.I.S from another device on your network, set "
-                "LAPTOP_AGENT_LAN_PASSCODE (8+ characters), or create an account with "
-                "`python -m laptop_agent.accounts create <name> --role dev`, as well as "
-                "LAPTOP_AGENT_HOST — without either, anyone on the same wifi gets a page that can run "
-                "shell commands on this laptop.")
+        return (
+            "To reach J.A.R.V.I.S from another device on your network, set "
+            "LAPTOP_AGENT_LAN_PASSCODE (8+ characters), or create an account with "
+            "`python -m laptop_agent.accounts create <name> --role dev`, as well as "
+            "LAPTOP_AGENT_HOST — without either, anyone on the same wifi gets a page that can run "
+            "shell commands on this laptop."
+        )
     return None
 
 
@@ -171,15 +178,36 @@ _SIGNIN_LIMIT = _SignInLimit()
 # one is a file command), scheduled jobs, the agent and the app's internals. A refusal carries
 # `X-Jarvis-Denied`, because the page reloads on a bare 403 (a stale token after a restart)
 # and would loop on a final one.
-_PERSONAL_ROUTES = frozenset({
-    "/", "/index.html", "/api/me", "/api/health", "/api/metrics", "/api/reminders", "/api/approvals",
-    "/api/image", "/api/document", "/auth/logout", "/auth/password", "/auth/bootstrap", "/api/approve",
-    "/auth/google/status", "/auth/google/launch", "/auth/google/callback",
-    "/api/cancel", "/api/command", "/api/stream", "/api/map", "/api/trip", "/api/transcribe", "/api/tts",
-    "/api/wake", "/api/greeting",
-    "/api/hotkey",
-})
-
+_PERSONAL_ROUTES = frozenset(
+    {
+        "/",
+        "/index.html",
+        "/api/me",
+        "/api/health",
+        "/api/metrics",
+        "/api/reminders",
+        "/api/approvals",
+        "/api/image",
+        "/api/document",
+        "/auth/logout",
+        "/auth/password",
+        "/auth/bootstrap",
+        "/api/approve",
+        "/auth/google/status",
+        "/auth/google/launch",
+        "/auth/google/callback",
+        "/api/cancel",
+        "/api/command",
+        "/api/stream",
+        "/api/map",
+        "/api/trip",
+        "/api/transcribe",
+        "/api/tts",
+        "/api/wake",
+        "/api/greeting",
+        "/api/hotkey",
+    }
+)
 
 
 def _account_for_session(token: str | None) -> Account | None:
@@ -196,6 +224,7 @@ def _account_for_session(token: str | None) -> Account | None:
     if account is None or account.disabled or session.epoch != account.epoch:
         return None
     return account
+
 
 def _effective_role(account: Account) -> str:
     """The role a request acts under. A hosted copy has no developer: every account, the
@@ -214,6 +243,8 @@ def _session_cookie(token: str) -> str:
 def _expired_session_cookie() -> str:
     secure = "; Secure" if hosted() else ""
     return f"{_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{secure}"
+
+
 try:
     PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "8770"))
 except ValueError:
@@ -251,6 +282,8 @@ def _wait_hotkey(after: int | None) -> int:
         if after is not None:
             _HOTKEY_CONDITION.wait_for(lambda: _HOTKEY_SEQUENCE > after, timeout=15)
         return _HOTKEY_SEQUENCE
+
+
 # Only the formats the image tool writes are servable, so the route can never be used
 # to read an arbitrary file that happens to sit in the images directory.
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
@@ -272,7 +305,7 @@ def _is_address_literal(host_header: str) -> bool:
     at an IP literal the browser will still send as the Host.
     """
     host = (host_header or "").strip()
-    if host.startswith("["):                       # [::1]:8770
+    if host.startswith("["):  # [::1]:8770
         host = host[1 : host.find("]")] if "]" in host else host[1:]
     elif host.count(":") == 1:
         host = host.rsplit(":", 1)[0]
@@ -475,8 +508,12 @@ def _reminders_snapshot() -> dict:
             at = datetime.fromisoformat(str(item.get("due_at", "")))
         except ValueError:
             continue
-        entry = {"id": item.get("id"), "message": item.get("message"), "due_at": at.isoformat(),
-                 "due_spoken": describe(at, now, local=True)}
+        entry = {
+            "id": item.get("id"),
+            "message": item.get("message"),
+            "due_at": at.isoformat(),
+            "due_spoken": describe(at, now, local=True),
+        }
         (due if at <= now else upcoming).append(entry)
     next_in = None
     if upcoming:
@@ -617,16 +654,23 @@ def _warm_wake() -> None:
         clip.setnchannels(1)
         clip.setsampwidth(2)
         clip.setframerate(SAMPLE_RATE)
-        clip.writeframes(bytes(SAMPLE_RATE))      # half a second of silence
+        clip.writeframes(bytes(SAMPLE_RATE))  # half a second of silence
     threading.Thread(target=_WAKE.check, args=(silence.getvalue(),), daemon=True).start()
 
 
 def _setup_items() -> list[dict[str, object]]:
     """The Setup rows, for the Setup panel and for `diagnose`, which reads them through
     `setup_source`: only the server knows sign-in, phone access and its cached engines."""
-    return setup_report(_orchestrator, _CONFIG, llm_reachable=_LLM_STATUS.get("reachable"), stt_engine=_stt_engine(),
-                        tts_engine=_tts_engine(), ocr_engine=_ocr_engine(), sign_in=ACCOUNTS.exists(),
-                        lan_mode=LAN_MODE)
+    return setup_report(
+        _orchestrator,
+        _CONFIG,
+        llm_reachable=_LLM_STATUS.get("reachable"),
+        stt_engine=_stt_engine(),
+        tts_engine=_tts_engine(),
+        ocr_engine=_ocr_engine(),
+        sign_in=ACCOUNTS.exists(),
+        lan_mode=LAN_MODE,
+    )
 
 
 _orchestrator.setup_source = _setup_items
@@ -644,7 +688,6 @@ def _keep_warm(interval: float = 200.0) -> None:
             _refresh_llm_status()
 
     threading.Thread(target=loop, daemon=True).start()
-
 
 
 # Generated artifacts and upload scratch folders were never cleaned: one day of use left
@@ -687,7 +730,6 @@ def _schedule_ticker(interval: float = 60.0) -> None:
                 record_failure("scheduler/tick", exc)
 
     threading.Thread(target=loop, daemon=True).start()
-
 
 
 class _Server(ThreadingHTTPServer):
@@ -746,7 +788,7 @@ class Handler(BaseHTTPRequestHandler):
     _chose_cache: bool = False
 
     def send_response(self, code, message=None) -> None:
-        self._chose_cache = False   # one response, one choice; reset before it is made
+        self._chose_cache = False  # one response, one choice; reset before it is made
         super().send_response(code, message)
 
     def _cache(self, value: str) -> None:
@@ -761,19 +803,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Strict-Transport-Security", "max-age=31536000")
         if not self._chose_cache:
             self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Security-Policy", (
-            f"default-src 'self'; script-src 'nonce-{_SCRIPT_NONCE}'; "
-            "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
-            "media-src 'self' blob:; connect-src 'self'; "
-            "frame-src 'self' https://www.openstreetmap.org; "
-            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
-        ))
+        self.send_header(
+            "Content-Security-Policy",
+            (
+                f"default-src 'self'; script-src 'nonce-{_SCRIPT_NONCE}'; "
+                "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
+                "media-src 'self' blob:; connect-src 'self'; "
+                "frame-src 'self' https://www.openstreetmap.org; "
+                "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+            ),
+        )
         super().end_headers()
 
     def _trusted_request(self, mutation: bool = False) -> bool:
         host = self.headers.get("Host", "")
-        allowed = {f"{h}:{self.server.server_port}" for h in
-                   ("127.0.0.1", "localhost", HOST, self.server.server_address[0])}
+        allowed = {
+            f"{h}:{self.server.server_port}" for h in ("127.0.0.1", "localhost", HOST, self.server.server_address[0])
+        }
         origin = self.headers.get("Origin")
         if hosted():
             # Only the configured names, reached over HTTPS (the platform ends TLS in front of
@@ -856,8 +902,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _signin_page(self) -> None:
         # The default `no-store`, like the unlock page: it carries this process's nonce.
-        self._send(401, SIGNIN_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
-                   "text/html; charset=utf-8")
+        self._send(401, SIGNIN_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"), "text/html; charset=utf-8")
 
     def _unlock_page(self) -> None:
         # Takes the default `no-store`, and must: this page carries a per-process script
@@ -866,8 +911,7 @@ class Handler(BaseHTTPRequestHandler):
         # Enter, with nothing in the console but the request that never happened. The main
         # page solves the same problem with an ETag that changes on restart; this one is
         # small and rarely fetched, so it does not need to.
-        self._send(401, _UNLOCK_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"),
-                   "text/html; charset=utf-8")
+        self._send(401, _UNLOCK_PAGE.replace("{{NONCE}}", _SCRIPT_NONCE).encode("utf-8"), "text/html; charset=utf-8")
 
     def _client(self) -> str:
         peer = self.client_address[0] if self.client_address else "?"
@@ -887,9 +931,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _me(self) -> dict[str, object]:
         principal = self._principal()
-        return {"ok": True, "accounts": ACCOUNTS.exists(), "local": self._client_is_local(),
-                "user": None if principal is None else {"id": principal.account_id, "username": principal.username,
-                                                         "role": principal.role}}
+        return {
+            "ok": True,
+            "accounts": ACCOUNTS.exists(),
+            "local": self._client_is_local(),
+            "user": None
+            if principal is None
+            else {"id": principal.account_id, "username": principal.username, "role": principal.role},
+        }
 
     def _audit(self, event: str, **payload: object) -> None:
         try:
@@ -928,17 +977,26 @@ class Handler(BaseHTTPRequestHandler):
         SESSIONS.revoke(self._cookie(_SESSION_COOKIE))
         token = SESSIONS.create(account.id, method, epoch=account.epoch)
         self._audit("signin", username=account.username, role=_effective_role(account), method=method)
-        self._json(200, {"ok": True, "user": {"username": account.username, "role": _effective_role(account)}},
-                   headers=(("Set-Cookie", _session_cookie(token)),))
+        self._json(
+            200,
+            {"ok": True, "user": {"username": account.username, "role": _effective_role(account)}},
+            headers=(("Set-Cookie", _session_cookie(token)),),
+        )
 
     def _google_local(self, canonical: bool = False) -> bool:
         hosts = {f"127.0.0.1:{self.server.server_port}"}
         if not canonical:
             hosts.add(f"localhost:{self.server.server_port}")
         if not self._client_is_local() or self.headers.get("Host") not in hosts:
-            self._json(403, {"ok": False, "message": "Use Google sign-in on this computer at http://127.0.0.1:"
-                            f"{self.server.server_port}. On a phone, sign in with your password."},
-                       headers=(("X-Jarvis-Denied", "local"),))
+            self._json(
+                403,
+                {
+                    "ok": False,
+                    "message": "Use Google sign-in on this computer at http://127.0.0.1:"
+                    f"{self.server.server_port}. On a phone, sign in with your password.",
+                },
+                headers=(("X-Jarvis-Denied", "local"),),
+            )
             return False
         return True
 
@@ -948,10 +1006,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/auth/google/status":
                 account = self._signed_in_account()
-                self._json(200, {"ok": True, "configured": _GOOGLE.configured,
-                                "accounts": ACCOUNTS.exists(), "linked": bool(account and account.google_sub),
-                                "email": account.google_email if account else None,
-                                "has_password": bool(account and account.password_hash)})
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "configured": _GOOGLE.configured,
+                        "accounts": ACCOUNTS.exists(),
+                        "linked": bool(account and account.google_sub),
+                        "email": account.google_email if account else None,
+                        "has_password": bool(account and account.password_hash),
+                    },
+                )
                 return
             # Only these two fixed loopback GETs accept the return from another site.
             # The launch ticket is single-use; callback also needs state + its Lax cookie.
@@ -961,17 +1026,28 @@ class Handler(BaseHTTPRequestHandler):
                 raise GoogleError("Invalid Google sign-in response. Start again.")
             if path == "/auth/google/launch":
                 url, binding = _GOOGLE.launch(query.get("ticket", [""])[0])
-                self._send(303, b"", "text/plain", headers=(("Location", url),
-                           ("Set-Cookie", google_cookie(FLOW_COOKIE, binding, lax=True))))
+                self._send(
+                    303,
+                    b"",
+                    "text/plain",
+                    headers=(("Location", url), ("Set-Cookie", google_cookie(FLOW_COOKIE, binding, lax=True))),
+                )
             else:
-                _GOOGLE.callback(query.get("state", [""])[0], self._cookie(FLOW_COOKIE),
-                                 query.get("code", [""])[0], "error" in query)
-                body = ('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">'
-                        '<title>Google sign-in</title><p>Return to the window where you started sign-in. '
-                        'You can close this tab.</p><script nonce="' + _SCRIPT_NONCE + '">'
-                        'history.replaceState(null,"","/auth/google/finished");</script>')
-                self._send(200, body.encode(), "text/html; charset=utf-8",
-                           headers=(("Set-Cookie", google_cookie(FLOW_COOKIE, "", lax=True)),))
+                _GOOGLE.callback(
+                    query.get("state", [""])[0], self._cookie(FLOW_COOKIE), query.get("code", [""])[0], "error" in query
+                )
+                body = (
+                    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">'
+                    "<title>Google sign-in</title><p>Return to the window where you started sign-in. "
+                    'You can close this tab.</p><script nonce="' + _SCRIPT_NONCE + '">'
+                    'history.replaceState(null,"","/auth/google/finished");</script>'
+                )
+                self._send(
+                    200,
+                    body.encode(),
+                    "text/html; charset=utf-8",
+                    headers=(("Set-Cookie", google_cookie(FLOW_COOKIE, "", lax=True)),),
+                )
         except (GoogleError, ValueError) as exc:
             message = str(exc) if isinstance(exc, GoogleError) else "Invalid Google sign-in response. Start again."
             self._json(400, {"ok": False, "message": message})
@@ -981,8 +1057,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, {"ok": False, "message": "Sign in before linking Google."})
             return False
         if not account.password_hash:
-            self._json(409, {"ok": False, "message": "Set a local password before changing your Google link. "
-                       "Ask the owner to run: python -m laptop_agent.accounts password " + account.username})
+            self._json(
+                409,
+                {
+                    "ok": False,
+                    "message": "Set a local password before changing your Google link. "
+                    "Ask the owner to run: python -m laptop_agent.accounts password " + account.username,
+                },
+            )
             return False
         keys = self._limit_keys(account.username)
         wait = _SIGNIN_LIMIT.wait(*keys)
@@ -992,8 +1074,9 @@ class Handler(BaseHTTPRequestHandler):
         known = ACCOUNTS.authenticate(account.username, str(payload.get("current") or "")[:MAX_PASSWORD])
         if known is None or known != account:
             _SIGNIN_LIMIT.fail(*keys)
-            self._json(403, {"ok": False, "message": "Your password is not right."},
-                       headers=(("X-Jarvis-Denied", "password"),))
+            self._json(
+                403, {"ok": False, "message": "Your password is not right."}, headers=(("X-Jarvis-Denied", "password"),)
+            )
             return False
         _SIGNIN_LIMIT.clear(*keys)
         return True
@@ -1043,8 +1126,11 @@ class Handler(BaseHTTPRequestHandler):
                     if not opened:
                         _GOOGLE.cancel(flow.id, new_proof)
                         raise GoogleError("Could not open your system browser. Try signing in from a browser tab.")
-                self._json(200, {"ok": True, "flow": flow.id, "launch": None if native else launch_url},
-                           headers=(("Set-Cookie", google_cookie(PROOF_COOKIE, new_proof)),))
+                self._json(
+                    200,
+                    {"ok": True, "flow": flow.id, "launch": None if native else launch_url},
+                    headers=(("Set-Cookie", google_cookie(PROOF_COOKIE, new_proof)),),
+                )
                 return
             if path == "/auth/google/cancel":
                 cancelled = _GOOGLE.cancel(flow_id, proof)
@@ -1065,7 +1151,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     account = ACCOUNTS.find_by_google_sub(flow.result.sub)
                     if account is None or account.disabled:
-                        raise GoogleError("This Google identity is not linked to an enabled account. Sign in with your local password and choose Link Google first.")
+                        raise GoogleError(
+                            "This Google identity is not linked to an enabled account. Sign in with your local password and choose Link Google first."
+                        )
                 self._start_session(account, "google")
         except HashingBusy as exc:
             self._busy(exc)
@@ -1079,7 +1167,9 @@ class Handler(BaseHTTPRequestHandler):
         username = str(payload.get("username") or "")[:64]
         password = str(payload.get("password") or "")[:MAX_PASSWORD]
         if not ACCOUNTS.exists():
-            where = "on the server (see Hosting online in the README)" if hosted() else "on the computer running the app"
+            where = (
+                "on the server (see Hosting online in the README)" if hosted() else "on the computer running the app"
+            )
             self._json(409, {"ok": False, "message": f"Sign-in is not set up yet. Set it up {where}."})
             return
         keys = self._limit_keys(username)
@@ -1108,8 +1198,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self._read_json()
         try:
-            account = ACCOUNTS.create(str(payload.get("username") or ""), "dev",
-                                      str(payload.get("password") or ""), first=True)
+            account = ACCOUNTS.create(
+                str(payload.get("username") or ""), "dev", str(payload.get("password") or ""), first=True
+            )
         except AccountError as exc:
             self._json(400, {"ok": False, "message": str(exc)})
             return
@@ -1143,8 +1234,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if known is None:
             _SIGNIN_LIMIT.fail(*keys)
-            self._json(403, {"ok": False, "message": "Your current password is not right."},
-                       headers=(("X-Jarvis-Denied", "password"),))
+            self._json(
+                403,
+                {"ok": False, "message": "Your current password is not right."},
+                headers=(("X-Jarvis-Denied", "password"),),
+            )
             return
         try:
             updated = ACCOUNTS.set_password(principal.account_id, str(payload.get("new") or ""))
@@ -1169,12 +1263,16 @@ class Handler(BaseHTTPRequestHandler):
         from one, cannot add a developer."""
         principal = self._principal()
         if principal is None or principal.role != "dev":
-            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
-                       headers=(("X-Jarvis-Denied", "role"),))
+            self._json(
+                403, {"ok": False, "message": f"That {developer_only()}."}, headers=(("X-Jarvis-Denied", "role"),)
+            )
             return None
         if not self._client_is_local():
-            self._json(403, {"ok": False, "message": "Manage accounts on the computer running J.A.R.V.I.S."},
-                       headers=(("X-Jarvis-Denied", "local"),))
+            self._json(
+                403,
+                {"ok": False, "message": "Manage accounts on the computer running J.A.R.V.I.S."},
+                headers=(("X-Jarvis-Denied", "local"),),
+            )
             return None
         return principal
 
@@ -1205,8 +1303,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if ACCOUNTS.authenticate(principal.username, str(payload.get("current") or "")[:MAX_PASSWORD]) is None:
                 _SIGNIN_LIMIT.fail(*keys)
-                self._json(403, {"ok": False, "message": "Your password is not right."},
-                           headers=(("X-Jarvis-Denied", "password"),))
+                self._json(
+                    403,
+                    {"ok": False, "message": "Your password is not right."},
+                    headers=(("X-Jarvis-Denied", "password"),),
+                )
                 return
             _SIGNIN_LIMIT.clear(*keys)
             message = self._apply_account_action(principal, action, payload)
@@ -1300,8 +1401,8 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def handle_one_request(self) -> None:
-        self._body_read = 0                # per request, so keep-alive re-arms the drain
-        self._who_checked = False          # likewise: one connection can carry two users' requests
+        self._body_read = 0  # per request, so keep-alive re-arms the drain
+        self._who_checked = False  # likewise: one connection can carry two users' requests
         super().handle_one_request()
 
     def _drain_request_body(self) -> None:
@@ -1333,7 +1434,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._body_read += remaining
         if length > MAX_REQUEST_BYTES:
-            self.close_connection = True   # too big to swallow; do not pretend to
+            self.close_connection = True  # too big to swallow; do not pretend to
         try:
             self.connection.settimeout(5)  # a body that never arrives must not hold a thread
             while remaining > 0:
@@ -1346,8 +1447,14 @@ class Handler(BaseHTTPRequestHandler):
             # a boundary that loses its cause turns a loud failure into a silent one.
             record_failure("webui/drain", exc, path=self.path)
 
-    def _send(self, code: int, body: bytes, content_type: str,
-              etag: str | None = None, headers: tuple[tuple[str, str], ...] = ()) -> None:
+    def _send(
+        self,
+        code: int,
+        body: bytes,
+        content_type: str,
+        etag: str | None = None,
+        headers: tuple[tuple[str, str], ...] = (),
+    ) -> None:
         self._drain_request_body()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -1362,7 +1469,7 @@ class Handler(BaseHTTPRequestHandler):
             # but now a shared cache would be allowed to hold it, and LAN mode is plain
             # HTTP. `private` keeps the browser's own cache and the 304 saving, and keeps
             # the token off every cache but the one that asked for it.
-            self._cache("private, no-cache")   # revalidate, but reuse on 304
+            self._cache("private, no-cache")  # revalidate, but reuse on 304
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -1396,12 +1503,17 @@ class Handler(BaseHTTPRequestHandler):
         """Sign-in storage exists but cannot be read. Refuse everything: read as "no accounts"
         it would switch sign-in off and hand the app, and its API token, to anyone."""
         record_failure("auth.storage", exc)
-        message = ("Sign-in cannot be checked because its storage is damaged, so nobody can use "
-                   "J.A.R.V.I.S until it is repaired on the computer running it. See "
-                   "python -m laptop_agent.accounts list.")
+        message = (
+            "Sign-in cannot be checked because its storage is damaged, so nobody can use "
+            "J.A.R.V.I.S until it is repaired on the computer running it. See "
+            "python -m laptop_agent.accounts list."
+        )
         if self.path.split("?", 1)[0] in {"/", "/index.html"}:
-            self._send(503, f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
-                       "text/html; charset=utf-8")
+            self._send(
+                503,
+                f"<!doctype html><title>J.A.R.V.I.S</title><p>{message}</p>".encode("utf-8"),
+                "text/html; charset=utf-8",
+            )
         else:
             self._json(503, {"ok": False, "message": message})
 
@@ -1425,8 +1537,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"ok": False, "signin": True, "message": "Sign in first."})
             return
         if not self._may_use(path):
-            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
-                       headers=(("X-Jarvis-Denied", "role"),))
+            self._json(
+                403, {"ok": False, "message": f"That {developer_only()}."}, headers=(("X-Jarvis-Denied", "role"),)
+            )
             return
         if path in {"/", "/index.html"}:
             body, etag = _rendered_page()
@@ -1499,8 +1612,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/approvals":
             self._json(200, {"ok": True, "pending": _APPROVALS.pending()})
         elif path == "/api/traces":
-            self._json(200, {"ok": True, "summary": _orchestrator.traces.summary(),
-                             "recent": _orchestrator.traces.recent(40)})
+            self._json(
+                200, {"ok": True, "summary": _orchestrator.traces.summary(), "recent": _orchestrator.traces.recent(40)}
+            )
         elif path == "/api/agent-runs":
             self._json(200, _agent_runs_snapshot())
         elif path == "/api/jobs":
@@ -1529,17 +1643,44 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
         if not isinstance(payload, dict):
             raise ValueError("Expected a JSON object")
-        for key in ("command", "goal", "action", "name", "path", "text", "query", "data", "audio", "ext", "resume_text", "job_text", "company", "role", "stage", "when", "spec", "kind"):
+        for key in (
+            "command",
+            "goal",
+            "action",
+            "name",
+            "path",
+            "text",
+            "query",
+            "data",
+            "audio",
+            "ext",
+            "resume_text",
+            "job_text",
+            "company",
+            "role",
+            "stage",
+            "when",
+            "spec",
+            "kind",
+        ):
             if key in payload and not isinstance(payload[key], str):
                 raise ValueError(f"{key} must be text")
         for key in ("attachments", "stops"):
-            if key in payload and (not isinstance(payload[key], list) or any(not isinstance(x, str) for x in payload[key])):
+            if key in payload and (
+                not isinstance(payload[key], list) or any(not isinstance(x, str) for x in payload[key])
+            ):
                 raise ValueError(f"{key} must be a list of text values")
         if "history" in payload:
             history = payload["history"]
-            if not isinstance(history, list) or len(history) > 100 or any(
-                not isinstance(turn, dict) or turn.get("role") not in {"user", "assistant"}
-                or not isinstance(turn.get("text", ""), str) for turn in history
+            if (
+                not isinstance(history, list)
+                or len(history) > 100
+                or any(
+                    not isinstance(turn, dict)
+                    or turn.get("role") not in {"user", "assistant"}
+                    or not isinstance(turn.get("text", ""), str)
+                    for turn in history
+                )
             ):
                 raise ValueError("Invalid chat history")
         return payload
@@ -1550,14 +1691,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._google_post(self.path)
             return
         if self.path.split("?", 1)[0] == "/api/pair":
-            if self._trusted_request():          # origin checks, but no API token yet
+            if self._trusted_request():  # origin checks, but no API token yet
                 if hosted():
                     self._json(403, {"ok": False, "message": "Sign in with an account."})
                 else:
                     self._pair()
             return
         if self.path.split("?", 1)[0] == "/auth/login":
-            if self._trusted_request():          # likewise: signing in comes before the page
+            if self._trusted_request():  # likewise: signing in comes before the page
                 try:
                     self._login()
                 except (ValueError, TypeError, UnicodeError):
@@ -1572,8 +1713,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"ok": False, "message": "Enter the passcode to use J.A.R.V.I.S from this device."})
             return
         if not self._may_use(self.path.split("?", 1)[0]):
-            self._json(403, {"ok": False, "message": f"That {developer_only()}."},
-                       headers=(("X-Jarvis-Denied", "role"),))
+            self._json(
+                403, {"ok": False, "message": f"That {developer_only()}."}, headers=(("X-Jarvis-Denied", "role"),)
+            )
             return
         try:
             if self.path in {"/api/stream", "/api/agent", "/api/command"}:
@@ -1682,7 +1824,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self._cache("private, no-cache")   # the stream is this user's conversation
+        self._cache("private, no-cache")  # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:
@@ -1722,6 +1864,7 @@ class Handler(BaseHTTPRequestHandler):
             if chunker is not None:
                 chunker.flush()
             emit({"type": "reset"})
+
         on_token.reset = reset_tokens
 
         # A risky action asks the user mid-turn: push the request down this stream so the
@@ -1781,6 +1924,7 @@ class Handler(BaseHTTPRequestHandler):
         listener and denies immediately, which meant `agent run` could not perform a
         single risky step even though the user was sitting there watching it.
         """
+
         def on_approval(request: dict) -> None:
             emit({"type": "approval", "request": request})
 
@@ -1804,7 +1948,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self._cache("private, no-cache")   # the stream is this user's conversation
+        self._cache("private, no-cache")  # the stream is this user's conversation
         self.end_headers()
 
         def emit(obj: dict) -> None:
@@ -1850,7 +1994,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(413, {"ok": False, "message": "file too large (max 35MB)"})
             return
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(" .")[:180] or "upload.bin"
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")[:180] or "upload.bin"
         dest = Path(tempfile.mkdtemp(prefix="upload_", dir=UPLOAD_DIR)) / name
         dest.write_bytes(raw)
         self._json(200, {"ok": True, "path": str(dest), "name": name, "size": len(raw)})
@@ -1944,8 +2088,9 @@ class Handler(BaseHTTPRequestHandler):
         text = str(result.data.get("text", "")).strip() if result.ok else ""
         # `ok` is false both when the engine failed and when it heard nothing, and the page
         # must tell those apart: a broken engine is worth a notice, silence is not.
-        self._json(200, {"ok": result.ok and bool(text), "text": text, "message": result.message,
-                         "failed": not result.ok})
+        self._json(
+            200, {"ok": result.ok and bool(text), "text": text, "message": result.message, "failed": not result.ok}
+        )
 
     def _handle_wake(self) -> None:
         """Whether a clip of speech opens with "Hey Jarvis", decided locally (wake.py)."""
@@ -1971,8 +2116,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         wav = _render_tts(text)
         if not wav:
-            self._json(503, {"ok": False, "message": "Text-to-speech needs pyttsx3, or nvidia-riva-client "
-                                                     "with an NVIDIA API key for the hosted voice."})
+            self._json(
+                503,
+                {
+                    "ok": False,
+                    "message": "Text-to-speech needs pyttsx3, or nvidia-riva-client "
+                    "with an NVIDIA API key for the hosted voice.",
+                },
+            )
             return
         self._send(200, wav, "audio/wav")
 
@@ -1985,8 +2136,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "message": "bad request"})
             return
         result = _orchestrator.tailor_application(
-            str(payload.get("resume_text", "")), str(payload.get("job_text", "")),
-            company=str(payload.get("company", "")), role=str(payload.get("role", "")),
+            str(payload.get("resume_text", "")),
+            str(payload.get("job_text", "")),
+            company=str(payload.get("company", "")),
+            role=str(payload.get("role", "")),
         )
         self._json(200, {"ok": result.ok, "message": result.message, **_json_safe(result.data or {})})
 
@@ -2069,7 +2222,9 @@ class Handler(BaseHTTPRequestHandler):
                 if result.ok:
                     pdf = asyncio.run(_orchestrator.render_job_pdf(job_id))
                     ok = True
-                    message = "Tailored and exported to PDF." if pdf.ok else f"Tailored (PDF export failed: {pdf.message})"
+                    message = (
+                        "Tailored and exported to PDF." if pdf.ok else f"Tailored (PDF export failed: {pdf.message})"
+                    )
                 else:
                     ok, message = False, result.message
             elif action == "profile":
@@ -2077,7 +2232,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(profile, dict) or any(not isinstance(v, str) for v in profile.values()):
                     raise ValueError("Profile fields must be text")
                 allowed = {"contact_links", "cert_links", "github_user"}
-                _orchestrator.context.jobs.set_resume_profile({k: v.strip()[:2000] for k, v in profile.items() if k in allowed})
+                _orchestrator.context.jobs.set_resume_profile(
+                    {k: v.strip()[:2000] for k, v in profile.items() if k in allowed}
+                )
                 message = "Resume profile saved. Re-tailor existing resumes to apply it."
             elif action == "resume":
                 result = _orchestrator.set_resume_text(str(payload.get("text", "")), source="pasted")
@@ -2090,7 +2247,8 @@ class Handler(BaseHTTPRequestHandler):
                 ok, message = True, f"Cleared {removed} lead(s)."
             elif action == "stage":
                 updated = _orchestrator.context.jobs.update(
-                    int(str(payload.get("id", "0")).lstrip("#") or 0), stage=str(payload.get("stage", "")))
+                    int(str(payload.get("id", "0")).lstrip("#") or 0), stage=str(payload.get("stage", ""))
+                )
                 ok = updated is not None
                 message = "Updated." if ok else "No such job."
             elif action == "remove":
@@ -2122,14 +2280,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if action == "add":
                 job = jobs.add(
-                    str(payload.get("company", "")), role=str(payload.get("role", "")),
-                    stage=str(payload.get("stage", "applied")), recruiter=str(payload.get("recruiter", "")),
-                    next_date=str(payload.get("next_date", "")), notes=str(payload.get("notes", "")),
+                    str(payload.get("company", "")),
+                    role=str(payload.get("role", "")),
+                    stage=str(payload.get("stage", "applied")),
+                    recruiter=str(payload.get("recruiter", "")),
+                    next_date=str(payload.get("next_date", "")),
+                    notes=str(payload.get("notes", "")),
                 )
                 message = f"Added {job['company']}."
             elif action == "update":
                 job_id = int(str(payload.get("id", "0")).lstrip("#") or 0)
-                fields = {k: payload[k] for k in ("company", "role", "stage", "recruiter", "next_date", "notes") if k in payload}
+                fields = {
+                    k: payload[k]
+                    for k in ("company", "role", "stage", "recruiter", "next_date", "notes")
+                    if k in payload
+                }
                 ok = jobs.update(job_id, **fields) is not None
                 message = "Updated." if ok else f"No job #{job_id}."
             elif action == "remove":
@@ -2153,7 +2318,11 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._read_json()
         action = str(payload.get("action", "")).strip().lower()
         reminder_id = payload.get("id")
-        if action not in {"done", "snooze", "delete"} or not isinstance(reminder_id, int) or isinstance(reminder_id, bool):
+        if (
+            action not in {"done", "snooze", "delete"}
+            or not isinstance(reminder_id, int)
+            or isinstance(reminder_id, bool)
+        ):
             self._json(400, {"ok": False, "message": "Use action done|snooze|delete with a reminder id."})
             return
         command = f"reminder {action} {reminder_id}"
@@ -2334,8 +2503,9 @@ class Handler(BaseHTTPRequestHandler):
         except OperationCancelled as exc:
             # Stop, or the session ending: the caller answers, but the specialist must not
             # be left showing as working.
-            _orchestrator.control_room.finish(agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut)
-                                              else "Stopped by user", ok=False)
+            _orchestrator.control_room.finish(
+                agent_id, "Stopped: the session ended" if isinstance(exc, SignedOut) else "Stopped by user", ok=False
+            )
             raise
         except ApprovalDenied as exc:
             _orchestrator.control_room.finish(agent_id, str(exc), ok=False)
@@ -2356,13 +2526,20 @@ def main() -> None:
     _schedule_ticker()
     print(f"J.A.R.V.I.S chat running at {url}")
     if hosted():
-        print("Hosted: every account acts as personal; sign-in is the only way in, over " + ", ".join(sorted(_allowed_hosts())))
+        print(
+            "Hosted: every account acts as personal; sign-in is the only way in, over "
+            + ", ".join(sorted(_allowed_hosts()))
+        )
         if not os.environ.get("LAPTOP_AGENT_CLIENT_IP_HEADER", "").strip():
-            print("LAPTOP_AGENT_CLIENT_IP_HEADER is not set, so the sign-in limit counts the proxy as one client: "
-                  "name the header your proxy sets to the real client address.")
+            print(
+                "LAPTOP_AGENT_CLIENT_IP_HEADER is not set, so the sign-in limit counts the proxy as one client: "
+                "name the header your proxy sets to the real client address."
+            )
         if not ACCOUNTS.exists():
-            print("No account exists, so nothing is served yet. Create the owner on this server: "
-                  "python -m laptop_agent.accounts create <name> --role dev")
+            print(
+                "No account exists, so nothing is served yet. Create the owner on this server: "
+                "python -m laptop_agent.accounts create <name> --role dev"
+            )
     print("Guarded mode: high-risk actions ask for approval; read/search/research run freely. Ctrl+C to stop.")
     try:
         server.serve_forever()
@@ -2416,7 +2593,9 @@ def _launch_webview(url: str) -> bool:
     # server-side speech path (record -> /api/transcribe, play /api/tts) instead of
     # the Web Speech API, which is unavailable inside a webview.
     sep = "&" if "?" in url else "?"
-    window = webview.create_window("J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d")
+    window = webview.create_window(
+        "J.A.R.V.I.S", f"{url}{sep}app=1", width=1280, height=860, background_color="#08090d"
+    )
     GlobalHotkey(lambda: _push_to_talk(window)).start()
     profile = _CONFIG.data_dir / "webview"
     profile.mkdir(parents=True, exist_ok=True)
@@ -2460,7 +2639,7 @@ def run_desktop() -> None:
         hotkey = GlobalHotkey(_signal_hotkey)
         hotkey.start()
         try:
-            process.wait()          # quit the app when the window is closed
+            process.wait()  # quit the app when the window is closed
         except KeyboardInterrupt:
             pass
         finally:

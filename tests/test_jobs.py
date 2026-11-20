@@ -29,7 +29,7 @@ class JobTrackerTests(unittest.TestCase):
             jt = self._tracker(raw)
             job = jt.add("Stripe", stage="lead")
             jt.update(job["id"], stage="applied")
-            jt.update(job["id"], stage="applied")      # not a change, so nothing is recorded
+            jt.update(job["id"], stage="applied")  # not a change, so nothing is recorded
             jt.update(job["id"], stage="screen")
             saved = self._tracker(raw).get(job["id"])  # and it survives a reload
         self.assertEqual([event["stage"] for event in saved["events"]], ["lead", "applied", "screen"])
@@ -50,9 +50,16 @@ class JobTrackerTests(unittest.TestCase):
             # unknown until now, starts at its next change rather than being made up.
             path = Path(raw) / "jobs.json"
             data = json.loads(path.read_text(encoding="utf-8"))
-            data["jobs"].append({"id": 99, "company": "Old", "stage": "applied", "reached": "applied",
-                                 "created_at": "2026-06-22T00:00:00+00:00",
-                                 "updated_at": "2026-06-22T00:00:00+00:00"})
+            data["jobs"].append(
+                {
+                    "id": 99,
+                    "company": "Old",
+                    "stage": "applied",
+                    "reached": "applied",
+                    "created_at": "2026-06-22T00:00:00+00:00",
+                    "updated_at": "2026-06-22T00:00:00+00:00",
+                }
+            )
             path.write_text(json.dumps(data), encoding="utf-8")
             jt = self._tracker(raw)
             jt.update(99, stage="screen")
@@ -134,8 +141,9 @@ class JobTrackerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             jt = self._tracker(raw)
             job = jt.add("Acme", role="SWE", stage="lead")
-            saved = jt.set_tailoring(job["id"], package="## bullets", used_llm=True,
-                                     grounding={"flagged": []}, ats={"score": 80})
+            saved = jt.set_tailoring(
+                job["id"], package="## bullets", used_llm=True, grounding={"flagged": []}, ats={"score": 80}
+            )
             self.assertTrue(saved["tailored"])
             self.assertEqual(saved["ats"]["score"], 80)
             self.assertIsNone(jt.set_tailoring(999, package="x", used_llm=False))
@@ -168,7 +176,7 @@ class JobTrackerTests(unittest.TestCase):
             jt.update(job["id"], stage="rejected")  # rejected after interviewing
             stats = jt.stats()
             self.assertEqual(jt.get(job["id"])["stage"], "rejected")
-            self.assertEqual(stats["interviews"], 1)      # still counts as an interview
+            self.assertEqual(stats["interviews"], 1)  # still counts as an interview
             self.assertEqual(stats["response_rate"], 1.0)  # a rejection is still a response
             self.assertEqual(stats["rejected"], 1)
 

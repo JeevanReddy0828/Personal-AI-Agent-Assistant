@@ -107,9 +107,10 @@ class ListTests(unittest.TestCase):
         return result.message
 
     def test_a_shopping_list_the_way_it_is_said(self) -> None:
-        self.assertIn("Added milk, eggs and bread to your shopping list",
-                      self.say("add milk, eggs and bread to my shopping list"))
-        self.assertIn("already on", self.say("put milk on the grocery list"))   # one list, two names
+        self.assertIn(
+            "Added milk, eggs and bread to your shopping list", self.say("add milk, eggs and bread to my shopping list")
+        )
+        self.assertIn("already on", self.say("put milk on the grocery list"))  # one list, two names
         self.assertIn("Removed eggs", self.say("remove eggs from my shopping list"))
         listing = self.say("what's on my shopping list")
         self.assertIn("- milk", listing)
@@ -128,9 +129,9 @@ class ListTests(unittest.TestCase):
         self.say("would you mind adding eggs to my shopping list")
         self.assertIn("- eggs", self.say("shopping list"))
         self.assertIn("- eggs", self.say("what do i need to buy"))
-        self.assertIn("- eggs", self.say("what's on the list"))          # the only list there is
+        self.assertIn("- eggs", self.say("what's on the list"))  # the only list there is
         self.say("add call mom to my to do list")
-        self.assertIn("Your lists:", self.say("what's on the list"))    # which one? all of them
+        self.assertIn("Your lists:", self.say("what's on the list"))  # which one? all of them
         # A near spelling of a list that exists is that list, not a second one beside it.
         self.assertIn("to your shopping list (2 items)", self.say("add milk to my shoping list"))
         self.assertEqual(sorted(self.everyday.orchestrator.context.memory.lists()), ["shopping", "todo"])
@@ -138,7 +139,7 @@ class ListTests(unittest.TestCase):
     def test_a_list_edit_that_names_no_list(self) -> None:
         self.assertIn("Which list should milk go on?", self.say("add milk to my list"))
         self.say("add milk and eggs to my shopping list")
-        self.assertIn("Added bread to your shopping list", self.say("add bread to the list"))   # the only one
+        self.assertIn("Added bread to your shopping list", self.say("add bread to the list"))  # the only one
         self.assertIn("Removed milk from your shopping list", self.say("delete milk from my list"))
         self.say("add call mom to my todo list")
         self.assertIn("Which list — shopping, todo?", self.say("put butter on the list"))
@@ -220,8 +221,7 @@ class ScreenshotTests(unittest.TestCase):
             self.assertTrue(again.ok, again.message)
             # Resolved on both sides: Windows hands out the temp dir in its 8.3 short form
             # (RUNNER~1) while the saved path carries the long one.
-            self.assertTrue(Path(again.data["path"]).resolve().is_relative_to(Path(raw).resolve()),
-                            again.data["path"])
+            self.assertTrue(Path(again.data["path"]).resolve().is_relative_to(Path(raw).resolve()), again.data["path"])
 
 
 class ChanceTests(unittest.TestCase):
@@ -295,11 +295,21 @@ class EverydayPhrasingTests(unittest.TestCase):
             self.assertEqual(self.planner.plan(text, "", {}).explanation, SMALL_TALK, text)
 
     def test_near_misses_stay_conversation(self) -> None:
-        for text in ("call me back later", "my car is broken", "open the door", "start a business",
-                     "draw a conclusion", "paint the wall blue", "draw the diagram",
-                     "how much space does a car need", "the latest news on nothing in particular was dull"):
+        for text in (
+            "call me back later",
+            "my car is broken",
+            "open the door",
+            "start a business",
+            "draw a conclusion",
+            "paint the wall blue",
+            "draw the diagram",
+            "how much space does a car need",
+            "the latest news on nothing in particular was dull",
+        ):
             decision = self.planner.plan(text, "", {})
-            self.assertFalse(decision.is_command and not decision.command.startswith("news"), f"{text} -> {decision.command}")
+            self.assertFalse(
+                decision.is_command and not decision.command.startswith("news"), f"{text} -> {decision.command}"
+            )
 
 
 if __name__ == "__main__":

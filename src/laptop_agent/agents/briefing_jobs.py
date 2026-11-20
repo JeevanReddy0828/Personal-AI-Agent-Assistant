@@ -2,6 +2,7 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import contextvars
@@ -40,7 +41,6 @@ from laptop_agent.agents.common import _say_seconds
 
 
 class BriefingJobs:
-
     def _jobs_list(self) -> ToolResult:
         jobs = self.context.jobs.list()
         stats = self.context.jobs.stats()
@@ -123,8 +123,10 @@ class BriefingJobs:
             try:
                 # Each in a copy of this turn's context, so the signed-in check, Stop and the
                 # trace still see the turn the section belongs to.
-                futures = {section: pool.submit(contextvars.copy_context().run, self._briefing_fetch, section)
-                           for section in network}
+                futures = {
+                    section: pool.submit(contextvars.copy_context().run, self._briefing_fetch, section)
+                    for section in network
+                }
                 # A Stop raised in one section ends the briefing now, not after a slower feed
                 # (review of #296): only OperationCancelled escapes _briefing_fetch.
                 done, _ = wait(futures.values(), return_when=FIRST_EXCEPTION)
@@ -152,7 +154,7 @@ class BriefingJobs:
                 lines += self._briefing_network_lines(section, fetched[section])
             lines.append("")
         if not custom:
-            lines.append("_Change what's in it: \"set my briefing to weather, AI news and my reminders\"._")
+            lines.append('_Change what\'s in it: "set my briefing to weather, AI news and my reminders"._')
         return ToolResult.success(
             "\n".join(lines).strip(),
             briefing={"sections": [section.describe() for section in sections], "custom": custom},
@@ -167,8 +169,10 @@ class BriefingJobs:
             if section.kind == "weather":
                 place = section.about or self._home_place()
                 if not place:
-                    return ToolResult.failure("Tell me your city once - \"remember my city is Austin\" - and the "
-                                              "weather will be here.", no_place=True)
+                    return ToolResult.failure(
+                        'Tell me your city once - "remember my city is Austin" - and the weather will be here.',
+                        no_place=True,
+                    )
                 return self._weather_tool().forecast(place, days=1)
             if section.kind == "news":
                 return self._news_tool().headlines(section.about, limit=3, with_text=0)
@@ -185,8 +189,11 @@ class BriefingJobs:
             if not result.ok:
                 # The tool's own wording carries the exception ("<urlopen error Tunnel connection
                 # failed: 403 Forbidden>"), which voice reads out; "no place called X" is useful.
-                said = ("couldn't reach the weather service just now." if result.message.startswith("Couldn't reach")
-                        else result.message)
+                said = (
+                    "couldn't reach the weather service just now."
+                    if result.message.startswith("Couldn't reach")
+                    else result.message
+                )
                 return [f"**Weather** — {said}"]
             return [f"**Weather** — {weather_text(result.data)}"]
         if section.kind == "news":
@@ -197,8 +204,8 @@ class BriefingJobs:
             return [label, *news_lines(headlines)]
         if not result.ok:
             if result.data.get("missing"):
-                return ["**Mail** — not connected yet. Say \"check my email\" to see how to set it up."]
-            return ["**Mail** — couldn't check the inbox just now."]   # the tool's text carries the exception
+                return ['**Mail** — not connected yet. Say "check my email" to see how to set it up.']
+            return ["**Mail** — couldn't check the inbox just now."]  # the tool's text carries the exception
         return ["**Mail**", *mail_lines(result.data.get("messages") or [])]
 
     def _briefing_reminders(self, now: datetime) -> list[str]:
@@ -215,8 +222,9 @@ class BriefingJobs:
             elif due <= now:
                 lines.append(f"- Due: {message}")
             elif on_laptop_clock(due, now.tzinfo).date() == now.date():
-                lines.append(f"- {message.capitalize() if message == 'alarm' else message} — "
-                             f"{describe(due, now, local=True)}")
+                lines.append(
+                    f"- {message.capitalize() if message == 'alarm' else message} — {describe(due, now, local=True)}"
+                )
             else:
                 later.append((due, item))
         if len(lines) == 1:
@@ -224,7 +232,7 @@ class BriefingJobs:
                 due, item = later[0]
                 lines.append(f"- Nothing due today. Next: {item.get('message')}, {describe(due, now, local=True)}.")
             else:
-                lines.append("- Nothing set. Say \"remind me to ...\" to add one.")
+                lines.append('- Nothing set. Say "remind me to ..." to add one.')
         return lines
 
     @staticmethod
@@ -237,8 +245,11 @@ class BriefingJobs:
         """The remembered fact that holds the format, `briefing format`, however it is spelt. Only
         that one: matching any fact about the briefing let "add mail to my briefing" delete "my
         morning briefing is at 7:30"."""
-        return [key for key in self.context.memory.get_profile()
-                if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() == PROFILE_KEY]
+        return [
+            key
+            for key in self.context.memory.get_profile()
+            if re.sub(r"[^a-z]+", " ", str(key).lower()).strip() == PROFILE_KEY
+        ]
 
     def _briefing_sections(self) -> tuple[list[Section], bool]:
         """The user's sections and True, or the default and False. Mail is in the default only when
@@ -258,8 +269,8 @@ class BriefingJobs:
         sections, custom = self._briefing_sections()
         which = "Your briefing has" if custom else "Your briefing is the default"
         return ToolResult.success(
-            f"{which}: {describe_format(sections)}.\n\nChange it with \"set my briefing to ...\", "
-            f"\"add ... to my briefing\" or \"remove ... from my briefing\". It can include {CAN_INCLUDE}.",
+            f'{which}: {describe_format(sections)}.\n\nChange it with "set my briefing to ...", '
+            f'"add ... to my briefing" or "remove ... from my briefing". It can include {CAN_INCLUDE}.',
             briefing={"sections": [section.describe() for section in sections], "custom": custom},
         )
 
@@ -285,24 +296,32 @@ class BriefingJobs:
         elif how == "add":
             sections = current + [section for section in wanted if section not in current]
         else:
-            sections = [section for section in current if not any(
-                section.kind == gone.kind and (not gone.about or section.about.lower() == gone.about.lower())
-                for gone in wanted)]
+            sections = [
+                section
+                for section in current
+                if not any(
+                    section.kind == gone.kind and (not gone.about or section.about.lower() == gone.about.lower())
+                    for gone in wanted
+                )
+            ]
             if sections == current:
-                return ToolResult.failure(f"Your briefing has no {describe_format(wanted)} in it. "
-                                          f"It has: {describe_format(current)}.")
+                return ToolResult.failure(
+                    f"Your briefing has no {describe_format(wanted)} in it. It has: {describe_format(current)}."
+                )
             if not sections:
-                return ToolResult.failure("That would leave your briefing empty. Say \"reset my briefing\" for "
-                                          "the default instead.")
+                return ToolResult.failure(
+                    'That would leave your briefing empty. Say "reset my briefing" for the default instead.'
+                )
         if len(sections) > MAX_SECTIONS:
-            return ToolResult.failure(f"A briefing holds at most {MAX_SECTIONS} sections; that would make "
-                                      f"{len(sections)}. Remove one first.")
+            return ToolResult.failure(
+                f"A briefing holds at most {MAX_SECTIONS} sections; that would make {len(sections)}. Remove one first."
+            )
         for key in self._briefing_profile_keys():
             self.context.memory.forget_profile_value(key)
         self.context.memory.set_profile_value(PROFILE_KEY, describe_format(sections))
         return ToolResult.success(
-            f"Your briefing is now: {describe_format(sections)}. Say \"briefing\" to hear it, or "
-            f"\"schedule daily at 07:30 :: briefing\" to get it every morning.",
+            f'Your briefing is now: {describe_format(sections)}. Say "briefing" to hear it, or '
+            f'"schedule daily at 07:30 :: briefing" to get it every morning.',
             briefing={"sections": [section.describe() for section in sections], "custom": True},
         )
 
@@ -319,8 +338,13 @@ class BriefingJobs:
             return ToolResult.failure(result.package)
         return ToolResult.success(
             result.package,
-            ats=result.ats, keywords=result.keywords, missing=result.missing,
-            grounding=result.grounding, used_llm=result.used_llm, company=company, role=role,
+            ats=result.ats,
+            keywords=result.keywords,
+            missing=result.missing,
+            grounding=result.grounding,
+            used_llm=result.used_llm,
+            company=company,
+            role=role,
         )
 
     def pipeline_snapshot(self) -> dict:
@@ -387,18 +411,29 @@ class BriefingJobs:
         # Explicit profile overrides win; otherwise retain source contact details.
         contact = profile.get("contact_links", "") or self._contact_from_resume(resume)
         result = self._resume_copilot().tailor_resume(
-            resume, jd, company=job.get("company", ""), role=job.get("role", ""),
-            repos=repos, contact=contact,
-            certs=profile.get("cert_links", ""), name=name,
+            resume,
+            jd,
+            company=job.get("company", ""),
+            role=job.get("role", ""),
+            repos=repos,
+            contact=contact,
+            certs=profile.get("cert_links", ""),
+            name=name,
         )
         if not result.ok:
             return ToolResult.failure(result.package, job_id=job_id)
         stored = self.context.jobs.set_tailoring(
-            job_id, package=result.package, used_llm=result.used_llm,
-            grounding=result.grounding, ats=result.ats, expected_resume=resume_record.get("updated_at", ""),
+            job_id,
+            package=result.package,
+            used_llm=result.used_llm,
+            grounding=result.grounding,
+            ats=result.ats,
+            expected_resume=resume_record.get("updated_at", ""),
         )
         if stored is None:
-            return ToolResult.failure("The base resume changed or the job was removed during tailoring. Retry with the current resume.")
+            return ToolResult.failure(
+                "The base resume changed or the job was removed during tailoring. Retry with the current resume."
+            )
         return ToolResult.success(result.package, job_id=job_id, ats=result.ats, used_llm=result.used_llm)
 
     async def render_job_pdf(self, job_id: int) -> ToolResult:
@@ -447,8 +482,11 @@ class BriefingJobs:
             with urllib.request.urlopen(request, timeout=15) as response:
                 data = json.loads(response.read().decode("utf-8"))
             if isinstance(data, list):
-                repos = [{"name": r.get("name", ""), "url": r.get("html_url", "")}
-                         for r in data if isinstance(r, dict) and r.get("html_url")]
+                repos = [
+                    {"name": r.get("name", ""), "url": r.get("html_url", "")}
+                    for r in data
+                    if isinstance(r, dict) and r.get("html_url")
+                ]
         except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
             repos = []
         self._repo_cache[user] = repos

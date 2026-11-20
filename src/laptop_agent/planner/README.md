@@ -35,7 +35,7 @@ numbers from `tools/calculator.py`) so the router and the tool cannot disagree.
 from laptop_agent.planner import HeuristicPlannerProvider
 
 decision = HeuristicPlannerProvider().plan("remind me to call mom at 6pm", "", {})
-print(decision.action, decision.command)   # command  reminder add to call mom at 6pm
+print(decision.action, decision.command)  # command  reminder add to call mom at 6pm
 ```
 
 Changing a route: add or adjust the pattern in `heuristic.py`, match the **whole sentence**

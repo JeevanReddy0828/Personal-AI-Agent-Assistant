@@ -22,7 +22,8 @@ class WriteUpDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             everyday = Everyday(Path(raw))
             everyday.orchestrator._document_tool_cache = DocumentTool(
-                data_dir=Path(raw), writer=lambda prompt: SAMPLE,
+                data_dir=Path(raw),
+                writer=lambda prompt: SAMPLE,
             )
             with mock.patch("laptop_agent.tools.document._write_docx", side_effect=fake_export):
                 request = "write up a one pager on remote work as a word doc"

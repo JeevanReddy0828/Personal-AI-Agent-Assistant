@@ -9,17 +9,30 @@ from laptop_agent.tools.weather import WeatherTool
 def fake_transport(geo: dict, forecast: dict):
     def _get(url: str) -> dict:
         return geo if "geocoding" in url else forecast
+
     return _get
 
 
-GEO = {"results": [{"name": "Austin", "admin1": "Texas", "country": "United States",
-                    "latitude": 30.27, "longitude": -97.74}]}
+GEO = {
+    "results": [
+        {"name": "Austin", "admin1": "Texas", "country": "United States", "latitude": 30.27, "longitude": -97.74}
+    ]
+}
 FORECAST = {
-    "current": {"temperature_2m": 92.4, "apparent_temperature": 99.1, "relative_humidity_2m": 44,
-                "wind_speed_10m": 8.6, "weather_code": 1},
-    "daily": {"time": ["2026-06-20", "2026-06-21", "2026-06-22"],
-              "weather_code": [1, 95, 80], "temperature_2m_max": [97.2, 95.0, 88.4],
-              "temperature_2m_min": [74.1, 73.0, 70.2], "precipitation_probability_max": [5, 60, 30]},
+    "current": {
+        "temperature_2m": 92.4,
+        "apparent_temperature": 99.1,
+        "relative_humidity_2m": 44,
+        "wind_speed_10m": 8.6,
+        "weather_code": 1,
+    },
+    "daily": {
+        "time": ["2026-06-20", "2026-06-21", "2026-06-22"],
+        "weather_code": [1, 95, 80],
+        "temperature_2m_max": [97.2, 95.0, 88.4],
+        "temperature_2m_min": [74.1, 73.0, 70.2],
+        "precipitation_probability_max": [5, 60, 30],
+    },
 }
 
 
@@ -29,8 +42,8 @@ class WeatherTests(unittest.TestCase):
         result = tool.forecast("Austin")
         self.assertTrue(result.ok)
         self.assertIn("Austin, Texas, United States", result.message)
-        self.assertIn("mainly clear", result.message)   # weather_code 1
-        self.assertIn("92", result.message)              # current temp rounded
+        self.assertIn("mainly clear", result.message)  # weather_code 1
+        self.assertIn("92", result.message)  # current temp rounded
         self.assertEqual(result.data["location"], "Austin, Texas, United States")
         self.assertEqual(len(result.data["daily"]), 3)
         self.assertEqual(result.data["daily"][1]["summary"], "thunderstorm")  # code 95
@@ -61,18 +74,30 @@ class PlaceCleaningTests(unittest.TestCase):
         from laptop_agent.tools.weather import clean_place
 
         cases = {
-            "in london": "london", "today": "", "in new york tomorrow": "new york", "in": "",
-            "for Dallas tomorrow": "Dallas", "this weekend in denver": "denver",
-            "like in paris right now": "paris", "near me": "", "Austin, TX": "Austin, TX",
-            "Tomorrowland": "Tomorrowland", "Fort Worth": "Fort Worth",
+            "in london": "london",
+            "today": "",
+            "in new york tomorrow": "new york",
+            "in": "",
+            "for Dallas tomorrow": "Dallas",
+            "this weekend in denver": "denver",
+            "like in paris right now": "paris",
+            "near me": "",
+            "Austin, TX": "Austin, TX",
+            "Tomorrowland": "Tomorrowland",
+            "Fort Worth": "Fort Worth",
             # A day said with the place reached the geocoder whole: "austin on saturday".
-            "austin on saturday": "austin", "paris next monday": "paris",
+            "austin on saturday": "austin",
+            "paris next monday": "paris",
             # A bare weekday at the end may be the name (Codex's review): the tool's fallback
             # finds Tokyo, and Mount Sunday is a peak.
-            "tokyo friday": "tokyo friday", "Mount Sunday": "Mount Sunday",
-            "on sunday in london": "london", "boston on the weekend": "boston",
-            "Friday Harbor": "Friday Harbor", "Sunday Harbour in maine": "Sunday Harbour in maine",
-            "chicago saturday night": "chicago", "denver tomorrow morning": "denver",
+            "tokyo friday": "tokyo friday",
+            "Mount Sunday": "Mount Sunday",
+            "on sunday in london": "london",
+            "boston on the weekend": "boston",
+            "Friday Harbor": "Friday Harbor",
+            "Sunday Harbour in maine": "Sunday Harbour in maine",
+            "chicago saturday night": "chicago",
+            "denver tomorrow morning": "denver",
             "saturday night in chicago": "chicago",
         }
         for raw, expected in cases.items():
@@ -89,14 +114,16 @@ class PlaceCleaningTests(unittest.TestCase):
         self.assertIn("name=london&", asked[0])
 
     def test_a_place_ending_in_a_weekday_reaches_the_geocoder_whole(self) -> None:
-        """"weather in Mount Sunday" was routed as `weather Mount` and asked for "Mount"."""
+        """ "weather in Mount Sunday" was routed as `weather Mount` and asked for "Mount"."""
         from laptop_agent.planner import HeuristicPlannerProvider
 
         planner = HeuristicPlannerProvider()
         self.assertEqual(planner.plan("weather in Mount Sunday", "", {}).command, "weather Mount Sunday")
         self.assertEqual(planner.plan("how hot will it be in austin on saturday", "", {}).command, "weather austin")
-        for place, known, expected in (("Mount Sunday", "Mount%20Sunday", ["Mount%20Sunday"]),
-                                       ("tokyo friday", "tokyo&", ["tokyo%20friday", "tokyo&"])):
+        for place, known, expected in (
+            ("Mount Sunday", "Mount%20Sunday", ["Mount%20Sunday"]),
+            ("tokyo friday", "tokyo&", ["tokyo%20friday", "tokyo&"]),
+        ):
             asked: list[str] = []
 
             def transport(url: str, known: str = known) -> dict:

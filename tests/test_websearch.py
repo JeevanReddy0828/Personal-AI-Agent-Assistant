@@ -75,11 +75,15 @@ class SearchApiBackendTests(unittest.TestCase):
             captured["url"] = url
             captured["token"] = headers.get("X-Subscription-Token")
             return json.dumps(
-                {"web": {"results": [
-                    {"title": "A", "url": "https://a.com", "description": "first"},
-                    {"title": "B", "url": "https://b.com", "description": "second"},
-                    {"title": "C", "url": "https://c.com", "description": "third"},
-                ]}}
+                {
+                    "web": {
+                        "results": [
+                            {"title": "A", "url": "https://a.com", "description": "first"},
+                            {"title": "B", "url": "https://b.com", "description": "second"},
+                            {"title": "C", "url": "https://c.com", "description": "third"},
+                        ]
+                    }
+                }
             )
 
         backend = brave_search_backend("k-123", transport=transport)
@@ -109,10 +113,14 @@ class SearchApiBackendTests(unittest.TestCase):
 
         def transport(url, headers, data):
             seen["url"] = url
-            return json.dumps({"organic_results": [
-                {"title": "Deal", "link": "https://news.com/x", "snippet": "ceasefire"},
-                {"title": "More", "link": "https://news.com/y", "snippet": "details"},
-            ]})
+            return json.dumps(
+                {
+                    "organic_results": [
+                        {"title": "Deal", "link": "https://news.com/x", "snippet": "ceasefire"},
+                        {"title": "More", "link": "https://news.com/y", "snippet": "details"},
+                    ]
+                }
+            )
 
         backend = serpapi_search_backend("sa-key", transport=transport)
         results = backend("iran war", 1)

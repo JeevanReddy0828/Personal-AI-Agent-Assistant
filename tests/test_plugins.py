@@ -68,10 +68,15 @@ class PluginToolTests(unittest.TestCase):
             self.assertTrue(PluginTool(self.gate, self.folder).run("shout", "x").ok)
 
     def test_the_declared_risk_goes_to_the_gate_and_a_denial_runs_nothing(self) -> None:
-        write(self.folder, "wipe.py", GOOD.replace('"shout"', '"wipe"').replace('"low"', '"critical"')
-              .replace("return argument.upper()", "raise AssertionError('ran without approval')"))
+        write(
+            self.folder,
+            "wipe.py",
+            GOOD.replace('"shout"', '"wipe"')
+            .replace('"low"', '"critical"')
+            .replace("return argument.upper()", "raise AssertionError('ran without approval')"),
+        )
         tool = self.tool()
-        tool.listing()                 # the folder is loaded (its own card, approved)
+        tool.listing()  # the folder is loaded (its own card, approved)
         self.approve = False
         with self.assertRaises(ApprovalDenied):
             tool.run("wipe", "everything")
@@ -136,7 +141,11 @@ class ReviewOf292Tests(PluginToolTests):
                 self.assertIs(self.cards[-1].risk, RiskLevel.HIGH)
 
     def test_loading_the_folder_asks_first_and_a_refusal_runs_no_file(self) -> None:
-        write(self.folder, "shout.py", GOOD + "\nimport pathlib\npathlib.Path(__file__).with_name('ran').write_text('x')\n")
+        write(
+            self.folder,
+            "shout.py",
+            GOOD + "\nimport pathlib\npathlib.Path(__file__).with_name('ran').write_text('x')\n",
+        )
         self.approve = False
         with self.assertRaises(ApprovalDenied):
             self.tool().listing()
@@ -144,7 +153,11 @@ class ReviewOf292Tests(PluginToolTests):
         self.assertIn("Load your plugins", self.cards[0].action)
 
     def test_sys_exit_in_a_plugin_is_a_failure_not_the_end(self) -> None:
-        write(self.folder, "bye.py", GOOD.replace('"shout"', '"bye"').replace("return argument.upper()", "raise SystemExit(0)"))
+        write(
+            self.folder,
+            "bye.py",
+            GOOD.replace('"shout"', '"bye"').replace("return argument.upper()", "raise SystemExit(0)"),
+        )
         write(self.folder, "quits.py", "raise SystemExit('at import')")
         result = self.tool().run("bye", "now")
         self.assertFalse(result.ok)
@@ -153,19 +166,26 @@ class ReviewOf292Tests(PluginToolTests):
 
     def test_a_dataclass_a_relative_helper_and_the_projects_risk_load(self) -> None:
         write(self.folder, "_helper.py", "WORD = 'helped'\n")
-        write(self.folder, "rich.py", (
-            "from __future__ import annotations\nfrom dataclasses import dataclass\nfrom . import _helper\n"
-            "from laptop_agent.safety import RiskLevel\n"
-            "COMMAND = 'rich'\nDESCRIPTION = 'x'\nRISK = RiskLevel.CRITICAL\n"
-            "@dataclass\nclass Box:\n    word: str\n"
-            "def run(argument):\n    return Box(_helper.WORD).word\n"))
+        write(
+            self.folder,
+            "rich.py",
+            (
+                "from __future__ import annotations\nfrom dataclasses import dataclass\nfrom . import _helper\n"
+                "from laptop_agent.safety import RiskLevel\n"
+                "COMMAND = 'rich'\nDESCRIPTION = 'x'\nRISK = RiskLevel.CRITICAL\n"
+                "@dataclass\nclass Box:\n    word: str\n"
+                "def run(argument):\n    return Box(_helper.WORD).word\n"
+            ),
+        )
         tool = self.tool()
         self.assertEqual(tool.run("rich", "").message, "helped")
         self.assertIs(self.cards[-1].risk, RiskLevel.CRITICAL)
 
     def test_a_helper_comes_from_its_own_folder_not_an_earlier_one(self) -> None:
-        source = ("from . import _review_helper\nCOMMAND = 'which'\nDESCRIPTION = 'x'\nRISK = 'high'\n"
-                  "def run(argument):\n    return _review_helper.WORD\n")
+        source = (
+            "from . import _review_helper\nCOMMAND = 'which'\nDESCRIPTION = 'x'\nRISK = 'high'\n"
+            "def run(argument):\n    return _review_helper.WORD\n"
+        )
         other = self.folder.parent / "other-data" / "plugins"
         for folder, word in ((self.folder, "first"), (other, "second")):
             write(folder, "_review_helper.py", f"WORD = '{word}'\n")
@@ -178,7 +198,11 @@ class ReviewOf292Tests(PluginToolTests):
         self.assertIn("not async", self.tool().listing().message)
 
     def test_a_cut_reply_says_so(self) -> None:
-        write(self.folder, "big.py", GOOD.replace('"shout"', '"big"').replace("return argument.upper()", "return 'x' * 30000"))
+        write(
+            self.folder,
+            "big.py",
+            GOOD.replace('"shout"', '"big"').replace("return argument.upper()", "return 'x' * 30000"),
+        )
         self.assertIn("cut: the plugin's reply was 30,000 characters", self.tool().run("big", "").message)
 
     def test_names_are_known_before_the_folder_is_loaded(self) -> None:
@@ -195,7 +219,10 @@ class ReviewOf292CommandTests(unittest.TestCase):
     def test_a_sentence_about_plugins_is_left_to_chat_and_the_agent_has_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             orch = self.build(Path(tmp))
-            for text in ("plugin installation failed in vs code, how do i fix it?", "plugin for chrome that blocks ads?"):
+            for text in (
+                "plugin installation failed in vs code, how do i fix it?",
+                "plugin for chrome that blocks ads?",
+            ):
                 with self.subTest(text):
                     self.assertTrue(orch._reads_as_prose(text, text.lower()))
             self.assertFalse(any("plugin" in entry for entry in orch._AGENT_COMMANDS))

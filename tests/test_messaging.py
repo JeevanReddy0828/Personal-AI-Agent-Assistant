@@ -94,7 +94,9 @@ class LinkCommandTests(unittest.TestCase):
     def test_a_flights_search_leads_with_a_google_flights_link(self) -> None:
         with patch.object(self.orch.context.websearch, "search", return_value=ToolResult.success("Some pages.")):
             result = self.say("flights from austin to tokyo")
-        self.assertTrue(result.message.startswith("[Search live fares on Google Flights](https://www.google.com/travel/flights?q="))
+        self.assertTrue(
+            result.message.startswith("[Search live fares on Google Flights](https://www.google.com/travel/flights?q=")
+        )
         self.assertIn("austin%20to%20tokyo", result.data["flights_link"])
 
     def test_other_searches_get_no_flights_link(self) -> None:
@@ -117,8 +119,14 @@ class MessageRoutingTests(unittest.TestCase):
         "message priya on whatsapp saying happy birthday": "message whatsapp to priya :: happy birthday",
         "write a telegram message: meeting moved": "message telegram :: meeting moved",
     }
-    STAY = ("text john", "text john saying i'm late", "send a message to mom", "what is whatsapp", "how do I send a whatsapp message",
-            "whatsapp on the left and chrome on the right")
+    STAY = (
+        "text john",
+        "text john saying i'm late",
+        "send a message to mom",
+        "what is whatsapp",
+        "how do I send a whatsapp message",
+        "whatsapp on the left and chrome on the right",
+    )
 
     def test_messages_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()

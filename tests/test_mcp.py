@@ -20,7 +20,7 @@ import test_orchestrator
 
 PERSONAL = Principal("p1", "family", "personal")
 # A small MCP server: one read-only tool, one that changes things, one that destroys, one that errors.
-SERVER = textwrap.dedent('''
+SERVER = textwrap.dedent("""
     import json, sys
     TOOLS = [
         {"name": "echo", "description": "Says it back.", "inputSchema": {"type": "object"},
@@ -56,7 +56,7 @@ SERVER = textwrap.dedent('''
                   flush=True)
             continue
         print(json.dumps({"jsonrpc": "2.0", "id": ident, "result": result}), flush=True)
-''')
+""")
 
 
 class McpTests(unittest.TestCase):
@@ -66,9 +66,10 @@ class McpTests(unittest.TestCase):
         root = Path(temp.name)
         (root / "server.py").write_text(SERVER, encoding="utf-8")
         self.config = root / "mcp.json"
-        self.config.write_text(json.dumps({"mcpServers": {"Fake": {"command": sys.executable,
-                                                                   "args": ["-u", str(root / "server.py")]}}}),
-                               encoding="utf-8")
+        self.config.write_text(
+            json.dumps({"mcpServers": {"Fake": {"command": sys.executable, "args": ["-u", str(root / "server.py")]}}}),
+            encoding="utf-8",
+        )
         self.cards: list = []
         self.approve = True
 
@@ -118,12 +119,15 @@ class McpTests(unittest.TestCase):
         self.assertIn("mcpServers", empty.listing().message)
 
     def test_both_config_shapes_are_read(self) -> None:
-        self.config.write_text(json.dumps({"servers": {"a": {"command": "x", "args": ["y"], "env": {"K": "v"}}}}),
-                               encoding="utf-8")
+        self.config.write_text(
+            json.dumps({"servers": {"a": {"command": "x", "args": ["y"], "env": {"K": "v"}}}}), encoding="utf-8"
+        )
         self.assertEqual(configured(self.config), {"a": (["x", "y"], {"K": "v"})})
 
     def test_a_server_that_will_not_start_is_reported(self) -> None:
-        self.config.write_text(json.dumps({"mcpServers": {"gone": {"command": "no-such-program-xyz"}}}), encoding="utf-8")
+        self.config.write_text(
+            json.dumps({"mcpServers": {"gone": {"command": "no-such-program-xyz"}}}), encoding="utf-8"
+        )
         result = McpTool(ApprovalGate(ask=lambda r: True), self.config).listing()
         self.assertIn("not started", result.message)
 
@@ -209,9 +213,20 @@ class ReviewOf293Tests(unittest.TestCase):
 
     def tool(self, mode: str, env: dict | None = None) -> McpTool:
         config = self.root / "mcp.json"
-        config.write_text(json.dumps({"mcpServers": {"odd": {"command": sys.executable, "env": env or {},
-                                                             "args": ["-u", str(self.root / "odd.py"), mode,
-                                                                      str(self.calls)]}}}), encoding="utf-8")
+        config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "odd": {
+                            "command": sys.executable,
+                            "env": env or {},
+                            "args": ["-u", str(self.root / "odd.py"), mode, str(self.calls)],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
 
         def ask(request) -> bool:
             self.cards.append(request)
@@ -223,6 +238,7 @@ class ReviewOf293Tests(unittest.TestCase):
 
     def test_a_server_never_inherits_our_secrets(self) -> None:
         import os
+
         os.environ["JARVIS_FAKE_SECRET"] = "nvapi-FAKE-SECRET"
         self.addCleanup(os.environ.pop, "JARVIS_FAKE_SECRET", None)
         result = self.tool("plain", env={"FROM_CONFIG": "given"}).call("odd", "env", "{}")
@@ -235,6 +251,7 @@ class ReviewOf293Tests(unittest.TestCase):
 
     def test_a_server_that_never_initializes_is_ended(self) -> None:
         import laptop_agent.tools.mcp as mcp
+
         spawned: list = []
 
         def spawn(argv, env):
@@ -275,6 +292,7 @@ class ReviewOf293Tests(unittest.TestCase):
 
     def test_progress_does_not_extend_the_deadline(self) -> None:
         import laptop_agent.tools.mcp as mcp
+
         tool = self.tool("chatty")
         tool.listing()
         with unittest.mock.patch.object(mcp, "TIMEOUT", 1.0):
@@ -297,10 +315,20 @@ class McpArgumentsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             orch = self.build(Path(tmp))
             seen: list = []
-            orch._mcp_cache = type("Fake", (), {"call": lambda self, s, t, a: seen.append(a) or
-                                                __import__("laptop_agent.tools.base", fromlist=["x"]).ToolResult.success("ok")})()
-            asyncio.run(orch.handle('mcp db query {"sql": "select * from forecast", "out": "C:/r.csv", "t": "it’s"}',
-                                    history=[]))
+            orch._mcp_cache = type(
+                "Fake",
+                (),
+                {
+                    "call": lambda self, s, t, a: (
+                        seen.append(a) or __import__("laptop_agent.tools.base", fromlist=["x"]).ToolResult.success("ok")
+                    )
+                },
+            )()
+            asyncio.run(
+                orch.handle(
+                    'mcp db query {"sql": "select * from forecast", "out": "C:/r.csv", "t": "it’s"}', history=[]
+                )
+            )
         self.assertEqual(json.loads(seen[0]), {"sql": "select * from forecast", "out": "C:/r.csv", "t": "it’s"})
 
 

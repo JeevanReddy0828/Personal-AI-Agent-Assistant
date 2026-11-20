@@ -16,10 +16,50 @@ PASSAGE_SENTENCES = 3
 
 # Small stopword set so common words do not dominate ranking.
 _STOPWORDS = {
-    "the", "and", "for", "are", "but", "not", "you", "all", "any", "can", "has", "had",
-    "with", "this", "that", "from", "have", "was", "were", "will", "your", "into", "out",
-    "about", "which", "their", "there", "them", "then", "than", "what", "when", "where",
-    "who", "how", "why", "some", "such", "only", "more", "most", "over", "also", "been",
+    "the",
+    "and",
+    "for",
+    "are",
+    "but",
+    "not",
+    "you",
+    "all",
+    "any",
+    "can",
+    "has",
+    "had",
+    "with",
+    "this",
+    "that",
+    "from",
+    "have",
+    "was",
+    "were",
+    "will",
+    "your",
+    "into",
+    "out",
+    "about",
+    "which",
+    "their",
+    "there",
+    "them",
+    "then",
+    "than",
+    "what",
+    "when",
+    "where",
+    "who",
+    "how",
+    "why",
+    "some",
+    "such",
+    "only",
+    "more",
+    "most",
+    "over",
+    "also",
+    "been",
 }
 # Terms start at two letters, but the stopwords above stop at three, so "how do i start the
 # app" weighed "do" and "in" like "browser" - with one document indexed every term weighs the
@@ -28,8 +68,34 @@ _STOPWORDS = {
 # an unrelated scrape (`test_the_referent_picks_the_document`). Swept over twelve questions
 # on the README alone, first passage right: 1.0 4/12, 0.5 6, 0.3 8, 0.2 9, 0.1 8, 0.05 7,
 # and 0 broke the follow-up; with three documents 7/12 at every weight below 1.0 (6 at 1.0).
-_FUNCTION_WORDS = frozenset({"is", "it", "do", "in", "of", "to", "on", "at", "an", "as", "be", "by",
-                             "or", "if", "so", "up", "me", "my", "we", "us", "no", "am", "he", "go"})
+_FUNCTION_WORDS = frozenset(
+    {
+        "is",
+        "it",
+        "do",
+        "in",
+        "of",
+        "to",
+        "on",
+        "at",
+        "an",
+        "as",
+        "be",
+        "by",
+        "or",
+        "if",
+        "so",
+        "up",
+        "me",
+        "my",
+        "we",
+        "us",
+        "no",
+        "am",
+        "he",
+        "go",
+    }
+)
 FUNCTION_WEIGHT = 0.2
 
 
@@ -41,18 +107,16 @@ def _content_terms(text: str) -> list[str]:
     return content_terms(text, _STOPWORDS, 2)
 
 
-
 # The agent indexes its own output: `solve` files its analysis as "advice: …", research
 # files the scraped page, a transcript as "youtube:…". Useful for recall, but measured on
 # the real store it had taken over — 30 of 31 documents were generated, against ONE real
 # file, and the scrapes averaged 20k characters to the advice dumps' 5k. A long scrape then
 # outranks the README on any word they share.
-_GENERATED_PREFIXES = {"advice": "advice", "research": "research", "research report": "research",
-                       "youtube": "youtube"}
+_GENERATED_PREFIXES = {"advice": "advice", "research": "research", "research report": "research", "youtube": "youtube"}
 
 
 def document_kind(source: str) -> str:
-    """"file" for something the user indexed, else which kind of generated text it is."""
+    """ "file" for something the user indexed, else which kind of generated text it is."""
     text = (source or "").strip()
     if ":" not in text:
         return "file"
@@ -115,7 +179,7 @@ def _prose_weight(passage: str) -> float:
     # equivalent on 2000 mixed passages, and 1.45x faster; a regex was both slower and wrong.
     letters = sum(map(str.isalpha, passage)) + sum(map(str.isspace, passage))
     if passage and letters / len(passage) < 0.7:
-        weight *= 0.75      # mostly punctuation, pipes or symbols: a table or a diagram
+        weight *= 0.75  # mostly punctuation, pipes or symbols: a table or a diagram
     return weight
 
 
@@ -168,8 +232,13 @@ class KnowledgeBase:
         store["documents"] = documents
         store["next_id"] = store["next_id"] + 1
         self._save(store)
-        return {"ok": True, "id": entry["id"], "source": source,
-                "char_count": entry["char_count"], "pruned": len(pruned)}
+        return {
+            "ok": True,
+            "id": entry["id"],
+            "source": source,
+            "char_count": entry["char_count"],
+            "pruned": len(pruned),
+        }
 
     @synchronized
     def prune(self) -> dict[str, object]:
@@ -301,9 +370,7 @@ class KnowledgeBase:
                 "snippet": " ".join(text.split())[:240],
                 "char_count": doc.get("char_count"),
             }
-        fused = reciprocal_rank_fusion(
-            [[row["id"] for row in lexical], [doc.get("id") for _, doc in similar]]
-        )
+        fused = reciprocal_rank_fusion([[row["id"] for row in lexical], [doc.get("id") for _, doc in similar]])
         merged = list(by_id.values())
         merged.sort(key=lambda row: (-fused.get(row["id"], 0.0), row["id"] or 0))
         return merged
@@ -331,12 +398,17 @@ class KnowledgeBase:
         # away at the moment it was supposed to be honoured.
         by_id = {d.get("id"): d for d in store["documents"]}
         pool = [by_id[row["id"]] for row in ranked if row["id"] in by_id] or store["documents"]
+
         def lead_with_best() -> dict[str, object]:
             """Ranking found the document; sentence scoring cannot pick a line out of it
             when the question shares no word with it. Quote the opening instead."""
             excerpts = [
-                {"id": d.get("id"), "source": d.get("source"),
-                 "sentence": " ".join(prose_sentences(str(d.get("text", "")))[:3])[:400], "score": 0.0}
+                {
+                    "id": d.get("id"),
+                    "source": d.get("source"),
+                    "sentence": " ".join(prose_sentences(str(d.get("text", "")))[:3])[:400],
+                    "score": 0.0,
+                }
                 for d in pool[:2]
             ]
             return {
@@ -377,7 +449,7 @@ class KnowledgeBase:
             doc_id = int(doc.get("id") or 0)
             sentences = self._split_sentences(str(doc.get("text", "")))
             for start in range(len(sentences)):
-                window = sentences[start:start + PASSAGE_SENTENCES]
+                window = sentences[start : start + PASSAGE_SENTENCES]
                 passage = " ".join(window)
                 # Every window was tokenized and then thrown away if no query term was in
                 # it, which is most of them. A term can only match as a token if it is
@@ -464,7 +536,12 @@ class KnowledgeBase:
     def list_documents(self) -> list[dict[str, object]]:
         store = self._load()
         return [
-            {"id": doc.get("id"), "source": doc.get("source"), "char_count": doc.get("char_count"), "preview": doc.get("preview")}
+            {
+                "id": doc.get("id"),
+                "source": doc.get("source"),
+                "char_count": doc.get("char_count"),
+                "preview": doc.get("preview"),
+            }
             for doc in store["documents"]
         ]
 
@@ -618,7 +695,11 @@ class KnowledgeBase:
             return {"next_id": 1, "documents": []}
         data.setdefault("next_id", 1)
         documents = data.get("documents")
-        data["documents"] = [d for d in documents if isinstance(d, dict) and isinstance(d.get("id"), int)] if isinstance(documents, list) else []
+        data["documents"] = (
+            [d for d in documents if isinstance(d, dict) and isinstance(d.get("id"), int)]
+            if isinstance(documents, list)
+            else []
+        )
         data["next_id"] = max([positive_int(data.get("next_id"))] + [d["id"] + 1 for d in data["documents"]])
         if key is not None:
             self._cache_key, self._cache_store, self._counts_cache = key, data, {}

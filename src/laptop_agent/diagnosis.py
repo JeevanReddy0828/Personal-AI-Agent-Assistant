@@ -53,12 +53,16 @@ _TIERS = (
     ("smart", "Balanced model", "smart_planner", "OPENAI_SMART_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"),
     ("ultra", "Deep model", "ultra_planner", "OPENAI_ULTRA_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"),
     ("vision", "Vision model", "vision_planner", "OPENAI_VISION_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"),
-    ("openrouter", "Backup model", "fallback_planner", "OPENROUTER_MODEL", "OPENROUTER_API_KEY",
-     "OPENROUTER_BASE_URL"),
+    ("openrouter", "Backup model", "fallback_planner", "OPENROUTER_MODEL", "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"),
 )
 # Setup rows a live probe answers more precisely, by the probes that cover them.
-_COVERED = {"chat": {"fast"}, "deeper": {"smart", "ultra"}, "vision": {"vision"}, "backup": {"openrouter"},
-            "search": {"search"}}
+_COVERED = {
+    "chat": {"fast"},
+    "deeper": {"smart", "ultra"},
+    "vision": {"vision"},
+    "backup": {"openrouter"},
+    "search": {"search"},
+}
 _HTTP = re.compile(r"HTTP (\d{3})\b")
 
 
@@ -134,8 +138,9 @@ class Diagnosis:
         }
 
 
-def _tier_failure(key: str, name: str, seconds: float, reason: str, detail: str,
-                  model_var: str, key_var: str, base_var: str) -> Probe:
+def _tier_failure(
+    key: str, name: str, seconds: float, reason: str, detail: str, model_var: str, key_var: str, base_var: str
+) -> Probe:
     advice = misconfigured_advice(detail, model_var, key_var) if reason == BROKEN else None
     if advice is not None:
         what, fix = advice
@@ -150,8 +155,9 @@ def _tier_failure(key: str, name: str, seconds: float, reason: str, detail: str,
     return Probe(key, name, "busy", seconds, "Could not be reached.", f"Check {base_var} and the network.")
 
 
-def _ping_tier(status: Any, key: str, name: str, ping: Callable[..., bool],
-               model_var: str, key_var: str, base_var: str) -> Probe:
+def _ping_tier(
+    status: Any, key: str, name: str, ping: Callable[..., bool], model_var: str, key_var: str, base_var: str
+) -> Probe:
     why: list[tuple[str, str]] = []
 
     def attempt() -> bool:
@@ -190,9 +196,14 @@ def _search(websearch: Any) -> Probe:
     seconds = round(time.perf_counter() - started, 1)
     if result is not None and result.ok:
         return Probe("search", "Web search", "ok", seconds, "Answered.")
-    return Probe("search", "Web search", "busy", seconds,
-                 "Returned no results: the search endpoint may be rate-limited or unreachable.",
-                 "If it keeps failing, check the network, then SEARCH_PROVIDER and SEARCH_API_KEY.")
+    return Probe(
+        "search",
+        "Web search",
+        "busy",
+        seconds,
+        "Returned no results: the search endpoint may be rate-limited or unreachable.",
+        "If it keeps failing, check the network, then SEARCH_PROVIDER and SEARCH_API_KEY.",
+    )
 
 
 def run_probes(orchestrator: Any, *, deadline: float = PROBE_DEADLINE) -> list[Probe]:
@@ -212,8 +223,14 @@ def run_probes(orchestrator: Any, *, deadline: float = PROBE_DEADLINE) -> list[P
         if key == "smart" and not os.environ.get(model_var, "").strip():
             model_var = "OPENAI_MODEL"  # the balanced tier runs the chat model when it has none of its own
 
-        def probe(key: str = key, name: str = name, ping: Callable[..., bool] = ping,
-                  model_var: str = model_var, key_var: str = key_var, base_var: str = base_var) -> None:
+        def probe(
+            key: str = key,
+            name: str = name,
+            ping: Callable[..., bool] = ping,
+            model_var: str = model_var,
+            key_var: str = key_var,
+            base_var: str = base_var,
+        ) -> None:
             outcome = _ping_tier(status, key, name, ping, model_var, key_var, base_var)
             with lock:
                 results[key] = outcome
@@ -254,8 +271,9 @@ def _setup(rows: list[dict[str, object]], probed: set[str]) -> tuple[list[Findin
         elif state in ("missing", "busy") or (state == "ready" and fix):
             findings.append(Finding("warning", name, detail, fix))
         elif state == "off" and key == "chat":
-            findings.append(Finding("warning", name, "No chat model is connected: " + detail[:1].lower()
-                                    + detail[1:], fix))
+            findings.append(
+                Finding("warning", name, "No chat model is connected: " + detail[:1].lower() + detail[1:], fix)
+            )
         elif state == "off":
             optional.append(name)
         else:
@@ -275,8 +293,14 @@ def _failures() -> list[Finding]:
     total = sum(counts.values())
     top = sorted(counts.items(), key=lambda item: -item[1])[:3]
     named = ", ".join(f"{what} ×{count}" for what, count in top)
-    return [Finding("warning", "Caught failures", f"{total} in the last hour, most often {named}.",
-                    "Say `failures` for the details.")]
+    return [
+        Finding(
+            "warning",
+            "Caught failures",
+            f"{total} in the last hour, most often {named}.",
+            "Say `failures` for the details.",
+        )
+    ]
 
 
 def _latency(traces: Any) -> tuple[list[Finding], bool]:
@@ -287,26 +311,45 @@ def _latency(traces: Any) -> tuple[list[Finding], bool]:
         return [], False
     findings: list[Finding] = []
     first_token = stats.get("median_ttft_ms")
-    if int(stats.get("chat_turns") or 0) >= MIN_TURNS and isinstance(first_token, int) \
-            and first_token > SLOW_FIRST_TOKEN_MS:
-        findings.append(Finding("warning", "Slow replies",
-                                f"Replies take {first_token / 1000:.1f} s to start (median over the last hour).",
-                                "Say `latency` for where the time goes."))
+    if (
+        int(stats.get("chat_turns") or 0) >= MIN_TURNS
+        and isinstance(first_token, int)
+        and first_token > SLOW_FIRST_TOKEN_MS
+    ):
+        findings.append(
+            Finding(
+                "warning",
+                "Slow replies",
+                f"Replies take {first_token / 1000:.1f} s to start (median over the last hour).",
+                "Say `latency` for where the time goes.",
+            )
+        )
     routed = float(stats.get("llm_routed_pct") or 0.0)
     if routed > MODEL_ROUTED_PERCENT:
-        findings.append(Finding("warning", "Model routing",
-                                f"{routed:g}% of the last hour's turns waited for a model just to work out what "
-                                "was asked.",
-                                "Say `latency` for the breakdown."))
+        findings.append(
+            Finding(
+                "warning",
+                "Model routing",
+                f"{routed:g}% of the last hour's turns waited for a model just to work out what was asked.",
+                "Say `latency` for the breakdown.",
+            )
+        )
     failed = int(stats.get("failed") or 0)
     if failed:
-        findings.append(Finding("warning", "Failed turns", f"{failed} of the last hour's {turns} turns failed.",
-                                "Say `failures` for why."))
+        findings.append(
+            Finding(
+                "warning",
+                "Failed turns",
+                f"{failed} of the last hour's {turns} turns failed.",
+                "Say `failures` for why.",
+            )
+        )
     return findings, not findings
 
 
-def offline_checks(orchestrator: Any, setup_rows: list[dict[str, object]],
-                   probed: set[str]) -> tuple[list[Finding], list[str], list[str]]:
+def offline_checks(
+    orchestrator: Any, setup_rows: list[dict[str, object]], probed: set[str]
+) -> tuple[list[Finding], list[str], list[str]]:
     """Setup, storage, routing, caught failures and response times. No network."""
     findings, working, optional = _setup(setup_rows, probed)
     stored = storage_warnings()
@@ -316,10 +359,15 @@ def offline_checks(orchestrator: Any, setup_rows: list[dict[str, object]],
     checks, _ = run_selfcheck(getattr(orchestrator, "router", None))
     failed = [check for check in checks if not check.ok]
     if failed:
-        findings.append(Finding("problem", "Routing",
-                                f"{len(failed)} of {len(checks)} phrasings no longer reach the right tool, "
-                                f"such as {failed[0].name.split(': ', 1)[-1]!r}.",
-                                "Say `selfcheck` for the list."))
+        findings.append(
+            Finding(
+                "problem",
+                "Routing",
+                f"{len(failed)} of {len(checks)} phrasings no longer reach the right tool, "
+                f"such as {failed[0].name.split(': ', 1)[-1]!r}.",
+                "Say `selfcheck` for the list.",
+            )
+        )
     else:
         working.append(f"routing ({len(checks)} checks)")
     findings += _failures()
@@ -343,16 +391,27 @@ def local_setup_rows(orchestrator: Any) -> list[dict[str, object]]:
         except Exception as exc:  # a broken engine must not break the diagnosis
             record_failure(f"diagnosis/{name}", exc)
             engines[name] = None
-    return setup_report(orchestrator, load_config(), llm_reachable=None, stt_engine=engines["stt"],
-                        tts_engine=engines["tts"], ocr_engine=engines["ocr"], sign_in=False, lan_mode=False)
+    return setup_report(
+        orchestrator,
+        load_config(),
+        llm_reachable=None,
+        stt_engine=engines["stt"],
+        tts_engine=engines["tts"],
+        ocr_engine=engines["ocr"],
+        sign_in=False,
+        lan_mode=False,
+    )
 
 
 def diagnose(orchestrator: Any, setup_rows: list[dict[str, object]]) -> Diagnosis:
     """Every offline check first, so the failures it reads are not the probes' own, then the
     live probes, problems before warnings."""
     started = time.perf_counter()
-    configured = {key for key, _name, attr, *_ in _TIERS
-                  if callable(getattr(getattr(getattr(orchestrator, attr, None), "provider", None), "ping", None))}
+    configured = {
+        key
+        for key, _name, attr, *_ in _TIERS
+        if callable(getattr(getattr(getattr(orchestrator, attr, None), "provider", None), "ping", None))
+    }
     if getattr(getattr(orchestrator, "context", None), "websearch", None) is not None:
         configured.add("search")
     offline, working, optional = offline_checks(orchestrator, setup_rows, configured)

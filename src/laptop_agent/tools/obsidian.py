@@ -73,10 +73,15 @@ class ObsidianVault:
             if score <= 0:
                 continue
             snippet = meta["summary"] or self._snippet(text, terms)
-            hits.append({
-                "name": note.stem, "rel": str(note.relative_to(self.vault_path)),
-                "score": score, "snippet": snippet, "summary": meta["summary"],
-            })
+            hits.append(
+                {
+                    "name": note.stem,
+                    "rel": str(note.relative_to(self.vault_path)),
+                    "score": score,
+                    "snippet": snippet,
+                    "summary": meta["summary"],
+                }
+            )
         hits.sort(key=lambda item: -int(item["score"]))
         return ToolResult.success(f"Found {len(hits)} matching note(s).", query=query, results=hits[:limit])
 
@@ -114,7 +119,10 @@ class ObsidianVault:
         context = "\n\n".join(parts)[:max_chars]
         return ToolResult.success(
             f"Assembled context from {len(used)} linked note(s).",
-            query=query, primary=seed_names[0], notes=used, context=context,
+            query=query,
+            primary=seed_names[0],
+            notes=used,
+            context=context,
         )
 
     def audit(self) -> ToolResult:
@@ -146,7 +154,9 @@ class ObsidianVault:
         return ToolResult.success(
             f"Audited {len(notes)} note(s): {len(orphans)} orphan(s), {len(broken)} broken link(s), "
             f"{len(missing_summary)} without a summary.",
-            note_count=len(notes), orphans=sorted(orphans), broken_links=broken,
+            note_count=len(notes),
+            orphans=sorted(orphans),
+            broken_links=broken,
             missing_summary=sorted(missing_summary),
         )
 
@@ -154,7 +164,7 @@ class ObsidianVault:
     def _snippet(text: str, terms: list[str]) -> str:
         lowered = text.lower()
         index = min((lowered.find(term) for term in terms if term in lowered), default=0)
-        return " ".join(text[max(0, index - 60): index + 180].split())
+        return " ".join(text[max(0, index - 60) : index + 180].split())
 
     def read_note(self, name: str, max_chars: int = 8000) -> ToolResult:
         if not self.available():

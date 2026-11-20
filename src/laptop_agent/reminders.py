@@ -137,7 +137,11 @@ class ReminderStore:
         if not isinstance(data, dict):
             return {"next_id": 1, "reminders": []}
         reminders = data.get("reminders")
-        data["reminders"] = [r for r in reminders if isinstance(r, dict) and isinstance(r.get("id"), int)] if isinstance(reminders, list) else []
+        data["reminders"] = (
+            [r for r in reminders if isinstance(r, dict) and isinstance(r.get("id"), int)]
+            if isinstance(reminders, list)
+            else []
+        )
         try:
             data["next_id"] = max(int(data.get("next_id", 1)), self._infer_next_id(data["reminders"]))
         except (TypeError, ValueError):

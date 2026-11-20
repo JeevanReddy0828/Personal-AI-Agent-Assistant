@@ -91,10 +91,18 @@ LAYOUTS: dict[str, tuple[float, float, float, float]] = {
     "bottom right": (0.5, 0.5, 0.5, 0.5),
 }
 _ALIASES = {
-    "left half": "left", "right half": "right", "top half": "top", "bottom half": "bottom",
-    "maximise": "full", "maximize": "full", "fullscreen": "full", "full screen": "full",
-    "center": "centre", "middle": "centre",
-    "first third": "left third", "last third": "right third",
+    "left half": "left",
+    "right half": "right",
+    "top half": "top",
+    "bottom half": "bottom",
+    "maximise": "full",
+    "maximize": "full",
+    "fullscreen": "full",
+    "full screen": "full",
+    "center": "centre",
+    "middle": "centre",
+    "first third": "left third",
+    "last third": "right third",
 }
 
 
@@ -114,14 +122,75 @@ _POSITION_RE = re.compile(
 )
 # Words that carry the request rather than naming an app.
 _FILLER = {
-    "put", "move", "snap", "send", "place", "set", "window", "windows", "split", "screen",
-    "arrange", "the", "my", "a", "an", "to", "on", "at", "in", "into", "side", "please",
-    "jarvis", "and", "with", "then", "also", "half", "app", "open", "make", "show", "up",
+    "put",
+    "move",
+    "snap",
+    "send",
+    "place",
+    "set",
+    "window",
+    "windows",
+    "split",
+    "screen",
+    "arrange",
+    "the",
+    "my",
+    "a",
+    "an",
+    "to",
+    "on",
+    "at",
+    "in",
+    "into",
+    "side",
+    "please",
+    "jarvis",
+    "and",
+    "with",
+    "then",
+    "also",
+    "half",
+    "app",
+    "open",
+    "make",
+    "show",
+    "up",
     # Politeness and framing. Without these, "could you put my WhatsApp on left" asked for
     # a window called "could you WhatsApp" and reported it as not open.
-    "hey", "hi", "hello", "ok", "okay", "could", "can", "would", "will", "you", "i", "me",
-    "we", "us", "want", "need", "like", "for", "of", "is", "it", "that", "this", "now",
-    "just", "both", "sides", "them", "using", "use", "function", "layout", "mode", "view",
+    "hey",
+    "hi",
+    "hello",
+    "ok",
+    "okay",
+    "could",
+    "can",
+    "would",
+    "will",
+    "you",
+    "i",
+    "me",
+    "we",
+    "us",
+    "want",
+    "need",
+    "like",
+    "for",
+    "of",
+    "is",
+    "it",
+    "that",
+    "this",
+    "now",
+    "just",
+    "both",
+    "sides",
+    "them",
+    "using",
+    "use",
+    "function",
+    "layout",
+    "mode",
+    "view",
 }
 
 
@@ -145,7 +214,7 @@ def parse_placements(text: str) -> list[tuple[str, str]]:
     gaps: list[str] = []
     cursor = 0
     for match in matches:
-        gaps.append(cleaned[cursor:match.start()])
+        gaps.append(cleaned[cursor : match.start()])
         cursor = match.end()
     gaps.append(cleaned[cursor:])
 
@@ -212,9 +281,7 @@ class WindowTool:
         if backend is None:
             return ToolResult.failure("Arranging windows only works on Windows.")
         if not placements:
-            return ToolResult.failure(
-                "Name a window and where to put it — for example: window chrome left."
-            )
+            return ToolResult.failure("Name a window and where to put it — for example: window chrome left.")
         resolved: list[tuple[DesktopWindow, str]] = []
         unknown: list[str] = []
         try:
@@ -226,8 +293,7 @@ class WindowTool:
             layout = normalize_layout(layout_name)
             if layout is None:
                 return ToolResult.failure(
-                    f"I do not know the position '{layout_name}'. I can use: "
-                    + ", ".join(sorted(LAYOUTS)) + "."
+                    f"I do not know the position '{layout_name}'. I can use: " + ", ".join(sorted(LAYOUTS)) + "."
                 )
             hits = _ranked(windows, name)
             if not hits:
@@ -272,8 +338,7 @@ class WindowTool:
         placed, failed = [], []
         for window, layout in resolved:
             fx, fy, fw, fh = LAYOUTS[layout]
-            target = (left + round(width * fx), top + round(height * fy),
-                      round(width * fw), round(height * fh))
+            target = (left + round(width * fx), top + round(height * fy), round(width * fw), round(height * fh))
             try:
                 ok = backend.place(window.handle, *target)
             except Exception as exc:
@@ -317,13 +382,13 @@ class _WindowsBackend:
                 return True
             length = user32.GetWindowTextLengthW(hwnd)
             if length <= 0:
-                return True                      # no title: a tool window, not something to arrange
+                return True  # no title: a tool window, not something to arrange
             buffer = ctypes.create_unicode_buffer(length + 1)
             user32.GetWindowTextW(hwnd, buffer, length + 1)
             if buffer.value.strip().lower() in self._NOT_AN_APP:
                 return True
             if self._cloaked(hwnd):
-                return True           # a UWP shell kept alive off-screen, not a real window
+                return True  # a UWP shell kept alive off-screen, not a real window
             pid = ctypes.c_ulong()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             found.append(DesktopWindow(int(hwnd), buffer.value, _process_name(int(pid.value))))
@@ -347,14 +412,18 @@ class _WindowsBackend:
             )
             return bool(value.value)
         except Exception:
-            return False          # no dwmapi: treat every window as real rather than hide them
+            return False  # no dwmapi: treat every window as real rather than hide them
 
     def work_area(self) -> tuple[int, int, int, int]:
         import ctypes
 
         class RECT(ctypes.Structure):
-            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+            _fields_ = [
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            ]
 
         rect = RECT()
         # The work area, not the full screen: it excludes the taskbar, so a "full" window
@@ -365,9 +434,8 @@ class _WindowsBackend:
 
     def place(self, handle: int, left: int, top: int, width: int, height: int) -> bool:  # pragma: no cover
         user32 = self._user32()
-        user32.ShowWindow(handle, self._SW_RESTORE)   # a minimised window cannot be positioned
-        return bool(user32.SetWindowPos(handle, 0, left, top, width, height,
-                                        self._SWP_NOZORDER | self._SWP_NOACTIVATE))
+        user32.ShowWindow(handle, self._SW_RESTORE)  # a minimised window cannot be positioned
+        return bool(user32.SetWindowPos(handle, 0, left, top, width, height, self._SWP_NOZORDER | self._SWP_NOACTIVATE))
 
 
 def _process_name(pid: int) -> str:  # pragma: no cover - needs a real process

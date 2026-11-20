@@ -56,8 +56,7 @@ class AutopilotPlanner:
     def is_safe_command(command: str) -> bool:
         lowered = command.strip().lower()
         return lowered in {"knowledge", "reminders due", "agent runs", "agent last"} or any(
-            lowered.startswith(prefix) if prefix.endswith(" ") else lowered == prefix
-            for prefix in SAFE_PREFIXES
+            lowered.startswith(prefix) if prefix.endswith(" ") else lowered == prefix for prefix in SAFE_PREFIXES
         )
 
 
@@ -121,7 +120,9 @@ class AutopilotTracker:
     @synchronized
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.path, json.dumps({'next_run': self._next_run, 'runs': self._runs[-self.max_runs:]}, indent=2))
+        atomic_write_text(
+            self.path, json.dumps({"next_run": self._next_run, "runs": self._runs[-self.max_runs :]}, indent=2)
+        )
 
     @synchronized
     def _infer_next_run(self) -> int:

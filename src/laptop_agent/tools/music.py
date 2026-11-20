@@ -19,16 +19,14 @@ from laptop_agent.tools.web import WebTool
 # Injectable so the success path is unit-tested without the network.
 VideoResolver = Callable[[str], list[dict[str, str]]]
 
-_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 # The search page embeds its results as JSON. Two plain anchors rather than one clever
 # pattern: find each result, then read the first title that follows it.
 _RESULT = re.compile(r'"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"')
 _TITLE = re.compile(r'"text":"((?:[^"\\]|\\.)*)"')
-_PERSONAL_MESSAGES = re.compile(r"^(?:my|our)\s+(?:voice\s*mail|voicemails?|voice\s+messages?|messages?)\b",
-                                re.IGNORECASE)
+_PERSONAL_MESSAGES = re.compile(
+    r"^(?:my|our)\s+(?:voice\s*mail|voicemails?|voice\s+messages?|messages?)\b", re.IGNORECASE
+)
 
 
 def is_personal_message_target(target: str) -> bool:
@@ -45,9 +43,7 @@ def _default_resolver(query: str) -> list[dict[str, str]]:
     page — losing this should cost one click, not the feature.
     """
     url = "https://www.youtube.com/results?search_query=" + quote_plus(query)
-    request = urllib.request.Request(
-        url, headers={"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"}
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"})
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             body = response.read(3_000_000).decode("utf-8", errors="replace")
@@ -103,8 +99,7 @@ class MusicTool:
         query = self._youtube_query(target)
         if not query:
             return ToolResult.failure(
-                "What should I play? Name a song, artist or playlist - for example: "
-                "play music new telugu hits.",
+                "What should I play? Name a song, artist or playlist - for example: play music new telugu hits.",
                 asked=target,
             )
         # Play the top hit rather than handing over a page of search results.
@@ -147,9 +142,36 @@ class MusicTool:
         # youtube you just opened" was reduced to "in you just opened" and searched
         # verbatim; a back-reference is a question to ask, not a query to run.
         FILLER = {
-            "in", "on", "at", "of", "to", "and", "or", "it", "that", "this", "these",
-            "those", "you", "your", "just", "opened", "open", "here", "there", "now",
-            "me", "my", "please", "again", "more", "one", "up", "from", "with", "same",
+            "in",
+            "on",
+            "at",
+            "of",
+            "to",
+            "and",
+            "or",
+            "it",
+            "that",
+            "this",
+            "these",
+            "those",
+            "you",
+            "your",
+            "just",
+            "opened",
+            "open",
+            "here",
+            "there",
+            "now",
+            "me",
+            "my",
+            "please",
+            "again",
+            "more",
+            "one",
+            "up",
+            "from",
+            "with",
+            "same",
         }
         words = [w for w in re.findall(r"[a-z0-9']+", query.lower()) if w not in FILLER]
         return query if words else ""
@@ -157,8 +179,15 @@ class MusicTool:
     def media_key(self, key: str) -> ToolResult:
         if not sys.platform.startswith("win"):
             return ToolResult.failure("Media key support is currently implemented for Windows only.")
-        codes = {"playpause": 0xB3, "next": 0xB0, "previous": 0xB1, "stop": 0xB2,
-                 "volumeup": 0xAF, "volumedown": 0xAE, "mute": 0xAD}
+        codes = {
+            "playpause": 0xB3,
+            "next": 0xB0,
+            "previous": 0xB1,
+            "stop": 0xB2,
+            "volumeup": 0xAF,
+            "volumedown": 0xAE,
+            "mute": 0xAD,
+        }
         code = codes.get(key.lower())
         if code is None:
             return ToolResult.failure("Unknown media key.", supported=sorted(codes))
@@ -170,7 +199,7 @@ class MusicTool:
         return ToolResult.success(f"Sent media key: {key}")
 
     def set_volume(self, percent: int) -> ToolResult:
-        """"set the volume to 50" with the keys alone: fifty presses down reach zero from
+        """ "set the volume to 50" with the keys alone: fifty presses down reach zero from
         any level, then each press up is one 2% step. It went to a chat model, which could
         not do it and was free to say it had."""
         if not sys.platform.startswith("win"):

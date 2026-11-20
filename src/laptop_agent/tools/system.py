@@ -8,6 +8,7 @@ replace, so no test locks, dims or shuts down this laptop. Each keeps the risk i
 locking and brightness run, sleep and the wallpaper ask, shutting down and ending a process ask
 as CRITICAL.
 """
+
 from __future__ import annotations
 
 import csv
@@ -28,18 +29,55 @@ from laptop_agent.tools.base import ToolResult
 IMAGE_TYPES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
 SHUTDOWN_GRACE_SECONDS = 60
 # Ending any of these takes Windows down with it, or signs the user out.
-PROTECTED = {"system", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe",
-             "svchost.exe", "dwm.exe", "explorer.exe", "fontdrvhost.exe", "registry", "memory compression"}
+PROTECTED = {
+    "system",
+    "smss.exe",
+    "csrss.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "services.exe",
+    "lsass.exe",
+    "svchost.exe",
+    "dwm.exe",
+    "explorer.exe",
+    "fontdrvhost.exe",
+    "registry",
+    "memory compression",
+}
 SETTINGS_PAGES = {
-    "display": "display", "screen": "display", "brightness": "display", "sound": "sound", "audio": "sound",
-    "bluetooth": "bluetooth", "wifi": "network-wifi", "wi-fi": "network-wifi", "network": "network",
-    "internet": "network", "battery": "batterysaver", "power": "powersleep", "update": "windowsupdate",
-    "updates": "windowsupdate", "windows update": "windowsupdate", "apps": "appsfeatures",
-    "privacy": "privacy", "notifications": "notifications", "wallpaper": "personalization-background",
-    "background": "personalization-background", "personalization": "personalization", "storage": "storagesense",
-    "mouse": "mousetouchpad", "touchpad": "devices-touchpad", "keyboard": "keyboard", "language": "regionlanguage",
-    "time": "dateandtime", "date": "dateandtime", "accounts": "yourinfo", "default apps": "defaultapps",
-    "printers": "printers", "vpn": "network-vpn", "night light": "nightlight",
+    "display": "display",
+    "screen": "display",
+    "brightness": "display",
+    "sound": "sound",
+    "audio": "sound",
+    "bluetooth": "bluetooth",
+    "wifi": "network-wifi",
+    "wi-fi": "network-wifi",
+    "network": "network",
+    "internet": "network",
+    "battery": "batterysaver",
+    "power": "powersleep",
+    "update": "windowsupdate",
+    "updates": "windowsupdate",
+    "windows update": "windowsupdate",
+    "apps": "appsfeatures",
+    "privacy": "privacy",
+    "notifications": "notifications",
+    "wallpaper": "personalization-background",
+    "background": "personalization-background",
+    "personalization": "personalization",
+    "storage": "storagesense",
+    "mouse": "mousetouchpad",
+    "touchpad": "devices-touchpad",
+    "keyboard": "keyboard",
+    "language": "regionlanguage",
+    "time": "dateandtime",
+    "date": "dateandtime",
+    "accounts": "yourinfo",
+    "default apps": "defaultapps",
+    "printers": "printers",
+    "vpn": "network-vpn",
+    "night light": "nightlight",
 }
 
 
@@ -57,8 +95,9 @@ class SystemBackend(Protocol):
 
 
 def _run(args: list[str], timeout: float = 15) -> str:
-    done = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    done = subprocess.run(
+        args, capture_output=True, text=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
     if done.returncode != 0:
         raise OSError((done.stderr or done.stdout or f"{args[0]} failed").strip()[:300])
     return done.stdout
@@ -79,21 +118,38 @@ class WindowsSystem:
             raise OSError("Windows refused to sleep.")
 
     def power(self, action: str) -> None:
-        flags = {"shutdown": ["/s", "/t", str(SHUTDOWN_GRACE_SECONDS)],
-                 "restart": ["/r", "/t", str(SHUTDOWN_GRACE_SECONDS)], "cancel": ["/a"]}[action]
+        flags = {
+            "shutdown": ["/s", "/t", str(SHUTDOWN_GRACE_SECONDS)],
+            "restart": ["/r", "/t", str(SHUTDOWN_GRACE_SECONDS)],
+            "cancel": ["/a"],
+        }[action]
         _run(["shutdown", *flags])
 
     def brightness(self) -> int | None:
-        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                    "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop)"
-                    ".CurrentBrightness | Select-Object -First 1"])
+        out = _run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop)"
+                ".CurrentBrightness | Select-Object -First 1",
+            ]
+        )
         value = out.strip()
         return int(value) if value.isdigit() else None
 
     def set_brightness(self, percent: int) -> None:
-        _run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-              "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop | "
-              f"Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=1;Brightness={int(percent)}}}"])
+        _run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop | "
+                f"Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=1;Brightness={int(percent)}}}",
+            ]
+        )
 
     def wallpaper(self) -> str:
         buffer = ctypes.create_unicode_buffer(520)
@@ -171,11 +227,16 @@ class SystemTool:
                 return ToolResult.failure("There's no shutdown or restart waiting to be cancelled.")
             return ToolResult.success("Cancelled. The computer stays on.")
         verb = "Shut down" if action == "shutdown" else "Restart"
-        self._ask(f"{verb} the computer in {SHUTDOWN_GRACE_SECONDS} seconds", RiskLevel.CRITICAL,
-                  "Unsaved work in every open app is lost.")
+        self._ask(
+            f"{verb} the computer in {SHUTDOWN_GRACE_SECONDS} seconds",
+            RiskLevel.CRITICAL,
+            "Unsaved work in every open app is lost.",
+        )
         self._backend.power(action)
-        return ToolResult.success(f"{verb.replace('Shut down', 'Shutting down').replace('Restart', 'Restarting')} in "
-                                  f"{SHUTDOWN_GRACE_SECONDS} seconds. Say \"cancel shutdown\" to stop it.")
+        return ToolResult.success(
+            f"{verb.replace('Shut down', 'Shutting down').replace('Restart', 'Restarting')} in "
+            f'{SHUTDOWN_GRACE_SECONDS} seconds. Say "cancel shutdown" to stop it.'
+        )
 
     def brightness(self, change: str = "") -> ToolResult:
         if missing := self._missing():
@@ -187,7 +248,9 @@ class SystemTool:
             current = None
         if not change:
             if current is None:
-                return ToolResult.failure("This screen doesn't report its brightness (an external monitor sets its own).")
+                return ToolResult.failure(
+                    "This screen doesn't report its brightness (an external monitor sets its own)."
+                )
             return ToolResult.success(f"Brightness is at {current}%.", brightness=current)
         if change in {"up", "down"}:
             if current is None:
@@ -202,7 +265,9 @@ class SystemTool:
         try:
             self._backend.set_brightness(target)
         except OSError:
-            return ToolResult.failure("This screen won't take a brightness from Windows (an external monitor sets its own).")
+            return ToolResult.failure(
+                "This screen won't take a brightness from Windows (an external monitor sets its own)."
+            )
         return ToolResult.success(f"Brightness set to {target}%.", brightness=target)
 
     def set_wallpaper(self, words: str) -> ToolResult:
@@ -215,12 +280,17 @@ class SystemTool:
             words = previous
         path = Path(words.strip().strip("\"'")).expanduser()
         if not path.is_absolute() or path.suffix.lower() not in IMAGE_TYPES:
-            return ToolResult.failure("Which picture? Give me the image file's full path, for example "
-                                      "\"set my wallpaper to C:\\Pictures\\beach.jpg\".")
+            return ToolResult.failure(
+                "Which picture? Give me the image file's full path, for example "
+                '"set my wallpaper to C:\\Pictures\\beach.jpg".'
+            )
         if not path.is_file():
             return ToolResult.failure(f"There's no picture at {path}.")
-        self._ask(f"Set the desktop wallpaper to {path}", RiskLevel.HIGH,
-                  "This changes your desktop; \"restore my wallpaper\" puts the old one back.")
+        self._ask(
+            f"Set the desktop wallpaper to {path}",
+            RiskLevel.HIGH,
+            'This changes your desktop; "restore my wallpaper" puts the old one back.',
+        )
         before = self._backend.wallpaper()
         self._backend.set_wallpaper(str(path))
         if before and before != str(path):
@@ -239,8 +309,12 @@ class SystemTool:
             entry["count"] = int(entry["count"]) + 1
             entry["memory_mb"] = int(entry["memory_mb"]) + int(row.get("memory_mb") or 0)
         top = sorted(merged.values(), key=lambda row: -int(row["memory_mb"]))[:12]
-        lines = [f"- {row['name']}" + (f" ×{row['count']}" if int(row["count"]) > 1 else "") +
-                 f": {int(row['memory_mb']):,} MB" for row in top]
+        lines = [
+            f"- {row['name']}"
+            + (f" ×{row['count']}" if int(row["count"]) > 1 else "")
+            + f": {int(row['memory_mb']):,} MB"
+            for row in top
+        ]
         return ToolResult.success("**Using the most memory**\n" + "\n".join(lines), processes=top)
 
     def end_process(self, name: str) -> ToolResult:
@@ -248,7 +322,7 @@ class SystemTool:
             return missing
         name = name.strip().strip("\"'")
         if not re.fullmatch(r"[\w .+-]{1,60}", name):
-            return ToolResult.failure("Name the program, for example \"end process notepad\".")
+            return ToolResult.failure('Name the program, for example "end process notepad".')
         image = name if name.lower().endswith(".exe") else f"{name}.exe"
         if image.lower() in PROTECTED or name.lower() in PROTECTED:
             return ToolResult.failure(f"I won't end {image}: Windows needs it to keep running.")
@@ -269,8 +343,10 @@ class SystemTool:
             return missing
         page = settings_page(words)
         if page is None and words.strip():
-            return ToolResult.failure(f"I don't know a Settings page for {words.strip()!r}. Try display, sound, "
-                                      "bluetooth, wifi, battery or updates.")
+            return ToolResult.failure(
+                f"I don't know a Settings page for {words.strip()!r}. Try display, sound, "
+                "bluetooth, wifi, battery or updates."
+            )
         target, label = f"ms-settings:{page or ''}", f"{words.strip().title() or 'Windows'} settings"
         self._ask(f"Open {label}", RiskLevel.MEDIUM, "Opening a Settings page changes nothing by itself.")
         self._backend.open_uri(target)

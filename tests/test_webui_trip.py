@@ -12,9 +12,16 @@ from laptop_agent.tools.travel import TravelTool
 AUSTIN = {"results": [{"name": "Austin", "admin1": "Texas", "country": "US", "latitude": 30.27, "longitude": -97.74}]}
 DALLAS = {"results": [{"name": "Dallas", "admin1": "Texas", "country": "US", "latitude": 32.78, "longitude": -96.80}]}
 HOUSTON = {"results": [{"name": "Houston", "admin1": "Texas", "country": "US", "latitude": 29.76, "longitude": -95.37}]}
-OSRM_TRIP = {"routes": [{"distance": 480000.0, "duration": 28800.0,
-    "geometry": {"coordinates": [[-97.74, 30.27], [-96.80, 32.78], [-95.37, 29.76]]},
-    "legs": [{"distance": 312000.0, "duration": 17400.0}, {"distance": 168000.0, "duration": 11400.0}]}]}
+OSRM_TRIP = {
+    "routes": [
+        {
+            "distance": 480000.0,
+            "duration": 28800.0,
+            "geometry": {"coordinates": [[-97.74, 30.27], [-96.80, 32.78], [-95.37, 29.76]]},
+            "legs": [{"distance": 312000.0, "duration": 17400.0}, {"distance": 168000.0, "duration": 11400.0}],
+        }
+    ]
+}
 
 
 def _transport(url: str):

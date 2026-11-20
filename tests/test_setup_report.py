@@ -18,9 +18,18 @@ from unittest.mock import patch
 
 from laptop_agent.health import chromium_installed, setup_report
 
-SECRETS = ("nvapi-SECRET-chat", "nvapi-SECRET-image", "SECRET-search", "SECRET-imap-password",
-           "SECRET-smtp-password", "SECRET-openrouter", "C:\\Users\\me\\Private Vault", "vendor/secret-model-7b",
-           "imap.secret-host.example", "me@secret.example")
+SECRETS = (
+    "nvapi-SECRET-chat",
+    "nvapi-SECRET-image",
+    "SECRET-search",
+    "SECRET-imap-password",
+    "SECRET-smtp-password",
+    "SECRET-openrouter",
+    "C:\\Users\\me\\Private Vault",
+    "vendor/secret-model-7b",
+    "imap.secret-host.example",
+    "me@secret.example",
+)
 
 
 class OpenAICompatibleProvider:
@@ -38,17 +47,30 @@ class _Status:
 def orchestrator(*, model=True, smart=True, ultra=True, vision=True, vault=True, status=None):
     return SimpleNamespace(
         planner=SimpleNamespace(provider=OpenAICompatibleProvider() if model else object()),
-        smart_planner=object() if smart else None, ultra_planner=object() if ultra else None,
-        vision_planner=object() if vision else None, model_status=status or _Status({"fast": "ok"}),
-        context=SimpleNamespace(obsidian=SimpleNamespace(available=lambda: vault)))
+        smart_planner=object() if smart else None,
+        ultra_planner=object() if ultra else None,
+        vision_planner=object() if vision else None,
+        model_status=status or _Status({"fast": "ok"}),
+        context=SimpleNamespace(obsidian=SimpleNamespace(available=lambda: vault)),
+    )
 
 
 def config(**overrides):
-    values = dict(llm_api_key=SECRETS[0], llm_image_api_key=SECRETS[1], search_provider="brave",
-                  search_api_key=SECRETS[2], imap_host=SECRETS[8], imap_username=SECRETS[9],
-                  imap_password=SECRETS[3], smtp_host=SECRETS[8], smtp_username=SECRETS[9],
-                  smtp_password=SECRETS[4], openrouter_api_key=SECRETS[5], obsidian_vault=SECRETS[6],
-                  llm_model=SECRETS[7])
+    values = dict(
+        llm_api_key=SECRETS[0],
+        llm_image_api_key=SECRETS[1],
+        search_provider="brave",
+        search_api_key=SECRETS[2],
+        imap_host=SECRETS[8],
+        imap_username=SECRETS[9],
+        imap_password=SECRETS[3],
+        smtp_host=SECRETS[8],
+        smtp_username=SECRETS[9],
+        smtp_password=SECRETS[4],
+        openrouter_api_key=SECRETS[5],
+        obsidian_vault=SECRETS[6],
+        llm_model=SECRETS[7],
+    )
     values.update(overrides)
     return SimpleNamespace(**values)
 
@@ -63,8 +85,17 @@ def nothing(module):
 
 class SetupReportTests(unittest.TestCase):
     def report(self, orch=None, cfg=None, **kwargs):
-        options = dict(llm_reachable=True, stt_engine="vosk", tts_engine="pyttsx3", ocr_engine="tesseract", sign_in=True, lan_mode=True,
-                       find_spec=everything, which=lambda name: "/usr/bin/" + name, browser_engine=lambda: True)
+        options = dict(
+            llm_reachable=True,
+            stt_engine="vosk",
+            tts_engine="pyttsx3",
+            ocr_engine="tesseract",
+            sign_in=True,
+            lan_mode=True,
+            find_spec=everything,
+            which=lambda name: "/usr/bin/" + name,
+            browser_engine=lambda: True,
+        )
         options.update(kwargs)
         rows = setup_report(orch or orchestrator(), cfg or config(), **options)
         return {row["key"]: row for row in rows}
@@ -76,9 +107,18 @@ class SetupReportTests(unittest.TestCase):
         self.assertEqual({key: row["next"] for key, row in rows.items() if row["next"]}, {})
 
     def test_a_fresh_install_says_what_to_do_for_each_missing_piece(self):
-        rows = self.report(orchestrator(model=False, smart=False, ultra=False, vision=False, vault=False),
-                           SimpleNamespace(), llm_reachable=None, stt_engine=None, tts_engine=None, ocr_engine=None,
-                           sign_in=False, lan_mode=False, find_spec=nothing, which=lambda name: None)
+        rows = self.report(
+            orchestrator(model=False, smart=False, ultra=False, vision=False, vault=False),
+            SimpleNamespace(),
+            llm_reachable=None,
+            stt_engine=None,
+            tts_engine=None,
+            ocr_engine=None,
+            sign_in=False,
+            lan_mode=False,
+            find_spec=nothing,
+            which=lambda name: None,
+        )
         states = {key: row["state"] for key, row in rows.items()}
         self.assertEqual(states["chat"], "off")
         self.assertEqual({states[key] for key in ("stt", "ocr", "docs", "browser", "metrics")}, {"missing"})
@@ -92,8 +132,11 @@ class SetupReportTests(unittest.TestCase):
         self.assertIn("laptop-agent[browser]", rows["browser"]["next"])
 
     def test_a_busy_tier_and_a_broken_one_are_told_apart(self):
-        status = _Status({"fast": "degraded", "smart": "degraded"}, broken=["smart"],
-                         reasons={"smart": "the key was rejected (HTTP 401): check OPENAI_API_KEY"})
+        status = _Status(
+            {"fast": "degraded", "smart": "degraded"},
+            broken=["smart"],
+            reasons={"smart": "the key was rejected (HTTP 401): check OPENAI_API_KEY"},
+        )
         rows = self.report(orchestrator(status=status))
         self.assertEqual((rows["chat"]["state"], rows["deeper"]["state"]), ("busy", "broken"))
         self.assertIn("HTTP 401", rows["deeper"]["next"], "a broken tier must say what to change")
@@ -103,8 +146,12 @@ class SetupReportTests(unittest.TestCase):
     def test_no_secret_path_or_model_id_reaches_the_report(self):
         # Compared without case: the search row once title-cased what it echoed, which an
         # exact-case check does not see ("Nvapi-Secret-..." for a key typed into the wrong field).
-        for rows in (self.report(), self.report(find_spec=nothing, stt_engine=None, tts_engine=None, ocr_engine=None),
-                     self.report(cfg=config(search_api_key=None)), self.report(cfg=config(search_provider=SECRETS[0]))):
+        for rows in (
+            self.report(),
+            self.report(find_spec=nothing, stt_engine=None, tts_engine=None, ocr_engine=None),
+            self.report(cfg=config(search_api_key=None)),
+            self.report(cfg=config(search_provider=SECRETS[0])),
+        ):
             text = json.dumps(list(rows.values())).lower()
             for secret in SECRETS:
                 with self.subTest(secret):
@@ -139,8 +186,9 @@ class SetupReportTests(unittest.TestCase):
 
         reasons = {}
         for tier, code in (("fast", 410), ("smart", 404), ("ultra", 401)):
-            _, reasons[tier] = classify_failure(urllib.error.HTTPError("https://example.test", code, "x", {}, None),
-                                                SECRETS[7])
+            _, reasons[tier] = classify_failure(
+                urllib.error.HTTPError("https://example.test", code, "x", {}, None), SECRETS[7]
+            )
             self.assertIn(SECRETS[7], reasons[tier], "the premise: the stored reason names the model")
         status = _Status({tier: "degraded" for tier in reasons}, broken=list(reasons), reasons=reasons)
         rows = self.report(orchestrator(status=status))
@@ -157,9 +205,18 @@ class SetupReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             package, browsers = Path(root) / "playwright", Path(root) / "ms-playwright"
             (package / "driver" / "package").mkdir(parents=True)
-            (package / "driver" / "package" / "browsers.json").write_text(json.dumps({"browsers": [
-                {"name": "chromium", "revision": "1223"}, {"name": "chromium-headless-shell", "revision": "1223"},
-                {"name": "firefox", "revision": "1522"}]}), encoding="utf-8")
+            (package / "driver" / "package" / "browsers.json").write_text(
+                json.dumps(
+                    {
+                        "browsers": [
+                            {"name": "chromium", "revision": "1223"},
+                            {"name": "chromium-headless-shell", "revision": "1223"},
+                            {"name": "firefox", "revision": "1522"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
             (browsers / "chromium-1217").mkdir(parents=True)
             (browsers / "firefox-1522").mkdir()
 
@@ -196,9 +253,15 @@ class SetupReportTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY", row["next"])
 
     def test_web_search_names_only_providers_it_uses(self):
-        rows = {name: self.report(cfg=config(**values))["search"] for name, values in (
-            ("unknown", {"search_provider": "bing"}), ("no provider", {"search_provider": ""}),
-            ("no key", {"search_api_key": None}), ("working", {}))}
+        rows = {
+            name: self.report(cfg=config(**values))["search"]
+            for name, values in (
+                ("unknown", {"search_provider": "bing"}),
+                ("no provider", {"search_provider": ""}),
+                ("no key", {"search_api_key": None}),
+                ("working", {}),
+            )
+        }
         self.assertEqual(rows["working"]["detail"], "Brave, with DuckDuckGo behind it.")
         self.assertIn("SEARCH_API_KEY", rows["no key"]["next"])
         for name in ("unknown", "no provider"):
@@ -209,8 +272,9 @@ class SetupReportTests(unittest.TestCase):
 
     def test_usage_meters_count_windows_own_counters(self):
         # metrics.py falls back to PowerShell when psutil is absent, and the drawer shows usage.
-        self.assertEqual(self.report(find_spec=nothing, which=lambda name: "C:/ps/powershell.exe")["metrics"]["state"],
-                         "ready")
+        self.assertEqual(
+            self.report(find_spec=nothing, which=lambda name: "C:/ps/powershell.exe")["metrics"]["state"], "ready"
+        )
         self.assertEqual(self.report(find_spec=nothing, which=lambda name: None)["metrics"]["state"], "missing")
 
     def test_a_chosen_search_provider_without_its_key_says_so(self):
@@ -245,7 +309,7 @@ class OverTheWebTests(unittest.TestCase):
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2**10, 8, 1))
         sessions = SessionStore(Path(tmp.name) / "sessions.json")
         for name, value in (("ACCOUNTS", accounts), ("SESSIONS", sessions)):
             patcher = patch.object(self.webui, name, value)

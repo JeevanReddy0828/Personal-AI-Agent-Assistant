@@ -39,15 +39,15 @@ def _ms(seconds: float) -> int:
 class TurnTrace:
     """One turn's timing. Build with ``start()``, mark phases, then ``finish()``."""
 
-    kind: str = "chat"                 # "chat" | "command"
-    verb: str = ""                     # the resolved tool, e.g. "image" — never user text
-    route_source: str = ""             # "heuristic" | "llm" | "direct"
+    kind: str = "chat"  # "chat" | "command"
+    verb: str = ""  # the resolved tool, e.g. "image" — never user text
+    route_source: str = ""  # "heuristic" | "llm" | "direct"
     route_ms: int = 0
     tool_ms: int = 0
-    ttft_ms: int | None = None         # time to first streamed token
+    ttft_ms: int | None = None  # time to first streamed token
     total_ms: int = 0
-    model: str = ""                    # tier that answered: fast | smart | ultra | openrouter
-    requested_model: str = ""          # tier asked for, when it differed
+    model: str = ""  # tier that answered: fast | smart | ultra | openrouter
+    requested_model: str = ""  # tier asked for, when it differed
     degraded: bool = False
     ok: bool = True
     at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -121,8 +121,13 @@ def _timing(line: str | bytes) -> dict[str, object] | None:
         # OverflowError and OSError: a time that parses but cannot be placed in UTC (year 9999
         # behind a negative offset; on Windows, a naive one before 1970).
         return None
-    if not (isinstance(entry, dict) and isinstance(entry.get("kind"), str) and isinstance(entry.get("tier"), str)
-            and isinstance(entry.get("ok"), bool) and isinstance(entry.get("degraded"), bool)):
+    if not (
+        isinstance(entry, dict)
+        and isinstance(entry.get("kind"), str)
+        and isinstance(entry.get("tier"), str)
+        and isinstance(entry.get("ok"), bool)
+        and isinstance(entry.get("degraded"), bool)
+    ):
         return None
     if any(entry.get(name) is not None and type(entry.get(name)) is not int for name in _HISTOGRAMS):
         return None
@@ -163,21 +168,28 @@ class TraceStore:
         """Append one turn's timings: when, the tier that was asked for (so a turn that fell
         back counts against the tier that failed it), and how it went. Timings and outcomes
         only, like the record itself: no verb, nothing the user wrote."""
-        entry = {"at": record.get("at"), "kind": record.get("kind"),
-                 "tier": record.get("requested_model") or record.get("model") or "",
-                 "ok": record.get("ok") is not False, "degraded": bool(record.get("degraded")),
-                 **{name: record.get(name) for name in _HISTOGRAMS}}
+        entry = {
+            "at": record.get("at"),
+            "kind": record.get("kind"),
+            "tier": record.get("requested_model") or record.get("model") or "",
+            "ok": record.get("ok") is not False,
+            "degraded": bool(record.get("degraded")),
+            **{name: record.get(name) for name in _HISTOGRAMS},
+        }
         if _timing(json.dumps(entry)) is None:
             return
         day = str(entry["at"])[:10]
-        if day != self._pruned_on:   # once a day: drop what has aged out, in one rewrite
+        if day != self._pruned_on:  # once a day: drop what has aged out, in one rewrite
             self._pruned_on = day
             oldest = datetime.fromisoformat(str(entry["at"])).astimezone(UTC) - timedelta(days=ROLLUP_DAYS)
             kept = [timing for timing in self._timings() if timing["at"] >= oldest]
             # No backup: the prune drops lines on purpose, and backing up the old copy meant
             # decoding the whole file as UTF-8 again, which one bad byte turns into an error.
-            atomic_write_text(self.timings_path, "".join(
-                json.dumps({**timing, "at": timing["at"].isoformat()}) + "\n" for timing in kept), backup=False)
+            atomic_write_text(
+                self.timings_path,
+                "".join(json.dumps({**timing, "at": timing["at"].isoformat()}) + "\n" for timing in kept),
+                backup=False,
+            )
         with self.timings_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(json.dumps(entry) + "\n")
 
@@ -199,9 +211,18 @@ class TraceStore:
         rows: dict[tuple[str, str, str], dict[str, object]] = {}
         for timing in self._timings():
             hour = timing["at"].strftime("%Y-%m-%dT%H")
-            row = rows.setdefault((hour, timing["kind"], timing["tier"]), {
-                "hour": hour, "kind": timing["kind"], "tier": timing["tier"], "turns": 0, "failed": 0,
-                "degraded": 0, **{name: [0] * (len(LATENCY_BUCKETS) + 1) for name in _HISTOGRAMS}})
+            row = rows.setdefault(
+                (hour, timing["kind"], timing["tier"]),
+                {
+                    "hour": hour,
+                    "kind": timing["kind"],
+                    "tier": timing["tier"],
+                    "turns": 0,
+                    "failed": 0,
+                    "degraded": 0,
+                    **{name: [0] * (len(LATENCY_BUCKETS) + 1) for name in _HISTOGRAMS},
+                },
+            )
             row["turns"] += 1
             row["failed"] += int(not timing["ok"])
             row["degraded"] += int(timing["degraded"])

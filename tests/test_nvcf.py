@@ -28,8 +28,7 @@ class RpcError(Exception):
 
 
 def listing(*rows):
-    return [{"name": name, "id": fid, "status": status, "createdAt": created}
-            for name, fid, status, created in rows]
+    return [{"name": name, "id": fid, "status": status, "createdAt": created} for name, fid, status, created in rows]
 
 
 class RediscoveryTests(unittest.TestCase):
@@ -42,9 +41,11 @@ class RediscoveryTests(unittest.TestCase):
         self.answers = {}
         self.failed = []
         environ = {key: value for key, value in os.environ.items() if key != VARIABLE}
-        for fixture in (patch.dict(os.environ, environ, clear=True),
-                        patch.object(nvcf, "_list_functions", self.list_functions),
-                        patch.object(nvcf, "record_failure", lambda source, exc: self.failed.append(source))):
+        for fixture in (
+            patch.dict(os.environ, environ, clear=True),
+            patch.object(nvcf, "_list_functions", self.list_functions),
+            patch.object(nvcf, "record_failure", lambda source, exc: self.failed.append(source)),
+        ):
             fixture.start()
             self.addCleanup(fixture.stop)
 
@@ -114,16 +115,18 @@ class RediscoveryTests(unittest.TestCase):
             with self.assertRaises(nvcf.StaleFunctionError):
                 self.call()
         self.assertEqual(self.lists, 1)
-        with patch.object(nvcf.time, "monotonic", lambda: 10 ** 9):
+        with patch.object(nvcf.time, "monotonic", lambda: 10**9):
             with self.assertRaises(nvcf.StaleFunctionError):
                 self.call()
         self.assertEqual(self.lists, 2, "a later lookup is allowed once the wait has passed")
 
     def test_only_an_active_function_with_the_exact_name_counts(self):
-        self.functions = listing((NAME, "old-id", "INACTIVE", "2026-10-07"),
-                                 (NAME + "-v2", "other-id", "ACTIVE", "2026-10-07"),
-                                 (NAME, "older-id", "ACTIVE", "2026-01-01"),
-                                 (NAME, "newest-id", "ACTIVE", "2026-10-05"))
+        self.functions = listing(
+            (NAME, "old-id", "INACTIVE", "2026-10-07"),
+            (NAME + "-v2", "other-id", "ACTIVE", "2026-10-07"),
+            (NAME, "older-id", "ACTIVE", "2026-01-01"),
+            (NAME, "newest-id", "ACTIVE", "2026-10-05"),
+        )
         self.answers["newest-id"] = "hola"
         self.assertEqual(self.call(), "hola")
         self.assertEqual(self.attempts, [PINNED, "newest-id"])
@@ -158,18 +161,16 @@ class RediscoveryTests(unittest.TestCase):
 
         started = time.monotonic()
         with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(TimeoutError):
-            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=started + .05)
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=started + 0.05)
         self.assertTrue(entered.is_set())
         self.assertLess(time.monotonic() - started, 1)
         with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(nvcf.StaleFunctionError):
-            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
-                      deadline=time.monotonic() + .05)
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=time.monotonic() + 0.05)
         self.assertEqual(lookups, 1, "the next turn must use the cooldown instead of stalling again")
 
     def test_an_expired_deadline_does_not_start_another_network_request(self):
         with patch.object(nvcf, "_list_functions") as listing, self.assertRaises(TimeoutError):
-            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
-                      deadline=time.monotonic() - 1)
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=time.monotonic() - 1)
         listing.assert_not_called()
 
     def test_stop_interrupts_a_stalled_lookup(self):
@@ -190,8 +191,7 @@ class RediscoveryTests(unittest.TestCase):
 
         started = time.monotonic()
         with patch.object(nvcf, "_list_functions", stalled), self.assertRaises(OperationCancelled):
-            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt,
-                      deadline=started + 3, check_cancelled=check_stop)
+            nvcf.call(NAME, PINNED, VARIABLE, "key", self.attempt, deadline=started + 3, check_cancelled=check_stop)
         self.assertTrue(entered.is_set())
         self.assertLess(time.monotonic() - started, 1)
 
@@ -201,15 +201,26 @@ class DescribeTests(unittest.TestCase):
     the NVIDIA account id."""
 
     def test_each_failure_reads_as_a_sentence_with_what_to_do(self):
-        cases = {"UNAVAILABLE": "try again in a minute", "DEADLINE_EXCEEDED": "try again in a minute",
-                 "PERMISSION_DENIED": "OPENAI_API_KEY", "NOT_FOUND": "RIVA_*_FUNCTION_ID",
-                 "INTERNAL": "failures"}
+        cases = {
+            "UNAVAILABLE": "try again in a minute",
+            "DEADLINE_EXCEEDED": "try again in a minute",
+            "PERMISSION_DENIED": "OPENAI_API_KEY",
+            "NOT_FOUND": "RIVA_*_FUNCTION_ID",
+            "INTERNAL": "failures",
+        }
         for code, advice in cases.items():
             with self.subTest(code):
                 # Shaped like the real dump, which carries the details - and the account id.
-                error = type("Rendezvous", (RpcError,), {"__str__": lambda self: (
-                    f"<_MultiThreadedRendezvous of RPC that terminated with:\n\tstatus = StatusCode.{code}"
-                    "\n\tdetails = \"Function 'x': Not found for account 'secret-account'\">")})(code)
+                error = type(
+                    "Rendezvous",
+                    (RpcError,),
+                    {
+                        "__str__": lambda self: (
+                            f"<_MultiThreadedRendezvous of RPC that terminated with:\n\tstatus = StatusCode.{code}"
+                            "\n\tdetails = \"Function 'x': Not found for account 'secret-account'\">"
+                        )
+                    },
+                )(code)
                 text = nvcf.describe(error, "NVIDIA's translation service")
                 self.assertTrue(text.startswith("NVIDIA's translation service "))
                 self.assertIn(f"({code})", text)

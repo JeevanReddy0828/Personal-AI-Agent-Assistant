@@ -14,8 +14,10 @@ class CleanForSpeechTests(unittest.TestCase):
         self.assertEqual(clean_for_speech("**Possible Sources**"), "Possible Sources")
         self.assertEqual(clean_for_speech("# Heading"), "Heading")
         self.assertEqual(clean_for_speech("- Government databases"), "Government databases")
-        self.assertEqual(clean_for_speech("Tasks:\n- Back up the project.\n- Run the tests."),
-                         "Tasks: Back up the project. Run the tests.")
+        self.assertEqual(
+            clean_for_speech("Tasks:\n- Back up the project.\n- Run the tests."),
+            "Tasks: Back up the project. Run the tests.",
+        )
 
     def test_keeps_plain_text(self) -> None:
         self.assertEqual(clean_for_speech("Agent Greg"), "Agent Greg")
@@ -82,7 +84,9 @@ class SpeechEchoLoopTests(unittest.TestCase):
     the microphone heard it, treated it as a new request, and drew the picture again."""
 
     def test_an_embedded_picture_is_not_read_aloud(self) -> None:
-        spoken = clean_for_speech("![a futuristic city](/api/image?name=a-futuristic-city-1789.jpg)\n\nHere is *a futuristic city*.")
+        spoken = clean_for_speech(
+            "![a futuristic city](/api/image?name=a-futuristic-city-1789.jpg)\n\nHere is *a futuristic city*."
+        )
         self.assertEqual(spoken, "Here is a futuristic city.")
         self.assertNotIn("api", spoken)
         self.assertNotIn("jpg", spoken)
@@ -91,7 +95,9 @@ class SpeechEchoLoopTests(unittest.TestCase):
         self.assertEqual(clean_for_speech("![a fox](/api/image?name=fox-1.png)"), "")
 
     def test_a_link_reads_as_its_label(self) -> None:
-        self.assertEqual(clean_for_speech("See [the docs](https://example.com/guide) for more."), "See the docs for more.")
+        self.assertEqual(
+            clean_for_speech("See [the docs](https://example.com/guide) for more."), "See the docs for more."
+        )
 
     def test_a_bare_url_is_dropped(self) -> None:
         self.assertEqual(clean_for_speech("Visit https://build.nvidia.com to get a key."), "Visit to get a key.")

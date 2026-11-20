@@ -10,6 +10,7 @@ loop cannot call one; and a plugin that fails to load or raises - `sys.exit` inc
 recorded, never fatal. Files load as the package `jarvis_plugins`, so a helper `_name.py` is
 imported with `from . import _name`.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -86,10 +87,17 @@ def load(folder: Path) -> list[Plugin]:
             name = str(getattr(module, "COMMAND", "")).strip().lower()
             risk = _risk(getattr(module, "RISK", ""))
             run = getattr(module, "run", None)
-            problem = ("COMMAND must be 2-31 lowercase letters, digits or hyphens" if not _NAME.fullmatch(name)
-                       else "RISK must be low, medium, high or critical" if risk is None
-                       else "run(argument) is missing" if not callable(run)
-                       else "run must be a plain function, not async" if inspect.iscoroutinefunction(run) else "")
+            problem = (
+                "COMMAND must be 2-31 lowercase letters, digits or hyphens"
+                if not _NAME.fullmatch(name)
+                else "RISK must be low, medium, high or critical"
+                if risk is None
+                else "run(argument) is missing"
+                if not callable(run)
+                else "run must be a plain function, not async"
+                if inspect.iscoroutinefunction(run)
+                else ""
+            )
         except OperationCancelled:
             raise
         except BaseException as exc:  # sys.exit in a file is a broken plugin, not the app quitting
@@ -113,7 +121,7 @@ class PluginTool:
         self._folder = folder
         self._on = enabled() if on is None else on
         self._plugins: list[Plugin] | None = None
-        self._lock = threading.Lock()   # two first uses at once ran every file twice
+        self._lock = threading.Lock()  # two first uses at once ran every file twice
 
     @property
     def on(self) -> bool:
@@ -124,9 +132,14 @@ class PluginTool:
             if self._plugins is None:
                 files = sorted(path.name for path in self._folder.glob("*.py")) if self._folder.is_dir() else []
                 if files:
-                    self._gate.require(ApprovalRequest(
-                        action=f"Load your plugins from {self._folder}", risk=RiskLevel.HIGH,
-                        reason="Loading a plugin runs its file's code in this app.", preview="\n".join(files)))
+                    self._gate.require(
+                        ApprovalRequest(
+                            action=f"Load your plugins from {self._folder}",
+                            risk=RiskLevel.HIGH,
+                            reason="Loading a plugin runs its file's code in this app.",
+                            preview="\n".join(files),
+                        )
+                    )
                 self._plugins = load(self._folder)
             return self._plugins
 
@@ -151,29 +164,40 @@ class PluginTool:
 
     def listing(self) -> ToolResult:
         if not self._on:
-            return ToolResult.failure(f"Plugins are off. Set {ENABLE}=1 and put plugin files in {self._folder}, then restart.")
+            return ToolResult.failure(
+                f"Plugins are off. Set {ENABLE}=1 and put plugin files in {self._folder}, then restart."
+            )
         plugins = self._loaded()
         if not plugins:
             return ToolResult.success(f"No plugins in {self._folder}.", plugins=[])
-        lines = [f"- **{p.name}** ({p.risk.value}): {p.description}" if p.run else f"- {p.file}: not loaded - {p.error}"
-                 for p in plugins]
-        return ToolResult.success("Plugins:\n" + "\n".join(lines),
-                                  plugins=[{"name": p.name, "file": p.file, "ok": bool(p.run), "error": p.error}
-                                           for p in plugins])
+        lines = [
+            f"- **{p.name}** ({p.risk.value}): {p.description}" if p.run else f"- {p.file}: not loaded - {p.error}"
+            for p in plugins
+        ]
+        return ToolResult.success(
+            "Plugins:\n" + "\n".join(lines),
+            plugins=[{"name": p.name, "file": p.file, "ok": bool(p.run), "error": p.error} for p in plugins],
+        )
 
     def run(self, name: str, argument: str) -> ToolResult:
         if not self._on:
             return ToolResult.failure(f"Plugins are off. Set {ENABLE}=1 to use them.")
         plugin = next((p for p in self._loaded() if p.name == name.strip().lower() and p.run), None)
         if plugin is None:
-            return ToolResult.failure(f"There's no plugin called {name!r}. Say \"plugins\" to see them.")
-        self._gate.require(ApprovalRequest(action=f"Run plugin {plugin.name}: {argument[:120]}", risk=plugin.risk,
-                                           reason=f"Your plugin {plugin.file} runs its own code.", preview=argument))
+            return ToolResult.failure(f'There\'s no plugin called {name!r}. Say "plugins" to see them.')
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Run plugin {plugin.name}: {argument[:120]}",
+                risk=plugin.risk,
+                reason=f"Your plugin {plugin.file} runs its own code.",
+                preview=argument,
+            )
+        )
         try:
             reply = plugin.run(argument)
         except OperationCancelled:
             raise
-        except BaseException as exc:   # sys.exit or KeyboardInterrupt in a plugin ends that plugin, not the app
+        except BaseException as exc:  # sys.exit or KeyboardInterrupt in a plugin ends that plugin, not the app
             record_failure("plugins/run", exc, plugin=plugin.name)
             return ToolResult.failure(f"Plugin {plugin.name} failed: {type(exc).__name__}: {exc}")
         text = str(reply if reply is not None else "Done.")

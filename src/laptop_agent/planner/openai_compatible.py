@@ -71,7 +71,7 @@ _NO_TOOL_CLAIMS = (
 )
 
 
-_CUT_OFF_NOTE = "\n\n_(This reply reached the length limit and stops here. Say \"continue\" for the rest.)_"
+_CUT_OFF_NOTE = '\n\n_(This reply reached the length limit and stops here. Say "continue" for the rest.)_'
 
 
 # A reply that is the model thinking out loud, not answering. Reported: the assistant
@@ -187,10 +187,19 @@ _FEWSHOT: list[tuple[str, str]] = [
     ("summarize the readme", '{"action":"command","command":"summarize file README.md","response":null}'),
     ("look up the weather in tokyo", '{"action":"command","command":"web search tokyo weather","response":null}'),
     ("research local-first ai", '{"action":"command","command":"research local-first ai","response":null}'),
-    ("should I switch my project from React to Vue", '{"action":"command","command":"solve should I switch my project from React to Vue","response":null}'),
-    ("what's the best way to migrate my database with zero downtime", '{"action":"command","command":"solve what is the best way to migrate my database with zero downtime","response":null}'),
+    (
+        "should I switch my project from React to Vue",
+        '{"action":"command","command":"solve should I switch my project from React to Vue","response":null}',
+    ),
+    (
+        "what's the best way to migrate my database with zero downtime",
+        '{"action":"command","command":"solve what is the best way to migrate my database with zero downtime","response":null}',
+    ),
     ("how are you?", '{"action":"chat","command":null,"response":"Doing well and ready to help. What do you need?"}'),
-    ("now build an ERD for that schema", '{"action":"chat","command":null,"response":null,"explanation":"follow-up about my previous reply; answer it from the conversation"}'),
+    (
+        "now build an ERD for that schema",
+        '{"action":"chat","command":null,"response":null,"explanation":"follow-up about my previous reply; answer it from the conversation"}',
+    ),
 ]
 
 
@@ -384,7 +393,9 @@ class OpenAICompatiblePlannerProvider:
                 },
                 {
                     "role": "user",
-                    "content": json.dumps({"request": user_text, "result_message": result_message, "result_data": trimmed}),
+                    "content": json.dumps(
+                        {"request": user_text, "result_message": result_message, "result_data": trimmed}
+                    ),
                 },
             ],
         }
@@ -592,7 +603,9 @@ class OpenAICompatiblePlannerProvider:
     def ping(self, on_failure: Callable[[str, str], None] | None = None) -> bool:
         """Tiny request to check the endpoint is reachable. Returns True on success."""
         payload: dict[str, object] = {
-            "model": self.model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]
+            "model": self.model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
         }
         self._apply_provider_params(payload, think=False)
         try:
@@ -651,8 +664,10 @@ class OpenAICompatiblePlannerProvider:
                     # answer. Empty means "this tier gave nothing", which the orchestrator
                     # already handles by degrading to the next one.
                     record_failure(
-                        "llm/monologue", "reply was the model thinking, not answering",
-                        model=payload.get("model"), truncated=truncated,
+                        "llm/monologue",
+                        "reply was the model thinking, not answering",
+                        model=payload.get("model"),
+                        truncated=truncated,
                         preview=" ".join(content.split())[:120],
                     )
                     return ""
@@ -665,8 +680,12 @@ class OpenAICompatiblePlannerProvider:
                 except Exception:
                     pass
                 record_failure(
-                    "llm/http", exc, model=payload.get("model"), status=exc.code,
-                    attempt=attempt + 1, detail=detail,
+                    "llm/http",
+                    exc,
+                    model=payload.get("model"),
+                    status=exc.code,
+                    attempt=attempt + 1,
+                    detail=detail,
                 )
                 if exc.code not in _RETRY_STATUS or attempt == _HTTP_ATTEMPTS - 1:
                     raise

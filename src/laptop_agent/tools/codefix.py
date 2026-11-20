@@ -6,6 +6,7 @@ the error, returns the whole corrected file, and the change is shown as a diff o
 card before it is written. The old version is kept in `<data dir>/code_backups/` first. The
 script runs with list arguments, never through a shell, in its own folder, with a time limit.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -47,9 +48,15 @@ It printed:
 def run_python(path: Path) -> tuple[int, str]:
     """(exit code, output) of `python <path>` in the script's folder, cut off after TIMEOUT."""
     try:
-        done = subprocess.run([sys.executable, str(path)], cwd=str(path.parent), capture_output=True, text=True,
-                              timeout=TIMEOUT, stdin=subprocess.DEVNULL,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        done = subprocess.run(
+            [sys.executable, str(path)],
+            cwd=str(path.parent),
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+            stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
     except subprocess.TimeoutExpired as exc:
         return -1, (str(exc.stdout or "") + f"\n(stopped after {TIMEOUT} seconds)").strip()
     return done.returncode, (done.stdout + done.stderr).strip()
@@ -63,8 +70,9 @@ def corrected(reply: str) -> str | None:
 
 
 class CodeFixTool:
-    def __init__(self, writer: Writer | None, approval_gate: ApprovalGate, backups: Path,
-                 runner: Runner = run_python) -> None:
+    def __init__(
+        self, writer: Writer | None, approval_gate: ApprovalGate, backups: Path, runner: Runner = run_python
+    ) -> None:
         self._writer = writer
         self._gate = approval_gate
         self._backups = backups
@@ -84,8 +92,14 @@ class CodeFixTool:
         return path.resolve(), ""
 
     def _execute(self, path: Path) -> tuple[int, str]:
-        self._gate.require(ApprovalRequest(action=f"Run the Python script {path}", risk=RiskLevel.HIGH,
-                                           reason="Running a script runs whatever code it holds.", preview=str(path)))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Run the Python script {path}",
+                risk=RiskLevel.HIGH,
+                reason="Running a script runs whatever code it holds.",
+                preview=str(path),
+            )
+        )
         return self._run(path)
 
     def run(self, words: str) -> ToolResult:
@@ -96,8 +110,10 @@ class CodeFixTool:
         shown = output[-MAX_SHOWN:] or "(no output)"
         if code == 0:
             return ToolResult.success(f"{path.name} ran without errors.\n\n```\n{shown}\n```", exit_code=code)
-        return ToolResult.failure(f"{path.name} failed (exit {code}):\n\n```\n{shown}\n```\n\nSay \"fix {path.name}\" "
-                                  "and I'll propose a fix.", exit_code=code)
+        return ToolResult.failure(
+            f'{path.name} failed (exit {code}):\n\n```\n{shown}\n```\n\nSay "fix {path.name}" and I\'ll propose a fix.',
+            exit_code=code,
+        )
 
     def fix(self, words: str) -> ToolResult:
         path, why = self._script(words)
@@ -109,18 +125,34 @@ class CodeFixTool:
         identity = (path.stat().st_dev, path.stat().st_ino)
         source = original.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         if len(source) > MAX_SOURCE:
-            return ToolResult.failure(f"{path.name} is over {MAX_SOURCE:,} characters; that's more than I fix in one go.")
+            return ToolResult.failure(
+                f"{path.name} is over {MAX_SOURCE:,} characters; that's more than I fix in one go."
+            )
         code, output = self._execute(path)
         if code == 0:
-            return ToolResult.success(f"{path.name} already runs without errors, so there's nothing to fix.", exit_code=0)
+            return ToolResult.success(
+                f"{path.name} already runs without errors, so there's nothing to fix.", exit_code=0
+            )
         fixed = corrected(self._writer(_PROMPT.format(name=path.name, source=source, error=output[-MAX_SHOWN:])))
         if fixed is None or fixed.strip() == source.strip():
-            return ToolResult.failure(f"The model didn't return a changed file, so {path.name} is as it was.\n\n"
-                                      f"The error:\n```\n{output[-MAX_SHOWN:]}\n```")
-        diff = "".join(difflib.unified_diff(source.splitlines(True), fixed.splitlines(True),
-                                            f"{path.name} (now)", f"{path.name} (fixed)"))
-        self._gate.require(ApprovalRequest(action=f"Write the fix to {path}", risk=RiskLevel.HIGH,
-                                           reason="The old version is kept in code_backups first.", preview=diff[:6000]))
+            return ToolResult.failure(
+                f"The model didn't return a changed file, so {path.name} is as it was.\n\n"
+                f"The error:\n```\n{output[-MAX_SHOWN:]}\n```"
+            )
+        diff = "".join(
+            difflib.unified_diff(
+                source.splitlines(True), fixed.splitlines(True), f"{path.name} (now)", f"{path.name} (fixed)"
+            )
+        )
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Write the fix to {path}",
+                risk=RiskLevel.HIGH,
+                reason="The old version is kept in code_backups first.",
+                preview=diff[:6000],
+            )
+        )
+
         def unchanged() -> bool:
             try:
                 current = path.stat()
@@ -130,15 +162,22 @@ class CodeFixTool:
                 return False
 
         if not unchanged():
-            return ToolResult.failure(f"{path.name} changed while I was preparing its fix, so I left the newer file alone.")
+            return ToolResult.failure(
+                f"{path.name} changed while I was preparing its fix, so I left the newer file alone."
+            )
         self._backups.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=f"{path.stem}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-",
-                                    suffix=path.suffix, dir=self._backups)
+        fd, name = tempfile.mkstemp(
+            prefix=f"{path.stem}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-", suffix=path.suffix, dir=self._backups
+        )
         backup = Path(name)
         with os.fdopen(fd, "wb") as output:
             output.write(original)
         if not unchanged():
             return ToolResult.failure(f"{path.name} changed while I was backing it up, so I left the newer file alone.")
         path.write_text(fixed, encoding="utf-8")
-        return ToolResult.success(f"Fixed {path.name}; the old version is at {backup}. Say \"run {path.name}\" to check it.\n\n"
-                                  f"```diff\n{diff[:MAX_SHOWN]}\n```", backup=str(backup), path=str(path))
+        return ToolResult.success(
+            f'Fixed {path.name}; the old version is at {backup}. Say "run {path.name}" to check it.\n\n'
+            f"```diff\n{diff[:MAX_SHOWN]}\n```",
+            backup=str(backup),
+            path=str(path),
+        )

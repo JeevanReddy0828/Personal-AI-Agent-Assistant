@@ -75,8 +75,10 @@ class SentenceTests(unittest.TestCase):
         self.assertFalse([s for s in answers if set(s) <= set("|-: ")])
 
     def test_a_paragraph_never_runs_across_a_heading(self) -> None:
-        self.assertEqual(sentences("Plans are kept\non your disk.\n# Usage\nRun it daily."),
-                         ["Plans are kept on your disk.", "Run it daily."])
+        self.assertEqual(
+            sentences("Plans are kept\non your disk.\n# Usage\nRun it daily."),
+            ["Plans are kept on your disk.", "Run it daily."],
+        )
 
     def test_a_run_on_is_cut_into_pieces_and_none_of_it_is_lost(self) -> None:
         pieces = sentences("word " * 400)
@@ -88,10 +90,14 @@ class SentenceTests(unittest.TestCase):
 
     def test_a_row_of_links_is_navigation(self) -> None:
         # A table of contents names every section, so it matched almost any question.
-        self.assertEqual(sentences("[Install](#i) · [Usage](#u) · [Start](#s)\n\nReal text here.", structure=True),
-                         ["Real text here."])
-        self.assertEqual(sentences("See [the guide](a), [the FAQ](b) and [the API](c) for more."),
-                         ["See the guide, the FAQ and the API for more."])
+        self.assertEqual(
+            sentences("[Install](#i) · [Usage](#u) · [Start](#s)\n\nReal text here.", structure=True),
+            ["Real text here."],
+        )
+        self.assertEqual(
+            sentences("See [the guide](a), [the FAQ](b) and [the API](c) for more."),
+            ["See the guide, the FAQ and the API for more."],
+        )
 
     def test_an_answer_keeps_headings_but_never_a_diagram_source(self) -> None:
         found = sentences("# Orbit — a tiny planner\n\n```mermaid\nAPP --> TAB\n```\n", structure=True)

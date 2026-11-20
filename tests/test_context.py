@@ -3,8 +3,15 @@ from __future__ import annotations
 import unittest
 
 from laptop_agent.context import (
-    CHAT_BUDGET, build_context, chunk_history, chunk_text, context_block, rank_chunks, refers_back,
-    register_summarizer, resolve_reference,
+    CHAT_BUDGET,
+    build_context,
+    chunk_history,
+    chunk_text,
+    context_block,
+    rank_chunks,
+    refers_back,
+    register_summarizer,
+    resolve_reference,
 )
 
 SCHEMA = (
@@ -31,7 +38,9 @@ def _session(extra: int = 0) -> list[dict[str, str]]:
     for index in range(extra):  # oldest first: filler weather turns, then the schema exchange
         turns.append({"role": "user", "text": f"Earlier question number {index} about weather."})
         turns.append({"role": "assistant", "text": f"Earlier answer number {index} about the weather in Tokyo."})
-    turns.append({"role": "user", "text": "Design a database schema for an online marketplace with users, listings, orders."})
+    turns.append(
+        {"role": "user", "text": "Design a database schema for an online marketplace with users, listings, orders."}
+    )
     turns.append({"role": "assistant", "text": SCHEMA})
     return turns
 
@@ -54,11 +63,21 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual("".join(piece.replace(" ", "") for _, piece in pieces), text.replace(" ", ""))
 
     def test_refers_back_detects_follow_ups(self) -> None:
-        for query in ["build an ERD for this", "make it shorter", "turn the schema above into a diagram", "shorter", "in mermaid"]:
+        for query in [
+            "build an ERD for this",
+            "make it shorter",
+            "turn the schema above into a diagram",
+            "shorter",
+            "in mermaid",
+        ]:
             self.assertTrue(refers_back(query), query)
         for query in [
-            "what is the weather in Tokyo tomorrow", "research local-first ai agents",
-            "explain the design principles of REST APIs", "check weather", "scan files .", "play music",
+            "what is the weather in Tokyo tomorrow",
+            "research local-first ai agents",
+            "explain the design principles of REST APIs",
+            "check weather",
+            "scan files .",
+            "play music",
             "edit the items list",  # 'it' inside 'edit'/'items' does not count
             "Answer the user's question using the web search results below, which are current. Prefer this live "
             "information over any prior knowledge, lead with the most up-to-date facts, and cite sources inline. "
@@ -102,8 +121,8 @@ class BuildContextTests(unittest.TestCase):
     def test_follow_up_keeps_the_whole_previous_answer_and_names_the_referent(self) -> None:
         result = build_context(_session(), "build an ERD for this", budget=9000)
         self.assertTrue(result.refers_back)
-        self.assertIn("order_items", result.text)          # the tables the follow-up needs
-        self.assertIn("CREATE TABLE users", result.text)   # fenced code survives verbatim
+        self.assertIn("order_items", result.text)  # the tables the follow-up needs
+        self.assertIn("CREATE TABLE users", result.text)  # fenced code survives verbatim
         self.assertIn("most likely means J.A.R.V.I.S's reply in turn 2", result.text)
         self.assertIn("Never search files", result.text)
 
@@ -164,7 +183,6 @@ class BuildContextTests(unittest.TestCase):
         self.assertTrue(all(score >= 1.0 for score, chunk in boosted if chunk.turn == 1))
 
 
-
 class MemoryHierarchyTests(unittest.TestCase):
     """The summary buffer, contextual BM25 retrieval and follow-up rewriting."""
 
@@ -187,21 +205,25 @@ class MemoryHierarchyTests(unittest.TestCase):
 
         register_summarizer(summarizer, background=False)
         history = _session(extra=6) + [
-            {"role": "user", "text": "thanks"}, {"role": "assistant", "text": "Any time, Jeevan."},
-            {"role": "user", "text": "and the weather?"}, {"role": "assistant", "text": "Still sunny in Tokyo."},
+            {"role": "user", "text": "thanks"},
+            {"role": "assistant", "text": "Any time, Jeevan."},
+            {"role": "user", "text": "and the weather?"},
+            {"role": "assistant", "text": "Still sunny in Tokyo."},
         ]
         result = build_context(history, "which tables did you propose for refunds", budget=1800)
         self.assertTrue(result.summarized)
         self.assertIn("Summary of turns 1–", result.text)
         self.assertIn("marketplace schema", result.text)
-        self.assertNotRegex(result.text, r"\d+\. J\.A\.R\.V\.I\.S: Earlier answer")   # outline replaced
+        self.assertNotRegex(result.text, r"\d+\. J\.A\.R\.V\.I\.S: Earlier answer")  # outline replaced
         self.assertEqual(len(prompts), 1)
         self.assertIn("PREVIOUS SUMMARY", prompts[0])
         # Same prefix, different question: served from the cache, no second model call.
         build_context(history, "and the payments table?", budget=1800)
         self.assertEqual(len(prompts), 1)
         # A longer prefix folds the previous summary in instead of starting over.
-        build_context(history + [{"role": "user", "text": "x"}, {"role": "assistant", "text": "y"}], "more?", budget=1800)
+        build_context(
+            history + [{"role": "user", "text": "x"}, {"role": "assistant", "text": "y"}], "more?", budget=1800
+        )
         self.assertEqual(len(prompts), 2)
         self.assertIn("Earlier: the user asked about Tokyo", prompts[-1])
 
@@ -232,7 +254,10 @@ class MemoryHierarchyTests(unittest.TestCase):
         query, referent = resolve_reference("is option B safer for this?", turns)
         self.assertEqual(referent, 1)
         self.assertEqual(query, "is option B safer for this? (referring to: Option A Postgres, Option B MySQL)")
-        self.assertEqual(resolve_reference("what is the weather in Tokyo tomorrow", turns), ("what is the weather in Tokyo tomorrow", None))
+        self.assertEqual(
+            resolve_reference("what is the weather in Tokyo tomorrow", turns),
+            ("what is the weather in Tokyo tomorrow", None),
+        )
         result = build_context([{"role": r, "text": t} for r, t in turns], "is option B safer for this?")
         self.assertIn("(referring to:", result.query)
 

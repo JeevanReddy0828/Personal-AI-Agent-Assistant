@@ -32,7 +32,7 @@ class MoreEverydayMathTests(unittest.TestCase):
         self.assertIn("**1 is not prime**", self.say("is 1 prime"))
         self.assertEqual(self.say("is ninety seven prime"), "Yes — **97 is prime**.")
         self.assertEqual(self.say("is 999983 a prime number"), "Yes — **999,983 is prime**.")
-        self.assertFalse(CalculatorTool().compute("is 1000000000039 prime").ok)   # past the limit, said so
+        self.assertFalse(CalculatorTool().compute("is 1000000000039 prime").ok)  # past the limit, said so
         for text in ("is 3 enough", "is the average salary 50000", "is 97 the answer"):
             with self.subTest(text):
                 self.assertIsNone(prime_question(text))
@@ -41,27 +41,39 @@ class MoreEverydayMathTests(unittest.TestCase):
         """Each reached the chat model, the wrong tool for exact arithmetic."""
         from laptop_agent.planner import HeuristicPlannerProvider
 
-        for text, expected in (("increase 80 by 15%", "= **92**"), ("decrease 80 by 15 percent", "= **68**"),
-                               ("what's 80 minus 15 percent", "= **68**"), ("80 plus 15%", "= **92**"),
-                               ("what percent of 200 is 50", "= **25**"), ("50 is what percent of 200", "= **25**"),
-                               ("what is the remainder of 17 divided by 5", "= **2**"),
-                               ("sum of 1 to 100", "= **5,050**"), ("the sum of the numbers from 1 to 10", "= **55**"),
-                               ("1/3 as a decimal", "0.3333333333"), ("0.75 as a fraction", "0.75 = **3/4**"),
-                               ("what's 0.125 as a fraction", "= **1/8**"), ("cube root of 27", "= **3**"),
-                               ("cube root of 2", "= **1.25992105**")):
+        for text, expected in (
+            ("increase 80 by 15%", "= **92**"),
+            ("decrease 80 by 15 percent", "= **68**"),
+            ("what's 80 minus 15 percent", "= **68**"),
+            ("80 plus 15%", "= **92**"),
+            ("what percent of 200 is 50", "= **25**"),
+            ("50 is what percent of 200", "= **25**"),
+            ("what is the remainder of 17 divided by 5", "= **2**"),
+            ("sum of 1 to 100", "= **5,050**"),
+            ("the sum of the numbers from 1 to 10", "= **55**"),
+            ("1/3 as a decimal", "0.3333333333"),
+            ("0.75 as a fraction", "0.75 = **3/4**"),
+            ("what's 0.125 as a fraction", "= **1/8**"),
+            ("cube root of 27", "= **3**"),
+            ("cube root of 2", "= **1.25992105**"),
+        ):
             with self.subTest(text):
                 self.assertIn(expected, self.say(text))
                 self.assertTrue(HeuristicPlannerProvider().plan(text, "", {}).command.startswith("calculate "))
-        self.assertIn("= **5,050**", self.say("sum of 100 to 1"))           # either way round
-        self.assertIn("= **-2**", self.say("cbrt(-8)"))                     # a real root, not a complex one
-        self.assertFalse(CalculatorTool().compute("sum of 1.5 to 3").ok)     # not a range of whole numbers
+        self.assertIn("= **5,050**", self.say("sum of 100 to 1"))  # either way round
+        self.assertIn("= **-2**", self.say("cbrt(-8)"))  # a real root, not a complex one
+        self.assertFalse(CalculatorTool().compute("sum of 1.5 to 3").ok)  # not a range of whole numbers
         # A numeral no one types raised ValueError before every guard, here and in the router (Codex's review).
         for text in ("sum of 1 to " + "9" * 5000, "0." + "3" * 5000 + " as a fraction"):
             with self.subTest(len(text)):
                 self.assertFalse(CalculatorTool().compute(text).ok)
                 self.assertIsNone(HeuristicPlannerProvider().plan(text, "", {}).command)
-        for text in ("increase the font size by 10%", "what percent of people like pizza", "the sum of my expenses",
-                     "0.75 of a cup"):
+        for text in (
+            "increase the font size by 10%",
+            "what percent of people like pizza",
+            "the sum of my expenses",
+            "0.75 of a cup",
+        ):
             with self.subTest(text):
                 self.assertIsNone(HeuristicPlannerProvider().plan(text, "", {}).command)
 
@@ -111,10 +123,14 @@ class MoreEverydayMathTests(unittest.TestCase):
                 self.assertFalse(CalculatorTool().compute(text).ok)
 
     def test_a_sum_or_a_prime_asked_inside_a_sentence(self) -> None:
-        """"tell me what 15% of 80 is" and "tell me if 97 is prime" put the verb last."""
-        for text, answer in (("what 15% of 80 is", "**12**"), ("how much 20% of 85 is", "**17**"),
-                             ("what 12 times 13 is", "**156**"), ("if 97 is prime", "**97 is prime**"),
-                             ("whether 91 is a prime number", "**91 is not prime**: 7 × 13")):
+        """ "tell me what 15% of 80 is" and "tell me if 97 is prime" put the verb last."""
+        for text, answer in (
+            ("what 15% of 80 is", "**12**"),
+            ("how much 20% of 85 is", "**17**"),
+            ("what 12 times 13 is", "**156**"),
+            ("if 97 is prime", "**97 is prime**"),
+            ("whether 91 is a prime number", "**91 is not prime**: 7 × 13"),
+        ):
             with self.subTest(text):
                 self.assertIn(answer, self.say(text))
         # A statement, not a question: no "if"/"whether", nothing to check.
@@ -124,10 +140,14 @@ class MoreEverydayMathTests(unittest.TestCase):
                 self.assertFalse(looks_like_arithmetic(text))
 
     def test_a_tip_or_a_tax_said_either_way_round(self) -> None:
-        """"what's the tip on 64 dollars at 20 percent" and "7% sales tax on 49.99" reached the chat model."""
-        for text, answer in (("what's the tip on 64 dollars at 20 percent", "**12.8**"),
-                             ("tip on a 50 bill at 18%", "**9**"), ("tax on 120 at 8.25%", "**9.9**"),
-                             ("what's 7% sales tax on 49.99", "**3.4993**"), ("8% tax on 200", "**16**")):
+        """ "what's the tip on 64 dollars at 20 percent" and "7% sales tax on 49.99" reached the chat model."""
+        for text, answer in (
+            ("what's the tip on 64 dollars at 20 percent", "**12.8**"),
+            ("tip on a 50 bill at 18%", "**9**"),
+            ("tax on 120 at 8.25%", "**9.9**"),
+            ("what's 7% sales tax on 49.99", "**3.4993**"),
+            ("8% tax on 200", "**16**"),
+        ):
             with self.subTest(text):
                 self.assertTrue(looks_like_arithmetic(text))
                 self.assertIn(answer, self.say(text))
@@ -162,7 +182,7 @@ class ExactArithmeticTests(unittest.TestCase):
     def test_precedence_and_parentheses(self) -> None:
         self.assertEqual(evaluate("2+3*4"), 14)
         self.assertEqual(evaluate("(2+3)*4"), 20)
-        self.assertEqual(evaluate("2**3**2"), 512)      # right associative
+        self.assertEqual(evaluate("2**3**2"), 512)  # right associative
         # Unary minus binds looser than exponentiation: -(2**2), not (-2)**2.
         self.assertEqual(evaluate("-2**2"), -4)
         self.assertEqual(evaluate("(-2)**2"), 4)
@@ -252,8 +272,12 @@ class CalculatorToolTests(unittest.TestCase):
 
     def test_a_decimal_that_is_exact_is_shown_once(self) -> None:
         """A 15% tip on 84 said "12.6 (exactly 63/5)": 12.6 is already exact."""
-        for expression, expected in (("15/100*84", "= **12.6**"), ("1/8", "= **0.125**"),
-                                     ("1/3", "(exactly 1/3)"), ("754/86982", "(exactly 377/43,491)")):
+        for expression, expected in (
+            ("15/100*84", "= **12.6**"),
+            ("1/8", "= **0.125**"),
+            ("1/3", "(exactly 1/3)"),
+            ("754/86982", "(exactly 377/43,491)"),
+        ):
             with self.subTest(expression):
                 self.assertIn(expected, CalculatorTool().compute(expression).message)
 
@@ -319,11 +343,22 @@ class EverydayArithmeticTests(unittest.TestCase):
         self.assertEqual(self.value("a hundred divided by four"), "25")
 
     def test_everyday_sums_are_recognised_and_prose_is_not(self) -> None:
-        for text in ("what's 15% of 80", "what is five plus five", "sqrt 2",
-                     "split $120 between 4 people", "what's the square root of 144"):
+        for text in (
+            "what's 15% of 80",
+            "what is five plus five",
+            "sqrt 2",
+            "split $120 between 4 people",
+            "what's the square root of 144",
+        ):
             self.assertTrue(looks_like_arithmetic(text), text)
-        for text in ("split the bill", "what is one direction", "i have 2 kids and 3 dogs",
-                     "two and three", "top 10 movies of 2024", "split screen"):
+        for text in (
+            "split the bill",
+            "what is one direction",
+            "i have 2 kids and 3 dogs",
+            "two and three",
+            "top 10 movies of 2024",
+            "split screen",
+        ):
             self.assertFalse(looks_like_arithmetic(text), text)
 
 
@@ -360,7 +395,7 @@ if __name__ == "__main__":
 
 
 class CapabilitiesAnswerTests(unittest.TestCase):
-    """"what can you do" is the first thing anyone asks, and it used to return a hundred
+    """ "what can you do" is the first thing anyone asks, and it used to return a hundred
     lines of raw command syntax."""
 
     def answer(self) -> str:
@@ -388,8 +423,13 @@ class CapabilityRoutingTests(unittest.TestCase):
         from laptop_agent.planner.heuristic import HeuristicPlannerProvider
 
         planner = HeuristicPlannerProvider()
-        for text in ("what can you do", "what can you do?", "what are you capable of",
-                     "how can you help", "what can I ask you"):
+        for text in (
+            "what can you do",
+            "what can you do?",
+            "what are you capable of",
+            "how can you help",
+            "what can I ask you",
+        ):
             decision = planner.plan(text, "", {})
             self.assertEqual(decision.command, "capabilities", text)
 

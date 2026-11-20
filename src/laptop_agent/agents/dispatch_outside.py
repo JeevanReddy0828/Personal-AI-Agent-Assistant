@@ -2,6 +2,7 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import re
@@ -16,7 +17,6 @@ from laptop_agent.tools.weather import clean_place
 
 
 class OutsideDispatch:
-
     async def _dispatch_generate(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for news, weather, translation, documents and pictures."""
         if lowered == "news":
@@ -25,10 +25,15 @@ class OutsideDispatch:
         if lowered.startswith("news "):
             # "news about nvidia" searched for "about nvidia" and titled the answer "Top
             # stories about about nvidia".
-            topic = re.sub(r"^(?:about|on|regarding|for|from|in|re|of)\s+", "",
-                           command[len("news ") :].strip(), flags=re.IGNORECASE)
-            topic = re.sub(r"\b(?:today|tonight|now|right now|please|headlines?)\s*$", "", topic,
-                           flags=re.IGNORECASE).strip(" ?.!,")
+            topic = re.sub(
+                r"^(?:about|on|regarding|for|from|in|re|of)\s+",
+                "",
+                command[len("news ") :].strip(),
+                flags=re.IGNORECASE,
+            )
+            topic = re.sub(
+                r"\b(?:today|tonight|now|right now|please|headlines?)\s*$", "", topic, flags=re.IGNORECASE
+            ).strip(" ?.!,")
             return self._news_tool().headlines(topic) if topic else self._news_tool().headlines()
 
         if lowered.startswith("document "):
@@ -82,14 +87,15 @@ class OutsideDispatch:
         parsed = parse_translation(raw)
         if parsed is None:
             return ToolResult.failure(
-                "Say it like: translate good morning to Spanish, or translate bonjour from French to English.")
+                "Say it like: translate good morning to Spanish, or translate bonjour from French to English."
+            )
         text, target, source = parsed
         if self._EARLIER_REPLY.fullmatch(text):
             text = self._earlier_reply(history_turns)
             if not text:
                 return ToolResult.failure("There is nothing earlier in this chat to translate.")
         elif self._CLIPBOARD_TEXT.fullmatch(text):
-            read = self._clipboard_tool().content()   # refuses a personal account itself
+            read = self._clipboard_tool().content()  # refuses a personal account itself
             if not read.ok:
                 return read
             text = str(read.data["text"]).strip()
@@ -104,23 +110,36 @@ class OutsideDispatch:
         answer = getattr(provider, "answer", None)
         if answer is None:
             return None
-        request = ("Which language is this text written in? Reply with only the language's "
-                   "English name, one or two words.\n\n" + text[:300])
+        request = (
+            "Which language is this text written in? Reply with only the language's "
+            "English name, one or two words.\n\n" + text[:300]
+        )
         reply = (answer(request, {}, max_tokens=8) or "").strip()
         return reply.splitlines()[0].strip(" .\"'*") if reply else None
 
     # Profile keys that say where the user is: "remember my city is Austin" stores `city`.
-    _HOME_KEYS = frozenset({
-        "city", "location", "home city", "hometown", "home town", "town", "home", "where i live",
-        "zip", "zip code", "postcode",
-    })
+    _HOME_KEYS = frozenset(
+        {
+            "city",
+            "location",
+            "home city",
+            "hometown",
+            "home town",
+            "town",
+            "home",
+            "where i live",
+            "zip",
+            "zip code",
+            "postcode",
+        }
+    )
 
     def _forecast(self, raw: str) -> ToolResult:
         """`weather [place]`. With no place, the forecast is for where the user is."""
         place = clean_place(raw) or self._home_place()
         if not place:
             return ToolResult.failure(
-                "Where should I check? Name a city — or tell me once, \"remember my city is "
+                'Where should I check? Name a city — or tell me once, "remember my city is '
                 "Austin\", and I'll use it from then on."
             )
         return self._weather_tool().forecast(place)
@@ -144,8 +163,11 @@ class OutsideDispatch:
 
         if lowered.startswith("trip "):
             rest = command[len("trip ") :].strip()
-            stops = ([s.strip() for s in rest.split("|")] if "|" in rest
-                     else re.split(r"\s+(?:to|->|→|then)\s+", rest, flags=re.IGNORECASE))
+            stops = (
+                [s.strip() for s in rest.split("|")]
+                if "|" in rest
+                else re.split(r"\s+(?:to|->|→|then)\s+", rest, flags=re.IGNORECASE)
+            )
             return self._travel_tool().trip([s for s in stops if s.strip()])
 
         if lowered.startswith("around "):
@@ -176,7 +198,7 @@ class OutsideDispatch:
 
     @staticmethod
     def _with_flights_link(query: str, result: ToolResult) -> ToolResult:
-        """"flights from Austin to Tokyo" is routed to a web search, which finds pages about fares
+        """ "flights from Austin to Tokyo" is routed to a web search, which finds pages about fares
         but no fares: a Google Flights search for the same words goes at the top. No fare is ever
         stated by us; there is no free fare API to read one from."""
         if not re.match(r"flights?\s+(?:from\s+\S.*?\s+)?to\s+\S", query, re.IGNORECASE):
@@ -268,18 +290,21 @@ class OutsideDispatch:
         if lowered.startswith("screenshot "):
             rest = command[len("screenshot ") :].strip()
             lead = re.match(r"(?:to|as|into)\s+", rest, re.IGNORECASE)
-            target = rest[lead.end():] if lead else rest
+            target = rest[lead.end() :] if lead else rest
             # "screenshot my screen and tell me what's on it" saved a file named after the sentence,
             # "...and read the error/bug message" one at "error\bug message.png", and "...and read
             # the report.png" one at that sentence (Codex's reviews of #258). A destination is said
             # as one: a drive or a ./ ~/ / start, a single image file name, or one word after "to".
             # Asking what is on it is asking to look.
-            if (re.match(r"[A-Za-z]:[\\/]|[.~]{0,2}[\\/]", target)
-                    or re.fullmatch(r"\S+\.(?:png|jpe?g|bmp|gif|webp)", target, re.IGNORECASE)
-                    or (lead and re.fullmatch(r"\S+", target))):
+            if (
+                re.match(r"[A-Za-z]:[\\/]|[.~]{0,2}[\\/]", target)
+                or re.fullmatch(r"\S+\.(?:png|jpe?g|bmp|gif|webp)", target, re.IGNORECASE)
+                or (lead and re.fullmatch(r"\S+", target))
+            ):
                 return self.context.desktop.screenshot(target)
-            if re.search(r"\b(?:tell|describe|explain|read|summari[sz]e)\b|\bwhat(?:'s|s|\s+is)\s+on\b", target,
-                         re.IGNORECASE):
+            if re.search(
+                r"\b(?:tell|describe|explain|read|summari[sz]e)\b|\bwhat(?:'s|s|\s+is)\s+on\b", target, re.IGNORECASE
+            ):
                 return self._read_screen()
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             return self.context.desktop.screenshot(str(self.data_dir / "screenshots" / f"screenshot-{stamp}.png"))
@@ -329,7 +354,14 @@ class OutsideDispatch:
     async def _dispatch_email(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for reading, drafting and sending mail."""
 
-        if lowered in {"email digest", "summarize inbox", "summarize my inbox", "summarize my emails", "summarize my unread", "inbox digest"}:
+        if lowered in {
+            "email digest",
+            "summarize inbox",
+            "summarize my inbox",
+            "summarize my emails",
+            "summarize my unread",
+            "inbox digest",
+        }:
             return self._email_digest("UNSEEN")
 
         if lowered.startswith("email digest "):

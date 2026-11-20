@@ -4,6 +4,7 @@ The microphone is Chromium's fake one, but the wake listener is handed its sound
 frame at a time; /api/wake is answered by the test, so no speech model runs, and speech recognition
 is a stub.
 """
+
 from __future__ import annotations
 
 import json
@@ -85,7 +86,9 @@ class WakeWordInTheBrowser(unittest.TestCase):
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
 
-        cls.metrics_patch = patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []})
+        cls.metrics_patch = patch.object(
+            webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}
+        )
         cls.metrics_patch.start()
         # Should a clip ever reach the server, it meets a fake: no speech model runs in a test.
         cls.wake_patch = patch.object(webui, "_WAKE", webui.WakeDetector(lambda clip: ("", 1.0)))
@@ -95,7 +98,8 @@ class WakeWordInTheBrowser(unittest.TestCase):
         cls.url = f"http://127.0.0.1:{cls.server.server_port}"
         cls.playwright = sync_playwright().start()
         cls.browser = cls.playwright.chromium.launch(
-            headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+            headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -122,7 +126,9 @@ class WakeWordInTheBrowser(unittest.TestCase):
             route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True, **wake_reply}))
 
         # Playwright tries the last route added first: the catch-all goes in first, so /api/wake is ours.
-        context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         context.route("**/api/wake", answer)
         page = context.new_page()
         errors: list[str] = []
@@ -173,7 +179,9 @@ class WakeWordInTheBrowser(unittest.TestCase):
         page = self.open({"available": True, "wake": False})
         page.fill("#ta", "turn off the wake word")
         page.keyboard.press("Enter")
-        page.wait_for_function("() => document.getElementById('wakeBtn').getAttribute('aria-pressed') === 'false'", timeout=5000)
+        page.wait_for_function(
+            "() => document.getElementById('wakeBtn').getAttribute('aria-pressed') === 'false'", timeout=5000
+        )
         self.assertEqual(page.evaluate("localStorage.getItem('jarvis_wake')"), "off")
         self.assertIn("stopped listening", page.locator(".msg").last.inner_text())
 

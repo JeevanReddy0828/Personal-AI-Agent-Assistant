@@ -2,6 +2,7 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import re
@@ -78,7 +79,6 @@ from laptop_agent.agents.common import (
 
 
 class Routing:
-
     def _route(
         self,
         command: str,
@@ -100,16 +100,21 @@ class Routing:
                 # "do not open youtube": the model, asked what it means, may still answer
                 # `open url …`. A request not to do something never does it (Codex's review
                 # of #191); it is answered instead.
-                decision = PlanDecision(action="chat", confidence=0.55,
-                                        explanation="A request not to do something; answered, not run.")
-            elif (decision.is_command and asks_not_to_forget(command)
-                  and not _REMINDER_CREATION.match(decision.command or "")):
-                decision = PlanDecision(action="chat", confidence=0.55,
-                                        explanation="'Don't forget' asks for a reminder, not this.")
-            elif (decision.is_command and asks_to_be_told(command)
-                  and _REMINDER_CREATION.match(decision.command or "")):
-                decision = PlanDecision(action="chat", confidence=0.55,
-                                        explanation="'Remind me how/what' asks to be told now.")
+                decision = PlanDecision(
+                    action="chat", confidence=0.55, explanation="A request not to do something; answered, not run."
+                )
+            elif (
+                decision.is_command
+                and asks_not_to_forget(command)
+                and not _REMINDER_CREATION.match(decision.command or "")
+            ):
+                decision = PlanDecision(
+                    action="chat", confidence=0.55, explanation="'Don't forget' asks for a reminder, not this."
+                )
+            elif decision.is_command and asks_to_be_told(command) and _REMINDER_CREATION.match(decision.command or ""):
+                decision = PlanDecision(
+                    action="chat", confidence=0.55, explanation="'Remind me how/what' asks to be told now."
+                )
             if trace is not None:
                 trace.route_done(source)
             return decision
@@ -122,10 +127,9 @@ class Routing:
         # A recent provider failure is already known. Keep the deterministic
         # router's answer and let the chat ladder try a healthy tier instead of
         # spending another request on the same failed endpoint.
-        if (
-            type(self.planner.provider).__name__ == "OpenAICompatiblePlannerProvider"
-            and not self.model_status.should_attempt("fast")
-        ):
+        if type(
+            self.planner.provider
+        ).__name__ == "OpenAICompatiblePlannerProvider" and not self.model_status.should_attempt("fast"):
             return decided("heuristic", fast)
         # When the instant router is already confident this is plain chat (e.g. a
         # greeting), skip the LLM routing round-trip — it would only confirm "this is
@@ -150,23 +154,35 @@ class Routing:
         planned = self._repair_shell_command(command, self.planner.plan(command, help_text, profile, history))
         # The model knows `undo file` but not what was just done: after "Reminder set", "undo that"
         # moved an unrelated file back (review of #287). Only straight after a file change of ours.
-        if planned.is_command and (planned.command or "").lower().startswith("undo file") and not (
-                follows_a_file_change(history)):
-            planned = PlanDecision(action="chat", confidence=planned.confidence,
-                                   explanation="An undo of a file change that was not the last thing done.")
+        if (
+            planned.is_command
+            and (planned.command or "").lower().startswith("undo file")
+            and not (follows_a_file_change(history))
+        ):
+            planned = PlanDecision(
+                action="chat",
+                confidence=planned.confidence,
+                explanation="An undo of a file change that was not the last thing done.",
+            )
         if planned.is_command and planned.command:
             # A command a model picked for the user's sentence is checked and recorded like an
             # agent's step; from a tier that is not trusted to act, it is answered, not run.
             verdict = routed(planned.command, "fast")
             self._record_verdict("router", planned.command, "fast", verdict)
             if verdict.verdict is Verdict.REFUSE:
-                planned = PlanDecision(action="chat", confidence=planned.confidence,
-                                       explanation="Picked by a model that is not trusted to act; answered instead.")
+                planned = PlanDecision(
+                    action="chat",
+                    confidence=planned.confidence,
+                    explanation="Picked by a model that is not trusted to act; answered instead.",
+                )
         return decided("llm", planned)
 
     # An assistant turn that opens with talk about itself describes no topic. Using one gave
     # the user: 'I read "this" as I can't generate or attach images directly...'.
-    _META_REPLY = re.compile(r"^\s*(?:i\s+(?:can|cannot|can't|could|will|am|have|read|understand)\b|sorry\b|here is\b|certainly\b)", re.IGNORECASE)
+    _META_REPLY = re.compile(
+        r"^\s*(?:i\s+(?:can|cannot|can't|could|will|am|have|read|understand)\b|sorry\b|here is\b|certainly\b)",
+        re.IGNORECASE,
+    )
 
     @classmethod
     def _referent_topic(cls, history: list[dict[str, str]] | None) -> str:
@@ -186,10 +202,26 @@ class Routing:
     # asked how something is done. The approval gate caught it, which is the gate working,
     # but a question should never become an action in the first place.
     _TARGET_COMMANDS = (
-        "open url", "download", "read file", "index file", "process file", "summarize file",
-        "analyze spreadsheet", "ask file", "extract text", "transcribe", "ocr image",
-        "describe image", "describe video", "summarize youtube", "organize folder", "scan files",
-        "file move", "file copy", "file rename", "file delete",
+        "open url",
+        "download",
+        "read file",
+        "index file",
+        "process file",
+        "summarize file",
+        "analyze spreadsheet",
+        "ask file",
+        "extract text",
+        "transcribe",
+        "ocr image",
+        "describe image",
+        "describe video",
+        "summarize youtube",
+        "organize folder",
+        "scan files",
+        "file move",
+        "file copy",
+        "file rename",
+        "file delete",
     )
     # The part of a target that identifies it: a host without www/TLD, or a filename stem.
     _TARGET_TOKEN = re.compile(r"[A-Za-z0-9_-]{3,}")
@@ -202,10 +234,43 @@ class Routing:
         # A file is identified by its stem, not its extension: "what is a csv file" must not
         # be taken as permission to open data.csv.
         skip = {
-            "http", "https", "www", "com", "org", "net", "index", "file",
-            "html", "htm", "php", "csv", "tsv", "txt", "pdf", "docx", "doc", "xlsx",
-            "md", "json", "yaml", "yml", "toml", "ini", "log", "zip", "png", "jpg",
-            "jpeg", "webp", "gif", "mp4", "mp3", "wav", "py", "js", "ts",
+            "http",
+            "https",
+            "www",
+            "com",
+            "org",
+            "net",
+            "index",
+            "file",
+            "html",
+            "htm",
+            "php",
+            "csv",
+            "tsv",
+            "txt",
+            "pdf",
+            "docx",
+            "doc",
+            "xlsx",
+            "md",
+            "json",
+            "yaml",
+            "yml",
+            "toml",
+            "ini",
+            "log",
+            "zip",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "gif",
+            "mp4",
+            "mp3",
+            "wav",
+            "py",
+            "js",
+            "ts",
         }
         return {p.lower() for p in parts if p.lower() not in skip}
 
@@ -224,10 +289,12 @@ class Routing:
         r"|\bhow\s+(?:do\s+i|do\s+you|to|can\s+i|would\s+i|should\s+i)\s+(?:\w+\s+)?(?:run|execute|exec|use|start)\b)",
         re.IGNORECASE,
     )
-    _QUESTION_START = re.compile(r"(?:what|why|how|explain|describe|is|are|does|should|can\s+i|could\s+i)\b",
-                                 re.IGNORECASE)
-    _COURTESY = re.compile(r"^(?:(?:please|kindly)\b[\s,]*|(?:can|could|would|will)\s+(?:you|u)\b[\s,]*)+",
-                           re.IGNORECASE)
+    _QUESTION_START = re.compile(
+        r"(?:what|why|how|explain|describe|is|are|does|should|can\s+i|could\s+i)\b", re.IGNORECASE
+    )
+    _COURTESY = re.compile(
+        r"^(?:(?:please|kindly)\b[\s,]*|(?:can|could|would|will)\s+(?:you|u)\b[\s,]*)+", re.IGNORECASE
+    )
 
     def _repair_shell_command(self, text, planned):
         """A shell command the router wrote for a sentence that never asked for one.
@@ -244,9 +311,12 @@ class Routing:
         asked = self._COURTESY.sub("", strip_address(text)).strip()
         if self._NOT_RUNNING.search(asked) or self._QUESTION_START.match(asked):
             # A question about a command, or a request not to run one: answer it, run nothing.
-            return PlanDecision(action="chat", confidence=0.55,
-                                explanation="A shell command for a question or a refusal; answered instead.")
-        typed = re.sub(r"^in\s+.+?\s+::\s+", "", command[len("run command "):].strip(), flags=re.IGNORECASE)
+            return PlanDecision(
+                action="chat",
+                confidence=0.55,
+                explanation="A shell command for a question or a refusal; answered instead.",
+            )
+        typed = re.sub(r"^in\s+.+?\s+::\s+", "", command[len("run command ") :].strip(), flags=re.IGNORECASE)
         # The command typed AS the request, not mentioned in it: "I saw git status in a
         # tutorial" raised an approval card for `git status` (Codex's #193).
         said = bool(typed) and asked.rstrip(" ?.!").casefold() == typed.casefold()
@@ -256,9 +326,11 @@ class Routing:
             action="chat",
             confidence=0.55,
             explanation=_VERBATIM,
-            response=("I didn't do that. It would have taken a shell command you didn't ask for, so "
-                      "nothing was run and nothing on this computer changed. To run a command, say "
-                      "\"run\" and the command."),
+            response=(
+                "I didn't do that. It would have taken a shell command you didn't ask for, so "
+                "nothing was run and nothing on this computer changed. To run a command, say "
+                '"run" and the command.'
+            ),
         )
 
     def _repair_target_command(self, text, planned, history):
@@ -278,21 +350,21 @@ class Routing:
         tokens = self._target_tokens(target)
         if not tokens:
             return planned
-        spoken = text.lower() + " " + " ".join(
-            str(turn.get("text", "")).lower() for turn in (history or [])[-6:]
-        )
+        spoken = text.lower() + " " + " ".join(str(turn.get("text", "")).lower() for turn in (history or [])[-6:])
         if prefix == "transcribe":
             # A shared verb ("record") is not a named file ("record 20s"). Require
             # the whole filename, including its extension, not any stem token.
-            name = re.split(r"[/\\]", target.strip('"\''))[-1].lower()
+            name = re.split(r"[/\\]", target.strip("\"'"))[-1].lower()
             grounded = bool(name) and re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", spoken)
         else:
             # Its singular names it too: "what did i download today" is about ~/Downloads. Only a
             # longer word, so a short host ("news") is never named by "new", and only as a whole word:
             # "a documentary" does not name ~/Documents (Codex's review of #276).
-            grounded = any(token in spoken or (len(token) > 5 and token.endswith("s")
-                                               and re.search(rf"\b{re.escape(token[:-1])}\b", spoken))
-                           for token in tokens)
+            grounded = any(
+                token in spoken
+                or (len(token) > 5 and token.endswith("s") and re.search(rf"\b{re.escape(token[:-1])}\b", spoken))
+                for token in tokens
+            )
         if grounded:
             return planned
         return PlanDecision(
@@ -343,7 +415,7 @@ class Routing:
         if asked is None or page_target(command) is not None:
             return planned
         length = "one page" if asked == 1 else f"{asked} pages"
-        return replace(planned, command=f"document {length}: {command[len('document '):].strip()}")
+        return replace(planned, command=f"document {length}: {command[len('document ') :].strip()}")
 
     def _repair_image_command(self, text, planned, history):
         """The router invents image subjects, and sends diagrams to a diffusion model.
@@ -406,7 +478,7 @@ class Routing:
                     confidence=0.6,
                     explanation=_VERBATIM,
                     response=(
-                        f"I read \"this\" as {_short_topic(subject)} — which is an idea rather than "
+                        f'I read "this" as {_short_topic(subject)} — which is an idea rather than '
                         "a scene, and a text-to-image model can only draw scenes. It would give you "
                         "shapes that look like a diagram and say nothing.\n\nTell me a concrete "
                         "scene and I will draw it, or ask for a diagram and I will write one out."
@@ -453,18 +525,73 @@ class Routing:
     # command a router built still reaches its tool and gets the tool's own usage message.
     # Not the modals: `solve should i use postgres or mysql` is a command, and so is
     # `solve is option b safer for this`.
-    _PROSE_OPENERS = frozenset({
-        "is", "was", "are", "were", "looks", "seems", "sucks", "shows", "says", "feels", "has",
-        "had", "isn't", "wasn't",
-    })
-    _PROSE_PRONE = frozenset({
-        "window", "windows", "split", "snap", "arrange", "schedule", "email", "time", "date", "watch", "unwatch",
-        "clock", "weather", "news", "distance", "trip", "download", "forget", "remember", "brightness",
-        "wallpaper", "settings", "processes",
-        "research", "image", "document", "map", "workflow", "autopilot", "calculate", "calc", "keys",
-        "compute", "recall", "agent", "terminal", "shell", "media", "timer", "alarm", "remind", "clipboard", "plugin",
-        "translate", "workspace",
-    })
+    _PROSE_OPENERS = frozenset(
+        {
+            "is",
+            "was",
+            "are",
+            "were",
+            "looks",
+            "seems",
+            "sucks",
+            "shows",
+            "says",
+            "feels",
+            "has",
+            "had",
+            "isn't",
+            "wasn't",
+        }
+    )
+    _PROSE_PRONE = frozenset(
+        {
+            "window",
+            "windows",
+            "split",
+            "snap",
+            "arrange",
+            "schedule",
+            "email",
+            "time",
+            "date",
+            "watch",
+            "unwatch",
+            "clock",
+            "weather",
+            "news",
+            "distance",
+            "trip",
+            "download",
+            "forget",
+            "remember",
+            "brightness",
+            "wallpaper",
+            "settings",
+            "processes",
+            "research",
+            "image",
+            "document",
+            "map",
+            "workflow",
+            "autopilot",
+            "calculate",
+            "calc",
+            "keys",
+            "compute",
+            "recall",
+            "agent",
+            "terminal",
+            "shell",
+            "media",
+            "timer",
+            "alarm",
+            "remind",
+            "clipboard",
+            "plugin",
+            "translate",
+            "workspace",
+        }
+    )
 
     def _reads_as_prose(self, command: str, lowered: str) -> bool:
         verb, _, rest = lowered.partition(" ")
@@ -489,15 +616,43 @@ class Routing:
         if verb == "clipboard":
             # "clipboard copy paste not working" is a complaint, not text to put on the clipboard.
             words = rest.split()
-            return words[0] not in {"copy", "ask"} or len(words) < 2 or words[1] in {
-                "paste", "and", "or", "is", "are", "was", "isn't", "not", "doesn't", "does", "history", "manager",
-                "for", "permission", "feature", "button", "works", "working", "broken", "keeps"}
+            return (
+                words[0] not in {"copy", "ask"}
+                or len(words) < 2
+                or words[1]
+                in {
+                    "paste",
+                    "and",
+                    "or",
+                    "is",
+                    "are",
+                    "was",
+                    "isn't",
+                    "not",
+                    "doesn't",
+                    "does",
+                    "history",
+                    "manager",
+                    "for",
+                    "permission",
+                    "feature",
+                    "button",
+                    "works",
+                    "working",
+                    "broken",
+                    "keeps",
+                }
+            )
         # A typo in the command form ("schedule briefing", "email hello") still gets the
         # tool's usage message; English is recognised by how it goes on.
         if verb == "schedule":
-            return "::" not in rest and bool(re.match(
-                r"(?:a|an|the|my|our|some|time|lunch|dinner|coffee|drinks|meetings?|calls?"
-                r"|appointments?|interviews?)\b", rest))
+            return "::" not in rest and bool(
+                re.match(
+                    r"(?:a|an|the|my|our|some|time|lunch|dinner|coffee|drinks|meetings?|calls?"
+                    r"|appointments?|interviews?)\b",
+                    rest,
+                )
+            )
         if verb == "email":
             if " subject " in rest or re.match(r"(?:digest|search|unread|api|oauth|tokens?)\b", rest):
                 return False
@@ -512,31 +667,49 @@ class Routing:
             return not re.search(r"https?://|www\.|\b[\w-]+\.[a-z]{2,}\b", rest)
         if verb == "forget":
             # "forget the timer" lets go of a timer; it is not a fact called "timer".
-            return rest.rstrip(" .!") in {"it", "about it", "that", "this", "it then", "about that", "all that"} or bool(
-                re.match(r"(?:about\s+)?(?:the|my|that)\s+(?:[a-z][\w'-]*\s+){0,3}(?:timers?|alarms?|reminders?)\b", rest))
+            return rest.rstrip(" .!") in {
+                "it",
+                "about it",
+                "that",
+                "this",
+                "it then",
+                "about that",
+                "all that",
+            } or bool(
+                re.match(
+                    r"(?:about\s+)?(?:the|my|that)\s+(?:[a-z][\w'-]*\s+){0,3}(?:timers?|alarms?|reminders?)\b", rest
+                )
+            )
         if verb == "remember":
             # "remember everything I told you" asks to learn from the chat; as a note it saved
             # "everything I told you" (review of #288).
             return asks_to_learn(command) or bool(
-                re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest))
+                re.match(r"(?:when|what|how|why|who|where|the time|that time|the day|me)\b", rest)
+            )
         if verb in {"calculate", "calc", "compute"}:
             # "calculate total revenue by region in sales.csv" is a breakdown, not prose: read as
             # prose it went to the router, came back unchanged and was answered by the chat model.
-            return (not looks_like_arithmetic(rest) and len(re.findall(r"[a-z]{3,}", rest)) >= 2
-                    and breakdown_request(f"{verb} {rest}") is None)
+            return (
+                not looks_like_arithmetic(rest)
+                and len(re.findall(r"[a-z]{3,}", rest)) >= 2
+                and breakdown_request(f"{verb} {rest}") is None
+            )
         if verb == "map":
             return first == "out"
         if verb == "workflow":
             return ";;" not in rest and rest not in {"status", "dashboard", "retry failed"}
         if verb == "media":
             return rest not in {"playpause", "next", "previous", "stop", "volumeup", "volumedown", "mute"} and not (
-                re.fullmatch(r"volume \d{1,3}%?", rest))
+                re.fullmatch(r"volume \d{1,3}%?", rest)
+            )
         if verb == "timer":
-            return not re.search(r"(?:\d|\ban?\b|\bhalf\b)\s*(?:" + _UNIT_WORDS + r")\b",
-                                 spoken_to_digits(rest))
+            return not re.search(r"(?:\d|\ban?\b|\bhalf\b)\s*(?:" + _UNIT_WORDS + r")\b", spoken_to_digits(rest))
         if verb == "alarm":
-            return not re.search(r"\d|\b(?:noon|midnight|morning|tomorrow|one|two|three|four|five|six|seven"
-                                 r"|eight|nine|ten|eleven|twelve)\b", rest)
+            return not re.search(
+                r"\d|\b(?:noon|midnight|morning|tomorrow|one|two|three|four|five|six|seven"
+                r"|eight|nine|ten|eleven|twelve)\b",
+                rest,
+            )
         return False
 
     def _command_verbs(self) -> frozenset[str]:
@@ -558,8 +731,13 @@ class Routing:
             said = [item for item in re.split(r"\s+and\s+", unclear.group("said")) if item.strip()]
             return f"list {name} add {', '.join(said)}"
         # "yes, no" says both: not items, and not an answer either.
-        if (_YES_AND_NO.fullmatch(plain) or not re.search(r",|\s+and\s+", reply) or len(reply.split()) > 40 or _NOT_AN_ANSWER.match(reply)
-                or self.router.plan(reply, "", {}).is_command):
+        if (
+            _YES_AND_NO.fullmatch(plain)
+            or not re.search(r",|\s+and\s+", reply)
+            or len(reply.split()) > 40
+            or _NOT_AN_ANSWER.match(reply)
+            or self.router.plan(reply, "", {}).is_command
+        ):
             return None
 
         def items(text: str) -> list[str]:
@@ -596,8 +774,9 @@ class Routing:
         # "again" after a coin, a die or a number runs the user's own request once more: "You rolled
         # a **14**." does not say it was a d20.
         if _DRAW_AGAIN.fullmatch(reply) and _DRAWN.fullmatch(asked.split("\n", 1)[0]):
-            return next((text for role, text in reversed(turns[:-1]) if role == "user" and is_chance_request(text)),
-                        None)
+            return next(
+                (text for role, text in reversed(turns[:-1]) if role == "user" and is_chance_request(text)), None
+            )
         # Ahead of the refusal check, which reads "what about meters" as a question of its own.
         again = self._asked_again(asked, reply)
         if again is not None:
@@ -614,7 +793,9 @@ class Routing:
         if alarm:
             # "at 7" or a bare "7" goes on the day the question named: "... go off tomorrow?" -
             # unless the answer names its own: "Friday at 7" was set for tomorrow (Codex's review).
-            when = f"at {reply}" if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", reply, re.IGNORECASE) else reply
+            when = (
+                f"at {reply}" if re.fullmatch(r"\d{1,2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?", reply, re.IGNORECASE) else reply
+            )
             day = "" if _find_day(spoken_to_digits(reply).lower(), now) is not None else alarm.group("day") or ""
             return f"alarm {when} {day}".strip()
         # "create a list called books to read" -> "What should I add to your books to read list?" -> "dune".
@@ -635,7 +816,9 @@ class Routing:
             return None
         untold = re.match(r"You haven't told me (?:your (?P<key>.+?)|(?P<live>where you live)) yet\.", asked)
         if untold:
-            value = re.sub(r"^(?:it'?s|it\s+is|i'?m|i\s+am|i\s+live\s+in|in|call\s+me)\b\s*", "", reply, flags=re.IGNORECASE)
+            value = re.sub(
+                r"^(?:it'?s|it\s+is|i'?m|i\s+am|i\s+live\s+in|in|call\s+me)\b\s*", "", reply, flags=re.IGNORECASE
+            )
             key = "city" if untold.group("live") else untold.group("key").replace(" ", "_")
             return f"remember {key} = {value}" if _meaningful(value) else None
         undated = re.match(r"I don't know when your (?P<what>.+?) is — ", asked)
@@ -650,11 +833,28 @@ class Routing:
             verb = re.match(r"reminder (?:delete|done|snooze)", action)
             if not ids or not verb:
                 return None
-            ordinals = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2, "fourth": 3,
-                        "4th": 3, "fifth": 4, "5th": 4, "last": -1, "latest": -1}
+            ordinals = {
+                "first": 0,
+                "1st": 0,
+                "second": 1,
+                "2nd": 1,
+                "third": 2,
+                "3rd": 2,
+                "fourth": 3,
+                "4th": 3,
+                "fifth": 4,
+                "5th": 4,
+                "last": -1,
+                "latest": -1,
+            }
             spoken = re.sub(r"^(?:the\s+)?(.+?)(?:\s+one)?$", r"\1", reply.lower())
-            picked = (ids[ordinals[spoken]] if spoken in ordinals
-                      else spoken.lstrip("#") if spoken.lstrip("#") in ids else spoken)
+            picked = (
+                ids[ordinals[spoken]]
+                if spoken in ordinals
+                else spoken.lstrip("#")
+                if spoken.lstrip("#") in ids
+                else spoken
+            )
             return f"{verb.group(0)} {picked}"
         return None
 
@@ -668,8 +868,12 @@ class Routing:
         amount = _AMOUNT_AGAIN.fullmatch(reply)
         # A sum has the same "X = **Y**" shape, so a conversion that does not parse goes on below.
         if converted and amount:
-            candidate = convert_again(converted.group("left"), converted.group("right"), amount.group("n"),
-                                      (amount.group("unit") or "").strip())
+            candidate = convert_again(
+                converted.group("left"),
+                converted.group("right"),
+                amount.group("n"),
+                (amount.group("unit") or "").strip(),
+            )
             if candidate is not None and looks_like_conversion(candidate):
                 return candidate
         again = _CONVERT_AGAIN.fullmatch(reply)
@@ -725,8 +929,15 @@ class Routing:
         hours = re.fullmatch(r"([\d,]+) hours?(?: \d+ minutes?)?", count)
         minutes = re.fullmatch(r"([\d,]+) minutes?", count)
         # Counted in a unit the default would not have used: kept for the next thing asked about.
-        unit = ("weeks" if "week" in count else "hours" if hours and int(hours.group(1).replace(",", "")) >= 24
-                else "minutes" if minutes and int(minutes.group(1).replace(",", "")) >= 60 else "")
+        unit = (
+            "weeks"
+            if "week" in count
+            else "hours"
+            if hours and int(hours.group(1).replace(",", "")) >= 24
+            else "minutes"
+            if minutes and int(minutes.group(1).replace(",", "")) >= 60
+            else ""
+        )
         unit_asked = _UNTIL_IN.fullmatch(reply)
         if unit_asked:
             unit, what = unit_asked.group("unit").lower(), name
@@ -760,11 +971,14 @@ class Routing:
         # ("and set a timer for 10 minutes") still splits off; refusing every split swallowed it.
         changes = ("briefing set ", "briefing add ", "briefing remove ")
         whole = self.router.plan(command, "", {})
-        in_format = command.lower().startswith(changes) or whole.is_command and (whole.command or "").startswith(changes)
+        in_format = (
+            command.lower().startswith(changes) or whole.is_command and (whole.command or "").startswith(changes)
+        )
 
         def section_only(part: str) -> bool:
             sections, unknown = parse_format(part)
             return bool(sections) and not unknown
+
         routes: dict[str, bool] = {}
 
         def routed(part: str) -> bool:
@@ -776,7 +990,7 @@ class Routing:
         for mask in range(1, 2 ** len(joins)):
             cuts = [join for bit, join in enumerate(joins) if mask >> bit & 1]
             edges = [0] + [edge for join in cuts for edge in (join.start(), join.end())] + [len(command)]
-            parts = [command[edges[i]: edges[i + 1]].strip(" ,") for i in range(0, len(edges), 2)]
+            parts = [command[edges[i] : edges[i + 1]].strip(" ,") for i in range(0, len(edges), 2)]
             if any(not part for part in parts):
                 continue
             if any(not _REQUEST_START.match(part) for part in parts[1:]):
@@ -800,19 +1014,45 @@ class Routing:
         for _part, result in results:
             data.update({key: value for key, value in (result.data or {}).items() if key != "planner"})
         ran = [((result.data or {}).get("planner") or {}).get("planned_command") or part for part, result in results]
-        data["parts"] = [{"request": part, "command": command, "ok": result.ok, "message": result.message}
-                         for (part, result), command in zip(results, ran)]
+        data["parts"] = [
+            {"request": part, "command": command, "ok": result.ok, "message": result.message}
+            for (part, result), command in zip(results, ran)
+        ]
         data["planner"] = {"planned_command": " ;; ".join(ran), "source": "split"}
-        return ToolResult(ok=all(result.ok for _part, result in results),
-                          message="\n\n".join(result.message for _part, result in results), data=data)
+        return ToolResult(
+            ok=all(result.ok for _part, result in results),
+            message="\n\n".join(result.message for _part, result in results),
+            data=data,
+        )
 
     # Signals that a question is about current/volatile facts and should be answered from
     # live web results rather than the model's training data.
     _FRESH_KEYWORDS = (
-        "latest", "currently", "current ", "right now", "today", "tonight", "yesterday",
-        "this week", "this month", "this year", "recent", "breaking", "so far", "as of",
-        "up to date", "newest", " news", "this morning", "at the moment", "these days",
-        "ongoing", "just happened", "this weekend", "nowadays", "this season",
+        "latest",
+        "currently",
+        "current ",
+        "right now",
+        "today",
+        "tonight",
+        "yesterday",
+        "this week",
+        "this month",
+        "this year",
+        "recent",
+        "breaking",
+        "so far",
+        "as of",
+        "up to date",
+        "newest",
+        " news",
+        "this morning",
+        "at the moment",
+        "these days",
+        "ongoing",
+        "just happened",
+        "this weekend",
+        "nowadays",
+        "this season",
     )
     _FRESH_PATTERNS = (
         r"\bwho (?:is|are|was|won) (?:the )?(?:current|new|latest|winning)?\b",

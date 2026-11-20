@@ -2,6 +2,7 @@
 
 One part of `AgentOrchestrator` (agents/orchestrator.py), split out by area; it reads the
 rest of the orchestrator through `self`."""
+
 from __future__ import annotations
 
 import re
@@ -17,7 +18,6 @@ from laptop_agent.agents.common import _REMINDER_REMOVE, _query_and_root
 
 
 class CoreDispatch:
-
     async def _dispatch_meta(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for help, memory, audit, the daily briefing."""
         if lowered in {"help", "/help"}:
@@ -93,7 +93,7 @@ class CoreDispatch:
         if lowered == "plugins":
             return self._plugins().listing()
         if lowered.startswith("plugin "):
-            parts = command[len("plugin ") :].strip().split(None, 1)   # a newline or tab ends the name too
+            parts = command[len("plugin ") :].strip().split(None, 1)  # a newline or tab ends the name too
             return self._plugins().run(parts[0] if parts else "", parts[1].strip() if len(parts) > 1 else "")
 
         if lowered in {"autopilot status", "autonomous status"}:
@@ -216,8 +216,16 @@ class CoreDispatch:
             root = command[len("scan files ") :].strip()
             by_size = re.search(r"(?:^|\s+)by\s+size$", root, re.IGNORECASE)
             root = root[: by_size.start()].strip() if by_size else root
-            by_date = None if by_size else re.search(r"(?:^|\s+)(?:by\s+(?:date|newest)|newest\s+first)"
-                                                     r"(?:\s+(?P<period>today|yesterday|this\s+week))?$", root, re.IGNORECASE)
+            by_date = (
+                None
+                if by_size
+                else re.search(
+                    r"(?:^|\s+)(?:by\s+(?:date|newest)|newest\s+first)"
+                    r"(?:\s+(?P<period>today|yesterday|this\s+week))?$",
+                    root,
+                    re.IGNORECASE,
+                )
+            )
             root = root[: by_date.start()].strip() if by_date else root
             if by_date:
                 scanned = self.context.files.scan(root or ".", by_date=True)
@@ -227,18 +235,35 @@ class CoreDispatch:
                 # Only what changed in the day asked for: "what did i download today" listed a file
                 # from three days before as if it were today's (Codex's review of #276).
                 midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-                start, end = {"today": (midnight, None), "yesterday": (midnight - timedelta(days=1), midnight),
-                              "this week": (midnight - timedelta(days=midnight.weekday()), None)}[period]
+                start, end = {
+                    "today": (midnight, None),
+                    "yesterday": (midnight - timedelta(days=1), midnight),
+                    "this week": (midnight - timedelta(days=midnight.weekday()), None),
+                }[period]
                 files = scanned.data.get("files") or []
-                kept = [entry for entry in files if start <= datetime.fromisoformat(str(entry["modified"]))
-                        and (end is None or datetime.fromisoformat(str(entry["modified"])) < end)]
-                return ToolResult.success(f"{len(kept)} file(s) in {scanned.data['root']} changed {period}.",
-                                          files=kept, root=scanned.data["root"], order="date", period=period,
-                                          newest=files[0] if files else None)
+                kept = [
+                    entry
+                    for entry in files
+                    if start <= datetime.fromisoformat(str(entry["modified"]))
+                    and (end is None or datetime.fromisoformat(str(entry["modified"])) < end)
+                ]
+                return ToolResult.success(
+                    f"{len(kept)} file(s) in {scanned.data['root']} changed {period}.",
+                    files=kept,
+                    root=scanned.data["root"],
+                    order="date",
+                    period=period,
+                    newest=files[0] if files else None,
+                )
             # The agent copies "by size" into orders that do not exist ("by folder") and was told
             # only that the path was missing, so it spent another step guessing.
             other = re.fullmatch(r"(.+?)\s+by\s+(\w+)", root, re.IGNORECASE)
-            if not by_size and other and not Path(root).expanduser().exists() and Path(other.group(1)).expanduser().exists():
+            if (
+                not by_size
+                and other
+                and not Path(root).expanduser().exists()
+                and Path(other.group(1)).expanduser().exists()
+            ):
                 return ToolResult.failure(
                     f"scan files can list largest first (`by size`) or newest first (`by date`), but not by "
                     f"{other.group(2)}. Use "
@@ -384,11 +409,14 @@ class CoreDispatch:
             return result
         if lowered == "record" or re.fullmatch(r"record -?\d+(?:\.\d+)?", lowered):
             from laptop_agent.recordings import MAX_SECONDS, recording_seconds
+
             seconds = recording_seconds(command)
             if seconds is None or not 0 < seconds <= MAX_SECONDS:
                 return ToolResult.failure("Choose a recording duration greater than 0 and at most 120 seconds.")
             if not self.recording_enabled:
-                return ToolResult.failure("Voice recording needs the J.A.R.V.I.S app or web page. Open it and ask there.")
+                return ToolResult.failure(
+                    "Voice recording needs the J.A.R.V.I.S app or web page. Open it and ask there."
+                )
             return ToolResult.success(
                 f"Record up to {seconds:g} seconds. Stop or press Space to keep a shorter clip.",
                 record={"seconds": float(seconds)},
@@ -400,7 +428,13 @@ class CoreDispatch:
 
     async def _dispatch_vision(self, command: str, lowered: str, history_turns) -> ToolResult | None:
         """Direct commands for screen, image and webcam vision."""
-        if lowered in {"read screen", "screen text", "what is on my screen", "what's on my screen", "look at my screen"}:
+        if lowered in {
+            "read screen",
+            "screen text",
+            "what is on my screen",
+            "what's on my screen",
+            "look at my screen",
+        }:
             return self._read_screen()
 
         if lowered.startswith("read screen "):
@@ -445,7 +479,9 @@ class CoreDispatch:
             dashboard = self.context.tasks.latest()
             if dashboard is None:
                 return ToolResult.success("No parallel task runs yet. Use 'multi <cmd> ;; <cmd>'.", dashboard=None)
-            retry_hint = " Use 'multi retry failed' to rerun failed subtasks." if dashboard.get("retry_available") else ""
+            retry_hint = (
+                " Use 'multi retry failed' to rerun failed subtasks." if dashboard.get("retry_available") else ""
+            )
             return ToolResult.success(
                 f"Latest run: {dashboard['ok_count']} ok, {dashboard['failed_count']} failed.{retry_hint}",
                 dashboard=dashboard,
@@ -495,7 +531,7 @@ class CoreDispatch:
             server, _, rest = command[len("mcp ") :].strip().partition(" ")
             tool, _, arguments = rest.strip().partition(" ")
             if not tool:
-                return ToolResult.failure("Say it like: mcp <server> <tool> {\"argument\": \"value\"}. \"mcp\" lists them.")
+                return ToolResult.failure('Say it like: mcp <server> <tool> {"argument": "value"}. "mcp" lists them.')
             return self._mcp().call(server, tool, arguments)
 
         if lowered.startswith("save research report "):
@@ -528,15 +564,24 @@ class CoreDispatch:
             return self._watches().unwatch(command[len("unwatch ") :])
 
         if lowered == "timecard" or lowered.startswith("timecard "):
-            return self._time_card(command[len("timecard "):].strip() if " " in command else "")
+            return self._time_card(command[len("timecard ") :].strip() if " " in command else "")
 
         # One prefix, because the clock parses the zone out of the whole phrase itself —
         # the heuristic hands it `time what time is it in EST` verbatim.
         if lowered.startswith(("time ", "date ", "clock ")):
             return self._clock.now(command.split(" ", 1)[1])
 
-        if lowered in {"time", "date", "clock", "what time is it", "what is the time",
-                       "current time", "today", "what day is it", "datetime"}:
+        if lowered in {
+            "time",
+            "date",
+            "clock",
+            "what time is it",
+            "what is the time",
+            "current time",
+            "today",
+            "what day is it",
+            "datetime",
+        }:
             return self._clock.now("")
 
         if lowered in {"capabilities", "what can you do"}:
@@ -545,8 +590,7 @@ class CoreDispatch:
         if lowered in {"failures", "errors", "what broke", "recent errors"}:
             return self._failure_report()
 
-        if lowered in {"selfcheck", "self check", "self-check", "does everything work",
-                       "check yourself"}:
+        if lowered in {"selfcheck", "self check", "self-check", "does everything work", "check yourself"}:
             return self._selfcheck()
 
         if lowered in {"diagnose", "diagnosis", "self diagnosis", "self-diagnosis", "run diagnostics"}:

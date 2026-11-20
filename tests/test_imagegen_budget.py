@@ -35,18 +35,15 @@ class ImageBudgetTests(unittest.TestCase):
             handed.append(budget)
             raise TimeoutError("timed out")
 
-        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary",
-                         fallback_model="secondary", timeout=30)
-        tool._http_backend = clock_watching_backend        # the real path, with its budget
+        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary", fallback_model="secondary", timeout=30)
+        tool._http_backend = clock_watching_backend  # the real path, with its budget
         result = tool.generate("a fox")
 
         self.assertFalse(result.ok)
         self.assertEqual(len(handed), 2, "the fallback was not tried")
         self.assertLessEqual(handed[0], 30.0)
-        self.assertLessEqual(handed[1], handed[0],
-                             "the fallback was handed a fresh budget instead of the remainder")
-        self.assertLessEqual(sum(1 for h in handed if h > 30.0), 0,
-                             "an attempt was allowed more than the whole budget")
+        self.assertLessEqual(handed[1], handed[0], "the fallback was handed a fresh budget instead of the remainder")
+        self.assertLessEqual(sum(1 for h in handed if h > 30.0), 0, "an attempt was allowed more than the whole budget")
 
     def test_an_attempt_never_gets_more_than_the_budget_when_the_clock_stands_still(self) -> None:
         """The test above failed on a Windows runner and passed on the rerun: handed
@@ -58,8 +55,7 @@ class ImageBudgetTests(unittest.TestCase):
             handed.append(budget)
             raise TimeoutError("timed out")
 
-        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary",
-                         fallback_model="secondary", timeout=30)
+        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary", fallback_model="secondary", timeout=30)
         tool._http_backend = backend
         with patch.object(imagegen.time, "monotonic", return_value=6.98):
             tool.generate("a fox")
@@ -69,12 +65,14 @@ class ImageBudgetTests(unittest.TestCase):
     def test_a_slow_primary_leaves_no_time_and_the_fallback_is_skipped_out_loud(self) -> None:
         """The alternative is honest-but-silent: the user waits past the budget for a
         last resort that cannot finish inside it. Say it was skipped instead."""
+
         def slow_backend(model: str, body: dict, budget: float = 0.0) -> dict:
             time.sleep(0.25)
             raise TimeoutError("timed out")
 
-        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary",
-                         fallback_model="secondary", timeout=0)   # nothing left after the first
+        tool = ImageTool(
+            api_key="k", data_dir=self.data_dir, model="primary", fallback_model="secondary", timeout=0
+        )  # nothing left after the first
         tool._http_backend = slow_backend
         started = time.monotonic()
         result = tool.generate("a fox")
@@ -96,8 +94,7 @@ class ImageBudgetTests(unittest.TestCase):
         def refusing_backend(model: str, body: dict, budget: float = 0.0) -> dict:
             raise urllib.error.HTTPError("http://x", 404, "Not Found", {}, None)
 
-        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary",
-                         fallback_model="secondary", timeout=30)
+        tool = ImageTool(api_key="k", data_dir=self.data_dir, model="primary", fallback_model="secondary", timeout=30)
         tool._http_backend = refusing_backend
         result = tool.generate("a fox")
 
@@ -112,11 +109,11 @@ class ImageBudgetTests(unittest.TestCase):
     def test_the_default_budget_cannot_hold_the_user_for_minutes(self) -> None:
         """It was 120 *per attempt*, so a primary plus a fallback was 180 seconds."""
         tool = ImageTool(api_key="k", data_dir=self.data_dir)
-        self.assertLessEqual(tool.timeout, 60,
-                             "the default image budget is long enough to read as an outage")
+        self.assertLessEqual(tool.timeout, 60, "the default image budget is long enough to read as an outage")
 
     def test_a_working_model_is_still_used_and_the_fallback_left_alone(self) -> None:
         import base64 as b64
+
         png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
         tried: list[str] = []
 
@@ -124,8 +121,7 @@ class ImageBudgetTests(unittest.TestCase):
             tried.append(model)
             return {"artifacts": [{"base64": b64.b64encode(png).decode()}]}
 
-        tool = ImageTool(api_key="", data_dir=self.data_dir, model="primary",
-                         fallback_model="secondary", backend=fine)
+        tool = ImageTool(api_key="", data_dir=self.data_dir, model="primary", fallback_model="secondary", backend=fine)
         result = tool.generate("a fox")
         self.assertTrue(result.ok, result.message)
         self.assertEqual(tried, ["primary"], "the fallback ran even though the primary worked")

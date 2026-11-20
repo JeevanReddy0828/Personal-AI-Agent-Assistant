@@ -37,8 +37,14 @@ class WatchTests(unittest.TestCase):
         self.titles: list[str] = ["Old story one", "Old story two"]
         self.reading = dict(CALM)
         self.now = START
-        self.watches = Watches(root / "watches.json", self.scheduler, self.told.append,
-                               lambda topic: list(self.titles), lambda: dict(self.reading), lambda: self.now)
+        self.watches = Watches(
+            root / "watches.json",
+            self.scheduler,
+            self.told.append,
+            lambda topic: list(self.titles),
+            lambda: dict(self.reading),
+            lambda: self.now,
+        )
 
     def test_only_a_new_headline_is_told_and_only_once(self) -> None:
         self.assertTrue(self.watches.watch_news("Nvidia").ok)
@@ -129,7 +135,8 @@ class WatchCommandTests(unittest.TestCase):
         self.orch = self.build(Path(temp.name))
         self.titles = ["Old story"]
         self.orch._news_tool_cache = SimpleNamespace(
-            headlines=lambda topic, with_text=0: ToolResult.success("", headlines=[{"title": t} for t in self.titles]))
+            headlines=lambda topic, with_text=0: ToolResult.success("", headlines=[{"title": t} for t in self.titles])
+        )
 
     def say(self, text: str):
         return asyncio.run(self.orch.handle(text, history=[]))
@@ -145,8 +152,14 @@ class WatchCommandTests(unittest.TestCase):
 
     def test_every_watch_form_is_developer_only(self) -> None:
         with acting_as(PERSONAL):
-            for command in ("watches", "watch health", "watch check health", "watch news x", "watch check news x",
-                            "unwatch x"):
+            for command in (
+                "watches",
+                "watch health",
+                "watch check health",
+                "watch news x",
+                "watch check news x",
+                "unwatch x",
+            ):
                 with self.subTest(command):
                     self.assertIsNotNone(refused_command(command))
             self.assertFalse(self.say("tell me when there's news about nvidia").ok)
@@ -167,9 +180,17 @@ class WatchRoutingTests(unittest.TestCase):
         "turn off health alerts": "unwatch health",
         "unwatch apple": "unwatch apple",
     }
-    STAY = ("watch a movie", "what should I watch tonight", "watch out for ice", "I'm watching the news",
-            "keep an eye on the oven", "stop watching me", "stop watching tv", "my battery is low",
-            "how do I monitor my laptop's temperature")
+    STAY = (
+        "watch a movie",
+        "what should I watch tonight",
+        "watch out for ice",
+        "I'm watching the news",
+        "keep an eye on the oven",
+        "stop watching me",
+        "stop watching tv",
+        "my battery is low",
+        "how do I monitor my laptop's temperature",
+    )
 
     def test_watch_requests_are_routed(self) -> None:
         planner = HeuristicPlannerProvider()

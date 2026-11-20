@@ -126,10 +126,12 @@ class KeepWarmStatusTests(unittest.TestCase):
             return False
 
         planner = SimpleNamespace(provider=SimpleNamespace(ping=ping))
-        with patch.object(webui._orchestrator, "planner", planner), \
-                patch.object(webui._orchestrator, "model_status", status), \
-                patch.object(webui, "_probe_llm", partial(_probe_llm, delay=0)), \
-                patch.dict(webui._LLM_STATUS):
+        with (
+            patch.object(webui._orchestrator, "planner", planner),
+            patch.object(webui._orchestrator, "model_status", status),
+            patch.object(webui, "_probe_llm", partial(_probe_llm, delay=0)),
+            patch.dict(webui._LLM_STATUS),
+        ):
             webui._refresh_llm_status()
         return path
 

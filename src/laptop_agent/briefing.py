@@ -16,14 +16,13 @@ from dataclasses import dataclass
 DEFAULT_FORMAT = "reminders, weather, news, laptop"
 PROFILE_KEY = "briefing format"
 MAX_SECTIONS = 8
-MAIL_FETCH = 5      # each is a whole message over IMAP; three are shown and the count is "5+"
-CAN_INCLUDE = ("reminders, weather [in <city>], news [about <topic>], mail, a list (e.g. shopping list) "
-               "and laptop")
+MAIL_FETCH = 5  # each is a whole message over IMAP; three are shown and the count is "5+"
+CAN_INCLUDE = "reminders, weather [in <city>], news [about <topic>], mail, a list (e.g. shopping list) and laptop"
 
 
 @dataclass(frozen=True)
 class Section:
-    kind: str       # reminders, weather, news, mail, list, laptop
+    kind: str  # reminders, weather, news, mail, list, laptop
     about: str = ""  # the weather's place, the news topic, the list's name
 
     def describe(self) -> str:
@@ -38,20 +37,28 @@ class Section:
 
 _SPLIT = re.compile(r"\s*(?:,|;|&|\+|\band\b|\bthen\b|\bplus\b|\bfollowed\s+by\b|\balso\b)\s*", re.IGNORECASE)
 # "to" goes only when it is not "to do": a speech engine writes the to-do list as "to do list".
-_FILLER = re.compile(r"^(?:(?:with|to(?!\s+do\b)|have|has|include|includes|including|be|cover|covers|show|shows|"
-                     r"just|only|me|my|the|a|an|some|today'?s|latest|current|top|any|all|of)\s+)+", re.IGNORECASE)
+_FILLER = re.compile(
+    r"^(?:(?:with|to(?!\s+do\b)|have|has|include|includes|including|be|cover|covers|show|shows|"
+    r"just|only|me|my|the|a|an|some|today'?s|latest|current|top|any|all|of)\s+)+",
+    re.IGNORECASE,
+)
 # Every section is the WHOLE item, never a word in it: matched anywhere, "machine learning papers"
 # became the laptop line and "unread slack messages" the inbox, and both were saved as accepted.
-_WEATHER = re.compile(r"(?:weather|forecast|temperature)(?:\s+(?:in|for|at|near)\s+(?P<place>[\w .'-]{2,40}))?",
-                      re.IGNORECASE)
-_NEWS = re.compile(r"(?:(?P<before>[\w.&'-]+(?:\s+[\w.&'-]+)?)\s+)?(?:news|headlines|stories)"
-                   r"(?:\s+(?:about|on|from|in|for)\s+(?P<after>[\w .&'-]{1,40}))?", re.IGNORECASE)
+_WEATHER = re.compile(
+    r"(?:weather|forecast|temperature)(?:\s+(?:in|for|at|near)\s+(?P<place>[\w .'-]{2,40}))?", re.IGNORECASE
+)
+_NEWS = re.compile(
+    r"(?:(?P<before>[\w.&'-]+(?:\s+[\w.&'-]+)?)\s+)?(?:news|headlines|stories)"
+    r"(?:\s+(?:about|on|from|in|for)\s+(?P<after>[\w .&'-]{1,40}))?",
+    re.IGNORECASE,
+)
 _NO_TOPIC = {"", "world", "top", "general", "breaking", "the", "daily", "morning", "local", "big", "main"}
 _LIST = re.compile(r"(?P<name>[a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)\s+list", re.IGNORECASE)
 # A list's name is one or two words with no preposition in them ("milk to my shopping list" is no
 # list); "to-do" is one word.
-_NOT_A_LIST = re.compile(r"(?:reminders?|timers?|alarms?|(?:\S+\s+)?(?:to|in|for|from|on|of|my|the)(?:\s+\S+)?)",
-                         re.IGNORECASE)
+_NOT_A_LIST = re.compile(
+    r"(?:reminders?|timers?|alarms?|(?:\S+\s+)?(?:to|in|for|from|on|of|my|the)(?:\s+\S+)?)", re.IGNORECASE
+)
 # No "calendar" or "schedule": no calendar is connected and "schedule" is the scheduled jobs, so
 # either would be answered with the reminders as if they were the thing asked for.
 _REMINDERS = re.compile(r"(?:reminders?|timers?|alarms?|agenda|to-?dos?)(?:\s+list)?", re.IGNORECASE)
@@ -93,8 +100,14 @@ def parse_format(text: str) -> tuple[list[Section], list[str]]:
             continue
         section = _section(part)
         last = sections[-1] if sections else None
-        if (section is None and last is not None and last.kind == "weather" and last.about
-                and re.fullmatch(r"[A-Z][A-Za-z .'-]{1,30}", part) and len(part.split()) <= 3):
+        if (
+            section is None
+            and last is not None
+            and last.kind == "weather"
+            and last.about
+            and re.fullmatch(r"[A-Z][A-Za-z .'-]{1,30}", part)
+            and len(part.split()) <= 3
+        ):
             sections[-1] = Section("weather", f"{last.about}, {part}")
         elif section is None:
             unknown.append(part)
@@ -119,8 +132,10 @@ def weather_text(data: dict) -> str:
     """One line: where, now, and today's range."""
     current = data.get("current") or {}
     today = (data.get("daily") or [{}])[0]
-    line = (f"{data.get('location', 'Here')}: {current.get('description', 'unknown conditions')}, "
-            f"{_number(current.get('temperature_2m'))}°F")
+    line = (
+        f"{data.get('location', 'Here')}: {current.get('description', 'unknown conditions')}, "
+        f"{_number(current.get('temperature_2m'))}°F"
+    )
     if today.get("high") is not None and today.get("low") is not None:
         line += f". Today {_number(today['high'])}° / {_number(today['low'])}°F"
         if today.get("precip_chance") is not None:

@@ -26,8 +26,13 @@ from laptop_agent.tracing import TraceStore, TurnTrace
 
 
 class Provider:
-    def __init__(self, failure: tuple[str, str] | None = None, wait=None, raises: Exception | None = None,
-                 fails: int | None = None) -> None:
+    def __init__(
+        self,
+        failure: tuple[str, str] | None = None,
+        wait=None,
+        raises: Exception | None = None,
+        fails: int | None = None,
+    ) -> None:
         self.failure, self.wait, self.raises, self.fails, self.calls = failure, wait, raises, fails, 0
 
     def ping(self, on_failure=None) -> bool:
@@ -69,9 +74,17 @@ def tier(provider: Provider | None) -> SimpleNamespace | None:
 
 
 def agent(fast=None, smart=None, ultra=None, vision=None, backup=None, search=None, traces=None):
-    return SimpleNamespace(planner=tier(fast), smart_planner=tier(smart), ultra_planner=tier(ultra),
-                           vision_planner=tier(vision), fallback_planner=tier(backup), model_status=ModelStatus(),
-                           traces=traces or Traces(turns=0), context=SimpleNamespace(websearch=search), router=None)
+    return SimpleNamespace(
+        planner=tier(fast),
+        smart_planner=tier(smart),
+        ultra_planner=tier(ultra),
+        vision_planner=tier(vision),
+        fallback_planner=tier(backup),
+        model_status=ModelStatus(),
+        traces=traces or Traces(turns=0),
+        context=SimpleNamespace(websearch=search),
+        router=None,
+    )
 
 
 def row(key: str, name: str, state: str, detail: str = "", next_step: str | None = None) -> dict[str, object]:
@@ -90,8 +103,12 @@ class Quiet(unittest.TestCase):
     """Nothing caught, nothing unsaved and the routing contract whole, unless a test says so."""
 
     def setUp(self) -> None:
-        for name, value in (("storage_warnings", lambda: []), ("FAILURES", Failures([])), ("RETRY_DELAY", 0.0),
-                            ("run_selfcheck", lambda router=None: ([Check("routes: x", True, "")], "All 1 checks pass."))):
+        for name, value in (
+            ("storage_warnings", lambda: []),
+            ("FAILURES", Failures([])),
+            ("RETRY_DELAY", 0.0),
+            ("run_selfcheck", lambda router=None: ([Check("routes: x", True, "")], "All 1 checks pass.")),
+        ):
             patcher = patch.object(diagnosis, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -169,8 +186,9 @@ class ProbeTests(Quiet):
 
     def test_the_tiers_are_called_at_once(self) -> None:
         together = threading.Barrier(3, timeout=5)
-        orchestrator = agent(fast=Provider(wait=together.wait), smart=Provider(wait=together.wait),
-                             ultra=Provider(wait=together.wait))
+        orchestrator = agent(
+            fast=Provider(wait=together.wait), smart=Provider(wait=together.wait), ultra=Provider(wait=together.wait)
+        )
         states = {probe.key: probe.state for probe in run_probes(orchestrator)}
         self.assertEqual(states, {"fast": "ok", "smart": "ok", "ultra": "ok"}, "the tiers were called one by one")
 
@@ -215,11 +233,13 @@ class ProbeTests(Quiet):
 
 class OfflineTests(Quiet):
     def test_setup_rows_are_ranked_by_what_they_need(self) -> None:
-        rows = [row("docs", "Documents", "missing", "Word: no.", "pip install laptop-agent[docs]"),
-                row("ocr", "Reading text in images", "broken", "Gone.", "Install Tesseract."),
-                row("search", "Web search", "ready", "DuckDuckGo: a key but no provider.", "Set SEARCH_PROVIDER."),
-                row("email", "Email", "off", "Not connected.", "Set IMAP_HOST."),
-                row("youtube", "YouTube summaries", "ready", "Summarises.")]
+        rows = [
+            row("docs", "Documents", "missing", "Word: no.", "pip install laptop-agent[docs]"),
+            row("ocr", "Reading text in images", "broken", "Gone.", "Install Tesseract."),
+            row("search", "Web search", "ready", "DuckDuckGo: a key but no provider.", "Set SEARCH_PROVIDER."),
+            row("email", "Email", "off", "Not connected.", "Set IMAP_HOST."),
+            row("youtube", "YouTube summaries", "ready", "Summarises."),
+        ]
         report = diagnose(agent(), rows)
         self.assertEqual([f.area for f in report.problems], ["Reading text in images"])
         self.assertEqual([f.area for f in report.warnings], ["Documents", "Web search"])
@@ -227,13 +247,18 @@ class OfflineTests(Quiet):
         self.assertIn("YouTube summaries", report.working)
 
     def test_no_chat_model_is_a_warning_not_an_option(self) -> None:
-        report = diagnose(agent(), [row("chat", "Chat model", "off", "Replies come from built-in rules only.", "Set it.")])
-        self.assertEqual([f.detail for f in report.warnings],
-                         ["No chat model is connected: replies come from built-in rules only."])
+        report = diagnose(
+            agent(), [row("chat", "Chat model", "off", "Replies come from built-in rules only.", "Set it.")]
+        )
+        self.assertEqual(
+            [f.detail for f in report.warnings], ["No chat model is connected: replies come from built-in rules only."]
+        )
 
     def test_a_row_a_probe_answers_is_not_reported_twice(self) -> None:
-        rows = [row("chat", "Chat model", "busy", "Busy at the moment."),
-                row("deeper", "Deeper models", "busy", "Deep configured; one is busy.")]
+        rows = [
+            row("chat", "Chat model", "busy", "Busy at the moment."),
+            row("deeper", "Deeper models", "busy", "Deep configured; one is busy."),
+        ]
         report = diagnose(agent(fast=Provider(), ultra=Provider((DEGRADED, "the model returned HTTP 429"))), rows)
         self.assertEqual([f.area for f in report.findings], ["Deep model"])
 
@@ -247,7 +272,9 @@ class OfflineTests(Quiet):
     def test_a_storage_warning_is_a_problem(self) -> None:
         with patch.object(diagnosis, "storage_warnings", lambda: ["Could not save reminders: disk full."]):
             report = diagnose(agent(), [])
-        self.assertEqual([(f.area, f.detail) for f in report.problems], [("Storage", "Could not save reminders: disk full.")])
+        self.assertEqual(
+            [(f.area, f.detail) for f in report.problems], [("Storage", "Could not save reminders: disk full.")]
+        )
         self.assertNotIn("storage", report.working)
 
     def test_a_route_that_no_longer_reaches_its_tool_is_a_problem(self) -> None:
@@ -262,7 +289,8 @@ class OfflineTests(Quiet):
         entries = [{"where": "planner/route", "kind": "TimeoutError", "age_seconds": 30.0}] * 3 + [
             {"where": "tts/riva", "kind": "OSError", "age_seconds": 120.0},
             {"where": "old/thing", "kind": "ValueError", "age_seconds": 7200.0},
-            {"where": "retention/swept", "kind": "Reported", "age_seconds": 60.0}]
+            {"where": "retention/swept", "kind": "Reported", "age_seconds": 60.0},
+        ]
         with patch.object(diagnosis, "FAILURES", Failures(entries)):
             [warning] = diagnose(agent(), []).warnings
         self.assertIn("4 in the last hour", warning.detail)
@@ -306,13 +334,17 @@ class OfflineTests(Quiet):
         traces = Traces(turns=10, chat_turns=6, median_ttft_ms=1200, llm_routed_pct=5.0, failed=0)
         report = diagnose(agent(fast=Provider(), search=Search(), traces=traces), [])
         self.assertEqual((report.status, report.verdict), ("ok", "Everything I checked is working."))
-        self.assertEqual([name.split(" (")[0] for name in report.working],
-                         ["Chat model", "Web search", "storage", "routing", "response times"])
+        self.assertEqual(
+            [name.split(" (")[0] for name in report.working],
+            ["Chat model", "Web search", "storage", "routing", "response times"],
+        )
         json.dumps(report.as_data())
 
     def test_problems_come_before_warnings_and_set_the_status(self) -> None:
-        orchestrator = agent(fast=Provider((DEGRADED, "the model returned HTTP 503")),
-                             smart=Provider((BROKEN, "the API key was rejected - HTTP 401")))
+        orchestrator = agent(
+            fast=Provider((DEGRADED, "the model returned HTTP 503")),
+            smart=Provider((BROKEN, "the API key was rejected - HTTP 401")),
+        )
         report = diagnose(orchestrator, [])
         self.assertEqual([f.severity for f in report.findings], ["problem", "warning"])
         self.assertEqual((report.status, report.verdict), ("fail", "1 problem and 1 warning."))
@@ -368,10 +400,12 @@ class CommandTests(Quiet):
         self.assertIn("Documents", [f["area"] for f in result.data["findings"]])
 
     def test_a_broken_engine_does_not_break_the_local_rows(self) -> None:
-        with patch("laptop_agent.tools.transcribe.stt_engine_name", side_effect=OSError("no device")), \
-                patch("laptop_agent.tools.transcribe.ocr_engine_name", return_value=None), \
-                patch("laptop_agent.voice.tts_engine_name", return_value=None), \
-                patch.object(diagnosis, "record_failure") as recorded:
+        with (
+            patch("laptop_agent.tools.transcribe.stt_engine_name", side_effect=OSError("no device")),
+            patch("laptop_agent.tools.transcribe.ocr_engine_name", return_value=None),
+            patch("laptop_agent.voice.tts_engine_name", return_value=None),
+            patch.object(diagnosis, "record_failure") as recorded,
+        ):
             rows = diagnosis.local_setup_rows(self.build())
         self.assertEqual({r["key"]: r["state"] for r in rows}["stt"], "missing")
         self.assertEqual(recorded.call_args.args[0], "diagnosis/stt")
@@ -400,12 +434,18 @@ class EndpointTests(unittest.TestCase):
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2 ** 10, 8, 1))
+        accounts = AccountStore(Path(tmp.name) / "accounts.json", cost=(2**10, 8, 1))
         sessions = SessionStore(Path(tmp.name) / "sessions.json")
-        self.ran = MagicMock(return_value=ToolResult.failure("**Self-diagnosis: 1 problem.**", status="fail",
-                                                              verdict="1 problem.", findings=[], probes=[]))
-        for target, name, value in ((self.webui, "ACCOUNTS", accounts), (self.webui, "SESSIONS", sessions),
-                                    (self.webui._orchestrator, "diagnose", self.ran)):
+        self.ran = MagicMock(
+            return_value=ToolResult.failure(
+                "**Self-diagnosis: 1 problem.**", status="fail", verdict="1 problem.", findings=[], probes=[]
+            )
+        )
+        for target, name, value in (
+            (self.webui, "ACCOUNTS", accounts),
+            (self.webui, "SESSIONS", sessions),
+            (self.webui._orchestrator, "diagnose", self.ran),
+        ):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -415,9 +455,16 @@ class EndpointTests(unittest.TestCase):
             self.cookies[role] = f"jarvis_session={sessions.create(account.id, 'password')}"
 
     def post(self, role: str):
-        request = urllib.request.Request(self.base + "/api/diagnose", method="POST", data=b"{}",
-                                         headers={"Content-Type": "application/json", "Cookie": self.cookies[role],
-                                                  "X-Jarvis-Token": self.webui._API_TOKEN})
+        request = urllib.request.Request(
+            self.base + "/api/diagnose",
+            method="POST",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Cookie": self.cookies[role],
+                "X-Jarvis-Token": self.webui._API_TOKEN,
+            },
+        )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read()), dict(response.headers)
@@ -439,8 +486,13 @@ class EndpointTests(unittest.TestCase):
     def test_the_chat_models_answer_updates_what_setup_shows(self):
         """Found in review: the page reloads Setup after a diagnosis, which still read the keep-warm
         ping's "not answering" for up to 200 s beside a report saying the chat model answered."""
-        self.ran.return_value = ToolResult.success("**Self-diagnosis: fine.**", status="ok", verdict="Fine.",
-                                                   findings=[], probes=[{"key": "fast", "state": "ok"}])
+        self.ran.return_value = ToolResult.success(
+            "**Self-diagnosis: fine.**",
+            status="ok",
+            verdict="Fine.",
+            findings=[],
+            probes=[{"key": "fast", "state": "ok"}],
+        )
         with patch.dict(self.webui._LLM_STATUS, {"reachable": False}):
             self.post("dev")
             self.assertIs(self.webui._LLM_STATUS["reachable"], True)

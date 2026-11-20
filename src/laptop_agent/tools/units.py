@@ -19,24 +19,53 @@ from laptop_agent.tools.calculator import _NUMBER_WORD, _words_to_number
 # unit -> (dimension, how many base units one of it is). Bases: metre, gram, litre,
 # second, byte, metre-per-second. Temperature is handled on its own.
 _FACTORS: dict[str, tuple[str, float]] = {
-    "millimetre": ("length", 0.001), "centimetre": ("length", 0.01), "metre": ("length", 1.0),
-    "kilometre": ("length", 1000.0), "inch": ("length", 0.0254), "foot": ("length", 0.3048),
-    "yard": ("length", 0.9144), "mile": ("length", 1609.344), "nautical mile": ("length", 1852.0),
-    "milligram": ("mass", 0.001), "gram": ("mass", 1.0), "kilogram": ("mass", 1000.0),
-    "ounce": ("mass", 28.349523125), "pound": ("mass", 453.59237), "stone": ("mass", 6350.29318),
-    "tonne": ("mass", 1_000_000.0), "ton": ("mass", 907_184.74),
-    "millilitre": ("volume", 0.001), "litre": ("volume", 1.0), "teaspoon": ("volume", 0.00492892159375),
-    "tablespoon": ("volume", 0.01478676478125), "fluid ounce": ("volume", 0.0295735295625),
-    "cup": ("volume", 0.2365882365), "pint": ("volume", 0.473176473), "quart": ("volume", 0.946352946),
+    "millimetre": ("length", 0.001),
+    "centimetre": ("length", 0.01),
+    "metre": ("length", 1.0),
+    "kilometre": ("length", 1000.0),
+    "inch": ("length", 0.0254),
+    "foot": ("length", 0.3048),
+    "yard": ("length", 0.9144),
+    "mile": ("length", 1609.344),
+    "nautical mile": ("length", 1852.0),
+    "milligram": ("mass", 0.001),
+    "gram": ("mass", 1.0),
+    "kilogram": ("mass", 1000.0),
+    "ounce": ("mass", 28.349523125),
+    "pound": ("mass", 453.59237),
+    "stone": ("mass", 6350.29318),
+    "tonne": ("mass", 1_000_000.0),
+    "ton": ("mass", 907_184.74),
+    "millilitre": ("volume", 0.001),
+    "litre": ("volume", 1.0),
+    "teaspoon": ("volume", 0.00492892159375),
+    "tablespoon": ("volume", 0.01478676478125),
+    "fluid ounce": ("volume", 0.0295735295625),
+    "cup": ("volume", 0.2365882365),
+    "pint": ("volume", 0.473176473),
+    "quart": ("volume", 0.946352946),
     "gallon": ("volume", 3.785411784),
-    "second": ("time", 1.0), "minute": ("time", 60.0), "hour": ("time", 3600.0), "day": ("time", 86400.0),
-    "week": ("time", 604800.0), "year": ("time", 31_557_600.0),
-    "byte": ("data", 1.0), "kilobyte": ("data", 1e3), "megabyte": ("data", 1e6), "gigabyte": ("data", 1e9),
-    "terabyte": ("data", 1e12), "kibibyte": ("data", 1024.0), "mebibyte": ("data", 1024.0 ** 2),
-    "gibibyte": ("data", 1024.0 ** 3),
-    "metre per second": ("speed", 1.0), "kilometre per hour": ("speed", 1000 / 3600),
-    "mile per hour": ("speed", 1609.344 / 3600), "knot": ("speed", 1852 / 3600),
-    "celsius": ("temperature", 1.0), "fahrenheit": ("temperature", 1.0), "kelvin": ("temperature", 1.0),
+    "second": ("time", 1.0),
+    "minute": ("time", 60.0),
+    "hour": ("time", 3600.0),
+    "day": ("time", 86400.0),
+    "week": ("time", 604800.0),
+    "year": ("time", 31_557_600.0),
+    "byte": ("data", 1.0),
+    "kilobyte": ("data", 1e3),
+    "megabyte": ("data", 1e6),
+    "gigabyte": ("data", 1e9),
+    "terabyte": ("data", 1e12),
+    "kibibyte": ("data", 1024.0),
+    "mebibyte": ("data", 1024.0**2),
+    "gibibyte": ("data", 1024.0**3),
+    "metre per second": ("speed", 1.0),
+    "kilometre per hour": ("speed", 1000 / 3600),
+    "mile per hour": ("speed", 1609.344 / 3600),
+    "knot": ("speed", 1852 / 3600),
+    "celsius": ("temperature", 1.0),
+    "fahrenheit": ("temperature", 1.0),
+    "kelvin": ("temperature", 1.0),
 }
 
 # How each is written or said, longest first when matching.
@@ -118,7 +147,10 @@ _HOW_MANY = re.compile(
 _BEFORE_UNIT = rf"(?=\s*{_UNIT}\b)"
 _FRACTION_AMOUNTS = (
     (r"\b(\d+)\s+and\s+(?:a\s+)?half\s+", lambda m: f"{int(m.group(1)) + 0.5:g} "),
-    (r"\b(\d+)\s*/\s*(\d+)\s+", lambda m: f"{int(m.group(1)) / int(m.group(2)):.10g} " if int(m.group(2)) else m.group(0)),
+    (
+        r"\b(\d+)\s*/\s*(\d+)\s+",
+        lambda m: f"{int(m.group(1)) / int(m.group(2)):.10g} " if int(m.group(2)) else m.group(0),
+    ),
     (r"\b(?:3\s+(?:quarters|fourths))(?:\s+of\s+an?)?\s+", lambda m: "0.75 "),
     (r"\b(?:2\s+thirds)(?:\s+of\s+an?)?\s+", lambda m: f"{2 / 3:.10g} "),
     (r"\b(?:(?:a|an|1)\s+)?half(?:\s+(?:of\s+)?an?)?\s+", lambda m: "0.5 "),
@@ -151,8 +183,9 @@ _COMPOUND = re.compile(
 _AMOUNT_DIGITS = 300
 _FEET_MARKS = re.compile(r"\b(\d+)\s*['’]\s*(\d+(?:\.\d+)?)\s*(?:[\"”]|'')?(?=\s|$|[?.!])")
 # "to feet and inches": the answer in both units, the way a height or a baby's weight is said.
-_TO_PAIR = re.compile(rf"\s+(?:to|in|into|as)\s+(?P<big>{_UNIT})\s+(?:and|&)\s+(?P<small>{_UNIT})\s*[?.!]*\s*$",
-                      re.IGNORECASE)
+_TO_PAIR = re.compile(
+    rf"\s+(?:to|in|into|as)\s+(?P<big>{_UNIT})\s+(?:and|&)\s+(?P<small>{_UNIT})\s*[?.!]*\s*$", re.IGNORECASE
+)
 
 
 def _compound(text: str) -> tuple[str, str, tuple[str, str] | None]:
@@ -172,14 +205,14 @@ def _compound(text: str) -> tuple[str, str, tuple[str, str] | None]:
         whole, part = abs(int(match.group("a"))), float(match.group("b"))
         total = (whole * _FACTORS[big][1] / _FACTORS[small][1] + part) * (-1 if sign else 1)
         said = f"{sign}{whole} {_named(big, whole)} {_shown(part)} {_named(small, part)}"
-        text = text[:match.start()] + f"{total:.10g} {_SPELLINGS[small][-1]}" + text[match.end():]
+        text = text[: match.start()] + f"{total:.10g} {_SPELLINGS[small][-1]}" + text[match.end() :]
     pair = None
     wanted = _TO_PAIR.search(text)
     if wanted:
         big, small = _unit(wanted.group("big")), _unit(wanted.group("small"))
         if big in _PAIRS and _PAIRS[big] == small:
             pair = (big, small)
-            text = text[:wanted.start()] + f" to {_SPELLINGS[small][-1]}"
+            text = text[: wanted.start()] + f" to {_SPELLINGS[small][-1]}"
     return text, said, pair
 
 
@@ -197,8 +230,9 @@ def _parse(text: str) -> tuple[tuple[float, str, str] | None, str, tuple[str, st
 def _parse_one(cleaned: str) -> tuple[float, str, str] | None:
     # The router hands over `convert <what was said>`, and "how many ounces in a pound" or
     # "what's 70 fahrenheit in celsius" only reads as a conversion from its own first word.
-    cleaned = re.sub(rf"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much|{_SIZE_WORDS})\b|what\b)", "", cleaned,
-                     flags=re.IGNORECASE)
+    cleaned = re.sub(
+        rf"^\s*(?:please\s+)?convert\s+(?=how\s+(?:many|much|{_SIZE_WORDS})\b|what\b)", "", cleaned, flags=re.IGNORECASE
+    )
     for pattern in (_FORWARD, _HOW_MANY):
         match = pattern.match(cleaned)
         if not match:
@@ -246,7 +280,7 @@ def _named(unit: str, amount: float) -> str:
         return symbols[unit]
     if abs(amount) == 1:
         return unit
-    head, per, tail = unit.partition(" per ")    # "miles per hour", not "mile per hours"
+    head, per, tail = unit.partition(" per ")  # "miles per hour", not "mile per hours"
     plural = {"foot": "feet", "inch": "inches"}.get(head, head + ("es" if head.endswith("s") else "s"))
     return plural + (f" per {tail}" if per else "")
 
@@ -258,8 +292,8 @@ class UnitTool:
         parsed, said, pair = _parse(text)
         if parsed is None:
             return ToolResult.failure(
-                "I could not read that as a conversion. Try \"convert 5 miles to km\" or "
-                "\"how many ounces in a pound\".")
+                'I could not read that as a conversion. Try "convert 5 miles to km" or "how many ounces in a pound".'
+            )
         amount, source, target = parsed
         try:
             value = convert(amount, source, target)
@@ -279,8 +313,11 @@ class UnitTool:
             parts = [f"{int(whole):,} {_named(big, whole)}"] if whole else []
             parts += [f"{_shown(rest)} {_named(small, rest)}"] if rest or not whole else []
             right = ("-" if value < 0 and (whole or rest) else "") + " ".join(parts)
-        note = " (US measure)" if _FACTORS[source][0] == "volume" and {source, target} & {
-            "cup", "pint", "quart", "gallon", "fluid ounce"} else ""
+        note = (
+            " (US measure)"
+            if _FACTORS[source][0] == "volume" and {source, target} & {"cup", "pint", "quart", "gallon", "fluid ounce"}
+            else ""
+        )
         return ToolResult.success(f"{left} = **{right}**{note}", value=value, source=source, target=target)
 
 
@@ -307,7 +344,7 @@ def convert_again(left: str, right: str, amount: str, said: str = "") -> str | N
             return None
         return f"convert {amount} {_SPELLINGS[source][-1]} to {_SPELLINGS[target][-1]}"
     unit = _unit(said)
-    if unit == "ounce" and _FACTORS[source][0] == "volume":    # as the parser reads it
+    if unit == "ounce" and _FACTORS[source][0] == "volume":  # as the parser reads it
         unit = "fluid ounce"
     if unit is None or _FACTORS[unit][0] != _FACTORS[source][0]:
         return None

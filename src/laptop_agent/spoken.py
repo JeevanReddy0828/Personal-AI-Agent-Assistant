@@ -6,6 +6,7 @@ A voice turn was answered with the chat prompt ("Answer directly and helpfully i
 every sentence of a long reply or tool result was then spoken. A spoken turn now gets its own
 style, and what is said aloud stops after about SPOKEN_WORDS, with the rest left on the screen.
 """
+
 from __future__ import annotations
 
 import random
@@ -89,9 +90,11 @@ def greeting(name: str | None, now: datetime, pick=random.choice) -> str:
         part = "Good evening"
     else:
         return pick([f"Still up{who}? What can I do for you?", f"Late one{who}. What are we working on?"])
-    return pick([
-        f"{part}{who}. What can I do for you?",
-        f"Hey{who}. What are you up to?",
-        f"Welcome back{who}. What's on your mind?",
-        f"{part}{who}. What are we working on today?",
-    ])
+    return pick(
+        [
+            f"{part}{who}. What can I do for you?",
+            f"Hey{who}. What are you up to?",
+            f"Welcome back{who}. What's on your mind?",
+            f"{part}{who}. What are we working on today?",
+        ]
+    )

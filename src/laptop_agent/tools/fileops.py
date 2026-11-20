@@ -6,6 +6,7 @@ organising a folder were built, so the model reached for the shell. Each change 
 that" can put it back: a move or rename moves back, a copy is removed. A deletion goes to the
 Recycle Bin, where the user restores it; it is not erased.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -25,8 +26,16 @@ from laptop_agent.storage import atomic_write_text, file_lock, read_json
 from laptop_agent.tools.base import ToolResult
 
 JOURNAL_KEPT = 20
-PLACES = {"desktop": "Desktop", "documents": "Documents", "downloads": "Downloads", "pictures": "Pictures",
-          "photos": "Pictures", "music": "Music", "videos": "Videos", "home": ""}
+PLACES = {
+    "desktop": "Desktop",
+    "documents": "Documents",
+    "downloads": "Downloads",
+    "pictures": "Pictures",
+    "photos": "Pictures",
+    "music": "Music",
+    "videos": "Videos",
+    "home": "",
+}
 _DRIVE_FIXED = 3
 Recycler = Callable[[Path], None]
 
@@ -45,13 +54,22 @@ def recycle_windows(path: Path, kernel32=None, shell32=None) -> None:
         raise OSError(f"{path} is on a network share, which has no Recycle Bin, so I won't delete it from here.")
     root = os.path.splitdrive(text)[0] + "\\"
     if kernel32.GetDriveTypeW(root) != _DRIVE_FIXED:
-        raise OSError(f"{root} has no Recycle Bin (a removable or network drive), so deleting there would be "
-                      "permanent. I won't do it from here.")
+        raise OSError(
+            f"{root} has no Recycle Bin (a removable or network drive), so deleting there would be "
+            "permanent. I won't do it from here."
+        )
 
     class SHFILEOPSTRUCTW(ctypes.Structure):
-        _fields_ = [("hwnd", ctypes.c_void_p), ("wFunc", ctypes.c_uint), ("pFrom", ctypes.c_wchar_p),
-                    ("pTo", ctypes.c_wchar_p), ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", ctypes.c_int),
-                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_wchar_p)]
+        _fields_ = [
+            ("hwnd", ctypes.c_void_p),
+            ("wFunc", ctypes.c_uint),
+            ("pFrom", ctypes.c_wchar_p),
+            ("pTo", ctypes.c_wchar_p),
+            ("fFlags", ctypes.c_ushort),
+            ("fAnyOperationsAborted", ctypes.c_int),
+            ("hNameMappings", ctypes.c_void_p),
+            ("lpszProgressTitle", ctypes.c_wchar_p),
+        ]
 
     # ALLOWUNDO | NOCONFIRMATION | SILENT | NOERRORUI | WANTNUKEWARNING
     fo_delete, flags = 3, 0x0040 | 0x0010 | 0x0004 | 0x0400 | 0x4000
@@ -98,15 +116,20 @@ def _protected(path: Path, home: Path | None = None) -> bool:
     standard = {home / folder for folder in set(PLACES.values()) if folder}
     if path.parent == path or path in {home, home.parent} or path in standard:
         return True
-    roots = [os.environ.get("SystemRoot") or r"C:\Windows", os.environ.get("ProgramFiles") or r"C:\Program Files",
-             os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)", os.environ.get("ProgramData") or r"C:\ProgramData"]
+    roots = [
+        os.environ.get("SystemRoot") or r"C:\Windows",
+        os.environ.get("ProgramFiles") or r"C:\Program Files",
+        os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)",
+        os.environ.get("ProgramData") or r"C:\ProgramData",
+    ]
     text = str(path).lower()
     return any(text == root.lower() or text.startswith(root.lower().rstrip("\\") + "\\") for root in roots if root)
 
 
 class FileOps:
-    def __init__(self, approval_gate: ApprovalGate, journal: Path, home: Path | None = None,
-                 recycler: Recycler | None = None) -> None:
+    def __init__(
+        self, approval_gate: ApprovalGate, journal: Path, home: Path | None = None, recycler: Recycler | None = None
+    ) -> None:
         self._gate = approval_gate
         self._journal = journal
         self._home = home or Path.home()
@@ -162,7 +185,9 @@ class FileOps:
     def _checked(self, *paths: Path) -> ToolResult | None:
         for path in paths:
             if _protected(path.resolve(), self._home):
-                return ToolResult.failure(f"I won't change {path}: it's a system folder, a drive's root or your home folder.")
+                return ToolResult.failure(
+                    f"I won't change {path}: it's a system folder, a drive's root or your home folder."
+                )
         return None
 
     def move(self, src: str, dst: str, copy: bool = False) -> ToolResult:
@@ -179,9 +204,14 @@ class FileOps:
         if not target.parent.is_dir():
             return ToolResult.failure(f"There's no folder {target.parent}.")
         verb = "Copy" if copy else "Move"
-        self._gate.require(ApprovalRequest(action=f"{verb} {source} to {target}", risk=RiskLevel.HIGH,
-                                           reason=f"This {'writes a copy' if copy else 'moves the file'}; \"undo that\" reverses it.",
-                                           preview=f"From: {source}\nTo:   {target}"))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"{verb} {source} to {target}",
+                risk=RiskLevel.HIGH,
+                reason=f'This {"writes a copy" if copy else "moves the file"}; "undo that" reverses it.',
+                preview=f"From: {source}\nTo:   {target}",
+            )
+        )
         # Again after the card, which can wait two minutes: something may have arrived there since.
         if target.exists():
             return ToolResult.failure(f"{target} appeared while you were deciding, and I never overwrite.")
@@ -189,9 +219,18 @@ class FileOps:
             (shutil.copytree if source.is_dir() else shutil.copy2)(source, target)
         else:
             shutil.move(str(source), str(target))
-        self._record({"op": "copy" if copy else "move", "src": str(source), "dst": str(target), "id": _identity(target, contents=copy),
-                      "at": datetime.now().astimezone().isoformat()})
-        return ToolResult.success(f"{'Copied' if copy else 'Moved'} {source.name} to {target}.", src=str(source), dst=str(target))
+        self._record(
+            {
+                "op": "copy" if copy else "move",
+                "src": str(source),
+                "dst": str(target),
+                "id": _identity(target, contents=copy),
+                "at": datetime.now().astimezone().isoformat(),
+            }
+        )
+        return ToolResult.success(
+            f"{'Copied' if copy else 'Moved'} {source.name} to {target}.", src=str(source), dst=str(target)
+        )
 
     def rename(self, src: str, name: str) -> ToolResult:
         source, why = self.find(src)
@@ -200,19 +239,39 @@ class FileOps:
         if refused := self._checked(source):
             return refused
         new_name = name.strip().strip("\"'")
-        if not new_name or any(sep in new_name for sep in "\\/:*?\"<>|"):
-            return ToolResult.failure("Give a new name without a folder in it, for example \"rename notes.txt to ideas.txt\".")
+        if not new_name or any(sep in new_name for sep in '\\/:*?"<>|'):
+            return ToolResult.failure(
+                'Give a new name without a folder in it, for example "rename notes.txt to ideas.txt".'
+            )
         # The extension is kept unless the new name gives one: "Q3 v2.1" is not a ".1" file.
-        if source.suffix and source.is_file() and not re.fullmatch(r"\.[A-Za-z][A-Za-z0-9]{0,5}", Path(new_name).suffix):
+        if (
+            source.suffix
+            and source.is_file()
+            and not re.fullmatch(r"\.[A-Za-z][A-Za-z0-9]{0,5}", Path(new_name).suffix)
+        ):
             new_name += source.suffix
         target = source.with_name(new_name)
         # Only the capitals change: on Windows the "existing" target is the file itself.
         if target.exists() and not (target.name.lower() == source.name.lower() and target.samefile(source)):
             return ToolResult.failure(f"{target.name} already exists there, and I never overwrite.")
-        self._gate.require(ApprovalRequest(action=f"Rename {source} to {target.name}", risk=RiskLevel.HIGH,
-                                           reason="\"undo that\" renames it back.", preview=f"{source.name} -> {target.name}"))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Rename {source} to {target.name}",
+                risk=RiskLevel.HIGH,
+                reason='"undo that" renames it back.',
+                preview=f"{source.name} -> {target.name}",
+            )
+        )
         source.rename(target)
-        self._record({"op": "move", "src": str(source), "dst": str(target), "id": _identity(target), "at": datetime.now().astimezone().isoformat()})
+        self._record(
+            {
+                "op": "move",
+                "src": str(source),
+                "dst": str(target),
+                "id": _identity(target),
+                "at": datetime.now().astimezone().isoformat(),
+            }
+        )
         return ToolResult.success(f"Renamed {source.name} to {target.name}.", src=str(source), dst=str(target))
 
     def delete(self, src: str) -> ToolResult:
@@ -224,9 +283,14 @@ class FileOps:
         if refused := self._checked(source):
             return refused
         kind = "folder and everything in it" if source.is_dir() else "file"
-        self._gate.require(ApprovalRequest(action=f"Delete {source} (to the Recycle Bin)", risk=RiskLevel.HIGH,
-                                           reason=f"The {kind} goes to the Recycle Bin, where you can restore it.",
-                                           preview=str(source)))
+        self._gate.require(
+            ApprovalRequest(
+                action=f"Delete {source} (to the Recycle Bin)",
+                risk=RiskLevel.HIGH,
+                reason=f"The {kind} goes to the Recycle Bin, where you can restore it.",
+                preview=str(source),
+            )
+        )
         self._recycle(source)
         self._record({"op": "delete", "src": str(source), "at": datetime.now().astimezone().isoformat()})
         return ToolResult.success(f"Moved {source.name} to the Recycle Bin.", src=str(source))
@@ -250,19 +314,28 @@ class FileOps:
             return ToolResult.failure(f"There's no {op} of mine to undo.")
         src, dst = Path(last["src"]), Path(last.get("dst") or "")
         if last["op"] == "delete":
-            self._drop(last)   # said once; the next "undo" reaches the change before it
-            return ToolResult.failure(f"{src.name} is in the Recycle Bin: open it and choose Restore to put it back "
-                                      f"at {src.parent}.")
+            self._drop(last)  # said once; the next "undo" reaches the change before it
+            return ToolResult.failure(
+                f"{src.name} is in the Recycle Bin: open it and choose Restore to put it back at {src.parent}."
+            )
         if not dst.exists():
             return ToolResult.failure(f"{dst} isn't there any more, so I can't undo that.")
         if last.get("id") != _identity(dst, contents=last["op"] == "copy"):
-            return ToolResult.failure(f"{dst} isn't the one I {'copied' if last['op'] == 'copy' else 'moved'} any more "
-                                      "(it was replaced or changed since), so I left it.")
+            return ToolResult.failure(
+                f"{dst} isn't the one I {'copied' if last['op'] == 'copy' else 'moved'} any more "
+                "(it was replaced or changed since), so I left it."
+            )
         if last["op"] == "move":
             if src.exists():
                 return ToolResult.failure(f"Something is already at {src}, so moving it back would overwrite it.")
-            self._gate.require(ApprovalRequest(action=f"Move {dst} back to {src}", risk=RiskLevel.HIGH,
-                                               reason="Undoing the last move or rename.", preview=f"{dst} -> {src}"))
+            self._gate.require(
+                ApprovalRequest(
+                    action=f"Move {dst} back to {src}",
+                    risk=RiskLevel.HIGH,
+                    reason="Undoing the last move or rename.",
+                    preview=f"{dst} -> {src}",
+                )
+            )
             if src.exists():
                 return ToolResult.failure(f"Something arrived at {src} while you were deciding, so I left it.")
             shutil.move(str(dst), str(src))
@@ -270,8 +343,14 @@ class FileOps:
         else:
             if self._recycle is None:
                 return ToolResult.failure("Removing the copy needs the Recycle Bin, built for Windows only so far.")
-            self._gate.require(ApprovalRequest(action=f"Delete the copy {dst} (to the Recycle Bin)", risk=RiskLevel.HIGH,
-                                               reason="Undoing the last copy; the original stays.", preview=str(dst)))
+            self._gate.require(
+                ApprovalRequest(
+                    action=f"Delete the copy {dst} (to the Recycle Bin)",
+                    risk=RiskLevel.HIGH,
+                    reason="Undoing the last copy; the original stays.",
+                    preview=str(dst),
+                )
+            )
             self._recycle(dst)
             message = f"Removed the copy at {dst} (it's in the Recycle Bin)."
         self._drop(last)

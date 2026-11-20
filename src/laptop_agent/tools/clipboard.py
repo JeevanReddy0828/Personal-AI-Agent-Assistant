@@ -5,6 +5,7 @@ nothing, or invented a shell command. The system clipboard is read and written h
 extra package (the Win32 API through ctypes; pbpaste/pbcopy or wl-paste/xclip elsewhere), behind
 a backend the tests replace, so no test reads or overwrites the real clipboard.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -57,9 +58,20 @@ class WindowsClipboard:
         self._user32.GetClipboardData.restype = ctypes.c_void_p
         self._user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
         self._user32.SetClipboardData.restype = ctypes.c_void_p
-        self._user32.CreateWindowExW.argtypes = [ctypes.c_ulong, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong,
-                                                 ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                                                 ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        self._user32.CreateWindowExW.argtypes = [
+            ctypes.c_ulong,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
         self._user32.CreateWindowExW.restype = ctypes.c_void_p
         self._user32.DestroyWindow.argtypes = [ctypes.c_void_p]
         self._kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
@@ -119,7 +131,7 @@ class WindowsClipboard:
                 self._user32.CloseClipboard()
         finally:
             if not given:
-                self._kernel32.GlobalFree(handle)   # Windows owns the memory only once it took it
+                self._kernel32.GlobalFree(handle)  # Windows owns the memory only once it took it
             self._user32.DestroyWindow(owner)
 
 
@@ -176,14 +188,20 @@ class ClipboardTool:
         if self._backend is None:
             return self._unreachable()
         if self._gate is not None:
-            self._gate.require(ApprovalRequest(action="Read the clipboard", risk=RiskLevel.LOW,
-                                               reason="Reads the text you copied, on this laptop."))
+            self._gate.require(
+                ApprovalRequest(
+                    action="Read the clipboard", risk=RiskLevel.LOW, reason="Reads the text you copied, on this laptop."
+                )
+            )
         try:
             text = self._backend.read()
         except _BACKEND_ERRORS as exc:
             record_failure("clipboard/read", exc)
-            return ToolResult.failure(f"I couldn't read the clipboard: {exc}" if isinstance(exc, OSError) and
-                                      "clipboard" in str(exc) else "I couldn't read the clipboard as text.")
+            return ToolResult.failure(
+                f"I couldn't read the clipboard: {exc}"
+                if isinstance(exc, OSError) and "clipboard" in str(exc)
+                else "I couldn't read the clipboard as text."
+            )
         return ToolResult.success("read", text=text)
 
     def show(self) -> ToolResult:
@@ -205,13 +223,19 @@ class ClipboardTool:
             return ToolResult.failure("There is nothing to copy.")
         preview = text.strip().splitlines()[0][:80]
         if self._gate is not None:
-            self._gate.require(ApprovalRequest(action="Replace what is on the clipboard", risk=RiskLevel.MEDIUM,
-                                               reason="Puts this text on the clipboard; what was copied before is gone.",
-                                               preview=text[:500]))
+            self._gate.require(
+                ApprovalRequest(
+                    action="Replace what is on the clipboard",
+                    risk=RiskLevel.MEDIUM,
+                    reason="Puts this text on the clipboard; what was copied before is gone.",
+                    preview=text[:500],
+                )
+            )
         try:
             self._backend.write(text)
         except _BACKEND_ERRORS as exc:
             record_failure("clipboard/write", exc)
             return ToolResult.failure("I couldn't put that on the clipboard: " + str(exc))
-        return ToolResult.success(f"Copied to your clipboard: {preview}" + ("…" if len(text.strip()) > len(preview) else ""),
-                                  chars=len(text))
+        return ToolResult.success(
+            f"Copied to your clipboard: {preview}" + ("…" if len(text.strip()) > len(preview) else ""), chars=len(text)
+        )

@@ -3,6 +3,7 @@
 Speech is faked end to end: /api/tts returns a short silent WAV, /api/transcribe hears nothing,
 /api/wake never wakes, and the browser recognizer is a stub.
 """
+
 from __future__ import annotations
 
 import io
@@ -39,8 +40,10 @@ class GreetingInTheBrowser(unittest.TestCase):
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright
 
-        cls.patches = [patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}),
-                       patch.object(webui, "_WAKE", webui.WakeDetector(lambda clip: ("", 1.0)))]
+        cls.patches = [
+            patch.object(webui, "system_metrics", return_value={"cpu_percent": 1, "ram_percent": 1, "gpus": []}),
+            patch.object(webui, "_WAKE", webui.WakeDetector(lambda clip: ("", 1.0))),
+        ]
         for each in cls.patches:
             each.start()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), webui.Handler)
@@ -48,8 +51,13 @@ class GreetingInTheBrowser(unittest.TestCase):
         cls.url = f"http://127.0.0.1:{cls.server.server_port}"
         cls.playwright = sync_playwright().start()
         cls.browser = cls.playwright.chromium.launch(
-            headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
-                                 "--autoplay-policy=no-user-gesture-required"])
+            headless=True,
+            args=[
+                "--use-fake-device-for-media-stream",
+                "--use-fake-ui-for-media-stream",
+                "--autoplay-policy=no-user-gesture-required",
+            ],
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -70,12 +78,24 @@ class GreetingInTheBrowser(unittest.TestCase):
             self.spoken.append(json.loads(route.request.post_data or "{}").get("text", ""))
             route.fulfill(status=200, content_type="audio/wav", body=silent_wav())
 
-        context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort())
+        context.route(
+            "**/*", lambda route: route.continue_() if route.request.url.startswith(self.url) else route.abort()
+        )
         context.route("**/api/tts", tts)
-        context.route("**/api/transcribe", lambda route: route.fulfill(
-            status=200, content_type="application/json", body=json.dumps({"ok": False, "text": "", "failed": False})))
-        context.route("**/api/wake", lambda route: route.fulfill(
-            status=200, content_type="application/json", body=json.dumps({"ok": True, "available": True, "wake": False})))
+        context.route(
+            "**/api/transcribe",
+            lambda route: route.fulfill(
+                status=200, content_type="application/json", body=json.dumps({"ok": False, "text": "", "failed": False})
+            ),
+        )
+        context.route(
+            "**/api/wake",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"ok": True, "available": True, "wake": False}),
+            ),
+        )
         page = context.new_page()
         errors: list[str] = []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -86,7 +106,10 @@ class GreetingInTheBrowser(unittest.TestCase):
     def test_a_tab_shows_the_greeting_and_stays_quiet(self):
         page = self.open("/")
         page.wait_for_function("() => document.querySelectorAll('.msg.bot').length > 0", timeout=10000)
-        self.assertRegex(page.locator(".msg.bot").last.inner_text(), r"(morning|afternoon|evening|Hey|Welcome back|Still up|Late one)")
+        self.assertRegex(
+            page.locator(".msg.bot").last.inner_text(),
+            r"(morning|afternoon|evening|Hey|Welcome back|Still up|Late one)",
+        )
         page.wait_for_timeout(1500)
         self.assertFalse(page.evaluate("document.body.classList.contains('voicing')"))
         self.assertEqual(self.spoken, [])
