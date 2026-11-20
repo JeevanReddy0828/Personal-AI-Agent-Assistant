@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from laptop_agent.cancellation import OperationCancelled, cancel, operation
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.imagegen import ImageTool
 
@@ -75,6 +76,17 @@ class ImageToolTests(unittest.TestCase):
         result = self.tool(backend=lambda model, body: {"artifacts": []}).generate("a fox")
         self.assertFalse(result.ok)
         self.assertIn("no picture", result.message)
+        self.assertFalse((self.data_dir / "images").exists())
+
+    def test_stop_while_the_picture_is_drawn_saves_no_file(self) -> None:
+        draw = backend()
+
+        def stopped_mid_request(model: str, body: dict) -> dict:
+            cancel("stop-mid-picture")
+            return draw(model, body)
+
+        with operation("stop-mid-picture"), self.assertRaises(OperationCancelled):
+            self.tool(backend=stopped_mid_request).generate("a fox")
         self.assertFalse((self.data_dir / "images").exists())
 
     def test_undecodable_payload_is_reported(self) -> None:

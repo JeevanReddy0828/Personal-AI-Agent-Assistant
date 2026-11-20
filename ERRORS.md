@@ -688,6 +688,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Pressing Stop while a document or picture was being made still saved the file** → the
+  page ended the turn at once, but the model or image request never sees Stop, so the tool
+  wrote its file when the answer came back → `document` and `image` check for Stop after the
+  request and before (and, for a document, after) saving, removing a file it already wrote
+  (`test_webui.py` `SlowToolStatusTests`, `test_document.py`, `test_imagegen.py`). (11-20)
 - **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
   fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
   it too and sends each press to that window through a private, authenticated long-poll
