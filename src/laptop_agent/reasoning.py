@@ -5,7 +5,7 @@ from laptop_agent.cancellation import check_cancelled
 from laptop_agent.context import FOLLOW_UP_RULE
 from laptop_agent.planner.core import CutOff
 from laptop_agent.storage import atomic_write_text, read_json, synchronized
-from laptop_agent.supervisor import RunStopped, group_of
+from laptop_agent.supervisor import RunStopped, group_of, is_read
 
 import json
 import re
@@ -27,7 +27,7 @@ _THOUGHT_RE = re.compile(r"^\s*(?:THOUGHT|THINK|REASON)\s*:\s*(.+)$", re.IGNOREC
 _OBSERVATION_RE = re.compile(r"^[ \t]*OBSERVATION[ \t]*:", re.MULTILINE)
 _FORMAT_ACTION_RE = re.compile(r"\s*ACTION\s*:")
 # "ACTION: FINAL: <answer>": live, a helper's answer this way ran as a command and was lost.
-_ACTION_FINAL_RE = re.compile(r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER)[ \t]*:)", re.IGNORECASE | re.MULTILINE)
+_ACTION_FINAL_RE = re.compile(r"^([ \t]*)ACTION[ \t]*:[ \t]*(?=(?:FINAL|ANSWER|DONE)[ \t]*:)", re.IGNORECASE | re.MULTILINE)
 _CUT_OFF_REMINDER = (
     "\n\nYour last reply was cut off at the length limit, so none of it was used. Reply again, "
     "shorter: THOUGHT then ACTION, or THOUGHT then FINAL."
@@ -421,7 +421,7 @@ class AutonomousAgent:
                 thought=decision.thought,
                 command=decision.command,
                 status="ok" if result.ok else "failed",
-                message=_observe(result, LONG_OBSERVATION if group_of(decision.command)[0] in {"reads", "delegate"}
+                message=_observe(result, LONG_OBSERVATION if is_read(decision.command) or group_of(decision.command)[0] == "delegate"
                                  else 320),
             )
             steps.append(step)

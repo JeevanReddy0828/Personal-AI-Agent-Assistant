@@ -54,6 +54,11 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(d.is_final)
         self.assertEqual(d.final_answer, "Day 1: Exercise 1 - SELECT\nDay 2: WHERE")
 
+    def test_an_action_holding_a_done_is_the_final(self) -> None:
+        d = parse_agent_decision("THOUGHT: done\nACTION: DONE: SELECT, WHERE")
+        self.assertTrue(d.is_final)
+        self.assertEqual(d.final_answer, "SELECT, WHERE")
+
     def test_a_final_written_before_any_action_ends_the_run(self) -> None:
         d = parse_agent_decision("THOUGHT: done\nFINAL: all set\nACTION: scan files .")
         self.assertTrue(d.is_final)
@@ -211,15 +216,15 @@ class AutonomousAgentTests(unittest.TestCase):
         """Another agent's answer is what the planner combines from, and a read is what the step was for:
         live, 320 characters cut a short notes file before its end, and the agent read it three times."""
         brain = _ScriptedBrain(["ACTION: delegate fast count the files", "ACTION: read file a.txt",
-                                "ACTION: weather Paris", "FINAL: done"])
+                                "ACTION: inspect page https://example.com", "ACTION: weather Paris", "FINAL: done"])
         long = "word " * 200
 
         agent = AutonomousAgent(brain, _executor(lambda command: ToolResult.success(long)))
         result = asyncio.run(agent.run("count and read"))
-        for read in result.steps[:2]:
+        for read in result.steps[:3]:
             self.assertIn(long.strip(), read.message)
             self.assertNotIn("clipped", read.message)
-        self.assertIn("message clipped: showing 317 of 999", result.steps[2].message)
+        self.assertIn("message clipped: showing 317 of 999", result.steps[3].message)
 
     def test_observes_failures_and_keeps_going(self) -> None:
         brain = _ScriptedBrain(

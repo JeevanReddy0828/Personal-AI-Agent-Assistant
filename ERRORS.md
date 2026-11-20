@@ -631,7 +631,8 @@ guard, with the date), and a session entry only when the line cannot carry the l
   planner delegated `remember` to a helper that cannot write; it searched, saw "Found 5 documents" and
   called that a confirmation → a helper is told to answer "Not done - the planner must do this itself"
   for any change, and a helper repeating a step is refused and told to answer instead of stopping the
-  team (`test_a_helper_going_in_circles_does_not_end_the_team`).
+  team (`test_a_helper_going_in_circles_does_not_end_the_team`). Review of #320: helpers may not use
+  the webcam or read the screen, and in a tainted tree a helper's refused command counts toward the stop.
 - **A run at its step limit answered "weather London -> ok; weather Oslo -> ok ..." with no
   temperatures** (11-20) → the summary call hit a dropped connection, and the fallback named each
   step and its status only → the fallback lists what each step found

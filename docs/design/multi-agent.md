@@ -91,8 +91,10 @@ delegate <fast|smart> <sub-task>
 - **A child only looks things up and works things out** (added after the live test, 11-20: helpers
   wrote three documents and tried to save a note instead of answering). It is offered, and its
   supervisor allows, only READS, `supervisor.HELPER_COMPUTES` (convert, weather, totals and the
-  like) and `delegate`; anything else is refused with rule `helper`. That refusal is not counted
-  toward the tree's stop: a helper that meant to answer wrote "ACTION: (no command needed)" twice,
+  like) and `delegate`, but not `look at webcam` or `read screen` (`HELPER_SENSORS`: the webcam asks
+  nothing); anything else is refused with rule `helper`. That refusal is counted toward the tree's
+  stop only when the tree has read outside text and the step is a real command (a possible injected
+  attempt to act); otherwise it is not: a helper that meant to answer wrote "ACTION: (no command needed)" twice,
   and the two refusals ended the run; its own 4 steps bound it. Its goal line tells it to answer in
   FINAL and use a command only for what it cannot know, and every agent's prompt now says FINAL may
   come first when no command is needed. Acting is the

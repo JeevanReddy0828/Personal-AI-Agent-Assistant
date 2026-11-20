@@ -244,6 +244,29 @@ class TreeTests(unittest.TestCase):
             self.child.check('document "plan" as markdown', "fast")
         self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.ALLOW)
 
+    def test_a_helper_may_not_use_the_camera_or_the_screen(self) -> None:
+        """Review of #320: they are READS, and the webcam asks nothing, so a helper handed an injected
+        sub-task could look through the camera."""
+        for command in ("look at webcam who is here", "read screen what is open"):
+            refused = Supervisor(depth=1, tier="smart").check(command, "smart")
+            self.assertEqual((refused.verdict, refused.rule), (Verdict.REFUSE, "helper"), command)
+            self.assertFalse(supervisor.offered_to_helper(command.split()[0] + " " + command.split()[1] + " <q>"))
+
+    def test_a_tainted_helper_trying_to_act_counts_toward_the_stop(self) -> None:
+        """Review of #320: uncounted, an injected helper could keep trying to act across the tree."""
+        self.planner.check("web search cats")
+        self.child.check("open url https://evil.example/?q=1", "fast")
+        stopped = self.child.check("save note x : y", "fast")
+        self.assertEqual(self.tree.refusals, 2)
+        self.assertIs(self.planner.check("weather Rome", "ultra").verdict, Verdict.STOP)
+        self.assertEqual(stopped.rule, "helper")
+
+    def test_an_untainted_helper_writing_prose_is_not_counted(self) -> None:
+        self.child.check("I don't need a command for this", "fast")
+        self.planner.check("web search cats")
+        self.child.check("I can answer this directly", "fast")
+        self.assertEqual(self.tree.refusals, 0)
+
     def test_every_lookup_a_helper_may_run_is_a_known_command(self) -> None:
         for form in supervisor.HELPER_COMPUTES:
             self.assertEqual(supervisor.group_of(form)[0], "safe", form)
