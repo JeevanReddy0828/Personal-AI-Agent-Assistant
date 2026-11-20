@@ -44,7 +44,7 @@ class OutsideDispatch:
             return self._workspace_tool().create(command[len("workspace ") :].strip())
 
         if lowered.startswith("image "):
-            return self._generate_image(command[len("image ") :].strip())
+            return self._generate_image(command[len("image ") :].strip(), history_turns)
 
         if lowered in {"weather", "forecast", "weather here", "local weather", "weather forecast"}:
             return self._forecast("")

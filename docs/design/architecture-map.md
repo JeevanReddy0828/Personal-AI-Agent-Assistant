@@ -108,6 +108,17 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
             to phrase the refusal itself, the model claimed the app cannot generate images,
             which is false. The repair runs on every route, not just the LLM one, because
             the instant router turns "draw me a picture of this" into `image this`.
+            (4) `_generate_image` sends FLUX a detailed prompt, not the user's words: "Chatgpt
+            in mojito" drew a plain mojito, since the model knows no brand names. The fast
+            tier rewrites the request (capped at 8 s; the user's words if it fails or talks
+            about itself), while the caption and file name keep the user's words. Every
+            picture records its prompt and seed in the tool data, which the web client sends
+            back with the turn; a request right after a picture is written from that prompt
+            and drawn from that seed, so "more lime" keeps the glass and the patio (measured:
+            same seed, same composition; another seed, another layout). The same request
+            again, or one asking for "another" or "different", gets a new seed. NVIDIA's
+            hosted Klein accepts only its own four sample images for editing, so a real
+            edit of the user's picture is not available there.
             `_repair_target_command` is the same idea for every command that names a
             concrete target (`open url`, `download`, `read file`, `process file`, …): the
             router answered "how do I start the app in a browser tab" with
