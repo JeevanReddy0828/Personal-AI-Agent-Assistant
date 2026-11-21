@@ -209,7 +209,7 @@ provider with that API works.
 | Fast tier — routing + simple chat | `nvidia/nemotron-3-super-120b-a12b` | `OPENAI_MODEL` | Kept warm by a background ping; 0.5–1.5 s per chat turn measured |
 | Smart tier — complex questions | `nvidia/nemotron-3-super-120b-a12b` | `OPENAI_SMART_MODEL` | Optional |
 | Ultra tier — deepest work | `nvidia/nemotron-3-ultra-550b-a55b` | `OPENAI_ULTRA_MODEL` | A reasoning model: thinks first (kept internal), ~20 s |
-| Vision — screen and images | `meta/llama-3.2-11b-vision-instruct` | `OPENAI_VISION_MODEL` | Image attachments go vision-first, OCR as fallback |
+| Vision — screen and images | `nvidia/nemotron-3.5-super-vl-120b-a12b` (the 11b Llama vision model was retired 2026-11-05) | `OPENAI_VISION_MODEL` | Image attachments go vision-first, OCR as fallback |
 | Video — watch a clip | `nvidia/nemotron-3.5-super-vl-120b-a12b` | `OPENAI_VIDEO_MODEL` | Optional; off until set. Same host and `OPENAI_API_KEY` as chat. Reads a clip of up to 8 MB (about 10 s to 35 s per answer) — bigger clips and other formats are converted with ffmpeg if it is installed |
 | Pictures (text-to-image) | `black-forest-labs/flux.2-klein-4b` | `OPENAI_IMAGE_MODEL` | Default; ~2 s. Its own host (`ai.api.nvidia.com/v1/genai`) and optional fallback model |
 | Embeddings — semantic recall | `nvidia/nemotron-3-embed-1b` | `OPENAI_EMBED_MODEL` | Default. Asymmetric: documents embed as `passage`, questions as `query` |

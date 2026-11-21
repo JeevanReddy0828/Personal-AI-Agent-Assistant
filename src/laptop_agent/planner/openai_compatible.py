@@ -528,14 +528,25 @@ class OpenAICompatiblePlannerProvider:
             # the note would render as code.
             yield ("\n```" if answer.count("```") % 2 else "") + _CUT_OFF_NOTE
 
-    def describe_image(self, image_path: str, prompt: str, model: str | None = None) -> str | None:
-        """Send an image to a vision model and return a plain-language description."""
+    def describe_image(
+        self,
+        image_path: str,
+        prompt: str,
+        model: str | None = None,
+        on_failure: Callable[[str, str], None] | None = None,
+    ) -> str | None:
+        """Send an image to a vision model and return a plain-language description.
+        ``on_failure`` hears why there is none, as ``answer`` reports it."""
         import base64
 
         try:
             with open(image_path, "rb") as handle:
                 encoded = base64.b64encode(handle.read()).decode("ascii")
-        except OSError:
+        except OSError as exc:
+            record_failure("llm/describe-image", exc, path=image_path)
+            if on_failure is not None:
+                # The model was never called; say so rather than let it be blamed.
+                on_failure(DEGRADED, f"the picture could not be read from disk ({exc.strerror or exc})")
             return None
         payload: dict[str, object] = {
             "model": model or self.model,
@@ -555,6 +566,8 @@ class OpenAICompatiblePlannerProvider:
             content = self._transport(payload)
         except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
             record_failure("llm/answer", exc, model=self.model)
+            if on_failure is not None:
+                on_failure(*classify_failure(exc, str(payload["model"])))
             return None
         return self._strip_reasoning(content).strip() or None
 
