@@ -167,6 +167,8 @@ class TurnTraceTests(unittest.TestCase):
                 "degraded",
                 "ok",
                 "at",
+                "tier_source",
+                "tier_ms",
             },
         )
 

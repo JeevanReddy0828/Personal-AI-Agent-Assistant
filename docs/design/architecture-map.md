@@ -290,7 +290,9 @@ Tools (tools/): files (`scan files <path> by size` lists the largest across the 
         obsidian (vault memory: metadata-weighted search [title/alias/summary > body],
             alias-aware resolve, link-aware `context_for` for `ask vault`, and `audit`
             for orphans/broken-links/missing-summary — Obsidian best-practice patterns)
-Subsystems: tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tier and
+Subsystems: decisions.py (the chat tier choice as a fixed pipeline of steps - context, explicit cue, Laya,
+        heuristic - with a deadline and cooldown on the Laya call; see models.md),
+        tracing.py (per-turn latency: route_ms/tool_ms/ttft_ms/total_ms, tier and
         fallback, ok — timings only, never prompts or replies; the only text kept is the
         resolved command's verb. `AgentOrchestrator.handle` is a thin wrapper that opens a
         `TurnTrace` in a ContextVar so nested frames and concurrent worker threads mark the

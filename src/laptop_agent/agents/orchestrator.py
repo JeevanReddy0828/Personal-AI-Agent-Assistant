@@ -38,6 +38,7 @@ from laptop_agent.cancellation import check_cancelled
 from laptop_agent.config import load_config
 from laptop_agent.context import register_summarizer
 from laptop_agent.copilot import JobCopilot
+from laptop_agent.decisions import TierDecider
 from laptop_agent.failures import FAILURES, record_failure
 from laptop_agent.model_status import ModelStatus
 from laptop_agent.planner import HeuristicPlannerProvider, Planner
@@ -114,6 +115,7 @@ class AgentOrchestrator(
         ultra_planner: Planner | None = None,
         fallback_planner: Planner | None = None,
         video_planner: Planner | None = None,
+        tier_decider: TierDecider | None = None,
         data_dir: Path | None = None,
         recording_enabled: bool = False,
     ) -> None:
@@ -128,6 +130,8 @@ class AgentOrchestrator(
         self.vision_planner = vision_planner
         # Optional model that takes a clip, for `describe video`.
         self.video_planner = video_planner
+        # Optional pipeline choosing the chat tier (decisions.py); without it `_complexity` decides.
+        self.tier_decider = tier_decider
         # Optional cross-provider fallback (e.g. OpenRouter) tried when every
         # primary tier is congested/unreachable, so chat keeps working.
         self.fallback_planner = fallback_planner
@@ -353,7 +357,7 @@ class AgentOrchestrator(
                         return grounded
                 response = planned.response or ""
                 profile = self._facts()
-                level = self._complexity(command)
+                level, tier_source = self._chat_level(command, history_turns)
                 _, requested_label = self._pick_chat_model(level)
                 model_used = "fast"
                 # Escalate by complexity (fast -> smart -> ultra), but degrade
@@ -477,6 +481,7 @@ class AgentOrchestrator(
                         "explanation": planned.explanation,
                         "model": model_used,
                         "requested_model": requested_label,
+                        "tier_source": tier_source,
                     },
                 )
 

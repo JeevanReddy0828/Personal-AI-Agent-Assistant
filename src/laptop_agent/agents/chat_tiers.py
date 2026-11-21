@@ -19,7 +19,7 @@ from laptop_agent.model_status import DEGRADED
 from laptop_agent.planner import Planner
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.clock import asks_the_time
-from laptop_agent.tracing import TurnTrace
+from laptop_agent.tracing import TurnTrace, current_trace
 
 # How long a tier may take to start its answer before the next tier is asked instead. Healthy tiers
 # started within about 10s in the timing log; on 2026-11-11 two took 23-30s and nothing moved on.
@@ -146,6 +146,18 @@ class ChatTiers:
         if words > 35 or any(trigger in lowered for trigger in ChatTiers._SMART_CUES):
             return 1
         return 0
+
+    def _chat_level(self, command: str, history_turns: list[dict[str, str]]) -> tuple[int, str]:
+        trace = current_trace()
+        if self.tier_decider is None:
+            if trace is not None:
+                trace.tier_source = "heuristic"
+            return self._complexity(command), "heuristic"
+        decision = self.tier_decider.decide(command, history_turns)
+        if trace is not None:
+            trace.tier_source = decision.source
+            trace.tier_ms = sum(ms for _, ms in decision.steps)
+        return decision.level, decision.source
 
     def _pick_chat_model(self, level: int):
         """Return (planner, label) for the given complexity, falling back down the tiers."""

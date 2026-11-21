@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from laptop_agent.agents.orchestrator import AgentContext, AgentOrchestrator
 from laptop_agent.audit import AuditLogger
 from laptop_agent.autopilot import AutopilotTracker
 from laptop_agent.config import AppConfig, load_config
+from laptop_agent.decisions import DEFAULT_DEADLINE_MS, TierDecider
 from laptop_agent.embeddings import Embedder
+from laptop_agent.failures import record_failure
 from laptop_agent.jobs import JobTracker
 from laptop_agent.knowledge import KnowledgeBase
 from laptop_agent.memory import MemoryStore
@@ -118,6 +122,7 @@ def build_orchestrator(
         _build_ultra_planner(config),
         _build_openrouter_planner(config),
         video_planner=_build_video_planner(config),
+        tier_decider=_build_tier_decider(config),
         data_dir=config.data_dir,
         recording_enabled=recording_enabled,
     )
@@ -198,6 +203,40 @@ def _build_video_planner(config: AppConfig) -> Planner | None:
         OpenAICompatiblePlannerProvider(
             config.llm_api_key, config.llm_video_model, config.llm_base_url, max_output_tokens=_output_tokens(config)
         )
+    )
+
+
+def _build_tier_decider(config: AppConfig) -> TierDecider | None:
+    if config.laya_url is None:
+        return None
+    parsed = urlparse(config.laya_url)
+    try:
+        host = parsed.hostname or ""
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if parsed.scheme not in ("http", "https") or not loopback:
+        record_failure(
+            "decisions/config",
+            "LAYA_URL must be a loopback http(s) address",
+            url_scheme=parsed.scheme,
+            host=parsed.hostname,
+        )
+        return None
+    deadline_ms = config.laya_deadline_ms
+    if deadline_ms <= 0:
+        record_failure(
+            "decisions/config",
+            f"LAYA_DEADLINE_MS must be positive; using {DEFAULT_DEADLINE_MS}",
+            value=deadline_ms,
+        )
+        deadline_ms = DEFAULT_DEADLINE_MS
+    return TierDecider(
+        AgentOrchestrator._complexity,
+        config.laya_url,
+        api_key=config.laya_api_key,
+        deadline_ms=deadline_ms,
+        use_context=config.laya_tier_context,
     )
 
 

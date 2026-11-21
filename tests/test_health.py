@@ -77,6 +77,20 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(h["llm"]["tiers"], {})
         self.assertFalse(h["llm"]["degraded_tier"])
 
+    def test_tier_decider_absent_reports_no_laya(self) -> None:
+        h = system_health(_orchestrator("OpenAICompatiblePlannerProvider", True), True, _config())
+        self.assertEqual(h["tier_decider"], {"laya": False})
+
+    def test_tier_decider_status_is_reported(self) -> None:
+        from laptop_agent.decisions import TierDecider
+
+        orch = _orchestrator("OpenAICompatiblePlannerProvider", True)
+        orch.tier_decider = TierDecider(lambda text: 0, backend=lambda body, timeout: {}, deadline_ms=300)
+        h = system_health(orch, True, _config())
+        self.assertEqual(
+            h["tier_decider"], {"laya": True, "cooling_down": False, "deadline_ms": 300, "use_context": False}
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

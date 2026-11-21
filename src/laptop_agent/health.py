@@ -48,6 +48,7 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
     tier_status = (
         status.snapshot() if status is not None else {"tiers": {}, "degraded": False, "broken": [], "reasons": {}}
     )
+    tier_decider = getattr(orchestrator, "tier_decider", None)
 
     return {
         "overall": overall,
@@ -75,6 +76,7 @@ def system_health(orchestrator: Any, llm_reachable: bool | None, config: Any) ->
         },
         "smart_planner": getattr(orchestrator, "smart_planner", None) is not None,
         "vision_planner": getattr(orchestrator, "vision_planner", None) is not None,
+        "tier_decider": tier_decider.status() if tier_decider is not None else {"laya": False},
     }
 
 

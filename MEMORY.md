@@ -37,6 +37,12 @@ sessions must respect. See `CLAUDE.md` for the operating principles and the core
   (`breaker:rate|steps|depth|agents`). Hand-offs are `agent_message` audit events; verdicts carry
   `run`, `parent`, `depth`. A child sees its sub-task and the planner's goal, not the conversation.
   Children run one at a time; parallel children and a page view of the tree are not built.
+- 2026-11-19: **The chat tier choice is a fixed pipeline in plain Python shaped like LangGraph**
+  (`decisions.py`: each step maps state to updates, an edge table names the next step), with
+  Laya reached over loopback HTTP under a 250 ms deadline and a 60 s cooldown. Not LangGraph or
+  LangChain: 39 packages, and two pipelines to keep in step under the zero-dependency rule. Not
+  UTCP or MCP: neither chooses a tier at run time, and an MCP call asks approval each time.
+  LangGraph is reconsidered only for agent mode. `LAYA_URL` unset keeps today's heuristic.
 - 2026-11-11: **Every step of an agent run passes through `supervisor.Supervisor` before it is
   dispatched** (Jeevan asked for surveillance over agent actions). Plain rules, never a model: a run
   that has read outside text (web, files, mail, notes, MCP) is asked before a step that runs with
