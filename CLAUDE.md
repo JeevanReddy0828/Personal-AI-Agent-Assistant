@@ -191,7 +191,8 @@ Tested, and exercised on the real app. Only these are claimed as working.
   a browser tab when the server has Magpie (NVIDIA Magpie hosted, the offline voice behind it;
   long replies spoken sentence by sentence), barge-in in the desktop window.
 - **Advisor and agent mode:** `solve` for decisions (researched options and a plan), and an
-  autonomous plan/act/observe agent whose risky steps still ask.
+  autonomous plan/act/observe agent whose risky steps still ask, held to the supervisor's
+  per-run and daily limits, one run at a time, with `agents off` refusing every run.
 - **The app:** web page and native desktop window, Overview and Jobs pages, accounts with a
   `dev` and a `personal` role, LAN access from a phone behind a passcode, Setup and health
   panels, the packaged `JARVIS.exe`.
