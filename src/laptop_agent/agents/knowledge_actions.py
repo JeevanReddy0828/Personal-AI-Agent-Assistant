@@ -21,6 +21,7 @@ from laptop_agent.context import (
     resolve_reference,
 )
 from laptop_agent.model_status import BROKEN
+from laptop_agent.progress import report_progress
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.calculator import looks_like_arithmetic
@@ -287,7 +288,7 @@ class KnowledgeActions:
             "with an amber accent), call it out as yourself ('that dark window is me'). Focus on what matters, not every pixel."
         )
         why: list[tuple[str, str]] = []
-        described = self._describe_with_vision(path, prompt, why)
+        described = self._describe_with_vision(path, prompt, "Looking at the screen", why)
         if described is not None:
             return ToolResult.success(described, screenshot=path, vision=True)
         return self._read_text_instead(path, "the screen", self._vision_gap(why), screenshot=path)
@@ -303,7 +304,7 @@ class KnowledgeActions:
             "what you see — the person, their setting, and anything notable. Be natural, not clinical."
         )
         why: list[tuple[str, str]] = []
-        described = self._describe_with_vision(path, prompt, why)
+        described = self._describe_with_vision(path, prompt, "Looking through the webcam", why)
         if described is not None:
             return ToolResult.success(described, webcam=path, vision=True)
         return self._read_text_instead(path, "the webcam frame", self._vision_gap(why), webcam=path)
@@ -314,7 +315,7 @@ class KnowledgeActions:
             return ToolResult.failure(f"Image not found: {target}")
         prompt = question.strip() or "Describe this image in detail. What is shown?"
         why: list[tuple[str, str]] = []
-        described = self._describe_with_vision(target, prompt, why)
+        described = self._describe_with_vision(target, prompt, why=why)
         if described is not None:
             return ToolResult.success(described, path=target, vision=True)
         return self._read_text_instead(target, "the image", self._vision_gap(why), path=target)
@@ -381,6 +382,7 @@ class KnowledgeActions:
                     preview=f"{source.name} ({clip.stat().st_size // 1024} KB)",
                 )
             )
+            report_progress("Watching the video")
             described = describe(str(clip), question.strip() or "Describe what happens in this video, in order.")
         if described is None:
             return ToolResult.failure(
@@ -388,12 +390,15 @@ class KnowledgeActions:
             )
         return ToolResult.success(described, path=str(source), vision=True, video=True)
 
-    def _describe_with_vision(self, path: str, prompt: str, why: list[tuple[str, str]] | None = None) -> str | None:
+    def _describe_with_vision(
+        self, path: str, prompt: str, status: str = "Looking at the image", why: list[tuple[str, str]] | None = None
+    ) -> str | None:
         if self.vision_planner is None:
             return None
         describe = getattr(self.vision_planner.provider, "describe_image", None)
         if describe is None:
             return None
+        report_progress(status)
         if why is not None and accepts_keyword(describe, "on_failure"):
             return describe(path, prompt, on_failure=lambda kind, detail: why.append((kind, detail)))
         return describe(path, prompt)

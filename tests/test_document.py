@@ -4,7 +4,9 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from laptop_agent.cancellation import OperationCancelled, cancel, operation
 from laptop_agent.safety import ApprovalDenied, ApprovalGate
 from laptop_agent.tools.base import ToolResult
 from laptop_agent.tools.document import DocumentTool, deck_outline, markdown_to_html, page_target, split_format
@@ -123,6 +125,17 @@ class DocumentToolTests(unittest.TestCase):
         self.tool(writer=writer).create("a brief on rate limits as markdown")
         self.assertIn("a brief on rate limits", seen[0])
         self.assertNotIn("as markdown", seen[0])
+
+    def test_stop_while_the_file_is_rendered_removes_it(self) -> None:
+        def render(body: str, title: str, path: Path) -> ToolResult:
+            path.write_bytes(b"%PDF-1.4 rendered")
+            cancel("stop-mid-render")  # Stop pressed while Chromium was printing
+            return ToolResult.success("Wrote PDF.", pages=1)
+
+        with mock.patch("laptop_agent.tools.document._render_pdf", side_effect=render):
+            with operation("stop-mid-render"), self.assertRaises(OperationCancelled):
+                self.tool().create("a brief on rate limits as a pdf")
+        self.assertEqual(list((self.data_dir / "documents").glob("*")), [])
 
     def test_an_empty_request_asks_for_one(self) -> None:
         result = self.tool().create("   as a pdf")

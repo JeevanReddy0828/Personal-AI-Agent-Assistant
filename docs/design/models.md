@@ -89,6 +89,10 @@ rejected key (401), a model the account cannot call (404), a refused parameter (
 genuinely overloaded endpoint (503) all arrive as the same empty reply. So a permanent
 misconfiguration was retried every 60s forever and reported as *busy* - advice to wait, for
 something that never recovers. ERRORS.md records that costing real time twice.
+A **slow** tier counts as busy too: a streamed reply that has not started within `FIRST_WORD_SECONDS` (12s,
+`agents/chat_tiers.py`) is left for the next tier and recorded `DEGRADED`, so the next turns skip it for the
+cooldown. On 2026-11-11 the fast and smart tiers took 23-30s to start, and nothing moved on because a slow tier
+never failed. The stream is read on its own thread; once the first word is in there is no deadline.
 `classify_failure` splits them: `DEGRADED` (429/503/timeout/network, 60s cooldown) from
 `BROKEN` (400/401/403/404/410/422, 900s, and wording that names the model to change).
 `ModelStatus.record(tier, ok, reason=, detail=)` keeps the reason, `broken_tiers()` and

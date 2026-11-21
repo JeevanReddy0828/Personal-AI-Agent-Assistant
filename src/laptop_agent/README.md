@@ -81,6 +81,7 @@ data.
 | `autopilot.py` | A fixed plan limited to safe read-only commands. |
 | `workflows.py`, `tasks.py` | History of multi-step workflows and parallel task batches. |
 | `cancellation.py` | Cooperative Stop: long work checks it and ends cleanly. |
+| `progress.py` | A slow tool's fixed status line ("Writing the document"), streamed to the page while it runs. |
 | `tracing.py` | Per-turn timings (never the text) for `latency` and `/api/traces`. |
 | `failures.py` | Every swallowed error is recorded here (`failures`, `/api/failures`). |
 | `nvcf.py` | Finds the current function id of a hosted NVIDIA speech model (Parakeet, Magpie, translation) when the pinned one answers NOT_FOUND: one lookup by exact name, one retry. |

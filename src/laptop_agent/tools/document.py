@@ -7,7 +7,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.cancellation import OperationCancelled, check_cancelled
 from laptop_agent.failures import record_failure
+from laptop_agent.progress import report_progress
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
 
@@ -440,12 +442,15 @@ class DocumentTool:
                     reason="Writing a document sends the request to a language model and saves a file locally.",
                 )
             )
+        report_progress("Writing the slides" if chosen == "pptx" else "Writing the document")
         try:
             template = _DECK_PROMPT if chosen == "pptx" else _PROMPT
             prompt = template.format(spec=request)
             body = (self._writer or (lambda _: ""))(prompt + _length_rule(pages, (pages or 0) * WORDS_PER_PAGE)) or ""
         except Exception as exc:  # a model outage must not raise out of a tool
             return ToolResult.failure(f"The model could not write that document: {exc}")
+        # The model call does not see Stop, so a stopped turn got its document saved anyway.
+        check_cancelled()
         body = body.strip()
         if not body:
             return ToolResult.failure("The model returned an empty document. Try again, or narrow the request.")
@@ -474,6 +479,11 @@ class DocumentTool:
             # The name was claimed with an empty file before rendering; do not leave it behind.
             out_path.unlink(missing_ok=True)
             return result
+        try:
+            check_cancelled()
+        except OperationCancelled:
+            out_path.unlink(missing_ok=True)
+            raise
         url = f"/api/document?name={name}"
         printed = result.data.get("pages", 0)
         long_note = (
