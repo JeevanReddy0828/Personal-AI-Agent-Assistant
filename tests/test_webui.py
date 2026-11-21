@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+import base64
+import json
 import tempfile
+import threading
 import unittest
+import urllib.request
 from functools import partial
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import test_orchestrator
+from test_document import SAMPLE
+
 import laptop_agent.webui as webui
+from laptop_agent.cancellation import cancel
 from laptop_agent.model_status import BROKEN, DEGRADED, ModelStatus
+from laptop_agent.planner import Planner
+from laptop_agent.tools.document import DocumentTool
+from laptop_agent.tools.imagegen import ImageTool
 from laptop_agent.webui import _CONFIG, _compose_command, _image_path, _probe_llm
 
 
@@ -53,7 +65,7 @@ class ImageRouteTests(unittest.TestCase):
         self.directory = (_CONFIG.data_dir / "images").resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.picture = self.directory / "fox-1.png"
-        self.picture.write_bytes(self.PNG_HEADER)
+        self.picture.write_bytes(bytes([0x89]) + b"PNG")
         self.addCleanup(self.picture.unlink, True)
 
     def test_serves_a_generated_picture(self) -> None:
@@ -196,6 +208,98 @@ class PortGuardTests(unittest.TestCase):
             server.server_close()
             thread.join()
         self.assertFalse(_already_serving("127.0.0.1", port), "a closed port must look free")
+
+
+class SlowToolStatusTests(unittest.TestCase):
+    """A slow tool streams a fixed `status` line before its result, and Stop saves nothing."""
+
+    build = test_orchestrator.OrchestratorTests.build
+    config = test_orchestrator.OrchestratorTests.config
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.orchestrator = self.build(self.root / "data")
+        original = webui._orchestrator
+        webui._orchestrator = self.orchestrator
+        self.addCleanup(setattr, webui, "_orchestrator", original)
+
+    def _stream(self, command: str, request_id: str = "slow-tool-test") -> list[dict]:
+        req = urllib.request.Request(
+            self.base + "/api/stream",
+            data=json.dumps({"command": command, "history": []}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "X-Jarvis-Token": webui._API_TOKEN,
+                "X-Jarvis-Request": request_id,
+            },
+        )
+        body = urllib.request.urlopen(req, timeout=15).read().decode()
+        blocks = [block.strip() for block in body.split("\n\n")]
+        return [json.loads(block[5:]) for block in blocks if block.startswith("data:")]
+
+    def assert_status_then_result(self, events: list[dict], status: str, private: str) -> dict:
+        kinds = [event["type"] for event in events]
+        self.assertIn("status", kinds, events)
+        self.assertLess(kinds.index("status"), kinds.index("done"))
+        shown = [event for event in events if event["type"] == "status"]
+        self.assertEqual(shown, [{"type": "status", "text": status}])
+        self.assertNotIn(private, json.dumps(shown).lower())
+        done = events[-1]
+        self.assertEqual(done["type"], "done")
+        self.assertTrue(done["ok"], done["message"])
+        return done
+
+    def test_writing_a_document_says_so_without_the_request(self) -> None:
+        self.orchestrator._document_tool_cache = DocumentTool(data_dir=self.root, writer=lambda prompt: SAMPLE)
+        events = self._stream("document a brief on the quarterly lunch plan as markdown")
+        self.assert_status_then_result(events, "Writing the document", "lunch")
+
+    def test_drawing_a_picture_says_so_without_the_prompt(self) -> None:
+        jpeg = base64.b64encode(bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes(32)).decode()
+        self.orchestrator._image_tool_cache = ImageTool(
+            api_key="", data_dir=self.root, backend=lambda model, body: {"artifacts": [{"base64": jpeg}]}
+        )
+        events = self._stream("image a red fox asleep in the snow")
+        self.assert_status_then_result(events, "Drawing the picture", "fox")
+
+    def test_describing_an_image_says_so_without_the_path(self) -> None:
+        class FakeVision:
+            def describe_image(self, path, prompt, model=None):
+                return "A photo of a receipt."
+
+        picture = self.root / "holiday_receipt.png"
+        picture.write_bytes(bytes([0x89]) + b"PNG")
+        self.orchestrator.vision_planner = Planner(FakeVision())
+        events = self._stream(f"describe image {picture}")
+        done = self.assert_status_then_result(events, "Looking at the image", "receipt")
+        self.assertEqual(done["message"], "A photo of a receipt.")
+
+    def test_a_quick_command_streams_no_status(self) -> None:
+        events = self._stream("calc 2 + 2")
+        self.assertNotIn("status", [event["type"] for event in events])
+
+    def test_stop_while_the_document_is_written_saves_no_file(self) -> None:
+        def writer(prompt: str) -> str:
+            cancel("stop-mid-document")  # Stop pressed while the model was still writing
+            return SAMPLE
+
+        self.orchestrator._document_tool_cache = DocumentTool(data_dir=self.root, writer=writer)
+        events = self._stream("document a brief on rate limits as markdown", request_id="stop-mid-document")
+        self.assertEqual([event["type"] for event in events], ["status"])
+        self.assertEqual(list((self.root / "documents").glob("*")), [])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from laptop_agent.cancellation import check_cancelled
 from laptop_agent.failures import record_failure
 from laptop_agent.safety import ApprovalGate, ApprovalRequest, RiskLevel
 from laptop_agent.tools.base import ToolResult, reserve_new_path
@@ -223,6 +224,8 @@ class ImageTool:
                 attempts=problems,
             )
 
+        # The request does not see Stop, so a stopped turn got its picture saved anyway.
+        check_cancelled()
         path = reserve_new_path(self.directory, f"{_slug(described)}-{int(time.time())}", f".{_extension(raw)}")
         path.write_bytes(raw)
         name = path.name

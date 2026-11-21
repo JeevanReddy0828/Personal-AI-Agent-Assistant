@@ -11,6 +11,12 @@ guard, with the date), and a session entry only when the line cannot carry the l
 ## Symptom index
 
 ### Tests and verification
+- **A test that saves a file failed once in a full run on Windows and passed when run again** (11-20:
+  a reminder schedule, then a research report) -> most likely (not reproduced in 2,400 runs and a
+  clock sweep) `os.replace` raising PermissionError while another
+  program (an antivirus scan, the search indexer) has the file open for a moment, and the save failed
+  the turn -> `storage._replace` retries a busy replace on Windows four times within a second
+  (`test_storage_replace.py`); the reminder test now prints the reply if its hint is missing.
 - **Despacito kept opening in the browser and the volume kept changing (again)** → only
   `run_tests.py` made `os.startfile` / `webbrowser.open` / `keybd_event` inert, and probe and
   review scripts (both agents) imported the `Everyday` harness directly, whose fake YouTube
@@ -688,6 +694,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   re-navigate after the first redirect; future + deadline + cancel. (09-28)
 
 ### Page and UI
+- **Pressing Stop while a document or picture was being made still saved the file** → the
+  page ended the turn at once, but the model or image request never sees Stop, so the tool
+  wrote its file when the answer came back → `document` and `image` check for Stop after the
+  request and before (and, for a document, after) saving, removing a file it already wrote
+  (`test_webui.py` `SlowToolStatusTests`, `test_document.py`, `test_imagegen.py`). (11-20)
 - **Ctrl+Alt+J worked in pywebview but did nothing in the supported Chrome/Edge app-window
   fallback** → only the pywebview path registered `GlobalHotkey` → the fallback now registers
   it too and sends each press to that window through a private, authenticated long-poll

@@ -1028,8 +1028,11 @@
     ta.value='';auto();attachments=[];renderChips();setBusy(true,predicted);
     const node=renderMsg('bot',''); const md=node.querySelector('.md');
     md.innerHTML='<span class="think" role="status" aria-label="Working"><i></i></span>'+(predicted==='ultra'?'<span class="tiernote">reasoning model — this can take a moment</span>':predicted==='smart'?'<span class="tiernote">smart model</span>':'');
-    let reply='', streamed='';
+    let reply='', streamed='', statusTimer=0;
     const t0=performance.now(); let tFirst=0;
+    // A slow tool names what it is doing; the seconds count from the turn's start, like the total below.
+    const stopStatus=()=>{if(statusTimer){clearInterval(statusTimer);statusTimer=0;}};
+    const showStatus=(text)=>{stopStatus();md.innerHTML='<span class="think" role="status" aria-label="Working"><i></i></span><span class="tiernote toolstatus"></span>';const note=md.querySelector('.toolstatus');const paint=()=>{note.textContent=text+'… '+Math.floor((performance.now()-t0)/1000)+'s';};paint();statusTimer=setInterval(paint,1000);};
     currentAbort=new AbortController();currentRequest=uuid();
     let myEpoch=ttsEpoch;                                // this turn's speech; a stop invalidates it
     try{
@@ -1045,11 +1048,12 @@
           const line=buf.slice(0,i); buf=buf.slice(i+2);
           if(!line.startsWith('data:'))continue;
           let ev; try{ev=JSON.parse(line.slice(5).trim());}catch(e){continue;}
-          if(ev.type==='token'){if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
+          if(ev.type==='token'){stopStatus();if(!tFirst)tFirst=performance.now();if(speakStream&&!streamed)vmark('reply');streamed+=ev.text;md.innerHTML=mdToHtml(streamed);chat.scrollTop=chat.scrollHeight;}
           else if(ev.type==='reset'){streamed='';md.innerHTML='';ttsQueue=[];}
           else if(ev.type==='tts'){if(speakStream&&myEpoch===ttsEpoch)enqueueTTS(ev.text);}
           else if(ev.type==='approval'){showApproval(ev.request);}
-          else if(ev.type==='done'){if(speakStream)vmark('done');done=ev;}
+          else if(ev.type==='status'){if(!streamed&&typeof ev.text==='string')showStatus(ev.text);}
+          else if(ev.type==='done'){stopStatus();if(speakStream)vmark('done');done=ev;}
         }
       }
       const d=done||{ok:false,message:(streamed?streamed+'\n\n':'')+'Connection ended before the reply completed.',data:{}};
@@ -1077,7 +1081,7 @@
       if(err&&err.name==='AbortError'){reply=streamed;setMd(md,streamed||'_(stopped)_');const ss=s;if(ss&&streamed){ss.msgs.push({role:'bot',text:streamed,at:Date.now()});saveSessions();}}
       else{md.innerHTML='';node.classList.add('err');md.textContent='Connection error: '+err;}
     }
-    finally{currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply,myEpoch);}
+    finally{stopStatus();currentAbort=null;currentRequest=null;setBusy(false);ta.focus();loadAgents();if(voiceActive)voiceTurnDone(reply,myEpoch);}
     return reply;
   }
 

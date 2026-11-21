@@ -12,7 +12,15 @@ which, when the request sets `voice:true`, also emits incremental `tts` sentence
 events (carved by `voice.SpeechChunker`) so the browser voice loop starts speaking
 the first sentence before generation finishes. A long non-streamed tool result emits
 bounded `tts` events through that same chunker, after whole-message speech cleaning;
-short results remain one event. The server also streams autonomous-agent traces
+short results remain one event. A slow tool — writing a document (20-22 s in the real
+timing log), drawing a picture (25 s), looking at an image (44 s), the screen, the webcam or a
+video — calls `progress.report_progress()` just before its model call, and `/api/stream`
+sends it as one `status` event; the page shows it beside the working dots with the seconds
+since the turn began, until the first token or the result replaces it. The text is fixed by
+the tool, never the user's words, the prompt or a path (`test_webui.py`
+`SlowToolStatusTests`). Stop ends the turn in the page at once, but the model call cannot
+see it, so `document` and `image` check for Stop when the answer arrives and save nothing,
+removing a document already rendered. The server also streams autonomous-agent traces
 via `/api/agent`, exposes `/api/health`, serves a
 Scheduled-jobs panel via `/api/schedule` (GET lists jobs; POST add/remove/enable/
 disable, routed through the same `schedule …` orchestrator commands), exposes

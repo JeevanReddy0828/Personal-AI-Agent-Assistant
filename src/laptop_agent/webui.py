@@ -55,6 +55,7 @@ from laptop_agent.google_oidc import cookie as google_cookie
 from laptop_agent.health import setup_report, system_health
 from laptop_agent.hotkey import GlobalHotkey
 from laptop_agent.metrics import system_metrics
+from laptop_agent.progress import progress_listener
 from laptop_agent.retention import sweep, sweep_uploads
 from laptop_agent.safety import ApprovalDenied, ApprovalRequest, RiskLevel
 from laptop_agent.sessions import ABSOLUTE_SECONDS, SessionStore
@@ -1875,7 +1876,8 @@ class Handler(BaseHTTPRequestHandler):
         _APPROVALS.add_listener(on_approval)
         agent_id = _orchestrator.control_room.start(command)
         try:
-            with spoken_turn(voice):
+            # A slow tool names what it is doing, so the page is not a silent spinner for 20-40 s.
+            with spoken_turn(voice), progress_listener(lambda status: emit({"type": "status", "text": status})):
                 result = asyncio.run(_orchestrator.handle(command, history=history, on_token=on_token))
             if chunker is not None:
                 say(clean_for_speech(chunker.flush() or ""))
