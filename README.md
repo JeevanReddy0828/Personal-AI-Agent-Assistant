@@ -225,8 +225,43 @@ Only chat is tiered. A command (the time, the weather, a reminder, a file) is se
 the instant router or the LLM router and never reaches a chat model, and a time-sensitive question
 is answered from a web search first.
 
-For chat, `_complexity` in `agents/chat_tiers.py` sorts the message with a local rule, not a
-model call, judged on the message alone:
+For chat, the starting tier comes from a fixed decision pipeline (`decisions.TierDecider`). Each
+step either decides or hands on to the next, always in this order, and the trace records which
+step decided (`tier_source`) and how long it took. With `LAYA_URL` unset there is no pipeline:
+step 4 alone decides, exactly as before Laya was added.
+
+```mermaid
+flowchart TD
+  M[A chat message] --> C["1 · Context<br/>the previous request; a reply of six words or fewer is a follow-up"]
+  C --> Q{"2 · Explicit cue?<br/>think hard · step by step · in depth"}
+  Q -->|yes| U[Ultra]
+  Q -->|no| L{"3 · Laya<br/>local difficulty score 0–3<br/>(only when LAYA_URL is set)"}
+  L -->|"above 2.05"| U
+  L -->|"1.55 – 2.05"| S[Smart]
+  L -->|"below 1.55"| F[Fast]
+  L -->|"not set · over 250 ms · failed · resting · over 2,000 chars"| H{"4 · The word rule<br/>_complexity"}
+  H --> U
+  H --> S
+  H --> F
+```
+
+**1 · Context.** The request before this one is found, and a short reply is marked as a
+follow-up. Scoring the follow-up together with that request (`LAYA_TIER_CONTEXT`) is off until
+its effect is measured.
+
+**2 · Explicit cue.** Asking for depth ("think hard", "step by step", "in depth") goes straight
+to the reasoning tier, whatever the score would say.
+
+**3 · Laya, a local difficulty scorer.** A small model served on this laptop by `laya-serve`
+reads the request and scores how hard it is, from 0 to 3; two thresholds (1.55 and 2.05) turn
+the score into a tier. It has a hard 250 ms deadline on its own thread. A call that is late,
+fails or answers without a score is recorded in `failures`, the rule answers, and Laya rests
+for 60 s. A request over 2,000 characters skips it, so a pasted document cannot stall every
+turn after it. `LAYA_URL` must be a loopback address and redirects are refused, so the key
+never leaves the laptop.
+
+**4 · The word rule.** `_complexity` in `agents/chat_tiers.py`, a local rule with no model call.
+It is the whole decision when Laya is not set, and the fallback when it is:
 
 | Tier | When | Example |
 |---|---|---|
@@ -234,24 +269,29 @@ model call, judged on the message alone:
 | Smart | Over 35 words, or a cue for analysis: "explain", "why", "compare", "debug", "refactor", "write code", "algorithm", "pros and cons" | "explain how DNS works" |
 | Fast | Everything else | "what is the capital of mongolia" |
 
+**Why Laya, measured.** The rule reads words, not difficulty: "is 1009 prime" stays on the fast
+tier and "why is the sky blue" goes to smart. On 120 fresh requests written so that length no
+longer gave the answer away, Laya's score at the frozen thresholds chose the right tier for
+**62.5%**, against **50.8%** for the rule (McNemar p = 0.049), and sent no fast request to ultra.
+A decision takes about **54 ms** (median) on the laptop GPU, against 0.5–1.5 s for asking a chat
+model to classify. The experiment and its data: `docs/evals/tier_choice_confirm.md`.
+
+**Why not LangGraph.** The steps are plain Python in LangGraph's shape (state in, updates out,
+an edge table naming the next step), so the graph is data and `TierDecider.mermaid()` draws it.
+LangGraph itself would add 39 packages against the zero-dependency rule.
+
+**Turning it on.** In its own virtual environment, `pip install "laya[serve]"`, then
+`$env:LAYA_HOST="127.0.0.1"; $env:LAYA_MODELS="english"; $env:LAYA_DEVICE="cuda"; laya-serve`,
+and add `LAYA_URL=http://127.0.0.1:8000` to `.env`. `LAYA_HOST` keeps it off the network. With
+the GPU off (Armoury Crate Eco mode) most calls miss the deadline and the rule decides.
+`/api/health` shows the decider's state under `tier_decider`.
+
+**Status.** Tested offline with every guard watched failing; not yet run in the app against a
+live `laya-serve`. Until `LAYA_URL` is set, the word rule alone decides.
+
 A tier that is not configured, busy or broken falls to the next one down (the ladder below), and
-the reply says when it came from a lower tier than the one asked for.
-
-**Why a rule and not a model.** Asking a model to classify each message would add a model call,
-0.5–1.5 s on the fast tier, to every turn before the answer starts. The rule costs nothing. The
-trade-off is that it reads words, not difficulty: "is 1009 prime" stays on the fast tier, and
-"why is the sky blue" goes to smart. Saying "think hard" or "use the big model" sends any
-message to the reasoning tier. The page colours the orb while it waits with a copy of the rule in
-`app.js` (`estimateTier`).
-
-**Optional: a local difficulty scorer (Laya).** With `LAYA_URL` set to a loopback
-`laya-serve`, the tier is chosen by a fixed pipeline instead: the previous turn for a short
-follow-up, an explicit cue such as "think hard", then Laya's difficulty score, then the rule
-above. On 120 fresh requests where length did not give the answer away, Laya chose the right
-tier for 62.5% against 50.8% for the rule (`docs/evals/tier_choice_confirm.md`), at about
-54 ms a decision on the laptop GPU. A call has 250 ms; a slow or failed one falls back to the
-rule and rests Laya for 60 s. Unset, nothing changes. Tested offline; not yet run in the
-app against a live `laya-serve`. Details: `docs/design/models.md`.
+the reply says when it came from a lower tier than the one asked for. The page colours the orb
+while it waits with a copy of the word rule in `app.js` (`estimateTier`).
 
 ### The model ladder
 
