@@ -85,6 +85,9 @@ ROUTING_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("tell me when there's news about nvidia", "watch news", "a watch, not today's headlines"),
     ("warn me when my battery is low", "watch health", "a watch, not a status"),
     ("draw me a picture of a fox", "image", "image generation"),
+    ("make me a logo for my coffee shop", "image logo for my coffee shop", "a picture named by what it is for"),
+    ("describe this image C:/pics/a.png", "describe image C:/pics/a.png", "a path makes it a picture to look at"),
+    ("make a document about solar power", "document solar power as pdf", "a bare 'document' is a file too"),
     (
         "create a workspace folder and fill files with python basics",
         "workspace",
@@ -353,6 +356,9 @@ MUST_STAY_CHAT: tuple[tuple[str, str], ...] = (
     ("run diagnostics on my car", "same"),
     ("self diagnosis of adhd is risky", "a remark about medicine"),
     ("why aren't you working on my essay", "a request about an essay"),
+    ("describe the mood of photo.png", "a question about a picture, with no path to look at"),
+    ("make a logo for my shop in svg", "a logo written as code is the chat's to write"),
+    ("illustrate the point with an example", "'illustrate' also means explain"),
 )
 
 

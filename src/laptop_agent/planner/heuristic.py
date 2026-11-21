@@ -167,8 +167,22 @@ _WORKSPACE_IN_CODE = re.compile(
 _DOC_HEAD = re.compile(
     r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:make|create|write|generate|build|prepare|draft|export)\s+"
     r"(?:me\s+)?(?:an?\s+)?(?P<length>(?:(?:\d{1,2}|one|two|three|four|five|single)[\s-]+pages?|one[\s-]pager)\s+)?"
-    r"(?P<kind>pdf|word\s+doc(?:ument)?|docx|doc|markdown\s+(?:file|doc)|md\s+file)"
-    r"(?:\s+(?:file|document))?\s+(?:about|on|for|of|covering|regarding|summari[sz]ing)\s+(?P<topic>\S.*?)\s*[.!]*$",
+    r"(?P<kind>pdf|word\s+doc(?:ument)?|docx|document|doc|markdown\s+(?:file|doc)|md\s+file)"
+    # "on my desktop" says where the file goes, not what it is about.
+    r"(?:\s+(?:file|document))?\s+(?:about|on(?!\s+(?:my|the|this)\s+(?:desktop|laptop|computer|pc|drive)\b)"
+    r"|for|of|covering|regarding|summari[sz]ing)\s+(?P<topic>\S.*?)\s*[.!]*$",
+    re.IGNORECASE,
+)
+
+# "describe this image C:/pics/a.png": the path makes it a picture to look at, not a word to
+# define. A bare file name has no spaces, so "describe the mood of photo.png" stays a question.
+_IMAGE_EXT = r"\.(?:png|jpe?g|gif|bmp|tiff?|webp)"
+_DESCRIBE_IMAGE = re.compile(
+    r"^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?describe\s+(?:(?:this|the|that|my)\s+)?"
+    r"(?:(?:image|picture|photo|pic|screenshot)\s+)?(?:file\s+)?(?:at\s+)?"
+    rf"(?P<path>\"[^\"]+{_IMAGE_EXT}\"|'[^']+{_IMAGE_EXT}'"
+    rf"|(?:[a-z]:[\\/]|~[\\/]|\.{{0,2}}[\\/])[^\"]*?{_IMAGE_EXT}"
+    rf"|[^\s\"'\\/]+{_IMAGE_EXT})\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
 
@@ -2005,6 +2019,11 @@ class HeuristicPlannerProvider:
         if spreadsheet:
             return spreadsheet
 
+        described = _DESCRIBE_IMAGE.match(raw)
+        if described:
+            path = described.group("path").strip("'\"")
+            return self._command(f"describe image {path}", "User wants a picture described.", 0.85)
+
         process_file = self._process_file(raw)
         if process_file:
             return process_file
@@ -2731,7 +2750,9 @@ class HeuristicPlannerProvider:
             if head:
                 kind = head.group("kind").lower()
                 fmt = (
-                    "word"
+                    "pdf"  # a bare "document" takes the document tool's own default
+                    if kind == "document"
+                    else "word"
                     if kind.startswith(("word", "doc"))
                     else "markdown"
                     if kind.startswith(("markdown", "md"))
@@ -2800,6 +2821,22 @@ class HeuristicPlannerProvider:
                 text,
                 re.IGNORECASE,
             )
+        # "make me a logo for my coffee shop": a logo, poster, wallpaper or icon is a picture
+        # by name, and the noun stays in the prompt. One written in code is the chat's to write.
+        if not match:
+            match = re.match(
+                r"^\s*(?:can you |could you |please )?"
+                r"(?:draw|sketch|generate|create|make|design|render)\s+(?:me\s+)?(?:an?\s+)?"
+                r"((?:logo|poster|wallpaper|icon)\s+(?:for|of)\s+\S.*)$",
+                text,
+                re.IGNORECASE,
+            )
+            if match and re.search(
+                r"\b(?:in|as|using|with)\s+(?:svg|css|html|code|python|javascript|js|ascii)\b",
+                match.group(1),
+                re.IGNORECASE,
+            ):
+                return None
         if not match:
             return None
         subject = match.group(1).strip().strip("?.!,'\"")
