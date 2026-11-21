@@ -244,6 +244,15 @@ trade-off is that it reads words, not difficulty: "is 1009 prime" stays on the f
 message to the reasoning tier. The page colours the orb while it waits with a copy of the rule in
 `app.js` (`estimateTier`).
 
+**Optional: a local difficulty scorer (Laya).** With `LAYA_URL` set to a loopback
+`laya-serve`, the tier is chosen by a fixed pipeline instead: the previous turn for a short
+follow-up, an explicit cue such as "think hard", then Laya's difficulty score, then the rule
+above. On 120 fresh requests where length did not give the answer away, Laya chose the right
+tier for 62.5% against 50.8% for the rule (`docs/evals/tier_choice_confirm.md`), at about
+54 ms a decision on the laptop GPU. A call has 250 ms; a slow or failed one falls back to the
+rule and rests Laya for 60 s. Unset, nothing changes. Tested offline; not yet run in the
+app against a live `laya-serve`. Details: `docs/design/models.md`.
+
 ### The model ladder
 
 ```mermaid
@@ -358,7 +367,7 @@ the night the clocks go back.
 ### 🎨 Generate
 | Capability | How |
 |---|---|
-| A picture | "draw me a picture of a red fox in snow" · `image <description> [square\|landscape\|portrait]` — **Save** it from the reply |
+| A picture | "draw me a picture of a red fox in snow" · `image <description> [square\|landscape\|portrait]` — **Save** it from the reply. Your words become a detailed prompt (the fast tier, 8 s cap), and a follow-up such as "more lime" keeps the scene and its seed; "another" draws a new one |
 | A document | "write a brief on solar power as a pdf" · `document <request> as pdf\|word\|powerpoint\|markdown` |
 | A slide deck | "create a ppt for sun and planets" · "slides on X" *(needs the `docs` extra)* |
 | A diagram | "draw an ER diagram for a library" — Mermaid ER and flow diagrams are drawn inline; tables get **Copy** / **CSV** |
@@ -449,6 +458,7 @@ the night the clocks go back.
 | Per-turn latency (routing, tool, first token, total) | `latency` · "why slow" · `GET /api/traces` |
 | Every caught-and-swallowed failure, with its reason | `failures` · "what broke" · `GET /api/failures` |
 | The routing contract — phrasings that must reach their tool | `self check` |
+| Everything above in one report, with one call to each model | `diagnose` · Setup → **Run diagnosis** |
 | Specialists and parallel tasks | `agents` · `tasks` |
 | Recent audit events | `audit` |
 
@@ -758,6 +768,15 @@ sequenceDiagram
 
 - `autopilot` is restricted to a read-only allowlist; `agent run` can act, but risky steps
   still hit the gate.
+- **Model trust tiers.** A step an agent run takes, or a command the LLM router picks, is
+  tagged with the tier that wrote it. From an untrusted tier (by default the OpenRouter
+  backup; set `LAPTOP_AGENT_UNTRUSTED_MODELS`) only reading and computing run; anything else
+  is refused or answered as chat. Router-picked commands go to the audit log.
+- **Links are web links.** `open url`, downloads and the browser tool accept only `http` and
+  `https`, so a `file://`, `ms-msdt:` or `search-ms:` link never reaches the Windows shell.
+  Downloads have a 30 s timeout and a 500 MB cap, and never write over a file.
+- **Mail checks the server's certificate.** IMAP and SMTP verify the certificate and host name
+  before the app password is sent.
 - With no interface connected to answer, a risky action is denied at once rather than left
   hanging. A `personal` account is refused high-risk actions before anyone is asked, and
   sees only its own approval cards.
@@ -789,6 +808,8 @@ Everything is optional — **System status → Setup** says which of these a cap
 | **Memory** | `OBSIDIAN_VAULT` | The vault root (where `.obsidian` lives). |
 | **Job search** | `JOBRIGHT_EMAIL`, `JOBRIGHT_PASSWORD`, `JOBRIGHT_MAX_YEARS`, `JOBRIGHT_MIN_MATCH`, `BROWSER_USER_DATA_DIR` | Jobright login (session-cached) and lead filtering. |
 | **Server** | `LAPTOP_AGENT_HOST`, `LAPTOP_AGENT_PORT` (8770), `LAPTOP_AGENT_LAN_PASSCODE`, `LAPTOP_AGENT_DATA_DIR` | Loopback by default; a non-loopback bind needs a passcode. |
+| **Tier choice** | `LAYA_URL`, `LAYA_API_KEY`, `LAYA_DEADLINE_MS`, `LAYA_TIER_CONTEXT` | Optional local difficulty scorer; loopback http(s) only. Unset keeps the built-in rule. |
+| **Model trust** | `LAPTOP_AGENT_UNTRUSTED_MODELS` | Any of `fast`, `smart`, `ultra`, `fallback`. Unset: only the backup is untrusted; empty trusts every tier. |
 | **Hosted copy** | `LAPTOP_AGENT_HOSTED=1`, `LAPTOP_AGENT_ALLOWED_HOSTS` | For a server, not a laptop: accounts only, HTTPS name only, every account personal. See [Hosting online](#hosting-online-a-few-trusted-people). |
 
 ---
