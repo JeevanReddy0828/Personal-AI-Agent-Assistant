@@ -12,6 +12,9 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
 Interfaces: CLI (cli.py) · Tkinter dashboard (dashboard.py/gui.py) · web app (webui.py)
         |
 AgentOrchestrator (agents/orchestrator.py) — routes text -> one tool or a chat reply
+        (since 2026-11-20 built from mixin parts in agents/: chat_tiers, routing, dispatch_core,
+        dispatch_outside, everyday, reminders, briefing_jobs, agent_mode, knowledge_actions,
+        tool_access, presentation; see agents/README.md)
         |
 Router: planner/heuristic.py (instant)  +  planner/openai_compatible.py (LLM)
         |

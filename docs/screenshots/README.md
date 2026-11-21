@@ -26,3 +26,14 @@ large screenshots to keep the repository small.
 | `orb-focus.jpg` | Orb focus mode. |
 | `mobile.jpg` | The app on a phone. |
 | `sign-in.png` | The sign-in page. |
+| `approval-card.jpg` | A HIGH RISK approval card for a download, before anyone answers it. |
+| `agents-off.jpg` | `agents off`, then an agent run refused while agents are off. |
+| `progress-line.jpg` | The live status line while a document is written. |
+| `document-ready.jpg` | The same request finished: a PDF linked in the reply. |
+| `self-check.jpg` | `self check` passing on the real router. |
+| `latency.jpg` | The `latency` report from the turns traced in that session. |
+
+The last six were taken on 2026-11-20 from a throwaway instance (its own
+`LAPTOP_AGENT_PORT` and `LAPTOP_AGENT_DATA_DIR`) in headless Chromium at 1440×900, with the
+page allowed to reach only that instance. The approval card was denied, and the document
+was written into the throwaway data folder.

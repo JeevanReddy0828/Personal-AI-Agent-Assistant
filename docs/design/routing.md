@@ -113,6 +113,13 @@ Moved unchanged from `CLAUDE.md` on 2026-10-06, when CLAUDE.md was cut to its co
     agreement (pair log e9aa89e, 525ce46). Measure any new idea on both corpora.
     (2026-10-14: the wallpaper no longer reaches the LLM router. `tools/system.py` takes "set my
     wallpaper to …" and asks for an image file when none is named.)
+  - **Three phrasings no longer wait on the LLM router** (2026-11-20, #330; the real log showed
+    each costing 0.8-4 s there). "describe this image <path or image file name>" goes to vision
+    (`_DESCRIBE_IMAGE`); a bare "make a document about X" to the document tool, as a PDF
+    (`document` joined `_DOC_HEAD`'s kinds); "make me a logo/poster/wallpaper/icon for X" to
+    the image tool. Near misses stay with the router: no path or image file named, a place
+    rather than a topic ("a document on my desktop"), a logo written in SVG, CSS or code. The
+    phrasings are in `selfcheck.py` and `EverydayPhrasingRoutingTests`.
   - **A time on the laptop's clock takes its own day's offset.** `datetime.now().astimezone()`
     carries only today's, so every caller that reads the laptop's clock passes `local=True`
     to `parse_when`/`describe` (`test_every_production_call_passes_local` finds one that

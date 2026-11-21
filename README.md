@@ -42,7 +42,7 @@ developers on separate branches, under the rules in [AGENTS.md](AGENTS.md), with
 
 ## Contents
 
-[Screenshots](#screenshots) · [Highlights](#highlights) · [Design decisions](#design-decisions) · [Architecture](#architecture) ·
+[Screenshots](#screenshots) · [Proof](#proof-measured-not-claimed) · [Highlights](#highlights) · [Design decisions](#design-decisions) · [Architecture](#architecture) ·
 [How a request flows](#how-a-request-flows) · [Models](#models) · [Quick start](#quick-start) ·
 [Capabilities & commands](#capabilities--commands) · [Voice](#voice) ·
 [Accounts & sign-in](#accounts--sign-in) · [Security & approvals](#security--approvals) ·
@@ -73,14 +73,64 @@ developers on separate branches, under the rules in [AGENTS.md](AGENTS.md), with
 <td width="50%" align="center"><img src="docs/screenshots/sign-in.png" alt="The sign-in page" width="340"><br>
 <sub><b>Optional accounts.</b> Password or Google sign-in; the app and its API token are never sent to anyone signed out.</sub></td>
 </tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/approval-card.jpg" alt="A high-risk approval card for a download"><br>
+<sub><b>Risky actions ask first.</b> A download raises a HIGH RISK card with where the file would go. Nothing happens until you press Approve; Deny or no answer means no.</sub></td>
+<td width="50%"><img src="docs/screenshots/agents-off.jpg" alt="Agents switched off and an agent run refused"><br>
+<sub><b>One switch stops every agent.</b> <code>agents off</code> refuses every agent run, team and scheduled agent, and survives a restart. A run already going stops at its next step.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/progress-line.jpg" alt="A live progress line while a document is written"><br>
+<sub><b>Slow tools say what they are doing.</b> A document, slide deck, picture, or image or video description shows a live line ("Writing the document… 7s") instead of a silent spinner. Stop really stops: nothing is saved afterwards.</sub></td>
+<td width="50%"><img src="docs/screenshots/document-ready.jpg" alt="The finished PDF in the reply"><br>
+<sub><b>Real output.</b> The same request about 11 s later: a one-page PDF, linked in the reply with its text shown underneath.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/self-check.jpg" alt="The routing self-check passing"><br>
+<sub><b>A self-check that can fail.</b> <code>self check</code> runs 291 phrasings through the real router: each must reach its tool, and none may grab ordinary prose.</sub></td>
+<td width="50%"><img src="docs/screenshots/latency.jpg" alt="The latency report"><br>
+<sub><b>Measured, in the app.</b> <code>latency</code> reports medians from the turns it traced. Here: commands in 6 ms, and no turn paid an extra model call just to be classified.</sub></td>
+</tr>
 </table>
+
+All screenshots come from a throwaway instance with its own port and data folder, holding sample data only.
+
+---
+
+## Proof: measured, not claimed
+
+| Claim | Evidence |
+|---|---|
+| It is tested | **2,695 unit tests** on Windows and Linux × Python 3.11 and 3.13, plus **130 Chromium tests** of the real page, on every pull request ([CI](https://github.com/JeevanReddy0828/Personal-AI-Agent-Assistant/actions/workflows/ci.yml); counts from the 2026-11-20 run on `main`). |
+| Everyday requests do not wait on a model | 92% of 300 recorded turns were routed without one; the `latency` screenshot above shows commands at a 6 ms median. |
+| Routing keeps its word | `self check`: 291 phrasings, every one reaching its tool, none taking over ordinary chat. It runs in the app, against the real router. |
+| A slow model does not hold you up | A tier that has not started answering in **12 s** is left for the next one and skipped for a minute. Live on 2026-11-11, the fast and smart tiers took 23–30 s to start. |
+| Agents cannot run wild | Every agent step goes through a rule-based supervisor. No model judges another model. Each limit below has its own test in `tests/test_agent_limits.py`. |
+| Risky actions ask first | Every tool has a risk level. Changes, downloads, commands and anything leaving the laptop raise an approval card. A timeout denies. |
+
+**Agent limits** (details in [docs/design/multi-agent.md](docs/design/multi-agent.md)):
+
+| Limit | Value |
+|---|---|
+| Web requests per run | 30 (a research or `solve` step counts as 6) |
+| Steps to one site per run | 5 |
+| Time per run | 10 minutes |
+| Model calls per run | 30 |
+| Messages sent per run | 1 |
+| Approval cards per run | 3 |
+| Runs and steps per day | 30 runs, 150 steps (fails closed if its record cannot be read) |
+| At once | one run; a second is refused |
+| Scheduled agents | at most 5, at most hourly, and they only read and compute |
+| Helpers in a team | only look things up and work things out; up to 4 helpers, 2 levels deep, 20 steps |
+| Kill switch | `agents off` / `agents on` |
 
 ---
 
 ## Highlights
 
 - ⚡ **Most turns never wait on a model to decide what to do.** Over 300 recorded turns, 92% were routed without one (77% at 0 ms, 15% by the instant router at ~2 ms); only 8% needed the LLM router. Arithmetic, conversions, dates, time zones, timers, lists, reminders and random draws are computed locally.
-- 🧠 **Tiered LLM brain** — NVIDIA Nemotron fast → smart → ultra, then an optional OpenRouter backup. It tells a *busy* model (retry in 60 s) from a *broken* one (wrong key, retired model id: skipped, remembered across restarts, and named in Setup).
+- 🧠 **Tiered LLM brain** — NVIDIA Nemotron fast → smart → ultra, then an optional OpenRouter backup. It tells a *busy* model (retry in 60 s) from a *broken* one (wrong key, retired model id: skipped, remembered across restarts, and named in Setup). A tier that has not started its answer in 12 s counts as busy, so chat moves on instead of waiting.
+- 🧯 **Agents that cannot run wild** — every agent step passes a rule-based supervisor. The rules cover each run's web, site, time, model-call, message and approval-card budgets, a daily cap, one run at a time, helpers that may only read and compute, and the `agents off` switch. No model judges another.
 - 🛡️ **Approval gate** — every risky action is risk-classified and confirmed in whichever interface you are using; read-only/local work runs freely. A timeout denies.
 - 👥 **Optional accounts** — `dev` and `personal` roles, scrypt passwords, server-side sessions bound to the credentials they were granted under, and Google sign-in.
 - 🎙️ **Voice** — hands-free conversation that starts speaking the first sentence while the rest streams, barge-in that tells your voice from its own, hosted Parakeet speech-to-text (~1 s) with offline fallback, and voice notes.
@@ -175,7 +225,7 @@ Only chat is tiered. A command (the time, the weather, a reminder, a file) is se
 the instant router or the LLM router and never reaches a chat model, and a time-sensitive question
 is answered from a web search first.
 
-For chat, `_complexity` in `agents/orchestrator.py` sorts the message with a local rule, not a
+For chat, `_complexity` in `agents/chat_tiers.py` sorts the message with a local rule, not a
 model call, judged on the message alone:
 
 | Tier | When | Example |
@@ -298,6 +348,8 @@ the night the clocks go back.
 | Researched decision advisor | `solve <problem>` *(auto-routes from "should I…", "help me decide…")* |
 | Live-news grounding (cited, fresh) | automatic on time-sensitive questions |
 | Autonomous goal loop (plan → act → observe) | `agent run <goal>` · `agent runs` · `agent last` |
+| A team: a planner that hands look-ups to cheaper helpers | `agent team <goal>` |
+| Turn every agent off, or back on | `agents off` · `agents on` — see the [agent limits](#proof-measured-not-claimed) |
 | Unattended **safe** work only | `autopilot <goal>` |
 | Parallel subtasks / sequential workflows | `multi a ;; b` · `workflow a ;; b` · `retry failed tasks` |
 | Recurring jobs (commands or agent goals) | `schedule daily at 08:30 :: briefing` · `schedule agent <when> :: <goal>` · `schedule list` · `schedule remove <id>` |
@@ -380,9 +432,14 @@ the night the clocks go back.
 | Browser forms: inspect / preview / fill (gated) | `inspect forms <url>` · `fill form <url>` |
 | Downloads (gated) | `download <url>` |
 
-### ANALYTICS-04 update — 2026-10-01
+### 📈 Analytics (developer APIs)
 
-Developer analytics now includes standardized OLS associations with held-out diagnostics and robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md). These are pure APIs; command and chart integrations are separate.
+- **Forecasting** — `laptop_agent.analytics.forecast.forecast(values, horizon=3)` supplies
+  naive/seasonal baselines and guarded smoothing forecasts without extra packages. It uses
+  chronological backtests and empirical uncertainty bands, with explicit reasons when data
+  or calibration is insufficient. See [the contract and validation](docs/forecasting.md).
+- **Drivers and anomalies** — standardized OLS associations with held-out diagnostics and
+  robust median/MAD anomaly screening. See [the API contract and limits](docs/analytics.md).
 
 ### 🩺 Diagnostics
 | Capability | How |
@@ -410,6 +467,8 @@ On Windows, GPU usage works without an administrator launch: if NVIDIA's utility
 answer, Windows counters supply 3D utilization and dedicated memory per adapter. Usage
 refreshes in the background; the first read may show unavailable values briefly. A card
 Windows cannot identify appears as **GPU 1** or **GPU 2**, with unknown memory capacity.
+A one-shot system-status or briefing command waits for a fresh sample; counter-derived
+usage is labelled 3D, and missing GPU or VRAM usage shows n/a rather than zero.
 
 ---
 
@@ -783,8 +842,12 @@ per-process token and a matching origin; with accounts, a session too.
 
 ```text
 src/laptop_agent/
-  agents/orchestrator.py     Core router: text → one tool or a streamed chat reply
+  agents/orchestrator.py     Core router: text → one tool or a streamed chat reply, built from
+                             parts beside it: chat_tiers, routing, dispatch_core, dispatch_outside,
+                             everyday, reminders, briefing_jobs, agent_mode, knowledge_actions,
+                             tool_access, presentation (common.py holds AgentContext)
   agents/control_room.py     The specialist roster shown in the app
+  supervisor.py              The rules every agent step passes: taint, trust, budgets, the breaker
   planner/                   heuristic.py (instant) · openai_compatible.py (LLM tiers) · core.py
   tools/                     One module per capability: files, file_processor, web, websearch,
                              research, news, weather, travel, email, obsidian, youtube,
@@ -811,6 +874,7 @@ src/laptop_agent/
   cli.py  gui.py  dashboard.py  webui.py  Front ends: CLI, Tkinter, web and native
   webui_page.py  webui_assets/  Page loader · app.html, app.css, app.js, signin.html, google_auth.js
   window_fx.py  cancellation.py  app.py  Native window effects · Stop · the one place everything is wired
+  progress.py                What a slow tool is doing, for the page's live status line
 packaging/                   PyInstaller builds of JARVIS.exe (full, and small with Vosk)
 docs/screenshots/            The images in this README
 tests/                       Dependency-free unittest suite + opt-in Chromium suites
@@ -832,8 +896,9 @@ python -B tests/run_tests.py "test_browser_*.py"   # Chromium suites (needs play
   Windows a local run never opens a browser tab or touches the desktop.
 - A failing run writes `test-failures.log` (every test id and traceback) and names it as
   the last line of output.
-- **CI** runs the unit suite on Windows and Linux × Python 3.11 and 3.13 (1,600 tests), and
-  every Chromium suite in a separate job (80 tests): routing, chat, accounts and roles,
+- **CI** runs the unit suite on Windows and Linux × Python 3.11 and 3.13 (2,695 tests), a lint
+  job (`ruff format --check`, `ruff check`, `mypy`), and every Chromium suite in a separate job
+  (130 tests): routing, chat, accounts and roles,
   Google sign-in against a fake Google, reminders, voice notes, layout at several sizes.
 - `self check` in the app runs the routing contract against the real router: every
   phrasing in it must reach its tool, and every near miss must stay chat.
@@ -866,12 +931,17 @@ A single windowless executable that opens a native window (WebView2, built into 
 - **Storage.** JSON stores are written atomically under file locks, keep a previous-version
   `.bak`, and preserve malformed JSON as `.corrupt-*`. Sign-in storage is the exception: it
   fails closed and is never restored from a backup, which could revive a deleted account or
-  a revoked session.
+  a revoked session. On Windows, a save that finds the file held open for a moment (an
+  antivirus scan, the search indexer) is retried for up to a second instead of failing.
+- **Stop after a slow tool.** A document or picture whose turn was stopped while the model
+  worked is not saved afterwards.
 - **Schedules run only while the app runs.** Due work is claimed durably before it runs; a
   crash leaves a `running` claim rather than risk a duplicate — after checking its effects,
   disable and re-enable the schedule.
 - **Model health.** A busy tier is retried in 60 s; a broken one (bad key, retired model) is
-  skipped for 15 minutes, survives a restart, and is named in Setup with what to change.
+  skipped for 15 minutes, survives a restart, and is named in Setup with what to change. A
+  tier that has not started its answer within 12 s is treated as busy, and the next tier
+  answers.
 - **Job search.** Application counts exclude unsubmitted leads; résumé keyword scores are
   estimates, not an employer's ATS. Tailoring quotes only supported excerpts and real
   repository links; review cover-letter and interview drafts before use. PDF export needs
@@ -885,23 +955,6 @@ remediation evidence and remaining limits.
 
 ---
 
-
-## ANALYTICS-01 forecasting core — 2026-10-01
-
-The developer API `laptop_agent.analytics.forecast.forecast(values, horizon=3)` supplies
-naive/seasonal baselines and guarded smoothing forecasts without extra packages. It uses
-chronological backtests and empirical uncertainty bands, with explicit reasons when data
-or calibration is insufficient. See [the contract and validation](docs/forecasting.md).
-CSV commands and forecast charts are a separate integration; this change adds the core.
-
-
 ## License
 
 Released under the [MIT License](LICENSE).
-
-
-### GPU-01 review follow-up (2026-10-01)
-
-A one-shot system-status or briefing command waits for a fresh sample; the polled drawer
-keeps its background refresh. Counter-derived usage is labelled 3D, and missing GPU or
-VRAM usage displays n/a rather than zero.
