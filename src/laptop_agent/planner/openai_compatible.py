@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
+from laptop_agent import connections
 from laptop_agent.cancellation import check_cancelled, interruptible_response
 from laptop_agent.context import CHAT_BUDGET, ROUTE_BUDGET, context_block
 from laptop_agent.failures import record_failure
@@ -488,7 +489,7 @@ class OpenAICompatiblePlannerProvider:
             method="POST",
         )
         try:
-            response = urllib.request.urlopen(request, timeout=self.timeout)
+            response = connections.urlopen(request, timeout=self.timeout)
         except (urllib.error.URLError, TimeoutError) as exc:
             # This swallowed silently: a stream that never started looked exactly like a
             # model with nothing to say, on the path that serves every chat turn.
@@ -506,6 +507,7 @@ class OpenAICompatiblePlannerProvider:
                     continue
                 chunk = line[5:].strip()
                 if chunk == "[DONE]":
+                    connections.drain(response)
                     break
                 try:
                     choice = json.loads(chunk)["choices"][0]
@@ -666,7 +668,7 @@ class OpenAICompatiblePlannerProvider:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(request, timeout=timeout or self._deadline(payload)) as response:
+                with connections.urlopen(request, timeout=timeout or self._deadline(payload)) as response:
                     data = json.loads(response.read().decode("utf-8"))
                 choice = (data.get("choices") or [{}])[0]
                 content = str((choice.get("message") or {}).get("content") or "")

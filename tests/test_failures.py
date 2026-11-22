@@ -96,13 +96,13 @@ class TransportRetryTests(unittest.TestCase):
         from laptop_agent.planner import openai_compatible as module
 
         provider, fake_urlopen = self.provider(responses)
-        original_open, original_sleep = module.urllib.request.urlopen, time_module.sleep
-        module.urllib.request.urlopen = fake_urlopen
+        original_open, original_sleep = module.connections.urlopen, time_module.sleep
+        module.connections.urlopen = fake_urlopen
         time_module.sleep = lambda seconds: None
         try:
             return provider._http_transport({"model": "m", "messages": []})
         finally:
-            module.urllib.request.urlopen = original_open
+            module.connections.urlopen = original_open
             time_module.sleep = original_sleep
 
     def ok_response(self, text="hello"):
