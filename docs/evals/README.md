@@ -62,6 +62,10 @@ the results and a short write-up whose first paragraph is the decision.
 | `tier_choice_confirm_results.json` | The recorded confirmation run: every candidate's accuracy and errors, and each request's prediction. |
 | `tier_choice_apply_labels.py` | Copies labels (`{"q001": "fast", …}`, from the labelling page or typed by hand) into the fresh set, refusing unknown ids or tiers. |
 | `tier_choice_confirm.py` | The confirmation scorer. It fits the four frozen candidates on the original set only, scores them on the fresh labels, and applies the frozen selection and adoption rule. |
+| `tier_outcome_labels.md` | Write-up (2026-11-21): on labels from what the models' answers achieved, Laya picks the right tier 47.6%, `_complexity` 66.2% and always-fast 93.5%, so Laya stays off. |
+| `tier_outcome_labels.py` | Makes those labels: three fast answers and one smart answer per request, judged by the ultra model. Needs the API key in `.env` and calls models, 12 s apart. |
+| `tier_outcome_labels.json` | The recorded labels: each request's label, sufficient fast answers out of three and the smart verdict. No answer text. |
+| `tier_outcome_score.py` | Scores the recorded Laya and `_complexity` choices against those labels, from committed files only. |
 
 ## Read next
 
