@@ -88,11 +88,8 @@ class ChatTiers:
         "rigorous",
         "deep dive",
         "detailed analysis",
-        "prove",
-        "derive",
         "full implementation",
         "design a system",
-        "architecture",
         "from scratch",
         "think hard",
         "deeply",
@@ -114,26 +111,17 @@ class ChatTiers:
         "how many ways",
         "solve for",
     )
+    # Topic words ("explain", "compare", "design", "plan", "prove", ...) were dropped on 2026-11-22: the
+    # fast model answered those requests well (docs/evals/tier_outcome_labels.md). "why" stays because
+    # the puzzles that need a bigger model ask it.
     _SMART_CUES = (
-        "explain",
         "why",
-        "analy",
-        "compare",
-        "design",
-        "reason",
         "debug",
         "refactor",
         "optimi",
-        "trade-off",
-        "tradeoff",
         "write code",
         "implement",
         "algorithm",
-        "strategy",
-        "pros and cons",
-        "evaluate",
-        "critique",
-        "plan ",
     )
 
     @staticmethod

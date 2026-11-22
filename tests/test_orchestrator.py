@@ -1232,6 +1232,26 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(AgentOrchestrator._complexity(text), 2, text)  # reasoning tier
         self.assertEqual(AgentOrchestrator._complexity("hey there"), 0)  # small talk stays simple
 
+    def test_complexity_keeps_topic_words_on_fast(self) -> None:
+        # docs/evals/tier_outcome_labels.md: the fast model answered these well, so they stay on it.
+        for text in (
+            "explain what a vpn is",
+            "compare tea and coffee for caffeine",
+            "design a birthday card message for my mom",
+            "give me a study plan for the weekend",
+            "what are the pros and cons of renting",
+            "prove that the square root of 2 is irrational",
+            "derive the quadratic formula",
+            "what is clean architecture",
+        ):
+            self.assertEqual(AgentOrchestrator._complexity(text), 0, text)
+        for text in (
+            "a snail climbs 3 m and slips 2 m each night; how many days, and why?",
+            "write code for a thread-safe queue",
+            "debug this segfault in my parser",
+        ):
+            self.assertEqual(AgentOrchestrator._complexity(text), 1, text)
+
     def test_ask_knowledge_shows_the_answer_not_a_count(self) -> None:
         # _humanize only runs for planner-routed commands, so typing the command directly
         # displayed "Answered from 6 indexed source(s)." and nothing else.
@@ -1561,7 +1581,7 @@ class OrchestratorTests(unittest.TestCase):
             # Neither a greeting nor a plain question, so it goes through the LLM router
             # (both of those short-circuit it).
             simple = asyncio.run(orchestrator.handle("write me a two-line joke"))
-            mid = asyncio.run(orchestrator.handle("explain how this works"))
+            mid = asyncio.run(orchestrator.handle("refactor this for me"))
             hard = asyncio.run(orchestrator.handle("give me a comprehensive in-depth analysis from scratch"))
             self.assertEqual(simple.message, "fast-reply")
             self.assertEqual(mid.message, "smart-reply")

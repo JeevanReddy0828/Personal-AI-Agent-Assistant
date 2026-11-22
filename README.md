@@ -265,9 +265,9 @@ It is the whole decision when Laya is not set, and the fallback when it is:
 
 | Tier | When | Example |
 |---|---|---|
-| Ultra (reasoning) | Over 70 words, or a cue for depth or step-by-step reasoning: "step by step", "in depth", "prove", "derive", "design a system", "from scratch", "think hard", a puzzle or riddle, "show your work", "solve for" | "prove that the square root of 2 is irrational" |
-| Smart | Over 35 words, or a cue for analysis: "explain", "why", "compare", "debug", "refactor", "write code", "algorithm", "pros and cons" | "explain how DNS works" |
-| Fast | Everything else | "what is the capital of mongolia" |
+| Ultra (reasoning) | Over 70 words, or a cue for depth or step-by-step reasoning: "step by step", "in depth", "design a system", "from scratch", "think hard", a puzzle or riddle, "show your work", "solve for" | "solve for x: 3x + 2 = 17, step by step" |
+| Smart | Over 35 words, or a cue for code or reasoning: "why", "debug", "refactor", "optimize", "write code", "implement", "algorithm" | "debug this segfault in my parser" |
+| Fast | Everything else, including "explain", "compare", "prove" and "design": the fast model answered those well when measured ([outcome labels](docs/evals/tier_outcome_labels.md)) | "explain how DNS works" |
 
 **Why Laya, measured.** The rule reads words, not difficulty: "is 1009 prime" stays on the fast
 tier and "why is the sky blue" goes to smart. On 120 fresh requests written so that length no

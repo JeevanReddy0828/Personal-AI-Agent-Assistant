@@ -52,14 +52,12 @@
   // the server's AgentOrchestrator._complexity, cue for cue, to colour the wait by predicted tier
   // (test_page_integrity fails when these lists differ from the server's)
   const ULTRA_CUES=['in depth','in-depth','step by step','step-by-step','comprehensive','thorough','rigorous',
-    'deep dive','detailed analysis','prove','derive','full implementation','design a system',
-    'architecture','from scratch','think hard','deeply','use the big model','ultra',
+    'deep dive','detailed analysis','full implementation','design a system',
+    'from scratch','think hard','deeply','use the big model','ultra',
     'puzzle','riddle','brain teaser','logic puzzle','logic problem',
     'measure exactly','show your reasoning','show your work','show the steps',
     'find the flaw','fallacy','how many ways','solve for'];
-  const SMART_CUES=['explain','why','analy','compare','design','reason','debug','refactor','optimi',
-    'trade-off','tradeoff','write code','implement','algorithm','strategy','pros and cons',
-    'evaluate','critique','plan '];
+  const SMART_CUES=['why','debug','refactor','optimi','write code','implement','algorithm'];
   function estimateTier(text){
     const s=(text||'').toLowerCase(), w=(text||'').split(/\s+/).length;
     if(w>70||ULTRA_CUES.some(c=>s.includes(c)))return 'ultra';
