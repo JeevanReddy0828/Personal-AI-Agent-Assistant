@@ -419,8 +419,8 @@ Subsystems: decisions.py (the chat tier choice as a fixed pipeline of steps - co
         briefing.py (the daily briefing in the user's own format: `briefing set weather in Boston,
             AI news, my shopping list and reminders`, `briefing add|remove …`, `briefing format`,
             `briefing reset`, and said naturally: "set my briefing to …", "take the news out of my
-            briefing", "what's in my briefing", "brief me". The format is ONE remembered fact,
-            `briefing format` (never any other fact about the briefing: "my morning briefing is at
+            briefing", "what's in my briefing", "brief me", "prepare me for today". The format is
+            ONE remembered fact, `briefing format` (never any other fact about the briefing: "my morning briefing is at
             7:30" was deleted by "add mail to my briefing"; a personal account may not remember it,
             since that was `briefing set` by another door), re-read on every run, so it shows in "what do you remember" and a section
             added later reads an old format the same way. Each section is the WHOLE part,

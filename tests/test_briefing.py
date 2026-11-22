@@ -301,6 +301,18 @@ class BriefingTests(unittest.TestCase):
             with self.assertRaises(OperationCancelled):
                 self.orchestrator._briefing()
 
+    def test_prepare_me_for_today_is_the_briefing(self) -> None:
+        # The briefing's own north-star phrase went to the model router instead.
+        for phrase in (
+            "prepare me for today",
+            "Jarvis, prepare me for today.",
+            "can you prepare me for the day",
+            "get me ready for today please",
+        ):
+            self.assertEqual(self.say(phrase)[1], "briefing", phrase)
+        for phrase in ("prepare me for the interview", "prepare me for today's meeting"):
+            self.assertNotEqual(self.say(phrase)[1], "briefing", phrase)
+
     def test_brief_me_on_something_is_not_the_briefing(self) -> None:
         _result, ran = self.say("brief me on the quarterly plan")
         self.assertNotEqual(ran, "briefing")
