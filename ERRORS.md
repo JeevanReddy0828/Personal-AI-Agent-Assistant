@@ -417,6 +417,11 @@ guard, with the date), and a session entry only when the line cannot carry the l
   (`test_messaging.py`). Developer-only. (10-14)
 
 ### Models and providers
+- **Everyday questions waited for the smart or reasoning model** ("explain how DNS works", "compare
+  X and Y", "prove that...") → `_complexity` treated topic words as difficulty, so 81 of 257 requests
+  the fast model answered well went up (outcome labels, 2026-11-21) → those cues are gone from
+  `_SMART_CUES`/`_ULTRA_CUES` and the page's copy; "why" and the puzzle cues stay
+  (`test_complexity_keeps_topic_words_on_fast`). Re-measure with `docs/evals/` before adding a cue. (11-22)
 - **A photo answered "Read 239 character(s) of text" and showed none; the next said "no vision
   model is configured"** while one was configured → NVIDIA retired `llama-3.2-11b-vision-instruct`
   on 11-05 (HTTP 410), `describe_image` swallowed the reason, and the OCR fallback in

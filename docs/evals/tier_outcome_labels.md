@@ -67,6 +67,24 @@ The confusion matrices have the label in rows and the choice fast / smart / ultr
   reasons name a real error in each, but nothing in the request says it is hard, so no router
   that reads only the request can be expected to catch these.
 
+## The narrowed word rule (2026-11-22)
+
+`_complexity` sent 81 of the 257 easy requests up, mostly on topic words: "why" 20 times,
+"explain" 12, "design" 11, "plan" 8, "prove" 7, "derive" 5. Candidate narrowings were chosen on
+the original 155 requests and checked on the 120 fresh ones. The one adopted drops every
+smart cue except "why" and the code cues (debug, refactor, optimize, write code, implement,
+algorithm), and drops "prove", "derive" and "architecture" from the ultra cues. "why" stays
+because the river-crossing, clock and snail puzzles ask it; dropping it too sent 15 fewer easy
+requests up but lost those 3 puzzles and the lock-free queue.
+
+| | Hard sent up | Easy sent up | Hard sent up, fresh 120 | Easy sent up, fresh 120 |
+|---|---:|---:|---:|---:|
+| `_complexity` before | 9 of 18 | 81 of 257 | 2 of 8 | 39 of 112 |
+| `_complexity` narrowed | 8 of 18 | 36 of 257 | 2 of 8 | 14 of 112 |
+
+The one hard request it no longer sends up is the finance-tracker plan with a code skeleton,
+which only "plan" caught.
+
 ## Limits
 
 - One judge, the largest model, graded every answer; it was not checked against a person.
