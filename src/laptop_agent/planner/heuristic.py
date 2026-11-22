@@ -1754,10 +1754,12 @@ _BRIEFING_SHOW = re.compile(
 _BRIEFING_RESET = re.compile(
     _POLITE + r"(?:reset|restore)\s+" + _BRIEFING + r"(?:\s+to\s+(?:the\s+)?default)?[\s.!?]*$", re.IGNORECASE
 )
-# "brief me" alone, never "brief me on the project", which asks for an explanation.
+# "brief me" or "prepare me for today" alone, never "brief me on the project", which asks for an
+# explanation, or "prepare me for the interview".
 _BRIEF_ME = re.compile(
-    _POLITE + r"(?:brief\s+me|give\s+me\s+(?:my|the|a)\s+(?:morning\s+|daily\s+)?(?:brief|briefing|rundown))"
-    r"(?:\s+(?:for|on)\s+(?:today|the\s+day|this\s+morning))?(?:\s+please)?[\s.!?]*$",
+    _POLITE + r"(?:(?:brief\s+me|give\s+me\s+(?:my|the|a)\s+(?:morning\s+|daily\s+)?(?:brief|briefing|rundown))"
+    r"(?:\s+(?:for|on)\s+(?:today|the\s+day|this\s+morning))?"
+    r"|(?:prepare|get)\s+me\s+(?:ready\s+)?for\s+(?:today|the\s+day))(?:\s+please)?[\s.!?]*$",
     re.IGNORECASE,
 )
 
