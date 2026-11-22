@@ -205,6 +205,7 @@ _PERSONAL_ROUTES = frozenset(
         "/api/transcribe",
         "/api/tts",
         "/api/wake",
+        "/api/voice-timing",
         "/api/greeting",
         "/api/hotkey",
     }
@@ -1806,6 +1807,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_tts()
         elif self.path == "/api/wake":
             self._handle_wake()
+        elif self.path == "/api/voice-timing":
+            self._handle_voice_timing()
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -2105,6 +2108,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "message": "could not read audio"})
             return
         self._json(200, {"ok": True, **_WAKE.check(raw)})
+
+    def _handle_voice_timing(self) -> None:
+        """The page's marks for one voice turn, into the timings log (tracing.TraceStore.log_voice)."""
+        try:
+            marks = self._read_json().get("marks")
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"ok": False, "message": "bad request"})
+            return
+        try:
+            stored = _orchestrator.traces.log_voice(marks)
+        except OSError as exc:
+            record_failure("webui/voice-timing", exc)
+            stored = False
+        self._json(200, {"ok": stored})
 
     def _handle_tts(self) -> None:
         """Text-to-speech for the native app's voice loop: render a sentence to WAV

@@ -28,6 +28,14 @@ from laptop_agent.storage import atomic_write_text, read_json, synchronized
 ROLLUP_DAYS = 90
 LATENCY_BUCKETS = (250, 500, 1000, 2000, 4000, 8000, 16000, 32000)
 _HISTOGRAMS = ("total_ms", "ttft_ms")
+# Where the turn's time went, logged but not folded into hours; a line from before these were
+# logged has none of them.
+_STAGES = ("route_ms", "tool_ms", "tier_ms", "stt_ms", "reply_ms", "speak_ms")
+# The page's marks for a voice turn, in the order they happen, as seconds since listening began.
+# "stt" is missing when the browser's own recognizer transcribed. Anything later than
+# VOICE_MAX_SECONDS is not one turn.
+VOICE_MARKS = ("settle", "stt", "reply", "speak")
+VOICE_MAX_SECONDS = 600.0
 
 
 def _ms(seconds: float) -> int:
@@ -130,7 +138,7 @@ def _timing(line: str | bytes) -> dict[str, object] | None:
         and isinstance(entry.get("degraded"), bool)
     ):
         return None
-    if any(entry.get(name) is not None and type(entry.get(name)) is not int for name in _HISTOGRAMS):
+    if any(entry.get(name) is not None and type(entry.get(name)) is not int for name in _HISTOGRAMS + _STAGES):
         return None
     return {**entry, "at": at}
 
@@ -168,7 +176,9 @@ class TraceStore:
     def _log_timing(self, record: dict[str, object]) -> None:
         """Append one turn's timings: when, the tier that was asked for (so a turn that fell
         back counts against the tier that failed it), and how it went. Timings and outcomes
-        only, like the record itself: no verb, nothing the user wrote."""
+        only, like the record itself: no verb, nothing the user wrote. The route, the tier that
+        answered and what chose it are fixed labels the code sets."""
+        tier_ms = record.get("tier_ms")
         entry = {
             "at": record.get("at"),
             "kind": record.get("kind"),
@@ -176,8 +186,18 @@ class TraceStore:
             "ok": record.get("ok") is not False,
             "degraded": bool(record.get("degraded")),
             **{name: record.get(name) for name in _HISTOGRAMS},
+            "answered": record.get("model") or "",
+            "route": record.get("route_source") or "",
+            "route_ms": record.get("route_ms"),
+            "tool_ms": record.get("tool_ms"),
+            "tier_source": record.get("tier_source") or "",
+            "tier_ms": round(tier_ms) if isinstance(tier_ms, (int, float)) else None,
         }
+        self._append(entry)
+
+    def _append(self, entry: dict[str, object]) -> bool:
         if _timing(json.dumps(entry)) is None:
+            return False
             return
         day = str(entry["at"])[:10]
         if day != self._pruned_on:  # once a day: drop what has aged out, in one rewrite
@@ -193,6 +213,41 @@ class TraceStore:
             )
         with self.timings_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(json.dumps(entry) + "\n")
+        return True
+
+    @synchronized
+    def log_voice(self, marks: object) -> bool:
+        """Append a voice turn's wait, from the page's marks: transcription (`stt_ms`), transcript
+        to first word (`reply_ms`), first word to first audio (`speak_ms`), and the whole wait from
+        the end of the silence that closed the turn (`total_ms`). False, and nothing written, for marks that cannot
+        be one turn: the page is a client, so its numbers are checked like any request's."""
+        if not isinstance(marks, dict):
+            return False
+        seen: dict[str, float] = {}
+        for name in VOICE_MARKS:
+            value = marks.get(name)
+            if value is None and name == "stt":
+                continue
+            if type(value) not in (int, float) or not 0 <= value <= VOICE_MAX_SECONDS:  # NaN fails both
+                return False
+            if seen and value < max(seen.values()):
+                return False
+            seen[name] = float(value)
+        heard = seen.get("stt", seen["settle"])
+        return self._append(
+            {
+                "at": datetime.now(UTC).isoformat(),
+                "kind": "voice",
+                "tier": "",
+                "ok": True,
+                "degraded": False,
+                "total_ms": _ms(seen["speak"] - seen["settle"]),
+                "ttft_ms": None,
+                "stt_ms": _ms(heard - seen["settle"]) if "stt" in seen else None,
+                "reply_ms": _ms(seen["reply"] - heard),
+                "speak_ms": _ms(seen["speak"] - seen["reply"]),
+            }
+        )
 
     @synchronized
     def add(self, trace: TurnTrace) -> dict[str, object]:
