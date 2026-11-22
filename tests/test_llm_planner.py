@@ -5,6 +5,7 @@ import unittest
 import urllib.error
 import urllib.request
 
+from laptop_agent import connections
 from laptop_agent.planner.core import PlanDecision, Planner
 from laptop_agent.planner.openai_compatible import _FEWSHOT, _SYSTEM_PROMPT, OpenAICompatiblePlannerProvider
 
@@ -383,18 +384,18 @@ class RoutingDeadlineTests(unittest.TestCase):
 
     def test_routing_uses_its_own_short_deadline(self) -> None:
         seen = {}
-        real = urllib.request.urlopen
+        real = connections.urlopen
 
         def spy(request, timeout=None, **kwargs):
             seen["timeout"] = timeout
             raise TimeoutError("timed out")
 
-        urllib.request.urlopen = spy
+        connections.urlopen = spy
         try:
             provider = OpenAICompatiblePlannerProvider("k", "m")
             provider.plan("what is a b-tree", "help", {})
         finally:
-            urllib.request.urlopen = real
+            connections.urlopen = real
         self.assertEqual(seen.get("timeout"), provider.route_timeout)
         self.assertLess(provider.route_timeout, provider.timeout, "routing waits as long as a full answer")
 
@@ -470,7 +471,7 @@ class CutOffMarkerTests(unittest.TestCase):
     command the model was cut off in the middle of."""
 
     def answer(self, finish: str, content: str = "THOUGHT: x\nACTION: send email to bob@exa"):
-        real = urllib.request.urlopen
+        real = connections.urlopen
 
         class Response:
             def __init__(self) -> None:
@@ -487,11 +488,11 @@ class CutOffMarkerTests(unittest.TestCase):
             def read(self):
                 return self.body
 
-        urllib.request.urlopen = lambda request, timeout=None, **kwargs: Response()
+        connections.urlopen = lambda request, timeout=None, **kwargs: Response()
         try:
             return OpenAICompatiblePlannerProvider("k", "m").answer("go", {})
         finally:
-            urllib.request.urlopen = real
+            connections.urlopen = real
 
     def test_a_reply_cut_off_at_the_limit_is_marked_through_answer(self) -> None:
         from laptop_agent.planner.core import CutOff
@@ -509,17 +510,17 @@ class OutputLimitTests(unittest.TestCase):
 
     def stream(self, provider, finish: str = "stop", **stream):
         seen = {}
-        real = urllib.request.urlopen
+        real = connections.urlopen
 
         def fake(request, timeout=None, **kwargs):
             seen["response"] = _FakeStream(request, finish, **stream)
             return seen["response"]
 
-        urllib.request.urlopen = fake
+        connections.urlopen = fake
         try:
             text = "".join(provider.stream_answer("write a long guide", {}))
         finally:
-            urllib.request.urlopen = real
+            connections.urlopen = real
         return text, seen["response"].payload
 
     def test_a_measured_host_gets_the_long_caps(self) -> None:
@@ -583,17 +584,17 @@ class OutputLimitTests(unittest.TestCase):
 
     def test_the_request_itself_waits_that_long(self) -> None:
         seen = {}
-        real = urllib.request.urlopen
+        real = connections.urlopen
 
         def spy(request, timeout=None, **kwargs):
             seen.setdefault("timeouts", []).append(timeout)
             raise urllib.error.HTTPError(request.full_url, 400, "bad", {}, None)
 
-        urllib.request.urlopen = spy
+        connections.urlopen = spy
         try:
             OpenAICompatiblePlannerProvider("k", "m", timeout=45, max_output_tokens=16384).answer("hello", {})
         finally:
-            urllib.request.urlopen = real
+            connections.urlopen = real
         self.assertGreater(seen["timeouts"][0], 100)
 
     def test_an_image_description_gets_room_too(self) -> None:
@@ -601,7 +602,7 @@ class OutputLimitTests(unittest.TestCase):
         from pathlib import Path
 
         sent = {}
-        real = urllib.request.urlopen
+        real = connections.urlopen
 
         def spy(request, timeout=None, **kwargs):
             sent["payload"] = json.loads(request.data)
@@ -610,7 +611,7 @@ class OutputLimitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             image = Path(raw) / "screen.png"
             image.write_bytes(b"\x89PNG")
-            urllib.request.urlopen = spy
+            connections.urlopen = spy
             try:
                 for cap, expected in ((16384, 2048), (None, 700)):
                     OpenAICompatiblePlannerProvider("k", "m", max_output_tokens=cap).describe_image(
@@ -618,7 +619,7 @@ class OutputLimitTests(unittest.TestCase):
                     )
                     self.assertEqual(sent["payload"]["max_tokens"], expected)
             finally:
-                urllib.request.urlopen = real
+                connections.urlopen = real
 
     def test_the_cap_is_configured_and_bounded(self) -> None:
         from laptop_agent.config import _output_tokens

@@ -168,6 +168,16 @@ decision it returns (`PlanDecision.failure`; a decision belongs to one call, so 
 safe where a provider field is not), and the non-streaming fallback records it: that
 branch runs only when the route failed, and it marked a retired model id busy.
 
+**Model calls reuse their connection** (`connections.py`). `urllib.request.urlopen` sends
+`Connection: close`, so the routing call and the chat stream after it each paid a new TCP and TLS
+handshake to the same host: about 120 ms each, against 30 ms for a request on a kept connection
+(measured 2026-11-22). `connections.urlopen` takes the same `Request`, raises the same `URLError`
+and `HTTPError`, and gives a connection back to a per-host pool only when its body was read to the
+end; the stream drains the few bytes after `[DONE]` for that. A connection idle past 50 s, one the
+server has closed, or one with a body still coming is never reused, and a request that fails on a
+reused connection goes once more on a new one. Behind a proxy it is urllib's own. Tests stub
+`connections.urlopen`, not `urllib.request.urlopen`.
+
 **Broken tiers survive a restart; busy ones do not.** `ModelStatus(path)` writes
 `data_dir/model_status.json`, so a retired model id or a rejected key is still known at
 startup instead of being rediscovered by failing a real chat turn while the user waits.

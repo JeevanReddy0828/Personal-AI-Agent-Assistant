@@ -12,6 +12,7 @@ from http.server import ThreadingHTTPServer
 from test_llm_planner import _FakeStream
 
 import laptop_agent.webui as webui
+from laptop_agent import connections
 from laptop_agent.planner.openai_compatible import OpenAICompatiblePlannerProvider
 from laptop_agent.spoken import (
     MORE_ON_SCREEN,
@@ -28,18 +29,18 @@ from laptop_agent.tools.base import ToolResult
 
 def system_prompt(spoken: bool) -> str:
     seen = {}
-    real = urllib.request.urlopen
+    real = connections.urlopen
 
     def fake(request, timeout=None, **kwargs):
         seen["response"] = _FakeStream(request, "stop")
         return seen["response"]
 
-    urllib.request.urlopen = fake
+    connections.urlopen = fake
     try:
         with spoken_turn(spoken):
             "".join(OpenAICompatiblePlannerProvider("k", "m").stream_answer("how's it going", {}))
     finally:
-        urllib.request.urlopen = real
+        connections.urlopen = real
     return seen["response"].payload["messages"][0]["content"]
 
 

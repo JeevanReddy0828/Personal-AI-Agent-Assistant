@@ -98,12 +98,12 @@ class TransportTests(unittest.TestCase):
         from laptop_agent.planner import openai_compatible as module
 
         provider = OpenAICompatiblePlannerProvider("k", "m", base_url="https://example.invalid/v1")
-        original = module.urllib.request.urlopen
-        module.urllib.request.urlopen = lambda *a, **k: self.respond(content, finish)
+        original = module.connections.urlopen
+        module.connections.urlopen = lambda *a, **k: self.respond(content, finish)
         try:
             return provider._http_transport({"model": "m", "messages": []})
         finally:
-            module.urllib.request.urlopen = original
+            module.connections.urlopen = original
 
     def test_a_truncated_monologue_returns_nothing(self) -> None:
         # Empty means "this tier gave nothing", which the orchestrator already handles by
