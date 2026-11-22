@@ -2366,9 +2366,13 @@
   function interruptNow(){if(!voiceActive)return;bargeReset();stopSpeaking();if(busy)stopGen();vSet('listening','Listening');listen();}
   function userInterrupt(q){if(!voiceActive)return;stopSpeaking();if(busy)stopGen();vSet('thinking','Thinking');setTimeout(()=>{if(voiceActive)send(q);},200);}  // spoken barge-in: abort any in-flight turn, then answer with context
   // --- voice timing HUD: marks where each turn spends time so latency is visible ---
-  let vT0=0, vMarks=[];
-  function vstart(){vT0=performance.now();vMarks=[];}
-  function vmark(label){const dt=((performance.now()-vT0)/1000).toFixed(1);vMarks.push(label+' '+dt);const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
+  let vT0=0, vMarks=[], vTimes={}, vSent=false;
+  function vstart(){vT0=performance.now();vMarks=[];vTimes={};vSent=false;}
+  // The first audio of a reply sends the turn's marks to the timings log (tracing.log_voice): timings only, no words.
+  function vsend(){if(vSent||vTimes.settle==null||vTimes.reply==null)return;vSent=true;
+    const marks={};for(const k of ['settle','stt','reply','speak'])if(vTimes[k]!=null)marks[k]=vTimes[k];
+    fetch('/api/voice-timing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({marks})}).catch(()=>{});}
+  function vmark(label){const s=(performance.now()-vT0)/1000, dt=s.toFixed(1);vMarks.push(label+' '+dt);if(vTimes[label]==null)vTimes[label]=Math.round(s*1000)/1000;if(label==='speak')vsend();const e=document.getElementById('vdbg');if(e)e.textContent='⏱ '+vMarks.join(' · ')+'s';try{console.log('[voice]',label,dt+'s');}catch(_){}}
   function listen(){
     if(voiceCasual&&voiceActive&&!speaking&&performance.now()-lastVoiceActivity>QUIET_END_MS){endVoice();return;}
     if(useServerStt())return nativeListen();             // record here, transcribe on the server

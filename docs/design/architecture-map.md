@@ -299,7 +299,12 @@ Subsystems: decisions.py (the chat tier choice as a fixed pipeline of steps - co
         right turn. Read it with `latency` or `/api/traces`. **History outlives the 300-turn
         ring** (ANALYTICS-02): every turn also appends one line to `traces_timings.jsonl` -
         when, kind, the tier *asked for* (so a fallback counts against the tier that failed
-        it), ok, fallback, total and first-token ms, no verb - pruned to 90 days once a day,
+        it), ok, fallback, total and first-token ms, no verb - and, since 2026-11-22, where the
+        time went: the tier that answered, the route and its ms, tool ms, and what chose the
+        tier and its ms. A voice turn adds a `voice` line from the page's marks
+        (`/api/voice-timing` → `TraceStore.log_voice`): transcription, transcript to first
+        word, first word to first audio, and the whole wait, each checked as a request's
+        numbers are. Pruned to 90 days once a day,
         and `TraceStore.hourly()` folds it into hours with fixed latency buckets. An append,
         not a rewrite: rewriting a 90-day rollup file on every turn measured 122ms at its
         worst; the append is 0.4ms, against 19.8ms for the ring's own rewrite. A line that

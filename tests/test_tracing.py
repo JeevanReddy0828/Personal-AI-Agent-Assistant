@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -55,10 +59,95 @@ class TraceRollupTests(unittest.TestCase):
             store = TraceStore(Path(raw) / "traces.json")
             store.add(TurnTrace(at="2026-10-01T05:00:00+00:00", kind="command", verb="image"))
             line = json.loads(store.timings_path.read_text(encoding="utf-8").splitlines()[0])
-            self.assertEqual(set(line), {"at", "kind", "tier", "ok", "degraded", "total_ms", "ttft_ms"})
+            self.assertEqual(
+                set(line),
+                {
+                    "at",
+                    "kind",
+                    "tier",
+                    "ok",
+                    "degraded",
+                    "total_ms",
+                    "ttft_ms",
+                    "answered",
+                    "route",
+                    "route_ms",
+                    "tool_ms",
+                    "tier_source",
+                    "tier_ms",
+                },
+            )
+            self.assertNotIn("image", json.dumps(line))
             self.assertEqual(
                 set(store.hourly()[0]), {"hour", "kind", "tier", "turns", "failed", "degraded", "total_ms", "ttft_ms"}
             )
+
+    def test_the_log_keeps_where_the_turn_spent_its_time(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            store.add(
+                TurnTrace(
+                    at="2026-10-01T05:00:00+00:00",
+                    model="fast",
+                    requested_model="smart",
+                    route_source="llm",
+                    route_ms=1800,
+                    tier_source="heuristic",
+                    tier_ms=0.4,
+                    ttft_ms=2600,
+                    total_ms=5000,
+                )
+            )
+            store.add(TurnTrace(at="2026-10-01T05:01:00+00:00", kind="command", route_source="heuristic", tool_ms=320))
+            chat, command = (json.loads(row) for row in store.timings_path.read_text(encoding="utf-8").splitlines())
+        self.assertEqual((chat["tier"], chat["answered"]), ("smart", "fast"))
+        self.assertEqual(
+            (chat["route"], chat["route_ms"], chat["tier_source"], chat["tier_ms"]), ("llm", 1800, "heuristic", 0)
+        )
+        self.assertEqual((command["route"], command["tool_ms"], command["tier_ms"]), ("heuristic", 320, None))
+
+    def test_a_voice_turn_logs_where_the_wait_went(self) -> None:
+        # Seconds from the start of listening, as the page marks them.
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            self.assertTrue(store.log_voice({"speech": 0.4, "settle": 2.1, "stt": 3.05, "reply": 4.6, "speak": 5.9}))
+            self.assertTrue(store.log_voice({"settle": 1.0, "reply": 2.5, "speak": 3.0}))  # the browser's recognizer
+            first, second = (json.loads(row) for row in store.timings_path.read_text(encoding="utf-8").splitlines())
+            hours = store.hourly()
+        self.assertEqual(first["kind"], "voice")
+        self.assertEqual(
+            (first["stt_ms"], first["reply_ms"], first["speak_ms"], first["total_ms"]), (950, 1550, 1300, 3800)
+        )
+        self.assertEqual((second["stt_ms"], second["reply_ms"], second["total_ms"]), (None, 1500, 2000))
+        self.assertEqual([(row["kind"], row["turns"]) for row in hours], [("voice", 2)])
+
+    def test_voice_marks_that_cannot_be_a_turn_are_not_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            for marks in (
+                {"settle": 2.0, "reply": 1.0, "speak": 3.0},  # out of order
+                {"settle": 1.0, "reply": 2.0},  # never spoke
+                {"settle": "1", "reply": 2.0, "speak": 3.0},
+                {"settle": True, "reply": 2.0, "speak": 3.0},
+                {"settle": -1.0, "reply": 2.0, "speak": 3.0},
+                {"settle": 1.0, "reply": 2.0, "speak": 3.0e9},
+                {"settle": float("nan"), "reply": 2.0, "speak": 3.0},
+                "settle",
+            ):
+                with self.subTest(marks):
+                    self.assertFalse(store.log_voice(marks))  # type: ignore[arg-type]
+            self.assertFalse(store.timings_path.exists())
+
+    def test_a_stage_time_that_is_not_a_whole_number_skips_the_line(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "traces.json"
+            fields = '"kind": "chat", "tier": "", "ok": true, "degraded": false, "total_ms": 5, "ttft_ms": null'
+            path.with_name("traces_timings.jsonl").write_text(
+                '{"at": "2026-10-01T05:01:00+00:00", ' + fields + ', "route_ms": "slow"}\n'
+                '{"at": "2026-10-01T05:02:00+00:00", ' + fields + "}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(TraceStore(path).hourly()[0]["turns"], 1, "an older line without stages still counts")
 
     def test_a_line_that_cannot_be_read_is_skipped_rather_than_failing_a_turn(self) -> None:
         # A torn last write or a hand edit; the caller guards only OSError, so anything this
@@ -242,6 +331,46 @@ class TraceStoreTests(unittest.TestCase):
         stats = store.summary()
         self.assertEqual(stats["command_turns"], 1)
         self.assertEqual(stats["median_tool_ms"], 800)
+
+
+class VoiceTimingEndpointTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        import laptop_agent.webui as webui
+
+        cls.webui = webui
+        cls.server = ThreadingHTTPServer((webui.HOST, 0), webui.Handler)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://{webui.HOST}:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def post(self, payload: object) -> dict:
+        request = urllib.request.Request(
+            self.base + "/api/voice-timing",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Jarvis-Token": self.webui._API_TOKEN},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return {"status": error.code}
+
+    def test_the_page_marks_reach_the_timing_log(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = TraceStore(Path(raw) / "traces.json")
+            with patch.object(self.webui._orchestrator, "traces", store):
+                self.assertEqual(self.post({"marks": {"settle": 1.0, "reply": 2.0, "speak": 2.5}}), {"ok": True})
+                self.assertEqual(self.post({"marks": {"settle": 3.0, "reply": 2.0, "speak": 2.5}}), {"ok": False})
+                self.assertEqual(self.post({"marks": "settle"}), {"ok": False})
+            self.assertEqual(len(store.timings_path.read_text(encoding="utf-8").splitlines()), 1)
+
+    def test_a_personal_account_may_use_it(self) -> None:
+        self.assertIn("/api/voice-timing", self.webui._PERSONAL_ROUTES)
 
 
 if __name__ == "__main__":
